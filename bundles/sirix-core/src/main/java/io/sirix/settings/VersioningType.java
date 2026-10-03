@@ -1230,6 +1230,10 @@ public enum VersioningType {
 
   private static final LongAdder FRAGMENTS_WALKED = new LongAdder();
 
+  private static final LongAdder POINT_LEAF_READS = new LongAdder();
+
+  private static final LongAdder POINT_FRAGMENTS_WALKED = new LongAdder();
+
   private static final LongAdder COMPLETE_DUMP_SHORT_CIRCUITS = new LongAdder();
 
   private static final LongAdder COMPLETE_DUMPS_WALKED_PAST = new LongAdder();
@@ -1267,6 +1271,13 @@ public enum VersioningType {
     return SINGLE_FRAGMENT_READS.sum();
   }
 
+  /** Count a FULL page's direct storage read, which bypasses fragment combining entirely. */
+  public static void recordFullHOTLeafRead() {
+    if (HOT_MERGE_DIAG) {
+      SINGLE_FRAGMENT_READS.increment();
+    }
+  }
+
   /** Reads that actually reconstructed a page from a chain of fragments. */
   public static long multiFragmentMerges() {
     return MULTI_FRAGMENT_MERGES.sum();
@@ -1275,6 +1286,24 @@ public enum VersioningType {
   /** Older fragments visited across all merges. */
   public static long fragmentsWalked() {
     return FRAGMENTS_WALKED.sum();
+  }
+
+  /** Slot-only leaf resolutions, counted separately from complete-page reconstruction. */
+  public static long pointLeafReads() {
+    return POINT_LEAF_READS.sum();
+  }
+
+  /** Older raw fragments inspected by slot-only resolutions, including fragment-cache hits. */
+  public static long pointFragmentsWalked() {
+    return POINT_FRAGMENTS_WALKED.sum();
+  }
+
+  /** Publish one slot lookup's work after its guarded fragment walk. */
+  public static void recordHOTPointRead(final int fragments) {
+    if (HOT_MERGE_DIAG) {
+      POINT_LEAF_READS.increment();
+      POINT_FRAGMENTS_WALKED.add(fragments - 1L);
+    }
   }
 
   /** Merges answered wholly by a complete newest fragment. */
@@ -1297,6 +1326,8 @@ public enum VersioningType {
     SINGLE_FRAGMENT_READS.reset();
     MULTI_FRAGMENT_MERGES.reset();
     FRAGMENTS_WALKED.reset();
+    POINT_LEAF_READS.reset();
+    POINT_FRAGMENTS_WALKED.reset();
     COMPLETE_DUMP_SHORT_CIRCUITS.reset();
     COMPLETE_DUMPS_WALKED_PAST.reset();
     CARRY_FORWARD_ROTATIONS.reset();
@@ -1357,6 +1388,13 @@ public enum VersioningType {
         }
         final int olderCount = olderPage.getEntryCount();
         for (int j = 0; j < olderCount; j++) {
+          if (result.getIndexType() == IndexType.PROJECTION) {
+            if (!result.fillProjectionEntry(olderPage, j)) {
+              throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()
+                  + " into leaf " + result.getPageKey());
+            }
+            continue;
+          }
           final byte[] key = olderPage.getKey(j);
           if (key == null) {
             throw new IllegalStateException(
@@ -1373,9 +1411,7 @@ public enum VersioningType {
           // from the packed reference preserves projection's zero-length tombstone and fails closed
           // on an unreadable extent instead of silently converting corruption into a deletion.
           final byte[] value = olderPage.copyStoredValue(j);
-          final boolean inserted = result.getIndexType() == IndexType.PROJECTION
-              ? result.putOrReplace(key, value)
-              : result.mergeWithNodeRefs(key, key.length, value, value.length);
+          final boolean inserted = result.mergeWithNodeRefs(key, key.length, value, value.length);
           if (!inserted) {
             throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()
                 + " into leaf " + result.getPageKey());

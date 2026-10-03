@@ -30,21 +30,21 @@ public final class EngineWorkCounters {
   // ===== HOT leaf pages =====================================================
 
   /**
-   * HOT leaf pages loaded from storage. Every such load passes through the versioned fragment merge
-   * exactly once, whichever of its three outcomes answers it, so their sum is the number of leaves a
-   * cache-cold operation read. A {@code FULL}-versioned resource bypasses the merge and reads zero.
+   * HOT leaf pages loaded from storage. The three fragment-combining outcomes and the FULL direct
+   * read path are counted once per load; FULL contributes to the single-fragment count without
+   * performing a merge. Their sum is the number of leaves a cache-cold operation read.
    */
-  public static final WorkCounter HOT_LEAF_LOADS =
-      WorkCounter.gated("hot.leafLoads",
-          "one HOT leaf page reconstructed from storage (single fragment, complete dump or multi-fragment merge)",
-          () -> VersioningType.singleFragmentReads() + VersioningType.completeDumpShortCircuits()
-              + VersioningType.multiFragmentMerges(),
-          "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+  public static final WorkCounter HOT_LEAF_LOADS = WorkCounter.gated("hot.leafLoads",
+      "one HOT leaf resolved from storage (complete reconstruction or requested-slot lookup)",
+      () -> VersioningType.singleFragmentReads() + VersioningType.completeDumpShortCircuits()
+          + VersioningType.multiFragmentMerges() + VersioningType.pointLeafReads(),
+      "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
 
   /** Older fragments read to reconstruct those leaves: the read amplification of versioning. */
   public static final WorkCounter HOT_FRAGMENTS_WALKED =
-      WorkCounter.gated("hot.fragmentsWalked", "one older fragment of a HOT leaf read during a multi-fragment merge",
-          VersioningType::fragmentsWalked, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+      WorkCounter.gated("hot.fragmentsWalked", "one older HOT fragment inspected during reconstruction or slot lookup",
+          () -> VersioningType.fragmentsWalked() + VersioningType.pointFragmentsWalked(), "-Dsirix.hot.mergeDiag=true",
+          VersioningType::hotMergeDiagEnabled);
 
   /** The HOT leaf counters. Gated: the module's {@code test} block must provide the property. */
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);

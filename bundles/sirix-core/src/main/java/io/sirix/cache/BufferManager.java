@@ -32,6 +32,9 @@ public interface BufferManager extends AutoCloseable {
    */
   Cache<PageReference, HOTLeafPage> getHOTLeafFragmentCache();
 
+  /** Resolved projection slots, keyed by the same durable view as the complete HOT leaf cache. */
+  HOTMiniPageCache getHOTMiniPageCache();
+
   Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 
   /**

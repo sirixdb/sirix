@@ -36,10 +36,13 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
+import io.sirix.cache.HOTMiniPageCache;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PageContainer;
@@ -85,6 +88,8 @@ import io.sirix.page.FlyweightNodeFactory;
 import io.sirix.cache.FrameReusedException;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.HOTMiniPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
@@ -3289,7 +3294,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * per reference, input-aligned.
    */
   private Page[] readDurableBatch(final PageReference[] references) {
-    final Page[] loaded = pageReader.read(references, resourceConfig);
+    return readDurableBatch(references, false);
+  }
+
+  private Page[] readDurableBatch(final PageReference[] references, final boolean hotFragments) {
+    Page[] loaded = hotFragments
+        ? pageReader.readHOTLeafFragments(references, resourceConfig)
+        : pageReader.read(references, resourceConfig);
+    if (loaded == null && hotFragments) {
+      // Preserve the ordinary batch supplied by a partial backend or test double that predates
+      // the optional compact decoder. Real readers always return an input-aligned array.
+      loaded = pageReader.read(references, resourceConfig);
+    }
     if (loaded == null) {
       final Page[] scalar = new Page[references.length];
       try {
@@ -3772,8 +3788,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, firstPage,
-          retainLeafGuard);
+      VersioningType.recordFullHOTLeafRead();
+      return adoptCompleteHOTLeaf(cacheKey, handoffReference, firstPage, retainLeafGuard);
     }
 
     final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
@@ -3812,8 +3828,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       throw releaseFailure;
     }
 
-    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference, combinedPage,
-        retainLeafGuard);
+    return adoptCompleteHOTLeaf(cacheKey, handoffReference, combinedPage, retainLeafGuard);
+  }
+
+  private @Nullable HOTLeafPage adoptCompleteHOTLeaf(final PageReference cacheKey, final PageReference handoffReference,
+      final @Nullable HOTLeafPage incoming, final boolean retainLeafGuard) {
+    final HOTLeafPage complete = adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey,
+        handoffReference, incoming, retainLeafGuard);
+    if (complete != null && trxIntentLog == null && resourceConfig.versioningType != VersioningType.FULL
+        && !handoffReference.getPageFragments().isEmpty()) {
+      resourceBufferManager.getHOTMiniPageCache().discard(cacheKey);
+    }
+    return complete;
   }
 
   /**
@@ -4099,14 +4125,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     int missCount = 0;
     try {
       for (int i = 0; i < count; i++) {
-        final PageReference fragmentRef =
-            new PageReference().setKey(pageFragments.get(i).key()).setDatabaseId(databaseId).setResourceId(resourceId);
-        HOTLeafPage cached = null;
-        try {
-          cached = fragmentCache.getAndGuard(fragmentRef);
-        } catch (final UnsupportedOperationException guardUnsupported) {
-          // A cache implementation without guard support (EmptyCache) — fall through to an uncached read.
-        }
+        final long fragmentKey = pageFragments.get(i).key();
+        // The probe cannot be retained by the cache; only a miss allocates the owned key that the
+        // batch read and the adoption keep.
+        final HOTLeafPage cached = probeGuardedFragment(fragmentCache,
+            LOOKUP_REF.get().setKey(fragmentKey).setDatabaseId(databaseId).setResourceId(resourceId));
         if (cached != null) {
           window[i] = cached;
           continue;
@@ -4116,13 +4139,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           missIndex = new int[count - i];
         }
         missIndex[missCount] = i;
-        misses[missCount++] = fragmentRef;
+        misses[missCount++] =
+            new PageReference().setKey(fragmentKey).setDatabaseId(databaseId).setResourceId(resourceId);
       }
       if (missCount > 0) {
         final PageReference[] batch = missCount == misses.length
             ? misses
             : Arrays.copyOf(misses, missCount);
-        final Page[] loaded = readDurableBatch(batch);
+        final Page[] loaded = readDurableBatch(batch, true);
         for (int m = 0; m < missCount; m++) {
           final Page page = loaded[m];
           loaded[m] = null; // ownership moves to the adoption below
@@ -4361,7 +4385,224 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return loadHOTPage(reference, true);
   }
 
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, HOTReadIntent.POINT);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent, null);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    assertNotClosed();
+    requireNonNull(reference);
+    requireNonNull(key);
+    requireNonNull(intent);
+    if (intent == HOTReadIntent.SCAN || trxIntentLog != null || pageReader.returnsSharedPages()
+        || reference.getKey() < 0) {
+      return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+    }
+    // Match loadHOTPage's direct-reference handoff before consulting either cache. A complete
+    // leaf may be swizzled here even when the cache cannot retain it. Its guard must cover the
+    // value and side-reference copy; a retired or closed swizzle must fall through to reloading.
+    final Page swizzled = reference.getPage();
+    if (swizzled instanceof HOTIndirectPage) {
+      return null;
+    }
+    if (swizzled instanceof HOTLeafPage hotSwizzled) {
+      if (!hotSwizzled.isClosed() && hotSwizzled.acquireGuard()) {
+        try {
+          return HOTLeafEntry.copyOf(hotSwizzled, key, sideReferenceKey);
+        } finally {
+          hotSwizzled.releaseGuard();
+        }
+      }
+      reference.clearPageIfSame(hotSwizzled);
+    }
+    final PageReference canonicalKey =
+        new PageReference().setKey(reference.getKey()).setDatabaseId(databaseId).setResourceId(resourceId);
+    final HOTLeafPage complete =
+        handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference, true);
+    if (complete != null) {
+      try {
+        return HOTLeafEntry.copyOf(complete, key, sideReferenceKey);
+      } finally {
+        complete.releaseGuard();
+      }
+    }
+    if (reference.getPageFragments().isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
+      // A self-contained image is already a complete view. Retain it in the complete cache,
+      // without building write capacity/PEXT metadata for unrelated keys. This does not spend
+      // a mini admission or make the other entries in the same complete image miss later.
+      final Page loaded = loadHOTPage(reference, true, true);
+      if (loaded instanceof HOTLeafPage leaf) {
+        try {
+          return HOTLeafEntry.copyOf(leaf, key, sideReferenceKey);
+        } finally {
+          leaf.releaseGuard();
+        }
+      }
+      if (loaded instanceof HOTIndirectPage) {
+        return null;
+      }
+      throw new SirixIOException("Projection point route at key " + reference.getKey() + " is not a HOT page");
+    }
+    final HOTMiniPageCache miniPages = resourceBufferManager.getHOTMiniPageCache();
+    final long generation = miniPages.generation();
+    final HOTMiniPage mini = miniPages.getAndGuard(canonicalKey);
+    boolean promotionCandidate = false;
+    if (mini != null) {
+      try {
+        final int slot = mini.find(key, sideReferenceKey);
+        if (slot >= 0) {
+          return mini.copyEntry(slot);
+        }
+        promotionCandidate = mini.getDistinctKeyCount() >= HOTMiniPageCache.POINT_PROMOTION_DISTINCT_KEYS - 1
+            && !mini.isPointPromotionRequested();
+      } finally {
+        mini.releaseGuard();
+      }
+    }
+    if (intent == HOTReadIntent.POINT && promotionCandidate
+        && miniPages.claimPointPromotion(canonicalKey, generation, key, scope)) {
+      return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+    }
+    final HOTLeafEntry result = readHOTProjectionFragmentEntry(reference, canonicalKey, key, sideReferenceKey);
+    if (reference.getPage() instanceof HOTIndirectPage) {
+      return null; // Let the trie continue descent; never admit an indirect route as a leaf subset.
+    }
+    if (intent == HOTReadIntent.POINT
+        && miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, scope)) {
+      return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+    }
+    if (intent == HOTReadIntent.SELECTIVE && scope != null) {
+      scope.rememberMetadata(miniPages, canonicalKey, generation, revisionNumber, key, sideReferenceKey, result,
+          promotionCandidate
+              ? this
+              : null,
+          promotionCandidate
+              ? reference
+              : null);
+    }
+    return result;
+  }
+
+  private @Nullable HOTLeafEntry readHOTProjectionFragmentEntry(final PageReference reference,
+      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey) {
+    // Raw images have their own cache ownership. Never swizzle one onto the complete leaf's
+    // reference, even when it contains the requested key. A later range read still reconstructs
+    // the whole leaf using the ordinary loader and its independently owned newest image.
+    final Cache<PageReference, HOTLeafPage> cache = resourceBufferManager.getHOTLeafFragmentCache();
+    // One committed data-file extent bounds every uncached image of THIS chain walk. It is taken at
+    // the first miss and never retained past this call: every chain member was committed before the
+    // revision being read was published, so one bound covers them all, while the next query may
+    // observe a later committed append. A fully cached chain never consults the file size.
+    long chainExtent = UNCAPTURED_EXTENT;
+    HOTLeafPage fragment = probeGuardedFragment(cache, canonicalKey);
+    if (fragment == null) {
+      chainExtent = pageReader.committedDataExtent();
+      fragment = loadPointFragment(cache, canonicalKey, reference, true, chainExtent);
+      if (fragment == null) {
+        return null; // An indirect page was swizzled while resolving the supposed leaf head.
+      }
+    }
+    int visited = 1;
+    try {
+      if (fragment.getIndexType() != IndexType.PROJECTION) {
+        throw new IllegalArgumentException("Projection entry read requires a projection leaf");
+      }
+      // Side maps are complete in EVERY emitted image. Taking this reference from the fragment
+      // supplying the value could resurrect an old segment after its owner changed elsewhere.
+      final PageReference sideReference = fragment.getPageReference(sideReferenceKey);
+      final List<PageFragmentKey> older = reference.getPageFragments();
+      for (int index = 0;; index++) {
+        final int entry = fragment.findEntry(key);
+        if (entry >= 0) {
+          return new HOTLeafEntry(fragment.copyStoredValue(entry), sideReference);
+        }
+        if (fragment.isCompleteDump() || index == older.size()) {
+          return null;
+        }
+        final HOTLeafPage previous = fragment;
+        fragment = null;
+        previous.releaseGuard();
+        final PageFragmentKey next = older.get(index);
+        // The cache probe cannot retain its key. Only a miss allocates the owned key that
+        // loadPointFragment passes to disk/adoption; every cached older image reuses this probe.
+        final PageReference nextReference =
+            LOOKUP_REF.get().setKey(next.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+        fragment = probeGuardedFragment(cache, nextReference);
+        if (fragment == null) {
+          if (chainExtent == UNCAPTURED_EXTENT) {
+            chainExtent = pageReader.committedDataExtent();
+          }
+          fragment = loadPointFragment(cache, nextReference, nextReference, false, chainExtent);
+        }
+        visited++;
+        if (fragment.getRevision() != next.revision() || fragment.getIndexType() != IndexType.PROJECTION) {
+          throw new SirixIOException("Invalid projection fragment header at key " + next.key());
+        }
+      }
+    } finally {
+      VersioningType.recordHOTPointRead(visited);
+      if (fragment != null) {
+        fragment.releaseGuard();
+      }
+    }
+  }
+
+  /** Sentinel for a chain walk that has not needed the committed data-file extent yet. */
+  private static final long UNCAPTURED_EXTENT = Long.MIN_VALUE;
+
+  /** A guarded cached raw image, or {@code null} on a miss or on a cache without guarded entries. */
+  private static @Nullable HOTLeafPage probeGuardedFragment(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey) {
+    try {
+      return cache.getAndGuard(cacheKey);
+    } catch (final UnsupportedOperationException guardUnsupported) {
+      // EmptyCache has no guarded entries; adoption returns an orphan owned by the caller's guard.
+      return null;
+    }
+  }
+
+  /**
+   * Read and adopt one immutable raw image after a cache miss, guarded through the caller's
+   * value/header copy. {@code committedExtent} is the chain's shared file bound, or negative when the
+   * backend offers none.
+   */
+  private @Nullable HOTLeafPage loadPointFragment(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference readReference, final boolean allowIndirectHead,
+      final long committedExtent) {
+    final PageReference ownedKey = allowIndirectHead
+        ? cacheKey
+        : new PageReference().setKey(cacheKey.getKey()).setDatabaseId(databaseId).setResourceId(resourceId);
+    final Page loaded = pageReader.readHOTLeafFragment(allowIndirectHead
+        ? readReference
+        : ownedKey, resourceConfig, committedExtent);
+    if (allowIndirectHead && loaded instanceof HOTIndirectPage) {
+      readReference.setPage(loaded);
+      return null;
+    }
+    final HOTLeafPage fragment = adoptChainFragment(cache, ownedKey, loaded);
+    if (fragment == null) {
+      throw new SirixIOException("Projection fragment at key " + readReference.getKey() + " is not a HOT leaf");
+    }
+    return fragment;
+  }
+
   private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard) {
+    return loadHOTPage(reference, retainLeafGuard, false);
+  }
+
+  /** Compact decoding changes only a committed complete read image, never emission or versioning. */
+  private @Nullable Page loadHOTPage(final PageReference reference, final boolean retainLeafGuard,
+      final boolean compactCompletePoint) {
     assertNotClosed();
 
     if (reference == null) {
@@ -4417,7 +4658,28 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
 
       try {
-        final Page loadedPage = pageReader.read(reference, resourceConfig);
+        Page loadedPage = null;
+        if (trxIntentLog == null && !pageReader.returnsSharedPages()) {
+          final Cache<PageReference, HOTLeafPage> rawCache = resourceBufferManager.getHOTLeafFragmentCache();
+          HOTLeafPage rawHead = null;
+          try {
+            rawHead = rawCache.getAndGuard(canonicalKey);
+          } catch (final UnsupportedOperationException guardUnsupported) {
+            // EmptyCache never retains a raw image.
+          }
+          if (rawHead != null) {
+            try {
+              loadedPage = rawHead.copyForRead();
+            } finally {
+              rawHead.releaseGuard();
+            }
+          }
+        }
+        if (loadedPage == null) {
+          loadedPage = compactCompletePoint
+              ? pageReader.readHOTLeafFragment(reference, resourceConfig)
+              : pageReader.read(reference, resourceConfig);
+        }
 
         if (loadedPage instanceof HOTIndirectPage) {
           reference.setPage(loadedPage);

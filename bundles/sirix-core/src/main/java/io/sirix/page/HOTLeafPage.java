@@ -38,6 +38,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.settings.Constants;
 import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
+import io.sirix.index.hot.ByteLaneSearch;
 import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
@@ -111,6 +112,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Sentinel value for "not found" in binary search. */
   public static final int NOT_FOUND = -1;
+
+  /** Immutable read-fragment policy: never lazily publish a routing index on a shared image. */
+  private final boolean binarySearchOnly;
 
   /** Default page size for off-heap allocation (64KB). */
   public static final int DEFAULT_SIZE = 64 * 1024;
@@ -252,7 +256,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   // where suffix = fullKey[commonPrefixLen..]. Full key = commonPrefix + suffix.
   private MemorySegment slotMemory;
   private Runnable releaser;
-  private final int[] slotOffsets;
+  /**
+   * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. A compact decoder-only image
+   * owns exactly {@code entryCount} offsets; {@link #ensureMutableSlotMemorySlow} widens it before
+   * the first in-place mutation and every copy restores full capacity. Only that promotion ever
+   * replaces the array, with identical contents, so a concurrent read of either array is equivalent.
+   */
+  private int[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
 
@@ -343,8 +353,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /** ACTIVE -> RETIRED -> RELEASING -> RELEASED; retirement prevents any new map access. */
   private final AtomicInteger sideReferenceLifecycle = new AtomicInteger(SIDE_REFERENCES_ACTIVE);
 
+  /** Expected side references of a compact raw image; fastutil resizes past it on demand. */
+  private static final int COMPACT_SIDE_REFERENCE_CAPACITY = 2;
+
   /** Fastutil table scan with no values-view, iterator, list, or lambda allocation per epoch. */
   private static final class SideReferenceMap extends Long2ObjectOpenHashMap<PageReference> {
+    SideReferenceMap() {
+      super();
+    }
+
+    SideReferenceMap(final int expected) {
+      super(expected);
+    }
+
     boolean allDurableAndUnclaimed() {
       // fastutil's generic backing table is allocated as Object[]. Keep that runtime type and
       // cast occupied elements individually; reading it as PageReference[] causes a CCE.
@@ -494,6 +515,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /** Constructor-stage injection seam for native-frame ownership tests. */
   HOTLeafPage(long recordPageKey, int revision, IndexType indexType,
       @Nullable MemorySegmentAllocator allocatorForTesting, @Nullable Runnable afterFrameAcquireForTesting) {
+    this.binarySearchOnly = false;
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
@@ -542,6 +564,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
       @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
       int commonPrefixLen) {
+    this(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets, entryCount, usedSlotMemorySize,
+        commonPrefix, commonPrefixLen, false);
+  }
+
+  /** Decoder-only compact image. Copies made for reconstruction/writing restore normal routing. */
+  HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
+      @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
+      int commonPrefixLen, boolean binarySearchOnly) {
+    this.binarySearchOnly = binarySearchOnly;
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
@@ -553,7 +584,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         ? commonPrefix
         : EMPTY_PREFIX;
     this.commonPrefixLen = commonPrefixLen;
-    this.pageReferences = new SideReferenceMap();
+    // A decoder-only image rarely carries side references; the map still grows on demand.
+    this.pageReferences = binarySearchOnly
+        ? new SideReferenceMap(COMPACT_SIDE_REFERENCE_CAPACITY)
+        : new SideReferenceMap();
     final MemorySegment suppliedMemory = Objects.requireNonNull(slotMemory);
     // Compute the allocator binding before entering the seqlock publication window. A zero-copy
     // leaf then corrects the binding through setStampBaseSegment before it is published.
@@ -562,7 +596,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Eagerly build PEXT index so read-only lookups after deserialization use PEXT-accelerated
     // search immediately (no first-search latency spike). Ownership of caller-supplied memory stays
     // with the caller until this constructor returns; copy/deserialization cleanup relies on that.
-    buildPextIndex();
+    if (!binarySearchOnly) {
+      buildPextIndex();
+    }
   }
 
   /**
@@ -842,6 +878,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * the exact-length copy the array-only signature forced per insert.
    */
   public int findEntry(byte[] key, int keyLen) {
+    return findEntry(key, keyLen, !binarySearchOnly);
+  }
+
+  private int findEntry(final byte[] key, final int keyLen, final boolean useRoutingIndex) {
     Objects.requireNonNull(key);
 
     if (entryCount == 0) {
@@ -867,16 +907,100 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     // --- PEXT fast path (for ≤PEXT_MAX_ENTRIES entries) ---
-    if (!pextValid && entryCount >= 2 && entryCount <= PEXT_MAX_ENTRIES) {
+    if (useRoutingIndex && !pextValid && entryCount >= 2 && entryCount <= PEXT_MAX_ENTRIES) {
+      // A freshly changed page often receives an exterior probe (ascending/descending builds,
+      // misses, extrema). Its two endpoints already prove the answer. Building a routing index
+      // here would allocate metadata which the very next insertion invalidates again.
+      final int last = compareSuffixWithKey(entryCount - 1, key, keyLen);
+      if (last <= 0) {
+        return last == 0
+            ? entryCount - 1
+            : -(entryCount + 1);
+      }
+      final int first = compareSuffixWithKey(0, key, keyLen);
+      if (first >= 0) {
+        return first == 0
+            ? 0
+            : -1;
+      }
       buildPextIndex();
     }
 
-    if (pextValid) {
+    if (useRoutingIndex && pextValid) {
       return pextSearch(key, keyLen);
     }
 
-    // --- Binary search on suffixes ---
-    return binarySearchSuffix(key, keyLen);
+    // A compact raw image owns an exact byte[]; do not pay an FFM session/bounds check for
+    // every suffix byte in every older fragment. A moved/writable or sliced segment keeps the
+    // ordinary path, so these reads cannot observe an obsolete backing array after mutation.
+    final byte[] compact = compactSlotBytes();
+    return compact == null
+        ? binarySearchSuffix(key, keyLen)
+        : binarySearchCompactSuffix(key, keyLen, compact);
+  }
+
+  private byte @Nullable [] compactSlotBytes() {
+    if (binarySearchOnly && !slotMemory.isNative()) {
+      final Object base = slotMemory.heapBase().orElse(null);
+      if (base instanceof byte[] bytes && bytes.length == slotMemory.byteSize()) {
+        return bytes;
+      }
+    }
+    return null;
+  }
+
+  private int binarySearchCompactSuffix(final byte[] key, final int keyLen, final byte[] slots) {
+    int low = 0;
+    int high = entryCount;
+    while (low < high) {
+      final int middle = (low + high) >>> 1;
+      final int offset = slotOffsets[middle];
+      final int suffixLength = (slots[offset] & 0xff) | (slots[offset + 1] & 0xff) << 8;
+      final int start = offset + Short.BYTES;
+      final int comparison = Arrays.compareUnsigned(slots, start, start + suffixLength, key, commonPrefixLen, keyLen);
+      if (comparison < 0) {
+        low = middle + 1;
+      } else if (comparison > 0) {
+        high = middle;
+      } else {
+        return middle;
+      }
+    }
+    return -(low + 1);
+  }
+
+  /**
+   * Fill one missing projection entry during read reconstruction. The private result's routing index
+   * would be invalidated by every inserted entry; binary search avoids repeatedly building it, and
+   * the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
+   * order and dirty-bit shifts are exactly the ordinary insertion path's operations. An existing
+   * entry, including a zero-length tombstone, always wins over the older fragment.
+   */
+  public boolean fillProjectionEntry(final HOTLeafPage older, final int row) {
+    Objects.requireNonNull(older);
+    if (indexType != IndexType.PROJECTION || older.indexType != IndexType.PROJECTION) {
+      throw new IllegalArgumentException("projection fragments required");
+    }
+    final byte[] key = older.getKey(row);
+    if (key == null) {
+      throw new IllegalStateException("Cannot read projection fragment key " + row);
+    }
+    final int position = findEntry(key, key.length, false);
+    if (position >= 0) {
+      return true;
+    }
+    final long value = older.valueRef(row);
+    final int valueLength = refLength(value);
+    if (valueLength < 0) {
+      throw new IllegalStateException("HOT leaf " + older.recordPageKey + " has an unreadable value at slot " + row);
+    }
+    if (!handlePrefixForInsert(key, key.length, valueLength)) {
+      return false;
+    }
+    // The caller guards the immutable older image throughout reconstruction. Copy straight into
+    // the private result rather than materializing every older value as an intermediate byte[].
+    return insertAtSuffixSegmentRange(-position - 1, key, commonPrefixLen, key.length - commonPrefixLen,
+        older.slotMemory, value >>> 32, valueLength);
   }
 
   /**
@@ -931,6 +1055,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * SIMD equality search on 8-bit dense partial keys. All 32 entries compared in one AVX2 op.
    */
   private int simdEqualitySearchBytes(byte searchPK) {
+    if (entryCount <= Long.BYTES) {
+      return ByteLaneSearch.equal(densePKBytes, entryCount, searchPK);
+    }
     if (BYTE_SPECIES.length() >= PEXT_MAX_ENTRIES) {
       final ByteVector searchVec = ByteVector.broadcast(BYTE_SPECIES, searchPK);
       final ByteVector entriesVec = ByteVector.fromArray(BYTE_SPECIES, densePKBytes, 0);
@@ -1605,6 +1732,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] copyStoredValue(final int index) {
     Objects.checkIndex(index, entryCount);
+    final byte[] compact = compactSlotBytes();
+    if (compact != null) {
+      final int offset = slotOffsets[index];
+      if (offset >= 0 && offset <= compact.length - Short.BYTES) {
+        final int suffixLength = (compact[offset] & 0xff) | (compact[offset + 1] & 0xff) << 8;
+        final int lengthOffset = offset + Short.BYTES + suffixLength;
+        if (lengthOffset <= compact.length - Short.BYTES) {
+          final int length = (compact[lengthOffset] & 0xff) | (compact[lengthOffset + 1] & 0xff) << 8;
+          final int start = lengthOffset + Short.BYTES;
+          if (length <= compact.length - start) {
+            return Arrays.copyOfRange(compact, start, start + length);
+          }
+        }
+      }
+      throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
+    }
     final long ref = valueRef(index);
     final int length = refLength(ref);
     if (length < 0) {
@@ -2384,7 +2527,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * becomes mutable.
    */
   private void ensureMutableSlotMemory() {
-    if (slotMemory.byteSize() >= DEFAULT_SIZE) {
+    if (slotMemory.byteSize() >= DEFAULT_SIZE && slotOffsets.length >= MAX_ENTRIES) {
       return;
     }
     ensureMutableSlotMemorySlow();
@@ -2392,6 +2535,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Cold first-mutation path; the monitor never touches an already-mutable leaf's hot write path. */
   private synchronized void ensureMutableSlotMemorySlow() {
+    if (slotOffsets.length < MAX_ENTRIES) {
+      // A compact raw image owns exactly its entries. Restore the full directory before an insert
+      // can shift offsets past entryCount; the copy carries identical contents.
+      slotOffsets = Arrays.copyOf(slotOffsets, MAX_ENTRIES);
+    }
     // Another writer may have completed the one-time promotion while this writer awaited the lock.
     if (slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
@@ -2976,6 +3124,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
+   * Independently own a cached raw image for the ordinary complete read loader. Preserve its exact
+   * completeness boundary without retaining a CoW dependency on the cache-owned source. This copy is
+   * read-path scratch, not a newly emitted snapshot or a change to versioning policy.
+   */
+  public HOTLeafPage copyForRead() {
+    final HOTLeafPage copy = copyInternal(recordPageKey, revision, false);
+    copy.completeDump = completeDump;
+    return copy;
+  }
+
+  /**
    * Create the copy-on-write image that will be persisted by {@code targetRevision}.
    *
    * <p>
@@ -3032,7 +3191,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
 
       // Deep copy on-heap arrays
-      final int[] newSlotOffsets = Arrays.copyOf(slotOffsets, slotOffsets.length);
+      // Full capacity even when the source is a compact raw image with an exact-size directory.
+      final int[] newSlotOffsets = Arrays.copyOf(slotOffsets, MAX_ENTRIES);
 
       // Deep copy prefix
       final byte[] newPrefix = commonPrefixLen > 0

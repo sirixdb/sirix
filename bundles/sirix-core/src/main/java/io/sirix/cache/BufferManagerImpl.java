@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTMiniPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -218,6 +219,8 @@ public final class BufferManagerImpl implements BufferManager {
   // why this cannot share hotLeafPageCache).
   private final ShardedPageCache<HOTLeafPage> hotLeafFragmentCache;
 
+  private final HOTMiniPageCache hotMiniPageCache;
+
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
 
@@ -305,7 +308,16 @@ public final class BufferManagerImpl implements BufferManager {
     final long hotFragmentBudget = hotLeafBudget <= 0
         ? hotLeafBudget
         : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
-    hotLeafPageCache = new ShardedPageCache<>(hotLeafBudget - hotFragmentBudget);
+    // Reserve 1/16 of the existing complete-leaf share (at most 64 MiB) for resolved slots.
+    // The total HOT allowance and raw-fragment allowance do not increase.
+    final long combinedBudget = hotLeafBudget - hotFragmentBudget;
+    final long miniBudget = combinedBudget <= 0
+        ? 0
+        : Math.min(combinedBudget / 16, 64L << 20);
+    hotMiniPageCache = miniBudget == 0
+        ? HOTMiniPageCache.disabled()
+        : new HOTMiniPageCache(miniBudget);
+    hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget);
     hotLeafFragmentCache = new ShardedPageCache<>(hotFragmentBudget);
 
     // PageCache uses Caffeine which internally uses long for weights
@@ -330,6 +342,7 @@ public final class BufferManagerImpl implements BufferManager {
       recordPageFragmentCache.evictUnderPressure();
       hotLeafPageCache.evictUnderPressure();
       hotLeafFragmentCache.evictUnderPressure();
+      hotMiniPageCache.evictUnderPressure();
       pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
@@ -517,6 +530,16 @@ public final class BufferManagerImpl implements BufferManager {
       clockSweeperThreads.add(thread);
       LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafFragmentCache");
     }
+    final ShardedPageCache<HOTMiniPage> miniPages = hotMiniPageCache.pages();
+    if (miniPages != null) {
+      final ClockSweeper sweeper = new ClockSweeper(miniPages.getShard(new PageReference()), miniPages,
+          globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+      final Thread thread = new Thread(sweeper, "ClockSweeper-HOTMiniPage-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+    }
   }
 
   /**
@@ -589,7 +612,11 @@ public final class BufferManagerImpl implements BufferManager {
       globalDictionaryWarmMarkers.clear();
       pathSummaryCache.clear();
     } finally {
-      hotLookupCache.clear();
+      try {
+        hotMiniPageCache.clear();
+      } finally {
+        hotLookupCache.clear();
+      }
     }
   }
 
@@ -603,10 +630,23 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache;
   }
 
+  @Override
+  public HOTMiniPageCache getHOTMiniPageCache() {
+    return hotMiniPageCache;
+  }
+
   // ===== Metrics accessors =====
   // Exposed so SirixMetricsRegistry can publish per-cache size gauges without
   // pulling Micrometer into sirix-core. Read-only views; safe to poll at scrape
   // cadence from any thread.
+
+  public long getHOTMiniPageCacheCurrentWeightBytes() {
+    return hotMiniPageCache.getCurrentWeightBytes();
+  }
+
+  public long getHOTMiniPageCacheMaxWeightBytes() {
+    return hotMiniPageCache.getMaxWeightBytes();
+  }
 
   /** Pages found still guarded by an invalidation sweep; see {@link #GUARDED_PAGES_SWEPT}. */
   public static long getGuardedPagesSweptCount() {
@@ -989,7 +1029,11 @@ public final class BufferManagerImpl implements BufferManager {
     try {
       clearHotPageCache(hotLeafPageCache, matches);
     } finally {
-      clearHotPageCache(hotLeafFragmentCache, matches);
+      try {
+        clearHotPageCache(hotLeafFragmentCache, matches);
+      } finally {
+        hotMiniPageCache.invalidate(matches);
+      }
     }
   }
 

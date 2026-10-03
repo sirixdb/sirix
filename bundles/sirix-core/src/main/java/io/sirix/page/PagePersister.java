@@ -71,6 +71,15 @@ public final class PagePersister {
                    .deserializePage(resourceConfiguration, source, type, decompressionResult);
   }
 
+  /** Decode an independently owned, compact HOT image for the raw-fragment cache. */
+  public Page deserializeHOTLeafFragment(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+      final SerializationType type) {
+    final PageKind kind = PageKind.getKind(source.readByte());
+    return kind == PageKind.HOT_LEAF_PAGE
+        ? PageKind.deserializeHOTLeafFragment(source)
+        : kind.deserializePage(resourceConfiguration, source, type);
+  }
+
   /**
    * Deserialize a page, leaving the records a caller has not asked for unexpanded where the page kind
    * supports it. See {@link PageKind#deserializePageLazily}; every other kind decodes whole.

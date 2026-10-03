@@ -3,6 +3,8 @@ package io.sirix.access.trx.page;
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
@@ -17,6 +19,7 @@ import io.sirix.page.DeweyIDPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -232,6 +235,24 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public @Nullable Page loadHOTPageAndGuard(final PageReference reference) {
     return delegate().loadHOTPageAndGuard(reference);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey) {
+    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent) {
+    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
   }
 
   @Override

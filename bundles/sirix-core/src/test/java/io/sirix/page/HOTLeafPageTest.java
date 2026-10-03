@@ -84,6 +84,22 @@ class HOTLeafPageTest {
   }
 
   @Test
+  void exteriorProbesUseEndpointsBeforeAllocatingRoutingMetadata() {
+    assertTrue(hotLeafPage.put(new byte[] {42, 1}, new byte[] {7}));
+    assertTrue(hotLeafPage.put(new byte[] {42, 3}, new byte[] {9}));
+    final long before = hotLeafPage.estimatedRetainedHeapBytes();
+    assertEquals(-1, hotLeafPage.findEntry(new byte[] {42, 0}));
+    assertEquals(-3, hotLeafPage.findEntry(new byte[] {42, 4}));
+    assertEquals(0, hotLeafPage.findEntry(new byte[] {42, 1}));
+    assertEquals(1, hotLeafPage.findEntry(new byte[] {42, 3}));
+    assertEquals(before, hotLeafPage.estimatedRetainedHeapBytes(),
+        "the first exterior probe must not allocate a PEXT index");
+    assertEquals(-2, hotLeafPage.findEntry(new byte[] {42, 2}));
+    assertTrue(hotLeafPage.estimatedRetainedHeapBytes() > before,
+        "an interior probe still builds the normal routing index");
+  }
+
+  @Test
   void testBasicCreation() {
     assertEquals(1L, hotLeafPage.getPageKey());
     assertEquals(1, hotLeafPage.getRevision());

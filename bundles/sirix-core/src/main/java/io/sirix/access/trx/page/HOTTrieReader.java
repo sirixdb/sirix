@@ -29,9 +29,12 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
@@ -58,7 +61,7 @@ import java.util.concurrent.Semaphore;
  * <li>Optimistic lifetime checks, with guarded recovery only after eviction races a read</li>
  * <li>Zero-copy value access via MemorySegment slices</li>
  * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
- * <li>Pre-allocated traversal arrays for zero allocations</li>
+ * <li>Bounded traversal arrays allocated on first range descent and reused thereafter</li>
  * </ul>
  * 
  * <p>
@@ -185,25 +188,29 @@ public final class HOTTrieReader implements AutoCloseable {
   /** The storage engine reader. */
   private final StorageEngineReader storageEngineReader;
 
-  // ===== Pre-allocated traversal path - ZERO allocations on hot path! =====
-  private final PageReference[] pathRefs = new PageReference[MAX_TREE_HEIGHT];
-  private final HOTIndirectPage[] pathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
-  private final int[] pathChildIndices = new int[MAX_TREE_HEIGHT];
   /**
-   * Per-level snapshot of {@link HOTIndirectPage#getMostSignificantBitIndex} captured during the
-   * PEXT-routed descent. Used by {@link #lowerOrUpperBound} (Binna §4.2 lower_or_upper_bound,
-   * reference: {@code HOTSingleThreaded.hpp:347-415}) to walk the search-stack back up to the
-   * branching depth where the searchKey actually diverges from the candidate leaf's key.
+   * Range walks need a parent stack; detached projection point reads do not. Allocate the bounded
+   * buffers only when a walk first records an indirect parent, then reuse them for later walks.
    */
-  private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
-  /**
-   * Per-level watermark of the sibling window already hinted for the node at that depth (exclusive
-   * child index). Without it every leaf advance re-hinted the same {@value #PREFETCH_WINDOW}
-   * successors — a sibling was hinted up to sixteen times before the cursor reached it, one advice
-   * call each. A backend without a prefetch primitive never saw those calls; one that has it must not
-   * pay for them on the hot path of every range step.
-   */
-  private final int[] pathPrefetchedUntil = new int[MAX_TREE_HEIGHT];
+  private static final class TraversalPath {
+    private final PageReference[] references = new PageReference[MAX_TREE_HEIGHT];
+    private final HOTIndirectPage[] nodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
+    private final int[] childIndices = new int[MAX_TREE_HEIGHT];
+    /** Binna lower/upper-bound backtracking needs the MSB captured during routed descent. */
+    private final short[] mostSignificantBits = new short[MAX_TREE_HEIGHT];
+    /** Exclusive sibling-hint watermark, preventing repeated prefetch of a visited window. */
+    private final int[] prefetchedUntil = new int[MAX_TREE_HEIGHT];
+  }
+
+  private @Nullable TraversalPath traversalPath;
+
+  private TraversalPath traversalPath() {
+    if (traversalPath == null) {
+      traversalPath = new TraversalPath();
+    }
+    return traversalPath;
+  }
+
   private int pathDepth = 0;
 
   // Uncontended reads use stamps without guard churn. A torn read switches the rest of this walk
@@ -276,7 +283,14 @@ public final class HOTTrieReader implements AutoCloseable {
   private final boolean spanPrefetchCapable;
 
   /** Scratch for the span-hint sibling window (transaction-confined, like this reader). */
-  private final PageReference[] spanScratch = new PageReference[PREFETCH_WINDOW];
+  private PageReference @Nullable [] spanScratch;
+
+  private PageReference[] spanScratch() {
+    if (spanScratch == null) {
+      spanScratch = new PageReference[PREFETCH_WINDOW];
+    }
+    return spanScratch;
+  }
 
   /** See the constructor — memoized first-key probes are restricted to read-only snapshots. */
   private final boolean firstKeyCacheEnabled;
@@ -632,7 +646,7 @@ public final class HOTTrieReader implements AutoCloseable {
     // (Smaller absoluteBitIndex = "more significant" = earlier in key.) The C++ reference
     // condition is `significantBitIdx < mostSignificantBitIndexes[depth]`; we mirror it.
     int branchingDepth = pathDepth - 1; // start at parent of the leaf
-    while (branchingDepth > 0 && discBit < pathMsbAtDepth[branchingDepth]) {
+    while (branchingDepth > 0 && discBit < traversalPath().mostSignificantBits[branchingDepth]) {
       branchingDepth--;
     }
     if (branchingDepth < 0) {
@@ -657,8 +671,8 @@ public final class HOTTrieReader implements AutoCloseable {
     // part of the affected subtree. Including it would over-expand the subtree across the
     // disc-bit boundary and corrupt the {@code nextChildIdx = lastIdx + 1} step (it would
     // skip the very subtree where searchKey lives when {@code searchKeyBit=1}).
-    final HOTIndirectPage branchingNode = pathNodes[branchingDepth];
-    final int matchedIdx = pathChildIndices[branchingDepth];
+    final HOTIndirectPage branchingNode = traversalPath().nodes[branchingDepth];
+    final int matchedIdx = traversalPath().childIndices[branchingDepth];
     final byte[] matchedFirstKey = getFirstKeyOfChild(branchingNode, matchedIdx);
 
     int firstIdx = matchedIdx;
@@ -700,7 +714,7 @@ public final class HOTTrieReader implements AutoCloseable {
       // advanceToNextLeaf() machinery: position the path stack so the branching-level
       // child is the "current" (last) child, then ask for the next leaf.
       pathDepth = branchingDepth + 1;
-      pathChildIndices[branchingDepth] = numChildren - 1;
+      traversalPath().childIndices[branchingDepth] = numChildren - 1;
       final HOTLeafPage next = advanceToNextLeaf();
       if (next == null) {
         return LowerBoundResult.EXHAUSTED;
@@ -710,7 +724,7 @@ public final class HOTTrieReader implements AutoCloseable {
 
     // Update path so subsequent advanceToNextLeaf() walks correctly: replace the branching
     // child with nextChildIdx, then descend leftmost into it.
-    pathChildIndices[branchingDepth] = nextChildIdx;
+    traversalPath().childIndices[branchingDepth] = nextChildIdx;
     pathDepth = branchingDepth + 1;
     final PageReference nextRef = branchingNode.getChildReference(nextChildIdx);
     if (nextRef == null) {
@@ -851,6 +865,74 @@ public final class HOTTrieReader implements AutoCloseable {
     return navigateToLeafUnchecked(rootRef, key, key.length);
   }
 
+  /**
+   * Read one opaque projection slot. Committed fragment chains can be searched without materializing
+   * unrelated slots; already materialized leaves retain the usual optimistic path. A partial lookup
+   * never installs a leaf swizzle or positions a range cursor.
+   */
+  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
+      final long sideReferenceKey) {
+    return readProjectionEntry(rootRef, key, sideReferenceKey, HOTReadIntent.POINT);
+  }
+
+  /** A scan bypasses partial entries; an ambiguous cursor may consult but never grow them. */
+  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent) {
+    return readProjectionEntry(rootRef, key, sideReferenceKey, intent, null);
+  }
+
+  /** Propagate one explicit point/metadata admission budget without changing routing or guards. */
+  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    Objects.requireNonNull(rootRef);
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(intent);
+    pathDepth = 0;
+    attempts: for (int attempt = 0; attempt <= MAX_STAMP_RETRIES; attempt++) {
+      PageReference reference = rootRef;
+      for (int depth = 0; depth < MAX_TREE_HEIGHT; depth++) {
+        final Page swizzled = reference.getPage();
+        if (intent != HOTReadIntent.SCAN && firstKeyCacheEnabled && !(swizzled instanceof HOTIndirectPage)
+            && (!(swizzled instanceof HOTLeafPage) || swizzled.isClosed())) {
+          clearCurrentLeaf();
+          final HOTLeafEntry entry = scope == null
+              ? storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent)
+              : storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
+          if (!(reference.getPage() instanceof HOTIndirectPage)) {
+            return entry;
+          }
+          // A split may leave the old leaf's fragment list on an indirect reference. Its newly
+          // swizzled page, not the stale list, determines the route; keep the same bounded descent.
+        }
+        final Page page = loadPage(reference);
+        if (page instanceof HOTLeafPage leaf) {
+          final HOTLeafEntry result;
+          try {
+            result = HOTLeafEntry.copyOf(leaf, key, sideReferenceKey);
+          } catch (final RuntimeException failure) {
+            if (validateCurrentLeaf()) {
+              throw failure;
+            }
+            continue attempts;
+          }
+          if (validateCurrentLeaf()) {
+            return result;
+          }
+          continue attempts;
+        }
+        if (!(page instanceof HOTIndirectPage node)) {
+          throw structuralCorruption("projection point route references an unresolved or invalid page");
+        }
+        final int child = node.findChildIndex(key, key.length);
+        if (child < 0 || (reference = node.getChildReference(child)) == null) {
+          throw structuralCorruption("projection point route has no PEXT child");
+        }
+      }
+      throw structuralCorruption("projection point route exceeds maximum tree height");
+    }
+    throw stampRetriesExhausted("readProjectionEntry");
+  }
+
   private HOTLeafPage navigateToLeafUnchecked(final PageReference rootRef, final byte[] key, final int keyLen) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
@@ -899,7 +981,7 @@ public final class HOTTrieReader implements AutoCloseable {
       // Record path for parent-based range traversal. Capture the per-level MSB so a
       // subsequent {@link #lowerOrUpperBound} call can walk back up to the branching depth
       // (Binna §4.2). Cheap: a single short read from the indirect page.
-      pathMsbAtDepth[pathDepth] = hotNode.getMostSignificantBitIndex();
+      traversalPath().mostSignificantBits[pathDepth] = hotNode.getMostSignificantBitIndex();
       pushPath(currentRef, hotNode, childIndex);
 
       currentRef = childRef;
@@ -965,11 +1047,11 @@ public final class HOTTrieReader implements AutoCloseable {
     // Pop back up the tree until we find an unvisited sibling
     while (pathDepth > 0) {
       final int parentIdx = pathDepth - 1;
-      final HOTIndirectPage parent = pathNodes[parentIdx];
+      final HOTIndirectPage parent = traversalPath().nodes[parentIdx];
       final int numChildren = parent.getNumChildren();
 
-      for (int nextChildIdx = pathChildIndices[parentIdx] + 1; nextChildIdx < numChildren; nextChildIdx++) {
-        pathChildIndices[parentIdx] = nextChildIdx;
+      for (int nextChildIdx = traversalPath().childIndices[parentIdx] + 1; nextChildIdx < numChildren; nextChildIdx++) {
+        traversalPath().childIndices[parentIdx] = nextChildIdx;
 
         final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef == null) {
@@ -1044,12 +1126,12 @@ public final class HOTTrieReader implements AutoCloseable {
   private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren,
       final int depth) {
     // Hint each sibling once per visit of its parent: start past the watermark, and advance it.
-    final int from = Math.max(startIdx, pathPrefetchedUntil[depth]);
+    final int from = Math.max(startIdx, traversalPath().prefetchedUntil[depth]);
     final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
     if (from >= end) {
       return;
     }
-    pathPrefetchedUntil[depth] = end;
+    traversalPath().prefetchedUntil[depth] = end;
     if (spanPrefetchCapable) {
       // One batched span hint for the whole window: zero threads, zero locks, and the
       // backend coalesces (WILLNEED readahead on mmap; one ring submit on io_uring).
@@ -1057,11 +1139,11 @@ public final class HOTTrieReader implements AutoCloseable {
       for (int i = from; i < end; i++) {
         final PageReference ref = parent.getChildReference(i);
         if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
-          spanScratch[n++] = ref;
+          spanScratch()[n++] = ref;
         }
       }
       if (n > 0) {
-        storageEngineReader.prefetchPageSpans(spanScratch, n);
+        storageEngineReader.prefetchPageSpans(spanScratch(), n);
       }
       return;
     }
@@ -1163,16 +1245,17 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
-   * Flyweight push for traversal path - no allocation!
+   * Record one parent; buffers are allocated once on the first range descent and then reused.
    */
   private void pushPath(PageReference ref, HOTIndirectPage node, int childIdx) {
     if (pathDepth >= MAX_TREE_HEIGHT) {
       throw new IllegalStateException("HOT tree exceeds maximum height: " + MAX_TREE_HEIGHT);
     }
-    pathRefs[pathDepth] = ref;
-    pathNodes[pathDepth] = node;
-    pathChildIndices[pathDepth] = childIdx;
-    pathPrefetchedUntil[pathDepth] = 0;
+    final TraversalPath path = traversalPath();
+    path.references[pathDepth] = ref;
+    path.nodes[pathDepth] = node;
+    path.childIndices[pathDepth] = childIdx;
+    path.prefetchedUntil[pathDepth] = 0;
     pathDepth++;
   }
 
@@ -1180,9 +1263,12 @@ public final class HOTTrieReader implements AutoCloseable {
    * Clear traversal path (allows GC but no allocation).
    */
   void clearPath() {
-    for (int i = 0; i < pathDepth; i++) {
-      pathRefs[i] = null;
-      pathNodes[i] = null;
+    final TraversalPath path = traversalPath;
+    if (path != null) {
+      for (int i = 0; i < pathDepth; i++) {
+        path.references[i] = null;
+        path.nodes[i] = null;
+      }
     }
     pathDepth = 0;
   }
@@ -1195,13 +1281,19 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /** Diagnostic accessor: indirect node at the given path depth. */
-  public HOTIndirectPage pathNodeAt(int depth) {
-    return pathNodes[depth];
+  public @Nullable HOTIndirectPage pathNodeAt(int depth) {
+    Objects.checkIndex(depth, MAX_TREE_HEIGHT);
+    return traversalPath == null
+        ? null
+        : traversalPath.nodes[depth];
   }
 
   /** Diagnostic accessor: child index taken at the given path depth. */
   public int pathChildAt(int depth) {
-    return pathChildIndices[depth];
+    Objects.checkIndex(depth, MAX_TREE_HEIGHT);
+    return traversalPath == null
+        ? 0
+        : traversalPath.childIndices[depth];
   }
 
   /** Diagnostic: clear the traversal path. Public wrapper around clearPath(). */
@@ -1393,8 +1485,8 @@ public final class HOTTrieReader implements AutoCloseable {
     if (spanPrefetchCapable) {
       // Zero-thread advisory route: a single-ref span hint (madvise/ring submit) replaces the
       // virtual-thread read — same skip-safe contract, no permits, no thread churn.
-      spanScratch[0] = ref;
-      storageEngineReader.prefetchPageSpans(spanScratch, 1);
+      spanScratch()[0] = ref;
+      storageEngineReader.prefetchPageSpans(spanScratch(), 1);
       return;
     }
     final Semaphore limit = PREFETCH_LIMIT;

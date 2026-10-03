@@ -87,6 +87,48 @@ public interface Reader extends AutoCloseable {
   Page read(PageReference key, ResourceConfiguration resourceConfiguration);
 
   /**
+   * Read one committed HOT fragment. Backends may omit writable capacity and routing metadata; the
+   * returned image still contains every emitted slot and the complete side-reference map. Ownership
+   * and retirement are identical to {@link #read(PageReference, ResourceConfiguration)}.
+   */
+  default Page readHOTLeafFragment(final PageReference key, final ResourceConfiguration resourceConfiguration) {
+    return read(key, resourceConfiguration);
+  }
+
+  /**
+   * A committed data-file extent bound for a chain of scalar fragment reads: at least the end of
+   * every page that was durable when it was taken. Callers capture it at most once per chain walk or
+   * query and never retain it, because the same reader may observe a later committed append.
+   * {@code -1} means the backend offers no such bound and every read consults the file itself.
+   */
+  default long committedDataExtent() {
+    return -1L;
+  }
+
+  /**
+   * {@link #readHOTLeafFragment(PageReference, ResourceConfiguration)} with a previously captured
+   * {@link #committedDataExtent()}. The bound only sizes the speculative prefix and the declared
+   * length check; EOF, truncation, checksum and header validation are unchanged. A negative extent
+   * reads exactly like the two-argument form.
+   */
+  default Page readHOTLeafFragment(final PageReference key, final ResourceConfiguration resourceConfiguration,
+      final long committedExtent) {
+    return readHOTLeafFragment(key, resourceConfiguration);
+  }
+
+  /**
+   * Read committed HOT fragments for a complete chain reconstruction. Every emitted slot and side
+   * reference must remain available, but writable capacity and routing metadata may be omitted. The
+   * input alignment, failure cleanup and ownership contract is the same as
+   * {@link #read(PageReference[], ResourceConfiguration)}. The default retains the backend's batch
+   * implementation, including shared-page ownership, rather than replacing it with scalar reads.
+   */
+  default Page[] readHOTLeafFragments(final PageReference[] references,
+      final ResourceConfiguration resourceConfiguration) {
+    return read(references, resourceConfiguration);
+  }
+
+  /**
    * Read a record page without expanding the records the caller has not asked for.
    *
    * <p>

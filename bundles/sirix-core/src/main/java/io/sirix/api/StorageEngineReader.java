@@ -11,6 +11,8 @@ import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -19,6 +21,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
@@ -29,6 +32,7 @@ import io.sirix.io.Reader;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RegionsOnlyPage;
@@ -494,6 +498,55 @@ public interface StorageEngineReader extends AutoCloseable {
    */
   @Nullable
   Page loadHOTPageAndGuard(PageReference reference);
+
+  /**
+   * Copy one projection slot from a leaf reference, preserving a zero-length tombstone. The side
+   * reference belongs to the newest leaf image, even when an older fragment supplies the value.
+   * Implementations may resolve just this slot instead of reconstructing the complete leaf. They must
+   * never publish a partial image as a canonical leaf or change the fragment chain.
+   *
+   * <p>
+   * A structural split can leave fragment metadata on a reference that now names an indirect page. In
+   * that case swizzle the indirect page and return null; the trie reader must continue descent from
+   * that reference. A fragment list alone is not proof that a reference names a leaf.
+   *
+   * @return the detached slot, or null for absence or an indirect page swizzled on the reference
+   */
+  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, HOTReadIntent.POINT);
+  }
+
+  /**
+   * Read a projection slot with explicit cache intent. A selective cursor may reuse a resolved mini
+   * entry but cannot admit one; a scan always uses a complete leaf. Implementations without selective
+   * reads conservatively use the complete loader for every intent.
+   */
+  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent) {
+    Objects.requireNonNull(reference);
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(intent);
+    final Page page = loadHOTPageAndGuard(reference);
+    if (page instanceof HOTIndirectPage) {
+      reference.setPage(page);
+      return null;
+    }
+    if (!(page instanceof HOTLeafPage leaf)) {
+      throw new IllegalStateException("Projection slot reference does not resolve to a HOT leaf");
+    }
+    try {
+      return HOTLeafEntry.copyOf(leaf, key, sideReferenceKey);
+    } finally {
+      leaf.releaseGuard();
+    }
+  }
+
+  /** Optional reader-confined metadata scope; complete-loader implementations need no admission. */
+  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+  }
 
   /**
    * Load the raw HOT leaf fragments of {@code chainRef}'s versioning window, newest first and

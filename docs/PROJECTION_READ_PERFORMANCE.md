@@ -50,6 +50,45 @@ publishes offsets. Explicit final drains include both queues. The default lazy a
 reserve 128 MiB for immediate pages and 8 MiB for grouped pages; larger individual payloads use the
 immediate path. Existing formats, logical commits, and incremental mutations are unchanged.
 
+## Versioned HOT projection slot reads
+
+`StorageEngineReader.readHOTProjectionEntry` and the explicit-intent `readBlob` overload can
+resolve a single projection slot without reconstructing unrelated entries. Newest values and
+zero-length tombstones win; absence stops at a complete dump or the end of the declared chain.
+The newest image supplies the side-page reference even when an older fragment supplies the value.
+Every raw image is guarded through its use, and raw images have a separate cache from complete
+leaves. A requested-slot result never becomes a complete-leaf swizzle.
+
+`FileChannelReader` decodes these raw images into independently owned packed heap bytes and an
+exact-size offset directory, without allocating a writable native frame or building routing
+metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
+extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
+straight into its private result. Copies and mutable promotion restore full writable capacity.
+The persisted leaf layout and all four versioning policies are unchanged.
+
+Read intent controls cache admission:
+
+- `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
+  demands on one leaf, or an accumulated packed-size limit, request complete reconstruction.
+- `SELECTIVE` can reuse cached slots but does not admit directly. A reader-confined `ReadScope`
+  gives one successful point seek a single admission shared between data and metadata; failed
+  seeks and scans discard deferred metadata.
+- `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
+  many slots. Writers and shared-page backends use the ordinary complete loader.
+
+Mini pages hold only bounded packed results and durable side-reference provenance. They use the
+normal guarded cache lifecycle and byte accounting; invalidation fences in-flight admissions.
+Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB, taken
+from that allowance. Complete adoption discards the corresponding mini page. Point resolutions
+contribute to `EngineWorkCounters.HOT_LEAF_LOADS`, older point fragments contribute to
+`HOT_FRAGMENTS_WALKED`, and FULL direct reads contribute one leaf load. Existing work-budget
+bounds are unchanged.
+
+Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`,
+`HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
+`ProjectionBlobHistoryReadTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
+`docs/VERIFICATION.md` remains the required load/query work check.
+
 ## Projection execution
 
 - Packed scalar dictionary predicates compare encoded IDs in word-sized groups. Dense consumers

@@ -350,6 +350,31 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   @Override
+  public Page readHOTLeafFragment(final PageReference reference, final ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, false, -1L, byteHandler.supportsMemorySegments());
+  }
+
+  @Override
+  public Page readHOTLeafFragment(final PageReference reference, final ResourceConfiguration resourceConfiguration,
+      final long committedExtent) {
+    // The same bound the coalesced batch captures once per call: it sizes the speculative prefix
+    // and the declared-length check, while readAtMost/readFully still observe the real file end.
+    return read(reference, resourceConfiguration, false, committedExtent, byteHandler.supportsMemorySegments());
+  }
+
+  @Override
+  public long committedDataExtent() {
+    if (!BATCH_FILE_SIZE) {
+      return -1L;
+    }
+    try {
+      return dataFileChannel.size();
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @Override
   public Page readRecordPageLazily(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     return read(reference, resourceConfiguration, true);
@@ -362,6 +387,11 @@ public final class FileChannelReader extends AbstractReader {
 
   private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
       final boolean lazyRecordPage, final long batchFileSize) {
+    return read(reference, resourceConfiguration, lazyRecordPage, batchFileSize, false);
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage, final long batchFileSize, final boolean compactHOTFragment) {
     ByteBuffer buffer = acquireBuffer(PAGE_PREFIX_BYTES);
     try {
       final long position = reference.getKey();
@@ -405,7 +435,9 @@ public final class FileChannelReader extends AbstractReader {
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
         verifyChecksumIfNeeded(buffer, reference, resourceConfiguration);
-        return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
+        return compactHOTFragment
+            ? deserializeHOTLeafFragmentFromSegment(resourceConfiguration, segment)
+            : deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
       } else {
         final byte[] page = new byte[dataLength];
         buffer.get(page);
@@ -575,6 +607,17 @@ public final class FileChannelReader extends AbstractReader {
    */
   @Override
   public Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(references, resourceConfiguration, false);
+  }
+
+  @Override
+  public Page[] readHOTLeafFragments(final PageReference[] references,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(references, resourceConfiguration, byteHandler.supportsMemorySegments());
+  }
+
+  private Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean compactHOTFragments) {
     final int n = references.length;
     final Page[] pages = new Page[n];
     // Coalesce over the offsets in FILE order, not caller order. Callers hand references in
@@ -634,11 +677,12 @@ public final class FileChannelReader extends AbstractReader {
         }
         if (j == i) {
           RUN_SINGLETONS.increment();
-          pages[order[i]] = read(references[order[i]], resourceConfiguration, false, batchFileSize);
+          pages[order[i]] =
+              read(references[order[i]], resourceConfiguration, false, batchFileSize, compactHOTFragments);
           i++;
           continue;
         }
-        readRun(references, pages, order, i, j, resourceConfiguration, batchFileSize);
+        readRun(references, pages, order, i, j, resourceConfiguration, batchFileSize, compactHOTFragments);
         i = j + 1;
       }
     } catch (final RuntimeException | Error failure) {
@@ -865,7 +909,8 @@ public final class FileChannelReader extends AbstractReader {
    * deserialize.
    */
   private void readRun(final PageReference[] references, final Page[] pages, final int[] order, final int from,
-      final int to, final @Nullable ResourceConfiguration resourceConfiguration, final long batchFileSize) {
+      final int to, final @Nullable ResourceConfiguration resourceConfiguration, final long batchFileSize,
+      final boolean compactHOTFragments) {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
@@ -894,15 +939,17 @@ public final class FileChannelReader extends AbstractReader {
           // Body would cross the next page's offset — not the append-only layout this
           // fast path assumes. Exact per-page read decides whether it is corruption.
           RUN_FALLBACKS.increment();
-          pages[order[k]] = read(member, resourceConfiguration, false, batchFileSize);
+          pages[order[k]] = read(member, resourceConfiguration, false, batchFileSize, compactHOTFragments);
           continue;
         }
         if (useSegments) {
           // The independent view leaves header lookup bounds intact for the next member.
           checksumView.clear().position(rel + Integer.BYTES).limit(rel + Integer.BYTES + dataLength);
           verifyChecksumIfNeeded(checksumView, member, resourceConfiguration);
-          pages[order[k]] =
-              deserializeFromSegment(resourceConfiguration, span.asSlice(rel + Integer.BYTES, dataLength), member);
+          final MemorySegment body = span.asSlice(rel + Integer.BYTES, dataLength);
+          pages[order[k]] = compactHOTFragments
+              ? deserializeHOTLeafFragmentFromSegment(resourceConfiguration, body)
+              : deserializeFromSegment(resourceConfiguration, body, member);
         } else {
           final byte[] page = new byte[dataLength];
           buffer.get(rel + 4, page);
@@ -924,7 +971,10 @@ public final class FileChannelReader extends AbstractReader {
       final PageReference lastMember = references[order[to]];
       if (useSegments) {
         verifyChecksumIfNeeded(buffer, lastMember, resourceConfiguration);
-        pages[order[to]] = deserializeFromSegment(resourceConfiguration, MemorySegment.ofBuffer(buffer), lastMember);
+        final MemorySegment body = MemorySegment.ofBuffer(buffer);
+        pages[order[to]] = compactHOTFragments
+            ? deserializeHOTLeafFragmentFromSegment(resourceConfiguration, body)
+            : deserializeFromSegment(resourceConfiguration, body, lastMember);
       } else {
         final byte[] page = new byte[lastLength];
         buffer.get(page);
