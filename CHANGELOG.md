@@ -89,8 +89,8 @@ All notable changes to SirixDB are documented in this file.
   as one lazily built hash lookup that every outer row probes, instead of a nested pipeline that
   reopens the inner relation per outer row. Keys are 64-bit integers, codepoint strings or JSON
   `null`; every other domain (floating/decimal promotion, mixed domains, NaN) keeps the original
-  compiled predicate, so value-comparison semantics are unchanged. `sdb:explain` names the two new
-  operators (`MembershipProbeExpr`, `MembershipIndexExpr`), and
+  compiled predicate, so value-comparison semantics are unchanged. `sdb:explain` names the physical
+  operator (`HashMembershipJoin`), and
   `-Dsirix.optimizer.hashMembership=false` restores the previous plan for diagnostics. See
   `docs/QUERY_MEMBERSHIP_OPTIMIZATION.md`.
 
