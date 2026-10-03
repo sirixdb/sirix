@@ -92,6 +92,17 @@ in CI via the `Deep verification` workflow.
 ./gradlew :sirix-core:test --tests 'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest' \
                            --tests 'io.sirix.cache.ShardedPageCacheInvariantStressTest'
 
+# HOT structural property test: the default lane runs with the normal test task; the heavy lane
+# drives every index kind with a longer seeded budget and records each shrunk failure as a
+# replayable stream (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
+                           -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
+                           -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
+# Replay one recorded failure, checking every step (-Dsirix.hot.property.reshrink=true minimizes it again)
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
+                           -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-3.txt \
+                           -Dsirix.hot.property.fullEvery=1 -Dsirix.hot.property.validationDump=true
+
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \

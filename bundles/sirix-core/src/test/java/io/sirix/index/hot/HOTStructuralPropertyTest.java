@@ -585,10 +585,6 @@ final class HOTStructuralPropertyTest {
       return type == PUT || type == PUT_MANY;
     }
 
-    boolean mutates() {
-      return type == PUT || type == REMOVE || type == PUT_MANY || type == REMOVE_MANY;
-    }
-
     Op withCount(final int count) {
       return new Op(type, k1, k2, k3, v, count);
     }
