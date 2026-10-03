@@ -139,7 +139,10 @@ public final class ValidTimeIntervalIndex {
     }
     final long[] sorted = candidates.toLongArray();
     Arrays.sort(sorted);
-    final long[] members = evidence.members();
+    return matchingMembers(sorted, evidence.members());
+  }
+
+  private static long[] matchingMembers(final long[] sorted, final long[] members) {
     int memberIndex = 0;
     int matchCount = 0;
     for (final long key : sorted) {

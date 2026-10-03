@@ -309,31 +309,8 @@ public final class IndexDef implements Materializable {
       tmp.closeElement();
     }
 
-    if (!excluded.isEmpty()) {
-      tmp.openElement(EXCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm s : excluded) {
-        buf.append(s).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
-
-    if (!included.isEmpty()) {
-      tmp.openElement(INCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm incl : included) {
-        buf.append(incl).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
+    materializeNameFilter(tmp, EXCLUDING_TAG, excluded);
+    materializeNameFilter(tmp, INCLUDING_TAG, included);
     //
     // if (indexStatistics != null) {
     // tmp.insert(indexStatistics.materialize());
@@ -341,6 +318,20 @@ public final class IndexDef implements Materializable {
 
     tmp.closeElement();
     return tmp.getRoot();
+  }
+
+  private static void materializeNameFilter(final FragmentHelper target, final QNm tag, final Set<QNm> names) {
+    if (names.isEmpty()) {
+      return;
+    }
+    target.openElement(tag);
+    final StringBuilder buf = new StringBuilder();
+    for (final QNm name : names) {
+      buf.append(name).append(",");
+    }
+    buf.deleteCharAt(buf.length() - 1);
+    target.content(buf.toString());
+    target.closeElement();
   }
 
   @Override

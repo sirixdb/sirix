@@ -158,16 +158,18 @@ but this change alone cannot provide demand-only object construction across its 
 `ValidTimeSliceWorkBudgetTest.userFunctionCountDoesNotMaterializeTheSlice` is disabled explicitly
 until Sirix consumes the corrected Brackit snapshot. Re-enable it when that dependency lands.
 The active direct-call and direct-FLWOR budgets keep their zero-read bounds. The standalone
-[UdfMaterializationRepro.java](bench/validtime-slice/UdfMaterializationRepro.java) needs only Brackit:
+[UdfMaterializationRepro.java](bench/validtime-slice/io/sirix/query/bench/validtime/UdfMaterializationRepro.java) needs only Brackit:
 `count(probe:keys())` constructs zero items; the trivial UDF wrapper constructs all 64. It also
 checks return conversion separately, so fixing only the explicit materialization is insufficient.
 
 ## Timing reproduction
 
-[LatencyProbe.java](bench/validtime-slice/LatencyProbe.java) separates compilation, complete result
+[LatencyProbe.java](bench/validtime-slice/io/sirix/query/bench/validtime/LatencyProbe.java) separates compilation, complete result
 iteration, serialization, and TSV canonicalization. It aborts on any oracle mismatch before reporting
 a timing. Build the normal query runtime classpath with `:sirix-query:printClickBenchRuntimeClasspath`
-and compile the probe against it. Preserve class directories and the core jar per measured variant
+and compile the probes against it with `javac -d <probe-classes>`. Their package is
+`io.sirix.query.bench.validtime`; add `<probe-classes>` to the runtime classpath when launching them.
+Preserve class directories and the core jar per measured variant
 so another build cannot change code under a running measurement.
 
 Use the unmodified SH1 loader and its natural publication batching, with read-only inputs/oracles
@@ -176,7 +178,7 @@ campaign directory. Use the kit JVM flags: `--enable-preview --add-modules=jdk.i
 -Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g` (and native-access permission for the storage backend).
 
 ```text
-LatencyProbe <db-root> <oracle-dir> <out-dir> <repetitions> <query-numbers...>
+io.sirix.query.bench.validtime.LatencyProbe <db-root> <oracle-dir> <out-dir> <repetitions> <query-numbers...>
 ```
 
 Warm: one JVM, ten repetitions, discard the first; Q6 and Q11 use three repetitions, discard the
@@ -213,7 +215,7 @@ initial/2 GB maximum JVM heap. Brackit was `1.0-alpha10-SNAPSHOT`, SHA-256
 other work, including part of this lane's full-suite validation, overlapped the timing campaign.
 Treat the medians as observed workload measurements, not latency guarantees.
 
-[DirectSliceProbe.java](bench/validtime-slice/DirectSliceProbe.java) counts a direct half-open slice
+[DirectSliceProbe.java](bench/validtime-slice/io/sirix/query/bench/validtime/DirectSliceProbe.java) counts a direct half-open slice
 at the kit's latest publication and valid-time point. Its independent expected count is the sum
 of the Q7 oracle's group counts: 97,212. With the same repetition/discard method, its total warm
 median fell from **403.1 ms to 93.0 ms** and its fresh-process query median from **3,938.7 ms to
