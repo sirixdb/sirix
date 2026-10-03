@@ -46,7 +46,7 @@ class CASKeySerializerTest {
     @DisplayName("Serialize and deserialize string value")
     void testStringRoundtrip() {
       CASValue original = new CASValue(new Str("hello"), Type.STR, 42);
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
 
       int length = serializer.serialize(original, buffer, 0);
       CASValue result = serializer.deserialize(buffer, 0, length);
@@ -61,8 +61,8 @@ class CASKeySerializerTest {
       CASValue a = new CASValue(new Str("apple"), Type.STR, 1);
       CASValue b = new CASValue(new Str("banana"), Type.STR, 1);
 
-      byte[] bufferA = new byte[256];
-      byte[] bufferB = new byte[256];
+      byte[] bufferA = new byte[512];
+      byte[] bufferB = new byte[512];
 
       int lenA = serializer.serialize(a, bufferA, 0);
       int lenB = serializer.serialize(b, bufferB, 0);
@@ -75,17 +75,17 @@ class CASKeySerializerTest {
     @Test
     @DisplayName("Empty string round-trips and sorts below every non-empty value")
     void testEmptyStringIsAValue() {
-      // The empty string is a legitimate indexed value, so its key is legitimately just the 10-byte
+      // The empty string is a legitimate indexed value, framed after the fixed-width
       // header. Rejecting a zero-length value region instead made indexing a `""` throw out of the
       // WRITER, and made a `>= ""` range bound throw out of the reader before it returned a cursor.
       final CASValue empty = new CASValue(new Str(""), Type.STR, 1);
-      final byte[] buffer = new byte[256];
+      final byte[] buffer = new byte[512];
       final int len = serializer.serialize(empty, buffer, 0);
-      assertEquals(10, len, "an empty value region is the 10-byte header alone");
+      assertEquals(12, len, "the empty value has a header and terminator");
       assertEquals(empty, serializer.deserialize(buffer, 0, len));
 
       // Order is preserved: shorter-is-less puts "" below every non-empty string of the same type.
-      final byte[] other = new byte[256];
+      final byte[] other = new byte[512];
       final int otherLen = serializer.serialize(new CASValue(new Str("a"), Type.STR, 1), other, 0);
       assertTrue(compareBytes(buffer, len, other, otherLen) < 0, "empty string sorts first");
     }
@@ -101,7 +101,7 @@ class CASKeySerializerTest {
     void testIntegerRoundtrip() {
       for (int value : new int[] {0, 1, -1, 100, -100, Integer.MAX_VALUE, Integer.MIN_VALUE}) {
         CASValue original = new CASValue(new Int32(value), Type.INT, 10);
-        byte[] buffer = new byte[256];
+        byte[] buffer = new byte[512];
 
         int length = serializer.serialize(original, buffer, 0);
         CASValue result = serializer.deserialize(buffer, 0, length);
@@ -118,7 +118,7 @@ class CASKeySerializerTest {
     void testLongRoundtrip() {
       for (long value : new long[] {0L, 1L, -1L, 1000000L, -1000000L}) {
         CASValue original = new CASValue(new Int64(value), Type.LON, 20);
-        byte[] buffer = new byte[256];
+        byte[] buffer = new byte[512];
 
         int length = serializer.serialize(original, buffer, 0);
         CASValue result = serializer.deserialize(buffer, 0, length);
@@ -134,7 +134,7 @@ class CASKeySerializerTest {
     void testDoubleRoundtrip() {
       for (double value : new double[] {0.0, 1.0, -1.0, 3.14159, -273.15}) {
         CASValue original = new CASValue(new Dbl(value), Type.DBL, 30);
-        byte[] buffer = new byte[256];
+        byte[] buffer = new byte[512];
 
         int length = serializer.serialize(original, buffer, 0);
         CASValue result = serializer.deserialize(buffer, 0, length);
@@ -151,9 +151,9 @@ class CASKeySerializerTest {
       CASValue zero = new CASValue(new Dbl(0.0), Type.DBL, 1);
       CASValue pos = new CASValue(new Dbl(100.0), Type.DBL, 1);
 
-      byte[] bufNeg = new byte[256];
-      byte[] bufZero = new byte[256];
-      byte[] bufPos = new byte[256];
+      byte[] bufNeg = new byte[512];
+      byte[] bufZero = new byte[512];
+      byte[] bufPos = new byte[512];
 
       int lenNeg = serializer.serialize(neg, bufNeg, 0);
       int lenZero = serializer.serialize(zero, bufZero, 0);
@@ -177,7 +177,7 @@ class CASKeySerializerTest {
           (1L << 62), -(1L << 62), Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE - 1, Long.MIN_VALUE + 1};
       for (long value : values) {
         CASValue original = new CASValue(new Int64(value), Type.LON, 7);
-        byte[] buffer = new byte[256];
+        byte[] buffer = new byte[512];
 
         int length = serializer.serialize(original, buffer, 0);
         CASValue result = serializer.deserialize(buffer, 0, length);
@@ -195,8 +195,8 @@ class CASKeySerializerTest {
       long a = (1L << 53); // 9007199254740992
       long b = (1L << 53) + 1; // 9007199254740993
 
-      byte[] bufA = new byte[256];
-      byte[] bufB = new byte[256];
+      byte[] bufA = new byte[512];
+      byte[] bufB = new byte[512];
 
       int lenA = serializer.serialize(new CASValue(new Int64(a), Type.LON, 7), bufA, 0);
       int lenB = serializer.serialize(new CASValue(new Int64(b), Type.LON, 7), bufB, 0);
@@ -211,8 +211,8 @@ class CASKeySerializerTest {
       long[] ascending = {Long.MIN_VALUE, Long.MIN_VALUE + 1, -(1L << 53), -1L, 0L, 1L, (1L << 53), (1L << 53) + 1,
           Long.MAX_VALUE - 1, Long.MAX_VALUE};
       for (int i = 1; i < ascending.length; i++) {
-        byte[] lo = new byte[256];
-        byte[] hi = new byte[256];
+        byte[] lo = new byte[512];
+        byte[] hi = new byte[512];
         int lenLo = serializer.serialize(new CASValue(new Int64(ascending[i - 1]), Type.LON, 1), lo, 0);
         int lenHi = serializer.serialize(new CASValue(new Int64(ascending[i]), Type.LON, 1), hi, 0);
         assertTrue(compareBytes(lo, lenLo, hi, lenHi) < 0, ascending[i - 1] + " must sort before " + ascending[i]);
@@ -225,7 +225,7 @@ class CASKeySerializerTest {
       // CAS indexes type integer content as xs:integer (Type.INR); verify that path.
       long value = (1L << 53) + 12345;
       CASValue original = new CASValue(new Int64(value), Type.INR, 99);
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
 
       int length = serializer.serialize(original, buffer, 0);
       CASValue result = serializer.deserialize(buffer, 0, length);
@@ -243,7 +243,7 @@ class CASKeySerializerTest {
     @DisplayName("Serialize true")
     void testSerializeTrue() {
       CASValue original = new CASValue(new Bool(true), Type.BOOL, 1);
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
 
       int length = serializer.serialize(original, buffer, 0);
       CASValue result = serializer.deserialize(buffer, 0, length);
@@ -255,7 +255,7 @@ class CASKeySerializerTest {
     @DisplayName("Serialize false")
     void testSerializeFalse() {
       CASValue original = new CASValue(new Bool(false), Type.BOOL, 1);
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
 
       int length = serializer.serialize(original, buffer, 0);
       CASValue result = serializer.deserialize(buffer, 0, length);
@@ -269,8 +269,8 @@ class CASKeySerializerTest {
       CASValue falseVal = new CASValue(new Bool(false), Type.BOOL, 1);
       CASValue trueVal = new CASValue(new Bool(true), Type.BOOL, 1);
 
-      byte[] bufFalse = new byte[256];
-      byte[] bufTrue = new byte[256];
+      byte[] bufFalse = new byte[512];
+      byte[] bufTrue = new byte[512];
 
       int lenFalse = serializer.serialize(falseVal, bufFalse, 0);
       int lenTrue = serializer.serialize(trueVal, bufTrue, 0);
@@ -289,8 +289,8 @@ class CASKeySerializerTest {
       CASValue low = new CASValue(new Str("a"), Type.STR, 1);
       CASValue high = new CASValue(new Str("a"), Type.STR, 100);
 
-      byte[] bufLow = new byte[256];
-      byte[] bufHigh = new byte[256];
+      byte[] bufLow = new byte[512];
+      byte[] bufHigh = new byte[512];
 
       int lenLow = serializer.serialize(low, bufLow, 0);
       int lenHigh = serializer.serialize(high, bufHigh, 0);
@@ -304,8 +304,8 @@ class CASKeySerializerTest {
       CASValue neg = new CASValue(new Str("a"), Type.STR, -1);
       CASValue pos = new CASValue(new Str("a"), Type.STR, 1);
 
-      byte[] bufNeg = new byte[256];
-      byte[] bufPos = new byte[256];
+      byte[] bufNeg = new byte[512];
+      byte[] bufPos = new byte[512];
 
       int lenNeg = serializer.serialize(neg, bufNeg, 0);
       int lenPos = serializer.serialize(pos, bufPos, 0);
@@ -321,7 +321,7 @@ class CASKeySerializerTest {
     @Test
     @DisplayName("Null key throws exception")
     void testNullKey() {
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
       assertThrows(NullPointerException.class, () -> serializer.serialize(null, buffer, 0));
     }
 
@@ -329,7 +329,7 @@ class CASKeySerializerTest {
     @DisplayName("Unicode strings are handled")
     void testUnicodeString() {
       CASValue original = new CASValue(new Str("日本語"), Type.STR, 1);
-      byte[] buffer = new byte[256];
+      byte[] buffer = new byte[512];
 
       int length = serializer.serialize(original, buffer, 0);
       CASValue result = serializer.deserialize(buffer, 0, length);

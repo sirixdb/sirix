@@ -35,9 +35,13 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.settings.VersioningType;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
+
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -62,11 +66,9 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexWriter<K extends Comparable<? super K>> extends AbstractHOTIndexWriter<K> {
 
   /**
-   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
-   * {@code MAX_STRING_VALUE_BYTES = 246}) PLUS {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4)
-   * chunkIdx trailer = 260 bytes minimum; rounded to 512 for headroom across future serializer
-   * changes. Previously 256, which overflowed by 4 bytes whenever the prefix maxed out (regression
-   * caught by {@code JsonIntegrationTest.testCreateAndScanCASIndex3} via long-string CAS values).
+   * Thread-local buffer for key serialization. The largest escaped CAS prefix is 504 bytes; its chunk
+   * trailer and optional delta suffix fit in 512 bytes. NAME keys grow the buffer when their
+   * serialized names need more room.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
@@ -78,6 +80,32 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   private static final ThreadLocal<NodeReferences> SINGLE_BIT_REFS = ThreadLocal.withInitial(NodeReferences::new);
 
   private final HOTKeySerializer<K> keySerializer;
+
+  /** Whether hot chunks of this index take the append-only delta path ({@link PostingDeltas}). */
+  private final boolean postingDeltas;
+  private final int hotChunkBytes;
+  private final int foldBound;
+
+  /** Transaction-confined scratch; no per-change delta arrays. */
+  private final @Nullable ChunkView chunkView;
+
+  private static final AtomicLong DELTA_WRITES = new AtomicLong();
+  private static final AtomicLong DELTA_FOLDS = new AtomicLong();
+
+  /** Delta slots written, counted when the existing HOT merge diagnostics are enabled. */
+  public static long postingDeltaWrites() {
+    return DELTA_WRITES.get();
+  }
+
+  /** In-memory folds, counted when the existing HOT merge diagnostics are enabled. */
+  public static long postingDeltaFolds() {
+    return DELTA_FOLDS.get();
+  }
+
+  private static final int DELTA_NOT_APPLICABLE = 0;
+  private static final int DELTA_SKIPPED = 1;
+  private static final int DELTA_WRITTEN = 2;
+  private static final int DELTA_FOLDED = 3;
 
   /** Lazy reader for chunked-bitmap reassembly during {@link #get} / range scans. */
   private @Nullable HOTTrieReader chunkReader;
@@ -91,9 +119,15 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * @param indexNumber the index number
    */
   private HOTIndexWriter(StorageEngineWriter storageEngineWriter, HOTKeySerializer<K> keySerializer,
-      IndexType indexType, int indexNumber) {
+      IndexType indexType, int indexNumber, int hotChunkBytes, int foldBound) {
     super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
+    this.postingDeltas = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
+    this.hotChunkBytes = hotChunkBytes;
+    this.foldBound = foldBound;
+    this.chunkView = postingDeltas
+        ? new ChunkView(foldBound)
+        : null;
 
     // Initialize HOT index tree based on type
     initializeHOTIndex();
@@ -124,10 +158,20 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    */
   public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter storageEngineWriter,
       HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
+    return create(storageEngineWriter, keySerializer, indexType, indexNumber, PostingDeltas.HOT_CHUNK_BYTES,
+        PostingDeltas.FOLD_BOUND);
+  }
+
+  /** Transaction-local test seam for exercising geometry across different delta bounds. */
+  static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter storageEngineWriter,
+      HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber, int hotChunkBytes, int foldBound) {
     requireNonNull(storageEngineWriter);
     requireNonNull(indexType);
+    if (hotChunkBytes <= 0 || foldBound < 2 || foldBound > PostingDeltas.MAX_SEQ + 1) {
+      throw new IllegalArgumentException("invalid posting delta thresholds");
+    }
     HOTIndexNumberValidator.validate(storageEngineWriter, indexType, indexNumber);
-    return new HOTIndexWriter<>(storageEngineWriter, keySerializer, indexType, indexNumber);
+    return new HOTIndexWriter<>(storageEngineWriter, keySerializer, indexType, indexNumber, hotChunkBytes, foldBound);
   }
 
   /**
@@ -180,8 +224,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * Equivalent to {@link #index(Comparable, NodeReferences)} with a one-element
    * {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write is an
    * OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
-   * reference never has to materialise — let alone read back — the references already stored under
-   * {@code key}.
+   * reference avoids allocating a one-element bitmap. Hot CAS and VALIDTIME chunks instead append a
+   * delta after checking membership against the base and its bounded live deltas.
    * </p>
    *
    * @param key the logical index key
@@ -228,15 +272,330 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
+    if (postingDeltas && chunkIdx >= 0 && chunkIdx <= PostingDeltas.MAX_CHUNK_IDX
+        && applyPostingDelta(keyBuf, compLen, bit16, false) != DELTA_NOT_APPLICABLE) {
+      return;
+    }
+
     // Reusable single-bit payload — clear, set, serialize. Avoids per-call bitmap allocation.
+    serializeSingleBit(bit16);
+
+    doIndex(keyBuf, compLen, lastSerializedValueBuf, lastSerializedValueLen);
+  }
+
+  private void serializeSingleBit(final long bit16) {
     final NodeReferences singleBit = SINGLE_BIT_REFS.get();
     final Roaring64Bitmap singleBitmap = singleBit.getNodeKeys();
     singleBitmap.clear();
     singleBitmap.add(bit16);
     serializeValueInto(singleBit);
-
-    doIndex(keyBuf, compLen, lastSerializedValueBuf, lastSerializedValueLen);
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Append-only posting deltas (see PostingDeltas): a hot chunk's change is one tiny delta slot;
+  // FOLD_BOUND live deltas are folded into the chunk and tombstoned.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The writer's view of one chunk: its base payload and its live deltas in application order. */
+  private static final class ChunkView {
+    private boolean baseExists;
+    private int baseLength;
+    private @Nullable Roaring64Bitmap baseBits;
+    private byte[] cachedBase = new byte[0];
+    private byte[] baseReadBuffer = new byte[0];
+    private int cachedBaseLength = -1;
+    private int liveCount;
+    private final boolean[] liveRemove;
+    private final long[] liveBit;
+
+    private ChunkView(final int foldBound) {
+      liveRemove = new boolean[foldBound - 1];
+      liveBit = new long[foldBound - 1];
+    }
+
+    /** Reuse a decoded base only after comparing every current payload byte under the leaf guard. */
+    private void readBase(final HOTLeafPage leaf, final long ref, final int length) {
+      if (length > leaf.slotCapacity()) {
+        throw new IllegalStateException("posting base exceeds its leaf slot capacity");
+      }
+      if (baseReadBuffer.length < length) {
+        baseReadBuffer = new byte[Math.max(length, baseReadBuffer.length * 2)];
+      }
+      leaf.copyRefInto(ref, 0, baseReadBuffer, 0, length);
+      finishReadBase(length);
+    }
+
+    private void readBase(final byte[] payload) {
+      if (cachedBaseLength != payload.length
+          || !Arrays.equals(cachedBase, 0, payload.length, payload, 0, payload.length)) {
+        if (baseReadBuffer.length < payload.length) {
+          baseReadBuffer = new byte[Math.max(payload.length, baseReadBuffer.length * 2)];
+        }
+        System.arraycopy(payload, 0, baseReadBuffer, 0, payload.length);
+        cacheReadBase(payload.length);
+      }
+      baseLength = payload.length;
+      baseExists = true;
+    }
+
+    private void finishReadBase(final int length) {
+      if (cachedBaseLength != length || !Arrays.equals(cachedBase, 0, length, baseReadBuffer, 0, length)) {
+        cacheReadBase(length);
+      }
+      baseLength = length;
+      baseExists = true;
+    }
+
+    private void cacheReadBase(final int length) {
+      final byte[] previous = cachedBase;
+      cachedBase = baseReadBuffer;
+      baseReadBuffer = previous;
+      baseBits = NodeReferencesSerializer.deserializeChunk(cachedBase, 0, length).getNodeKeys();
+      cachedBaseLength = length;
+    }
+
+    private void addLive(final int seq, final boolean remove, final long bit16) {
+      if (seq != liveCount || liveCount >= liveBit.length) {
+        throw new IllegalStateException(
+            "non-contiguous or overfull posting delta sequence: " + seq + " at " + liveCount);
+      }
+      liveRemove[liveCount] = remove;
+      liveBit[liveCount] = bit16;
+      liveCount++;
+    }
+  }
+
+  private ChunkView readChunkView(final byte[] keyBuf, final int compLen) {
+    final ChunkView view = requireNonNull(chunkView);
+    view.baseExists = false;
+    view.baseLength = 0;
+    view.liveCount = 0;
+    final PageReference rootRef = rootReference;
+    if (rootRef == null) {
+      return view;
+    }
+    final HOTLeafPage baseLeaf = acquireLeafForRead(keyBuf, compLen);
+    if (baseLeaf == null) {
+      return view;
+    }
+    Throwable failure = null;
+    try {
+      final int index = baseLeaf.findEntry(keyBuf, compLen);
+      if (index < 0) {
+        return view;
+      }
+      final long ref = baseLeaf.valueRef(index);
+      final int length = HOTLeafPage.refLength(ref);
+      if (NodeReferencesSerializer.isReferenced(baseLeaf, ref)) {
+        view.readBase(NodeReferencesSerializer.resolveReferencedPayload(baseLeaf,
+            NodeReferencesSerializer.referencedKey(baseLeaf, ref),
+            NodeReferencesSerializer.referencedPayloadLength(baseLeaf, ref),
+            storageEngineWriter::readSideOverflowPage));
+      } else {
+        if (length < hotChunkBytes) {
+          return view; // A cold base cannot have live deltas: only a fold changes the base.
+        }
+        view.readBase(baseLeaf, ref, length);
+      }
+      // The guard already protects the base leaf. If the next logical chunk is on it too, every
+      // delta fits in this leaf and no second tree descent or range-cursor allocation is needed.
+      final int end = baseLeaf.getEntryCount();
+      if (baseLeaf.compareKeyPrefix(end - 1, keyBuf, compLen) > 0) {
+        readLeafDeltas(view, baseLeaf, index + 1, keyBuf, compLen);
+        return view;
+      }
+      // A leaf boundary may split the chunk from its deltas. Re-walk that bounded suffix range.
+      view.liveCount = 0;
+    } catch (final RuntimeException | Error e) {
+      failure = e;
+      throw e;
+    } finally {
+      releaseLeafReadGuard(baseLeaf, failure);
+    }
+    if (chunkReader == null) {
+      chunkReader = new HOTTrieReader(storageEngineWriter);
+    }
+    final int deltaLen = compLen + PostingDeltas.SUFFIX_BYTES;
+    HOTKeySerializer.writeChunkIdxBE(keyBuf, compLen, PostingDeltas.suffix(0, false));
+    // One stamp covers a whole leaf's delta batch. Scratch changes are retained only after that
+    // stamp validates; a torn batch rolls back its count and retries the same leaf and position.
+    // Closing the reusable reader also releases a guard acquired by its bounded recovery path.
+    try (HOTTrieReader reader = chunkReader) {
+      final HOTTrieReader.LowerBoundResult start = reader.lowerBound(rootRef, keyBuf, deltaLen);
+      HOTLeafPage leaf = start.leaf;
+      int index = start.indexInLeaf;
+      int tornRounds = 0;
+      while (leaf != null) {
+        final int liveBeforeLeaf = view.liveCount;
+        final boolean complete;
+        try {
+          complete = readLeafDeltas(view, leaf, index, keyBuf, compLen);
+        } catch (final RuntimeException e) {
+          if (reader.validateCurrentLeaf()) {
+            throw e;
+          }
+          view.liveCount = liveBeforeLeaf;
+          reader.recoverTorn(++tornRounds, "posting delta leaf batch");
+          leaf = reader.currentLeafPage();
+          continue;
+        }
+        if (!reader.validateCurrentLeaf()) {
+          view.liveCount = liveBeforeLeaf;
+          reader.recoverTorn(++tornRounds, "posting delta leaf batch");
+          leaf = reader.currentLeafPage();
+          continue;
+        }
+        tornRounds = 0;
+        if (complete) {
+          break;
+        }
+        leaf = reader.advanceToNextLeaf();
+        index = 0;
+      }
+    }
+    return view;
+  }
+
+  /** Read one leaf batch; the caller must guard it or validate before keeping the added deltas. */
+  private static boolean readLeafDeltas(final ChunkView view, final HOTLeafPage leaf, final int start,
+      final byte[] keyBuf, final int compLen) {
+    final int end = leaf.getEntryCount();
+    final boolean sharedPrefix = leaf.getCommonPrefixLen() >= compLen;
+    if (sharedPrefix && start < end) {
+      final int order = leaf.compareKeyPrefix(start, keyBuf, compLen);
+      if (order != 0) {
+        return order > 0;
+      }
+    }
+    for (int index = start; index < end; index++) {
+      if (!sharedPrefix) {
+        final int order = leaf.compareKeyPrefix(index, keyBuf, compLen);
+        if (order > 0) {
+          return true;
+        }
+        if (order < 0) {
+          continue;
+        }
+      }
+      if (leaf.getKeyLength(index) != compLen + PostingDeltas.SUFFIX_BYTES) {
+        throw new IllegalStateException("invalid posting delta key length");
+      }
+      final long suffix = leaf.readKeyIntBE(index, compLen) & 0xFFFFFFFFL;
+      if (!PostingDeltas.isDelta(suffix)
+          || suffix > (PostingDeltas.suffix(PostingDeltas.MAX_SEQ, true) & 0xFFFFFFFFL)) {
+        throw new IllegalStateException("invalid posting delta suffix");
+      }
+      final long bit = NodeReferencesSerializer.readDeltaBit(leaf, leaf.valueRef(index));
+      if (bit >= 0) {
+        view.addLive(PostingDeltas.seq(suffix), PostingDeltas.isRemove(suffix), bit);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Try to record one add/remove of {@code bit16} in the composite chunk as a delta.
+   *
+   * @return {@link #DELTA_NOT_APPLICABLE} when the chunk is not hot (the caller takes the direct
+   *         chunk path), {@link #DELTA_SKIPPED} when the operation would not change the postings (the
+   *         byte-equal skip), {@link #DELTA_WRITTEN} or {@link #DELTA_FOLDED}
+   */
+  private int applyPostingDelta(final byte[] keyBuf, final int compLen, final long bit16, final boolean remove) {
+    storageEngineWriter.assertTransactionWritable();
+    try {
+      return applyPostingDeltaChecked(keyBuf, compLen, bit16, remove);
+    } catch (final RuntimeException | Error failure) {
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
+  private int applyPostingDeltaChecked(final byte[] keyBuf, final int compLen, final long bit16, final boolean remove) {
+    final ChunkView view = readChunkView(keyBuf, compLen);
+    if (!view.baseExists || (view.liveCount == 0 && view.baseLength < hotChunkBytes)) {
+      return DELTA_NOT_APPLICABLE;
+    }
+    boolean present = false;
+    boolean changedByDelta = false;
+    for (int i = view.liveCount - 1; i >= 0; i--) {
+      if (view.liveBit[i] == bit16) {
+        present = !view.liveRemove[i];
+        changedByDelta = true;
+        break;
+      }
+    }
+    if (!changedByDelta) {
+      present = view.baseBits != null && view.baseBits.contains(bit16);
+    }
+    if (remove != present) {
+      return DELTA_SKIPPED; // adding a present key or removing an absent one changes nothing
+    }
+    if (view.liveCount + 1 >= foldBound) {
+      foldPostingDeltas(keyBuf, compLen, view, bit16, remove);
+      if (VersioningType.hotMergeDiagEnabled()) {
+        DELTA_FOLDS.incrementAndGet();
+      }
+      return DELTA_FOLDED;
+    }
+    final int deltaLen = compLen + PostingDeltas.SUFFIX_BYTES;
+    HOTKeySerializer.writeChunkIdxBE(keyBuf, compLen, PostingDeltas.suffix(view.liveCount, remove));
+    serializeSingleBit(bit16);
+    doIndex(keyBuf, deltaLen, lastSerializedValueBuf, lastSerializedValueLen);
+    if (VersioningType.hotMergeDiagEnabled()) {
+      DELTA_WRITES.incrementAndGet();
+    }
+    return DELTA_WRITTEN;
+  }
+
+  /**
+   * Fold: apply the live deltas in order and then the current operation to the base chunk through the
+   * ordinary chunk operations, then tombstone the known single-bit delta slots. Readers at older
+   * revisions keep the older base plus its live deltas.
+   */
+  private void foldPostingDeltas(final byte[] keyBuf, final int compLen, final ChunkView view, final long bit16,
+      final boolean remove) {
+    final byte[] baseKey = Arrays.copyOf(keyBuf, compLen);
+    // Fold in memory — the base bits, the live deltas in application order, then the operation — and
+    // store the result once. Hot payloads live in side pages referenced by their leaf markers.
+    final Roaring64Bitmap folded = requireNonNull(view.baseBits);
+    view.cachedBaseLength = -1; // The cached bitmap is about to diverge from its payload bytes.
+    for (int i = 0; i < view.liveCount; i++) {
+      if (view.liveRemove[i]) {
+        folded.removeLong(view.liveBit[i]);
+      } else {
+        folded.addLong(view.liveBit[i]);
+      }
+    }
+    if (remove) {
+      folded.removeLong(bit16);
+    } else {
+      folded.addLong(bit16);
+    }
+    serializeValueInto(NodeReferences.owning(folded));
+    doReplacePostingChunk(baseKey, compLen, lastSerializedValueBuf, lastSerializedValueLen,
+        lastSerializedValueLen >= hotChunkBytes);
+    final byte[] deltaKey = Arrays.copyOf(baseKey, compLen + PostingDeltas.SUFFIX_BYTES);
+    HOTLeafPage writableLeaf = null;
+    for (int i = 0; i < view.liveCount; i++) {
+      HOTKeySerializer.writeChunkIdxBE(deltaKey, compLen, PostingDeltas.suffix(i, view.liveRemove[i]));
+      int index = writableLeaf == null
+          ? -1
+          : writableLeaf.findEntry(deltaKey, deltaKey.length);
+      if (index < 0) {
+        // Suffixes are visited in key order. Tombstones retain their keys and do not split or
+        // consolidate leaves, so one writable descent suffices for every delta on this leaf.
+        writableLeaf = prepareLeafOfTree(rootReference, deltaKey, deltaKey.length).leaf();
+        index = writableLeaf.findEntry(deltaKey, deltaKey.length);
+      }
+      if (index < 0
+          || NodeReferencesSerializer.readDeltaBit(writableLeaf, writableLeaf.valueRef(index)) != view.liveBit[i]
+          || !writableLeaf.deleteAt(index)) {
+        // applyPostingDelta owns the rollback-only catch, including failures after partial cleanup.
+        throw new IllegalStateException("missing or changed delta during posting fold");
+      }
+    }
+  }
+
 
   /**
    * Reassemble all chunks of a logical key into a single {@link NodeReferences}.
@@ -296,7 +655,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     // slot's copies against the cursor's leaf stamp before anything reaches the deserializer.
     final Roaring64Bitmap merged;
     try (HOTRangeCursor cursor = chunkReader.range(rootRef, fromBytes, toBytes)) {
-      merged = NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen);
+      merged = NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen, postingDeltas);
     }
     if (merged == null || merged.isEmpty()) {
       return null;
@@ -326,6 +685,15 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
+    if (postingDeltas && chunkIdx >= 0 && chunkIdx <= PostingDeltas.MAX_CHUNK_IDX) {
+      final int outcome = applyPostingDelta(keyBuf, compLen, bit16, true);
+      if (outcome == DELTA_SKIPPED) {
+        return false;
+      }
+      if (outcome != DELTA_NOT_APPLICABLE) {
+        return true;
+      }
+    }
     return doRemovePostingBit(keyBuf, compLen, bit16);
   }
 
@@ -347,9 +715,11 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     return keyBufferOfAtLeast(keySerializer.maxSerializedLength(key));
   }
 
-  /** As {@link #prefixKeyBuffer}, with room for the 4-byte chunkIdx trailer as well. */
+  /** As {@link #prefixKeyBuffer}, with room for the chunk trailer and any posting delta suffix. */
   private byte[] chunkedKeyBuffer(final K key) {
-    return keyBufferOfAtLeast(keySerializer.maxSerializedLength(key) + HOTKeySerializer.CHUNK_IDX_BYTES);
+    return keyBufferOfAtLeast(keySerializer.maxSerializedLength(key) + HOTKeySerializer.CHUNK_IDX_BYTES + (postingDeltas
+        ? PostingDeltas.SUFFIX_BYTES
+        : 0));
   }
 
   private static byte[] keyBufferOfAtLeast(final int required) {

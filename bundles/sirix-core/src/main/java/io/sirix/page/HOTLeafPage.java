@@ -1547,6 +1547,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final int keyLen = commonPrefixLen + suffixLen;
     Objects.checkFromIndexSize(pos, Integer.BYTES, keyLen);
     final long suffixStart = offset + 2;
+    if (pos >= commonPrefixLen) {
+      return SegmentAccess.getIntBE(slotMemory, suffixStart + pos - commonPrefixLen);
+    }
     int v = 0;
     for (int i = pos; i < pos + Integer.BYTES; i++) {
       final int b = i < commonPrefixLen
@@ -3048,6 +3051,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       // identical to the slow path below.
       final long existingRef = valueRef(index);
       if (existingRef != NO_VALUE_REF) {
+        if (NodeReferencesSerializer.isReferenced(this, existingRef)) {
+          throw new IllegalStateException("Referenced posting chunks must be merged through their side pages");
+        }
         if (NodeReferencesSerializer.isTombstone(this, existingRef)) {
           NodeReferencesSerializer.requireValidChunkPayload(value, 0, valueLen);
           final byte[] valueSlice = valueLen == value.length
@@ -3357,7 +3363,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         final var entry = iterator.next();
         final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
         PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
-        if (target.findEntry(ownerKey) >= 0) {
+        if (target.findEntry(ownerKey) >= 0 || target.findReferencedPostingOwner(entry.getLongKey()) >= 0) {
           target.setPageReference(entry.getLongKey(), entry.getValue());
           iterator.remove();
         }
@@ -4762,6 +4768,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     } finally {
       endSideReferenceRead();
     }
+  }
+
+  /**
+   * The slot whose value is a referenced posting-chunk marker ({@code 0xFD ‖ refKey ‖ length})
+   * carrying {@code refKey}, or {@code -1}. A posting index's composite keys are not 8-byte path
+   * keys, so a referenced chunk's side reference is routed to the leaf that holds the marker, not by
+   * {@link #overflowPageRefOwnerSlot}'s derivation. A bounded scan of this leaf's slot headers, used
+   * only when entries move between leaves.
+   */
+  public int findReferencedPostingOwner(final long refKey) {
+    if (indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) {
+      return -1;
+    }
+    for (int index = 0; index < entryCount; index++) {
+      final long ref = valueRef(index);
+      if (NodeReferencesSerializer.isReferenced(this, ref) && refLongBEAt(ref, 1) == refKey) {
+        return index;
+      }
+    }
+    return -1;
   }
 
   /** Number of side-map references on this page. */

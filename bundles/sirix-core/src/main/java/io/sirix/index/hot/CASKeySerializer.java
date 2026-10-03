@@ -59,7 +59,7 @@ import static java.util.Objects.requireNonNull;
  * <ol>
  * <li>pathNodeKey (8 bytes, sign-flipped for order preservation)</li>
  * <li>type ID (2 bytes)</li>
- * <li>value (N bytes, order-preserving encoding)</li>
+ * <li>value (order-preserving atomic encoding, zero-escaped and terminated by 00 00)</li>
  * </ol>
  *
  * <h2>Order Preservation</h2>
@@ -163,8 +163,39 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // Singleton
   }
 
+  /**
+   * The fixed-width header is followed by an escaped value and a 00 00 terminator. A zero value byte
+   * becomes 00 FF. This preserves unsigned byte order and makes the logical keys prefix-free,
+   * including empty values and trailing NULs, so chunk trailers and delta suffixes cannot alias
+   * another logical key. All atomic families use this framing.
+   */
   @Override
-  public int serialize(CASValue key, byte[] dest, int offset) {
+  public int serialize(final CASValue key, final byte[] dest, final int offset) {
+    requireNonNull(dest, "dest");
+    final byte[] raw = RAW_KEY.get();
+    final int rawLength = serializeUnescaped(key, raw, 0);
+    int length = rawLength + 2;
+    for (int i = HEADER_BYTES; i < rawLength; i++) {
+      if (raw[i] == 0) {
+        length++;
+      }
+    }
+    Objects.checkFromIndexSize(offset, length, dest.length);
+    System.arraycopy(raw, 0, dest, offset, HEADER_BYTES);
+    int out = offset + HEADER_BYTES;
+    for (int i = HEADER_BYTES; i < rawLength; i++) {
+      final byte value = raw[i];
+      dest[out++] = value;
+      if (value == 0) {
+        dest[out++] = (byte) 0xFF;
+      }
+    }
+    dest[out++] = 0;
+    dest[out] = 0;
+    return length;
+  }
+
+  private int serializeUnescaped(CASValue key, byte[] dest, int offset) {
     requireNonNull(key, "Key cannot be null");
     int start = offset;
 
@@ -203,14 +234,12 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * A CAS key is a 10-byte header plus a value region the encoders bound themselves: 8 bytes for
-   * every numeric family, 1 for a boolean, and at most {@link #MAX_STRING_VALUE_BYTES} for a string,
-   * which {@link #encodeAtomicOrderPreserving} truncates to. So the bound is a constant and no key of
-   * any type can exceed it.
+   * A CAS key has a fixed header and a bounded atomic encoding. Escaping can double the value bytes;
+   * the logical key also includes its two-byte terminator.
    */
   @Override
   public int maxSerializedLength(final CASValue key) {
-    return HEADER_BYTES + MAX_STRING_VALUE_BYTES;
+    return HEADER_BYTES + 2 * MAX_STRING_VALUE_BYTES + 2;
   }
 
   /**
@@ -235,7 +264,47 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   @Override
-  public CASValue deserialize(byte[] bytes, int offset, int length) {
+  public CASValue deserialize(final byte[] bytes, final int offset, final int length) {
+    final int prefixLength = logicalKeyLength(bytes, offset, length);
+    if (prefixLength != length) {
+      throw new IllegalArgumentException("trailing bytes after CAS logical key");
+    }
+    final byte[] raw = RAW_KEY.get();
+    System.arraycopy(bytes, offset, raw, 0, HEADER_BYTES);
+    int out = HEADER_BYTES;
+    for (int i = offset + HEADER_BYTES, end = offset + length - 2; i < end; i++) {
+      final byte value = bytes[i];
+      if (out == raw.length) {
+        throw new IllegalArgumentException("CAS value exceeds encoded value limit");
+      }
+      raw[out++] = value;
+      if (value == 0) {
+        i++; // logicalKeyLength validated the FF escape.
+      }
+    }
+    return deserializeUnescaped(raw, 0, out);
+  }
+
+  /** Length of the framed logical key, excluding any following chunk trailer or delta suffix. */
+  @Override
+  public int logicalKeyLength(final byte[] bytes, final int offset, final int length) {
+    Objects.checkFromIndexSize(offset, length, bytes.length);
+    for (int i = offset + HEADER_BYTES, end = offset + length; i + 1 < end; i++) {
+      if (bytes[i] != 0) {
+        continue;
+      }
+      final int next = bytes[++i] & 0xFF;
+      if (next == 0) {
+        return i + 1 - offset;
+      }
+      if (next != 0xFF) {
+        throw new IllegalArgumentException("invalid CAS key escape");
+      }
+    }
+    throw new IllegalArgumentException("CAS logical key has no terminator");
+  }
+
+  private CASValue deserializeUnescaped(byte[] bytes, int offset, int length) {
     // Read path node key (8 bytes)
     long signFlipped = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
         | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
@@ -263,6 +332,12 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * typeId), buffer is 256 bytes.
    */
   static final int MAX_STRING_VALUE_BYTES = 246;
+
+  /** Scratch for the bounded atomic encoding, reused across keys on this thread. */
+  private static final ThreadLocal<byte[]> RAW_KEY =
+      ThreadLocal.withInitial(() -> new byte[HEADER_BYTES + MAX_STRING_VALUE_BYTES]);
+
+
 
   /** {@code Long.MIN_VALUE} as a decimal, for the saturating integer parse. */
   private static final BigDecimal LONG_MIN = BigDecimal.valueOf(Long.MIN_VALUE);

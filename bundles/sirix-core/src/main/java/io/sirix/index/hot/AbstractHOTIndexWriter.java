@@ -38,6 +38,7 @@ import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.ProjectionIndexPage;
@@ -597,7 +598,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /** Preserve the primary structural/rebuild failure even if poisoning itself also fails. */
-  private void markTransactionRollbackOnly(final Throwable failure) {
+  protected final void markTransactionRollbackOnly(final Throwable failure) {
     try {
       storageEngineWriter.markTransactionRollbackOnly(failure);
     } catch (final RuntimeException | Error poisonFailure) {
@@ -1930,6 +1931,122 @@ public abstract class AbstractHOTIndexWriter<K> {
     return doMutation(MutationOperation.REMOVE_POSTING_BIT, keyBuf, keyLen, null, 0, bit16);
   }
 
+  /** Chunks a fold stored as referenced side pages instead of inline leaf values. */
+  public static final AtomicLong REFERENCED_CHUNK_WRITES = new AtomicLong();
+
+  /** The side-map key sentinel for "no referenced chunk involved". */
+  private static final long NO_REFERENCED_KEY = Long.MIN_VALUE;
+  /**
+   * The referenced chunk a posting-bit removal resolved, carried from the read descent to the write.
+   */
+  private long pendingReferencedKey = NO_REFERENCED_KEY;
+  /**
+   * The rewritten payload of that chunk, attached after its marker is updated; {@code null} when it
+   * emptied.
+   */
+  private byte @Nullable [] pendingReferencedPayload;
+
+  /**
+   * Install {@code payload} as the side page of {@code refKey} on {@code leaf}, replacing any
+   * previous one.
+   */
+  private static void attachReferencedPayload(final HOTLeafPage leaf, final long refKey, final byte[] payload) {
+    final PageReference reference = new PageReference();
+    reference.setPage(new OverflowPage(payload));
+    leaf.setPageReference(refKey, reference);
+  }
+
+  /** The payload of the referenced chunk at {@code index}, through this writer's storage engine. */
+  private byte[] referencedPayloadForWrite(final HOTLeafPage leaf, final int index) {
+    final long ref = leaf.valueRef(index);
+    return NodeReferencesSerializer.resolveReferencedPayload(leaf, NodeReferencesSerializer.referencedKey(leaf, ref),
+        NodeReferencesSerializer.referencedPayloadLength(leaf, ref), storageEngineWriter::readSideOverflowPage);
+  }
+
+  /**
+   * Union {@code value} into the referenced chunk at {@code index}: resolve, merge, and rewrite the
+   * side page under the same key. The marker keeps its length, so the slot is updated in place.
+   */
+  private void mergeIntoReferencedChunk(final HOTLeafPage leaf, final int index, final byte[] valueBuf,
+      final int valueLen) {
+    final long refKey = NodeReferencesSerializer.referencedKey(leaf, leaf.valueRef(index));
+    final NodeReferences existing = NodeReferencesSerializer.deserializeChunk(referencedPayloadForWrite(leaf, index));
+    final NodeReferences incoming = NodeReferencesSerializer.deserializeChunk(valueBuf, 0, valueLen);
+    final long cardinality = existing.getNodeKeys().getLongCardinality();
+    NodeReferencesSerializer.merge(existing, incoming);
+    if (existing.getNodeKeys().getLongCardinality() == cardinality) {
+      return;
+    }
+    final byte[] merged = NodeReferencesSerializer.serialize(existing);
+    if (!leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, merged.length))) {
+      throw new IllegalStateException(
+          "referenced chunk marker could not be rewritten in place at leaf " + leaf.getPageKey() + ", slot " + index);
+    }
+    attachReferencedPayload(leaf, refKey, merged);
+  }
+
+  /**
+   * Replace an existing posting chunk after folding its deltas in memory. A growing payload uses the
+   * same tombstone-and-dispatch overflow path as posting removal; a failed fold poisons the
+   * transaction so a partially applied base/delta replacement can never be committed.
+   */
+  protected final void doReplacePostingChunk(final byte[] keyBuf, final int keyLen, final byte[] valueBuf,
+      final int valueLen, final boolean referencePayload) {
+    storageEngineWriter.assertTransactionWritable();
+    requireNonNull(keyBuf);
+    requireNonNull(valueBuf);
+    if (keyLen <= 0 || keyLen > keyBuf.length || valueLen <= 0 || valueLen > valueBuf.length) {
+      throw new IllegalArgumentException("invalid posting chunk replacement range");
+    }
+    try {
+      final LeafNavigationResult route = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+      final HOTLeafPage leaf = route.leaf();
+      final int index = leaf.findEntry(keyBuf, keyLen);
+      if (index < 0) {
+        throw new IllegalStateException("missing base chunk during posting delta fold");
+      }
+      final long oldValue = leaf.valueRef(index);
+      final long oldRefKey = NodeReferencesSerializer.isReferenced(leaf, oldValue)
+          ? NodeReferencesSerializer.referencedKey(leaf, oldValue)
+          : NO_REFERENCED_KEY;
+      if (referencePayload) {
+        final long refKey = oldRefKey != NO_REFERENCED_KEY
+            ? oldRefKey
+            : PostingDeltas.referenceKey(keyBuf, keyLen);
+        final int owner = leaf.findReferencedPostingOwner(refKey);
+        if ((owner < 0 && leaf.getPageReference(refKey) == null) || owner == index) {
+          // Serializer buffers are reusable scratch. A side page must own immutable, exact bytes.
+          final byte[] payload = Arrays.copyOf(valueBuf, valueLen);
+          if (leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, valueLen))) {
+            attachReferencedPayload(leaf, refKey, payload);
+            if (VersioningType.hotMergeDiagEnabled()) {
+              REFERENCED_CHUNK_WRITES.incrementAndGet();
+            }
+            return;
+          }
+        }
+        // A hash collision belongs to a different chunk; retain this payload inline.
+      }
+      if (leaf.updateValueRange(index, valueBuf, 0, valueLen)) {
+        if (oldRefKey != NO_REFERENCED_KEY) {
+          leaf.removePageReference(oldRefKey);
+        }
+        return;
+      }
+      final byte[] replacement = Arrays.copyOf(valueBuf, valueLen);
+      if (!leaf.deleteAt(index)) {
+        throw new IllegalStateException("could not tombstone base chunk during posting delta fold");
+      }
+      if (oldRefKey != NO_REFERENCED_KEY) {
+        leaf.removePageReference(oldRefKey);
+      }
+      dispatchInsert(route, keyBuf, keyLen, replacement, replacement.length, true);
+    } catch (final RuntimeException | Error failure) {
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
+  }
+
   /**
    * The one operation-coded foreground mutation driver for HOT indexes.
    *
@@ -2044,17 +2161,28 @@ public abstract class AbstractHOTIndexWriter<K> {
             "HOT posting-list slot disappeared between read and CoW descents; leaf=" + writableLeaf.getPageKey());
       }
 
+      final long referencedKey = pendingReferencedKey;
+      final byte[] referencedPayload = pendingReferencedPayload;
       if (replacementLength == NodeReferencesSerializer.PACKED_REMOVE_EMPTY) {
         if (!writableLeaf.deleteAt(writableIndex)) {
           throw new IllegalStateException("HOT posting-list slot could not be tombstoned at leaf "
               + writableLeaf.getPageKey() + ", slot " + writableIndex);
+        }
+        if (referencedKey != NO_REFERENCED_KEY) {
+          writableLeaf.removePageReference(referencedKey);
         }
         return true;
       }
 
       final byte[] replacementBuffer = requireNonNull(lastSerializedValueBuf, "posting removal buffer");
       if (writableLeaf.updateValueRange(writableIndex, replacementBuffer, 0, replacementLength)) {
+        if (referencedPayload != null) {
+          attachReferencedPayload(writableLeaf, referencedKey, referencedPayload);
+        }
         return true;
+      }
+      if (referencedPayload != null) {
+        throw new IllegalStateException("Referenced posting marker could not be replaced in place");
       }
 
       // A remove can grow only when its representation changes (notably a 65-entry Roaring chunk
@@ -2078,6 +2206,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       // must roll back before doing further work.
       markTransactionRollbackOnly(failure);
       throw failure;
+    } finally {
+      pendingReferencedKey = NO_REFERENCED_KEY;
+      pendingReferencedPayload = null;
     }
   }
 
@@ -2141,12 +2272,26 @@ public abstract class AbstractHOTIndexWriter<K> {
       return NodeReferencesSerializer.PACKED_REMOVE_ABSENT;
     }
 
-    final NodeReferences chunkReferences = NodeReferencesSerializer.deserializeChunk(valueBytes);
+    final boolean referenced = NodeReferencesSerializer.isReferenced(valueBytes, 0, valueBytes.length);
+    final byte[] payload = referenced
+        ? referencedPayloadForWrite(leaf, index)
+        : valueBytes;
+    final NodeReferences chunkReferences = NodeReferencesSerializer.deserializeChunk(payload);
     if (!chunkReferences.removeNodeKey(bit16)) {
       return NodeReferencesSerializer.PACKED_REMOVE_ABSENT;
     }
+    if (referenced) {
+      pendingReferencedKey = NodeReferencesSerializer.referencedKey(valueBytes, 0);
+    }
     if (!chunkReferences.hasNodeKeys()) {
       return NodeReferencesSerializer.PACKED_REMOVE_EMPTY;
+    }
+    if (referenced) {
+      pendingReferencedPayload = NodeReferencesSerializer.serialize(chunkReferences);
+      lastSerializedValueBuf =
+          NodeReferencesSerializer.encodeReferenced(pendingReferencedKey, pendingReferencedPayload.length);
+      lastSerializedValueLen = lastSerializedValueBuf.length;
+      return lastSerializedValueLen;
     }
     serializeValueInto(chunkReferences);
     return lastSerializedValueLen;
@@ -4171,6 +4316,13 @@ public abstract class AbstractHOTIndexWriter<K> {
             ? valueBuf
             : Arrays.copyOf(valueBuf, valueLen)
         : null;
+    if (indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) {
+      final int index = leaf.findEntry(keyBuf, keyLen);
+      if (index >= 0 && NodeReferencesSerializer.isReferenced(leaf, leaf.valueRef(index))) {
+        mergeIntoReferencedChunk(leaf, index, valueBuf, valueLen);
+        return null;
+      }
+    }
     // Fast path: the entry fits the bucket. The leaf is mutated in place — already in the TIL.
     // No indirect structure changes, so no structural validation scope is needed (return null).
     // Both leaf APIs consume the valid key prefix directly. The serializer's spare buffer capacity
@@ -5545,6 +5697,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
+
+
   /** Strand cases delegated to the complete structural-frontier primitive. */
   public static final AtomicLong STRAND_COMPLETE_FRONTIER = new AtomicLong();
   /**
@@ -5729,7 +5883,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     // stores out-of-line segments.
     final List<CapturedSegmentRef> sourceSegmentRefs = new ArrayList<>(sourceLeaf.segmentRefCount());
     for (final long refKey : sourceLeaf.overflowPageRefKeysSorted()) {
-      sourceSegmentRefs.add(new CapturedSegmentRef(refKey, sourceLeaf.getPageReference(refKey)));
+      sourceSegmentRefs.add(
+          new CapturedSegmentRef(refKey, sourceLeaf.getPageReference(refKey), postingOwnerKey(sourceLeaf, refKey)));
     }
     final List<HOTBulkBuilder.Entry> remaining = new ArrayList<>(sourceLeaf.getEntryCount());
     for (int i = 0; i < sourceLeaf.getEntryCount(); i++) {
@@ -6400,9 +6555,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Preserve projection side-map ownership when the one boundary leaf is split. A side whose range is
-   * empty has no half; an owner in neither half — the entry a replacing split dropped — is refused
-   * rather than orphaning its segment page.
+   * Preserve side-map ownership when the one boundary leaf is split. A side whose range is empty has
+   * no half; an owner in neither half — the entry a replacing split dropped — is refused rather than
+   * orphaning its segment page.
    */
   private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final @Nullable HOTLeafPage left,
       final @Nullable HOTLeafPage right) {
@@ -6416,11 +6571,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("HOT boundary leaf side reference " + refKey + " has no owner reference");
       }
       PathKeySerializer.INSTANCE.serialize(HOTLeafPage.overflowPageRefOwnerSlot(refKey), ownerKey, 0);
-      final HOTLeafPage owner = left != null && left.findEntry(ownerKey) >= 0
-          ? left
-          : right != null && right.findEntry(ownerKey) >= 0
-              ? right
-              : null;
+      final HOTLeafPage owner =
+          left != null && (left.findEntry(ownerKey) >= 0 || left.findReferencedPostingOwner(refKey) >= 0)
+              ? left
+              : right != null && (right.findEntry(ownerKey) >= 0 || right.findReferencedPostingOwner(refKey) >= 0)
+                  ? right
+                  : null;
       if (owner == null) {
         throw new IllegalStateException("HOT boundary leaf split lost side-reference owner for refKey " + refKey);
       }
@@ -7648,7 +7804,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private void collectLeafEntries(final HOTLeafPage leaf, final List<HOTBulkBuilder.Entry> out,
       final List<CapturedSegmentRef> segmentRefsOut) {
     for (final long refKey : leaf.overflowPageRefKeysSorted()) {
-      segmentRefsOut.add(new CapturedSegmentRef(refKey, leaf.getPageReference(refKey)));
+      segmentRefsOut.add(new CapturedSegmentRef(refKey, leaf.getPageReference(refKey), postingOwnerKey(leaf, refKey)));
     }
     final int count = leaf.getEntryCount();
     for (int i = 0; i < count; i++) {
@@ -7662,15 +7818,23 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /** A side-map entry captured off a leaf that a bounded frontier splice is about to replace. */
-  private record CapturedSegmentRef(long refKey, PageReference reference) {
+  private record CapturedSegmentRef(long refKey, PageReference reference, byte @Nullable [] ownerKey) {
+  }
+
+  /** Posting markers identify their owner by composite key, not the hashed side-map key. */
+  private static byte @Nullable [] postingOwnerKey(final HOTLeafPage leaf, final long refKey) {
+    final int index = leaf.findReferencedPostingOwner(refKey);
+    return index < 0
+        ? null
+        : leaf.getKey(index);
   }
 
   /**
    * Re-home captured side-map references into the freshly built subtree: for each reference, descend
    * from {@code newRoot} to the leaf now holding its owning slot and re-attach there. Mirrors
-   * {@link HOTLeafPage#overflowPageRefKey}'s contract (owner slot = {@code refKey >>> 16}, stored-key
-   * encoding = {@link PathKeySerializer}) — the same owner-slot-residency routing the leaf split
-   * paths apply via {@code moveOverflowPageRefsAfterSplit}.
+   * {@link HOTLeafPage#overflowPageRefKey}'s projection owner-slot contract; posting references
+   * instead carry their exact composite owner key. This is the same ownership routing as leaf splits,
+   * with local hash collisions renamed when two posting owners arrive in the same leaf.
    *
    * <p>
    * The bulk-built subtree contains every collected entry, so the owning slot MUST be found; anything
@@ -7682,7 +7846,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     final HOTLeafPage[] owners = new HOTLeafPage[refs.size()];
     final LongOpenHashSet uniqueRefKeys = new LongOpenHashSet(refs.size());
-    final byte[] ownerKey = new byte[8];
+    final byte[] projectionOwnerKey = new byte[Long.BYTES];
     // Pass 1 is deliberately side-effect free. A missing owner must be discovered before ANY
     // captured reference is attached, so an unpublished bulk-built root always remains safely
     // discardable as one ownership unit.
@@ -7692,12 +7856,15 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException(
             "Segment-ref reattach after frontier splice: refKey " + captured.refKey() + " has no PageReference");
       }
-      if (!uniqueRefKeys.add(captured.refKey())) {
+      if (captured.ownerKey() == null && !uniqueRefKeys.add(captured.refKey())) {
         throw new IllegalStateException("Segment-ref reattach after frontier splice: duplicate refKey "
             + captured.refKey() + " was captured from more than one source leaf");
       }
       final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
-      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, projectionOwnerKey, 0);
+      final byte[] ownerKey = captured.ownerKey() == null
+          ? projectionOwnerKey
+          : captured.ownerKey();
       Page current = newRoot;
       while (current instanceof HOTIndirectPage indirect) {
         final int childIndex = indirect.findChildIndex(ownerKey);
@@ -7711,6 +7878,19 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("Segment-ref reattach after frontier splice: owning slot " + ownerSlot
             + " (refKey=" + captured.refKey() + ") not found in the replacement subtree — an entry was lost.");
       }
+      if (captured.ownerKey() != null) {
+        final int index = leaf.findEntry(ownerKey);
+        final long value = leaf.valueRef(index);
+        if (!NodeReferencesSerializer.isReferenced(leaf, value)
+            || NodeReferencesSerializer.referencedKey(leaf, value) != captured.refKey()) {
+          throw new IllegalStateException("Posting marker changed during side-reference reattachment");
+        }
+        for (int previous = 0; previous < i; previous++) {
+          if (owners[previous] == leaf && Arrays.equals(refs.get(previous).ownerKey(), ownerKey)) {
+            throw new IllegalStateException("Posting owner captured more than once during frontier rebuild");
+          }
+        }
+      }
       owners[i] = leaf;
     }
     // Pass 2 cannot fail for a fresh active leaf under the single-writer discipline. If an
@@ -7718,8 +7898,35 @@ public abstract class AbstractHOTIndexWriter<K> {
     // HOTLeafPage teardown severs (but does not retire) these shared PageReference objects.
     for (int i = 0; i < refs.size(); i++) {
       final CapturedSegmentRef captured = refs.get(i);
-      owners[i].setPageReference(captured.refKey(), captured.reference());
+      final HOTLeafPage owner = owners[i];
+      long refKey = captured.refKey();
+      if (captured.ownerKey() != null) {
+        final int index = owner.findEntry(captured.ownerKey());
+        if (owner.findReferencedPostingOwner(refKey) != index || owner.getPageReference(refKey) != null) {
+          // Hashes need only be unique within a leaf. Two source leaves can share a hash and a
+          // frontier rebuild can place both owners together. Rename this marker before attaching.
+          refKey = unusedPostingReferenceKey(owner, refKey);
+          final int length = NodeReferencesSerializer.referencedPayloadLength(owner, owner.valueRef(index));
+          if (!owner.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, length))) {
+            throw new IllegalStateException("Cannot rename a colliding posting reference marker");
+          }
+        }
+      }
+      owner.setPageReference(refKey, captured.reference());
     }
+  }
+
+  /** A collision is cold; at most one probe per resident marker can be occupied. */
+  private static long unusedPostingReferenceKey(final HOTLeafPage leaf, final long collision) {
+    long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(collision);
+    for (int attempt = 0; attempt <= leaf.getEntryCount(); attempt++) {
+      ownerSlot = (ownerSlot + 1) & ((1L << 47) - 1);
+      final long key = HOTLeafPage.overflowPageRefKey(ownerSlot, PostingDeltas.REFERENCE_SUB_ID);
+      if (leaf.findReferencedPostingOwner(key) < 0 && leaf.getPageReference(key) == null) {
+        return key;
+      }
+    }
+    throw new IllegalStateException("Cannot allocate a unique posting reference key within a leaf");
   }
 
   /**
@@ -7981,6 +8188,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     byte[] valueBytes = leaf.getValue(index);
     if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
       return null; // Deleted entry
+    }
+    if (NodeReferencesSerializer.isReferenced(valueBytes, 0, valueBytes.length)) {
+      valueBytes = referencedPayloadForWrite(leaf, index);
     }
     return NodeReferencesSerializer.deserializeChunk(valueBytes);
   }

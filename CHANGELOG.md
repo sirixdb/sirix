@@ -96,6 +96,13 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **CAS and VALIDTIME posting chunks** now append single-posting deltas for hot chunks and fold
+  every 64 changes into one base payload. Hot folded payloads live in referenced side pages, so
+  versioned leaves carry 13-byte markers instead of repeating the payload. CAS logical keys use order-preserving zero escaping
+  and termination so delta suffixes cannot alias longer values, including trailing NULs. The full
+  48-bit node-key range remains supported. This replaces the development index format in place;
+  old CAS indexes are not supported. See `docs/DISK_FORMAT.md`.
+
 - **A commit no longer lists the index-catalogue directory.** Every commit re-instantiates the
   writer, which asks for the catalogue of the revision it is about to create; that file cannot
   exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file

@@ -270,6 +270,39 @@ remaining size lives in string *values*: per-block string dictionaries / wider F
 the highest-value future encoding (Umbra "Data Blocks" model), and it slots into the existing
 PAX-region + `structuralFlags` extension points without a format break.
 
+### CAS and VALIDTIME posting chunks
+
+A logical posting list is split into chunks of 65,536 node keys. A base slot uses
+`logicalPrefix || chunkIndex_BE4`; its ordinary `NodeReferences` payload holds the low 16 bits.
+The chunk index is unsigned, preserving node keys throughout `[0, 2^48)`.
+
+CAS prefixes have a fixed 10-byte header (sign-flipped path class, type id), followed by the
+atomic value's existing order-preserving encoding with `00` escaped as `00 FF`, then `00 00`.
+The value limit applies **before** escaping. This makes logical keys prefix-free without changing
+the atomic ordering or the direct path-class read. VALIDTIME prefixes remain fixed at 17 bytes.
+
+For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
+changes. Each delta is `baseKey || suffix_BE4`, where
+`suffix = 0x80000000 | (sequence << 1) | removal`. Its payload contains exactly one low-16 posting
+bit. It sorts after its base and before the next chunk. The 64th live change folds the prior 63
+deltas plus that operation in memory, replaces the base once, and tombstones the old delta
+slots. Subsequent changes reuse sequence slots. Duplicate additions and absent removals write
+nothing. Higher chunk indices retain direct updates; they cannot be confused with suffixes because
+readers identify the logical key boundary, not the high bit of a chunk index.
+
+A folded payload of at least 256 bytes lives in an `OverflowPage`. Its leaf slot stores the
+13-byte marker `[FD][referenceKey_BE8][payloadLength_BE4]`. The side-map key is a 47-bit FNV-1a hash
+of the composite key, mixed with `hash ^= hash >>> 29`, shifted left 16 bits with sub-id 1.
+A same-leaf hash collision leaves a newly folded payload inline. Frontier rebuilds that bring
+colliding owners together rename a marker to a free side-map key before attaching its payload.
+Readers resolve the side page through their revision and validate its length against the marker.
+Splits and frontier rebuilds route references by the actual composite owner key; consolidation
+skips leaves carrying side pages. A fold that becomes cold or empty removes the old side reference.
+
+Every revision reads its own base and live deltas in sequence order. Folds replace immutable side
+pages and do not alter historical postings. This is the only CAS key encoding and posting layout;
+there are no old-format readers, migrations, or compatibility switches.
+
 ## 3. Integrity
 
 - Every page's XXH3-64 (of the compressed payload) is stored in its **parent's** PageReference →
