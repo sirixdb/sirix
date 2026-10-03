@@ -12,6 +12,7 @@ import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.SirixFiles;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -37,6 +38,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.OpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
@@ -206,7 +208,7 @@ final class DatabaseOwnershipTest {
     try (final Database<JsonResourceSession> first = Databases.openJsonDatabase(path);
         final Database<JsonResourceSession> second = Databases.openJsonDatabase(path)) {
       final Map<Path, Set<Database<?>>> snapshot = DatabasesInternals.getOpenDatabases();
-      final Set<Database<?>> handles = snapshot.get(path.toRealPath());
+      final Set<Database<?>> handles = Objects.requireNonNull(snapshot.get(path.toRealPath()));
       assertEquals(Set.of(first, second), handles);
       for (final Database<?> handle : handles) {
         handle.close();
@@ -621,9 +623,10 @@ final class DatabaseOwnershipTest {
         assertTrue(healthy.isClosed(), "other resources must still be quiesced");
         if (sibling != null) {
           assertFalse(sibling.isOpen(), "other handles must still be quiesced");
-          assertTrue(siblingSession.isClosed());
+          assertTrue(Objects.requireNonNull(siblingSession).isClosed());
         }
-        assertTrue(DatabasesInternals.getOpenDatabases().get(path.toRealPath()).contains(failing));
+        assertTrue(
+            Objects.requireNonNull(DatabasesInternals.getOpenDatabases().get(path.toRealPath())).contains(failing));
         assertThrows(IllegalStateException.class, () -> failing.removeResource("failed"));
         assertChildRefused(path);
         try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(path)) {
@@ -729,7 +732,8 @@ final class DatabaseOwnershipTest {
       try {
         assertThrows(IllegalStateException.class, database::close);
         assertTrue(database.isOpen());
-        assertTrue(DatabasesInternals.getOpenDatabases().get(path.toRealPath()).contains(database));
+        assertTrue(
+            Objects.requireNonNull(DatabasesInternals.getOpenDatabases().get(path.toRealPath())).contains(database));
         assertChildRefused(path);
         database.close();
         assertFalse(database.isOpen());
@@ -742,7 +746,8 @@ final class DatabaseOwnershipTest {
     }
   }
 
-  private static void setWriterField(final NodeTrx writer, final String name, final Object value) throws Exception {
+  private static void setWriterField(final NodeTrx writer, final String name, final @Nullable Object value)
+      throws Exception {
     final Field field = AbstractNodeTrxImpl.class.getDeclaredField(name);
     field.setAccessible(true);
     field.set(writer, value);
@@ -860,7 +865,7 @@ final class DatabaseOwnershipTest {
       final SirixDatabaseLockException failure =
           assertThrows(SirixDatabaseLockException.class, () -> Databases.openJsonDatabase(path));
       assertEquals(path.toRealPath(), failure.getDatabasePath());
-      assertTrue(failure.getMessage().contains(path.toRealPath().toString()));
+      assertTrue(Objects.requireNonNull(failure.getMessage()).contains(path.toRealPath().toString()));
       assertFalse(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
       assertThrows(SirixDatabaseLockException.class, () -> Databases.removeDatabase(path));
       assertChildRefused(path);
@@ -978,7 +983,7 @@ final class DatabaseOwnershipTest {
           }
         }
       } catch (final SirixDatabaseLockException e) {
-        if (!e.getMessage().contains(path.toRealPath().toString())) {
+        if (!Objects.requireNonNull(e.getMessage()).contains(path.toRealPath().toString())) {
           throw e;
         }
         System.out.println("LOCKED " + e.getDatabasePath());

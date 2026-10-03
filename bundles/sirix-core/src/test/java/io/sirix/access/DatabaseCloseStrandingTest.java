@@ -47,8 +47,8 @@ final class DatabaseCloseStrandingTest {
   @SuppressWarnings("unchecked")
   private static LocalDatabase<JsonResourceSession, ?> newDatabase(final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<JsonResourceSession> store) {
-    return new LocalDatabase<>(new NoOpTransactionManager(), dbConfig, sessions, store,
-        new WriteLocksRegistry(), new PathBasedPool<>());
+    return new LocalDatabase<>(new NoOpTransactionManager(), dbConfig, sessions, store, new WriteLocksRegistry(),
+        new PathBasedPool<>());
   }
 
   /** A store whose {@code close()} fails, standing in for any cleanup that can throw. */
