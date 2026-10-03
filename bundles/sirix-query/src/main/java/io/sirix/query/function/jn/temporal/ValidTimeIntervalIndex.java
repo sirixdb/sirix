@@ -1,6 +1,7 @@
 package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
@@ -9,6 +10,7 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
+import io.sirix.query.function.DateTimeToInstant;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
@@ -17,6 +19,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 public final class ValidTimeIntervalIndex {
 
@@ -35,15 +38,12 @@ public final class ValidTimeIntervalIndex {
       return null;
     }
     final Evidence evidence = residual == null ? null : readEvidence(document, definition.getID());
-    if (evidence != null && !evidence.ordered()) {
-      return null;
-    }
     return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(), evidence);
   }
 
-  public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Instant instant,
+  public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Supplier<Sequence> point,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd) {
-    if (!(document instanceof Array array) || !new IntervalDomain().isExact(instant)) {
+    if (!(document instanceof Array array) || array.len() == 0) {
       return null;
     }
     final IndexDef definition = findValidTimeIndex(document);
@@ -58,6 +58,13 @@ public final class ValidTimeIntervalIndex {
       if (evidence.unverified().contains(member)) {
         return null;
       }
+    }
+    if (!(point.get() instanceof DateTime dateTime) || dateTime.getTimezone() == null) {
+      return null;
+    }
+    final Instant instant = new DateTimeToInstant().convert(dateTime);
+    if (!new IntervalDomain().isExact(instant)) {
+      return null;
     }
     return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID(), evidence);
   }

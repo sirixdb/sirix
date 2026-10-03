@@ -15,6 +15,7 @@ import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.json.JsonDBItem;
 
 import java.time.Instant;
+import java.util.function.Supplier;
 
 /**
  * Shared linear-scan ("fallback") implementation of the valid-time point-in-time predicate
@@ -33,7 +34,7 @@ public final class ValidTimeFilter {
   private ValidTimeFilter() {}
 
   /** Exact fallback for the two original xs:dateTime comparisons, preserving conjunct order. */
-  public static Sequence comparisonScanSequence(final JsonDBItem document, final Sequence point, final String from,
+  public static Sequence comparisonScanSequence(final JsonDBItem document, final Supplier<Sequence> point, final String from,
       final String to, final int mode, final StaticContext context, final QueryContext queryContext) {
     if (!(document instanceof Array array)) {
       throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, "Expected an array for valid-time FLWOR");
