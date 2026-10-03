@@ -375,6 +375,9 @@ public final class ProjectionBloomChunks {
       }
       final int sealed = chunks.size();
       final int count = chunkCount();
+      if (count == 0) {
+        return new int[ranges + 1];
+      }
       final int openTails = tails.size();
       int openWeight = 0;
       for (int tail = 0; tail < openTails; tail++) {
@@ -565,13 +568,6 @@ public final class ProjectionBloomChunks {
   }
 
   /**
-   * Whether this open-chunk tail has a payload to fetch. An inline tail is carried in its locator, so
-   * it costs no page read and the open-chunk prune probes it in place; a length outside a single
-   * leaf's bound can never be a usable fingerprint, so it is not fetched either. The prune and the
-   * range split read this one predicate, so what the walk fetches and what the split prices cannot
-   * drift apart.
-   */
-  /**
    * How many of {@code chunkId}'s tail slots a column with published physical count
    * {@code priorPhysical} can own: its whole span when no mark parsed ({@code priorPhysical < 0}),
    * the published open span when this IS the chunk at that mark, and none otherwise.
@@ -585,6 +581,13 @@ public final class ProjectionBloomChunks {
         : 0;
   }
 
+  /**
+   * Whether this open-chunk tail has a payload to fetch. An inline tail is carried in its locator, so
+   * it costs no page read and the open-chunk prune probes it in place; a length outside a single
+   * leaf's bound can never be a usable fingerprint, so it is not fetched either. The prune and the
+   * range split read this one predicate, so what the walk fetches and what the split prices cannot
+   * drift apart.
+   */
   private static boolean tailNeedsFetch(final ProjectionIndexHOTStorage.BlobLocators tails, final int tail) {
     return tails.inlinePayload(tail) == null && tails.offset(tail) != Constants.NULL_ID_LONG && tails.length(tail) > 0
         && tails.length(tail) <= ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(1);
@@ -888,13 +891,17 @@ public final class ProjectionBloomChunks {
     // ONE chunk sealedChunkCount(P) and only across its openLeafCount(P) row groups — a parsed mark
     // bounds every tail scan exactly. Without one there is no bound to apply, so the scan stays
     // conservative and sweeps the whole chunk.
+    // This is the ONLY place a prior manifest is read in this call: the publication loop below reuses
+    // these bytes, and nothing between here and a column's own publication writes that column's slot.
     final int[] priorPhysical = new int[columnKinds.length];
+    final byte[][] priorManifests = new byte[columnKinds.length][];
     Arrays.fill(priorPhysical, -1);
     for (int c = 0; c < columnKinds.length; c++) {
       if (!isStringKind(columnKinds[c])) {
         continue;
       }
-      final Manifest prior = parseManifest(storage.getBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(c)), -1);
+      priorManifests[c] = storage.getBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
+      final Manifest prior = parseManifest(priorManifests[c], -1);
       if (prior != null) {
         priorPhysical[c] = prior.physicalRowGroupCount();
       }
@@ -1068,13 +1075,12 @@ public final class ProjectionBloomChunks {
       }
       final long manifestSlot = ProjectionIndexHOTStorage.bloomBlockSlotKey(c);
       final byte[] nextManifest = manifest(rowGroupCount, physicalRowGroupCount);
-      final byte[] priorManifest = storage.getBlob(manifestSlot);
+      final byte[] priorManifest = priorManifests[c];
       if (priorManifest != null)
         bytesRead += priorManifest.length;
-      final Manifest parsedPrior = parseManifest(priorManifest, -1);
-      final int foldFrom = parsedPrior == null
+      final int foldFrom = priorPhysical[c] < 0
           ? 0
-          : sealedChunkCount(parsedPrior.physicalRowGroupCount());
+          : sealedChunkCount(priorPhysical[c]);
       for (int chunkId = foldFrom; chunkId < sealedNew; chunkId++) {
         final long chunkSlot = chunkSlotKey(c, chunkId);
         // Presence only: materialising and verifying the block just to drop it would also turn a
@@ -1083,9 +1089,7 @@ public final class ProjectionBloomChunks {
           continue; // already a block (rewritten above, or built as a full chunk): never fold over it
         }
         final int firstLeaf = chunkId * CHUNK_LEAVES + 1;
-        final int tailScanTo = tailScanBound(parsedPrior == null
-            ? -1
-            : parsedPrior.physicalRowGroupCount(), chunkId, CHUNK_LEAVES);
+        final int tailScanTo = tailScanBound(priorPhysical[c], chunkId, CHUNK_LEAVES);
         final byte[][] slices = new byte[CHUNK_LEAVES][];
         for (int i = 0; i < tailScanTo; i++) {
           final byte[] tail = storage.getBlob(tailSlotKey(c, firstLeaf + i));
@@ -1106,9 +1110,9 @@ public final class ProjectionBloomChunks {
           }
         }
       }
-      if (parsedPrior != null && parsedPrior.physicalRowGroupCount() > physicalRowGroupCount) {
+      if (priorPhysical[c] > physicalRowGroupCount) {
         // The high-water mark receded: drop blocks and tail blobs beyond it.
-        final int priorSealed = sealedChunkCount(parsedPrior.physicalRowGroupCount());
+        final int priorSealed = sealedChunkCount(priorPhysical[c]);
         for (int chunkId = sealedNew; chunkId < priorSealed; chunkId++) {
           final long chunkSlot = chunkSlotKey(c, chunkId);
           if (storage.getRawSlot(chunkSlot) != null) {
@@ -1117,7 +1121,7 @@ public final class ProjectionBloomChunks {
           }
         }
         final int firstRemovedTail = Math.max(physicalRowGroupCount + 1, priorSealed * CHUNK_LEAVES + 1);
-        for (int rowGroupId = firstRemovedTail; rowGroupId <= parsedPrior.physicalRowGroupCount(); rowGroupId++) {
+        for (int rowGroupId = firstRemovedTail; rowGroupId <= priorPhysical[c]; rowGroupId++) {
           final long tailSlot = tailSlotKey(c, rowGroupId);
           tailSlotReads++;
           if (storage.getRawSlot(tailSlot) != null) {

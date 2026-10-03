@@ -1949,6 +1949,47 @@ final class ProjectionBloomChunksTest {
     }
   }
 
+  /**
+   * The split is a total function over its documented domain. A column whose published mark is zero
+   * spans no chunks at all, and asking it for a partition must hand back empty ranges rather than
+   * dividing by an even cut of zero width. No production caller reaches this — the store asks for
+   * more than one range only from {@code BLOOM_MANY_PARALLEL_MIN_CHUNKS} chunks up — so the helper's
+   * own contract is the only thing holding the line.
+   */
+  @Test
+  void theChunkRangeSplitPartitionsEmptyEvidenceInsteadOfDividingByZero() {
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        writer.finishChunks(storage, 0, COLUMN_KINDS);
+        writer.publishManifests(storage, 0);
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, 0);
+        assertNotNull(evidence, "a published mark of zero is still readable evidence");
+        final ProjectionBloomChunks.ColumnEvidence column = evidence[0];
+        assertEquals(0, column.chunkCount(), "nothing is sealed and nothing is open");
+
+        for (final int ranges : new int[] {1, 2, 4, 17}) {
+          assertArrayEquals(new int[ranges + 1], column.weightedRangeBounds(ranges),
+              "every range over empty evidence must come out empty, asked for " + ranges + " ranges");
+        }
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
+        assertEquals(0, column.prune(0L, new long[0], 0, fetcher),
+            "there is no leaf to prune and no evidence to prune it with");
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
   /** The plain index-even cut the weighted split is measured against. */
   private static int[] evenRangeBounds(final int count, final int ranges) {
     final int[] bounds = new int[ranges + 1];
