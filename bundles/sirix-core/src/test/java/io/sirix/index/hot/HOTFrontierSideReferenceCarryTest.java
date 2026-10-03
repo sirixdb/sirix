@@ -40,14 +40,14 @@ import static org.mockito.Mockito.when;
  * <p>
  * A projection slot whose blob was spilled to a segment page owns a side reference on its leaf.
  * Replacing that blob with an inline value writes the new value first and releases the page
- * afterwards, so when the larger value overflows the leaf the slot still owns the page. The overflow
- * is discharged through the complete frontier only where the integrate cascade is refused, which an
- * ordinary trie reaches at a full parent under a full grandparent whose split would break the trie
- * condition: here the grandparent's upper half is a node that straddles bit 44 next to a leaf that
- * differs from it below that bit, so the recompressed half would discriminate on the node's own
- * most significant bit. The frontier then splits the overflowing leaf immediately before the key,
- * drops the key's stale entry from it, and used to throw {@code lost side-reference owner} because
- * the owner was in neither half; the transaction was poisoned and the load stopped.
+ * afterwards, so when the larger value overflows the leaf the slot still owns the page. The
+ * overflow is discharged through the complete frontier only where the integrate cascade is refused,
+ * which an ordinary trie reaches at a full parent under a full grandparent whose split would break
+ * the trie condition: here the grandparent's upper half is a node that straddles bit 44 next to a
+ * leaf that differs from it below that bit, so the recompressed half would discriminate on the
+ * node's own most significant bit. The frontier then splits the overflowing leaf immediately before
+ * the key, drops the key's stale entry from it, and used to throw {@code lost side-reference owner}
+ * because the owner was in neither half; the transaction was poisoned and the load stopped.
  * </p>
  */
 final class HOTFrontierSideReferenceCarryTest {
@@ -89,8 +89,7 @@ final class HOTFrontierSideReferenceCarryTest {
             : fixture.leaf(slot(rowGroup, kind));
         parentPartials[i] = i;
       }
-      final PageReference parent =
-          fixture.node(new int[] {44, 60, 61, 62, 63}, parentPartials, parentChildren);
+      final PageReference parent = fixture.node(new int[] {44, 60, 61, 62, 63}, parentPartials, parentChildren);
 
       // The full grandparent: thirty single-key leaves for row groups 0..29, the parent at partial
       // 32, and a leaf for row group 44 whose partial differs from the parent's at bits 44 and 45

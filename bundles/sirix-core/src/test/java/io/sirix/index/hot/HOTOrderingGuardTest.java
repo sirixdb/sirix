@@ -62,8 +62,7 @@ final class HOTOrderingGuardTest {
       // The root tells the middle leaf from the node below it by bit 6 alone; the middle leaf holds
       // keys on both sides of bits 3 and 5, which the root does not discriminate on for it, and the
       // node below branches on bit 4. Ordinary projection-store writes built this shape on main.
-      final PageReference below =
-          fixture.node(new int[] {4}, new int[] {0, 1}, fixture.leaf(0x37), fixture.leaf(0x3b));
+      final PageReference below = fixture.node(new int[] {4}, new int[] {0, 1}, fixture.leaf(0x37), fixture.leaf(0x3b));
       fixture.install(fixture.node(new int[] {2, 6}, new int[] {0, 2, 3}, fixture.leaf(0x10),
           fixture.leaf(0x25, 0x2d, 0x34), below));
       fixture.assertKeys(0x10, 0x25, 0x2d, 0x34, 0x37, 0x3b);
@@ -89,8 +88,8 @@ final class HOTOrderingGuardTest {
       for (int i = 0; i < straddling.length; i++) {
         straddling[i] = i << 3;
       }
-      fixture.install(fixture.node(new int[] {29}, new int[] {0, 1}, fixture.wideLeaf(straddling),
-          fixture.wideLeaf(0xffc)));
+      fixture.install(
+          fixture.node(new int[] {29}, new int[] {0, 1}, fixture.wideLeaf(straddling), fixture.wideLeaf(0xffc)));
       fixture.assertWideKeys(fixture.sortedUnion(straddling, 0xffc));
       final long routed = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get();
       final long declined = HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT.get();

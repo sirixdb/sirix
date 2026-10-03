@@ -67,12 +67,13 @@ import java.util.stream.Stream;
  *
  * <p>
  * Each case is a deterministic function of its seed: an index kind (CAS, PATH, NAME, VALIDTIME or a
- * projection store with its segment side map), one of the four versioning types, a leaf-consolidation
- * cadence, and a generated stream of puts, posting removals, blob tombstones, commits, reverts to an
- * earlier revision and cold reopens. Key generators are shaped after the inputs that produced the
- * structural defects fixed since September: sparse partial keys that differ on a few scattered bits,
- * long common prefixes with trailing-byte differences, ascending, descending and clustered runs, and
- * postings that grow one chunk to several KiB so that leaves split by bytes rather than by count.
+ * projection store with its segment side map), one of the four versioning types, a
+ * leaf-consolidation cadence, and a generated stream of puts, posting removals, blob tombstones,
+ * commits, reverts to an earlier revision and cold reopens. Key generators are shaped after the
+ * inputs that produced the structural defects fixed since September: sparse partial keys that
+ * differ on a few scattered bits, long common prefixes with trailing-byte differences, ascending,
+ * descending and clustered runs, and postings that grow one chunk to several KiB so that leaves
+ * split by bytes rather than by count.
  * </p>
  *
  * <p>
@@ -80,18 +81,18 @@ import java.util.stream.Stream;
  * (children ascending and non-overlapping, trie condition, sparse-path encoding, every stored key
  * routing back to its leaf), an in-order walk of its live slots must equal the reference's slot set
  * exactly, and point lookups must answer what the reference answers. After every commit each
- * historical revision is checked the same way through the reader, including the logical iterator;
- * a cold reopen repeats that from disk with the caches cleared. A failing seed is shrunk with
- * delta debugging and reported as a replayable stream; {@link #replay} runs such a stream.
+ * historical revision is checked the same way through the reader, including the logical iterator; a
+ * cold reopen repeats that from disk with the caches cleared. A failing seed is shrunk with delta
+ * debugging and reported as a replayable stream; {@link #replay} runs such a stream.
  * </p>
  *
  * <p>
  * The default lane runs a small budget per kind. The {@code heavy} method runs an extended budget
  * over every kind (a few minutes per kind by default, like the other heavy soaks; the advisory
  * cross-platform CI lanes exclude it), sized by {@code -Dsirix.hot.property.heavy.seeds} /
- * {@code heavy.ops}; with
- * {@code -Dsirix.hot.property.collect=true} it records every distinct failure instead of stopping at
- * the first. {@code -Dsirix.hot.property.seed=N} pins the default lane to one seed.
+ * {@code heavy.ops}; with {@code -Dsirix.hot.property.collect=true} it records every distinct
+ * failure instead of stopping at the first. {@code -Dsirix.hot.property.seed=N} pins the default
+ * lane to one seed.
  * </p>
  */
 final class HOTStructuralPropertyTest {
@@ -101,8 +102,8 @@ final class HOTStructuralPropertyTest {
   private static final int INDEX_NUMBER = 0;
   private static final int NAME_INDEX_NUMBER = PageConstants.JSON_NAME_INDEX_OFFSET;
 
-  private static final VersioningType[] VERSIONINGS = {VersioningType.FULL, VersioningType.INCREMENTAL,
-      VersioningType.DIFFERENTIAL, VersioningType.SLIDING_SNAPSHOT};
+  private static final VersioningType[] VERSIONINGS =
+      {VersioningType.FULL, VersioningType.INCREMENTAL, VersioningType.DIFFERENTIAL, VersioningType.SLIDING_SNAPSHOT};
 
   /** Consolidation cadences a seed cycles through; {@code 0} is the production cadence. */
   private static final int[] CONSOLIDATION_INTERVALS = {64, 0, 16, 256};
@@ -131,7 +132,8 @@ final class HOTStructuralPropertyTest {
   /** Rare-path counters whose movement during a run is reported next to the handler tally. */
   private static final Map<String, AtomicLong> REACH_COUNTERS = new LinkedHashMap<>();
   static {
-    REACH_COUNTERS.put("fullNodeSplitBreaksTrieCondition", AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION);
+    REACH_COUNTERS.put("fullNodeSplitBreaksTrieCondition",
+        AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION);
     REACH_COUNTERS.put("loneHalfFold", AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FOLD);
     REACH_COUNTERS.put("loneHalfFull", AbstractHOTIndexWriter.FULL_EXISTING_BIT_LONE_HALF_FULL);
     REACH_COUNTERS.put("directionOneSubinsert", AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT);
@@ -145,8 +147,10 @@ final class HOTStructuralPropertyTest {
     REACH_COUNTERS.put("completeFrontierSplice", AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE);
     REACH_COUNTERS.put("frontierJoinStraddleSplit", AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT);
     REACH_COUNTERS.put("frontierSplitHalfDeclined", AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_DECLINED);
-    REACH_COUNTERS.put("frontierCarriedOwnerSideRefs", AbstractHOTIndexWriter.FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES);
-    REACH_COUNTERS.put("mergeOverflowFromIntegrateArm", AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM);
+    REACH_COUNTERS.put("frontierCarriedOwnerSideRefs",
+        AbstractHOTIndexWriter.FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES);
+    REACH_COUNTERS.put("mergeOverflowFromIntegrateArm",
+        AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM);
     REACH_COUNTERS.put("mergeOverflowFromFullParent", AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_FULL_PARENT);
     REACH_COUNTERS.put("offPathOverflowOk", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK);
     REACH_COUNTERS.put("offPathOverflowFallback", AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK);
@@ -156,12 +160,13 @@ final class HOTStructuralPropertyTest {
     REACH_COUNTERS.put("consolidationPairDidNotFit", HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT);
     REACH_COUNTERS.put("splitSegmentRefCarries", HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES);
     REACH_COUNTERS.put("structuralValidationFailure", AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_FAILURE);
-    REACH_COUNTERS.put("structuralValidationOversizeSkipped", AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED);
+    REACH_COUNTERS.put("structuralValidationOversizeSkipped",
+        AbstractHOTIndexWriter.STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED);
   }
 
   /** Where collect mode writes each shrunk failure. */
-  private static final Path FAILURE_DIRECTORY =
-      Path.of(System.getProperty(PROPERTY + "failureDir", System.getProperty("java.io.tmpdir")), "hot-property-failures");
+  private static final Path FAILURE_DIRECTORY = Path.of(
+      System.getProperty(PROPERTY + "failureDir", System.getProperty("java.io.tmpdir")), "hot-property-failures");
 
   private static final byte POSTING_TOMBSTONE = (byte) 0xFE;
   private static final int BULK_STRIDE = 2;
@@ -344,12 +349,14 @@ final class HOTStructuralPropertyTest {
       }
     });
     System.out.println("[hot-property] " + kind + ": " + seeds + " seed(s) x " + ops + " ops in "
-        + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) + " ms; final slots " + storedKeys + ", max height "
-        + maxHeight + "; handlers " + handlers + "; counters {" + moved + "}");
+        + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) + " ms; final slots " + storedKeys
+        + ", max height " + maxHeight + "; handlers " + handlers + "; counters {" + moved + "}");
     return failures;
   }
 
-  /** Replay one stream (the format {@link Op#line()} prints) under {@code config}; throws its failure. */
+  /**
+   * Replay one stream (the format {@link Op#line()} prints) under {@code config}; throws its failure.
+   */
   static void replay(final Kind kind, final VersioningType versioning, final int consolidationInterval,
       final Path directory, final String stream) {
     final CaseConfig config = new CaseConfig(kind, versioning, -1L, consolidationInterval);
@@ -386,11 +393,13 @@ final class HOTStructuralPropertyTest {
     } catch (final Throwable failure) {
       return new CaseResult(failure, runner == null
           ? 0
-          : runner.applied, runner == null
+          : runner.applied,
+          runner == null
               ? Map.of()
-              : runner.handlers, 0, 0, runner == null
-                  ? "-"
-                  : runner.lastHandler);
+              : runner.handlers,
+          0, 0, runner == null
+              ? "-"
+              : runner.lastHandler);
     } finally {
       if (runner != null) {
         runner.close();
@@ -436,7 +445,10 @@ final class HOTStructuralPropertyTest {
     return new AssertionError(sb.toString(), failure);
   }
 
-  /** Delta debugging over the operation list; a candidate counts when it fails with the same signature. */
+  /**
+   * Delta debugging over the operation list; a candidate counts when it fails with the same
+   * signature.
+   */
   private List<Op> shrink(final CaseConfig config, final List<Op> failing, final String signature, final long deadline,
       final int[] replays) {
     List<Op> current = failing;
@@ -497,7 +509,9 @@ final class HOTStructuralPropertyTest {
     return current;
   }
 
-  /** A failure's identity for shrinking: its class and the first lines of its message, numbers masked. */
+  /**
+   * A failure's identity for shrinking: its class and the first lines of its message, numbers masked.
+   */
   static String signature(final Throwable failure) {
     final String message = String.valueOf(failure.getMessage());
     final String[] lines = message.split("\n");
@@ -545,12 +559,11 @@ final class HOTStructuralPropertyTest {
   /**
    * One stream element. {@code P} puts a key (posting kinds: add node key {@code v}; projection: a
    * blob of length {@code k3} generated from seed {@code k2}), {@code R} removes it, {@code M} and
-   * {@code X} put and remove the {@code n} node keys {@code v, v+2, ..., v+2(n-1)} under one key in
-   * a single step (a stride-two run is an array container, two bytes per node key: how a posting
-   * grows to several KiB and splits its leaf by bytes, where a consecutive run would compress to a
-   * four-byte run container), {@code C}
-   * commits, {@code V r} commits and reverts the next transaction to revision {@code r}, {@code O}
-   * commits and reopens the database cold.
+   * {@code X} put and remove the {@code n} node keys {@code v, v+2, ..., v+2(n-1)} under one key in a
+   * single step (a stride-two run is an array container, two bytes per node key: how a posting grows
+   * to several KiB and splits its leaf by bytes, where a consecutive run would compress to a
+   * four-byte run container), {@code C} commits, {@code V r} commits and reverts the next transaction
+   * to revision {@code r}, {@code O} commits and reopens the database cold.
    */
   record Op(char type, long k1, long k2, long k3, long v, int n) {
     static final char PUT = 'P';
@@ -855,15 +868,15 @@ final class HOTStructuralPropertyTest {
     void restore(Object snapshot);
 
     /**
-     * Writer-side checks after a mutation: the touched key's lookup always, and with {@code full}
-     * the structural validator, the ordered slot walk and sampled lookups as well.
+     * Writer-side checks after a mutation: the touched key's lookup always, and with {@code full} the
+     * structural validator, the ordered slot walk and sampled lookups as well.
      */
     void verifyWriterSide(Op lastOp, boolean full);
 
     /**
-     * Reader-side checks of one committed revision against the reference snapshot taken then:
-     * structure and slot order always; {@code exact} also walks the logical iterator and compares
-     * every value and every lookup instead of sampling.
+     * Reader-side checks of one committed revision against the reference snapshot taken then: structure
+     * and slot order always; {@code exact} also walks the logical iterator and compares every value and
+     * every lookup instead of sampling.
      */
     void verifyRevision(StorageEngineReader reader, Object snapshot, boolean exact);
 
@@ -886,8 +899,8 @@ final class HOTStructuralPropertyTest {
   }
 
   /**
-   * The reference postings of one logical key. Immutable once built, so revision snapshots share
-   * it: a mutation replaces the entry with a new one built from a copy.
+   * The reference postings of one logical key. Immutable once built, so revision snapshots share it:
+   * a mutation replaces the entry with a new one built from a copy.
    */
   private static final class Logical<K> {
     final K key;
@@ -1003,8 +1016,8 @@ final class HOTStructuralPropertyTest {
         final boolean removed = writerRemove(key, nodeKey);
         final boolean expected = nodeKeys.remove(nodeKey);
         if (removed != expected) {
-          throw new PropertyViolation("remove-result", "remove of node key " + nodeKey + " under " + prefix + " returned "
-              + removed + ", reference says " + expected);
+          throw new PropertyViolation("remove-result", "remove of node key " + nodeKey + " under " + prefix
+              + " returned " + removed + ", reference says " + expected);
         }
       }
       if (nodeKeys.isEmpty()) {
@@ -1077,7 +1090,9 @@ final class HOTStructuralPropertyTest {
       return slots;
     }
 
-    /** The logical iterator must present the reference's keys in order, each with its exact postings. */
+    /**
+     * The logical iterator must present the reference's keys in order, each with its exact postings.
+     */
     private void compareIterator(final Iterator<? extends Map.Entry<K, NodeReferences>> iterator,
         final TreeMap<ByteKey, Logical<K>> expected) {
       final Iterator<Map.Entry<ByteKey, Logical<K>>> reference = expected.entrySet().iterator();
@@ -1103,9 +1118,8 @@ final class HOTStructuralPropertyTest {
         position++;
       }
       if (reference.hasNext()) {
-        throw new PropertyViolation("reader-iterator-missing",
-            "iterator ended after " + position + " logical keys, reference holds " + expected.size() + "; first missing "
-                + reference.next().getKey());
+        throw new PropertyViolation("reader-iterator-missing", "iterator ended after " + position
+            + " logical keys, reference holds " + expected.size() + "; first missing " + reference.next().getKey());
       }
     }
 
@@ -1134,19 +1148,20 @@ final class HOTStructuralPropertyTest {
       final NodeReferences actual = lookup.get(key);
       if (logical == null) {
         if (actual != null && actual.cardinality() != 0) {
-          throw new PropertyViolation("lookup-absent",
-              "key " + prefix + " has no postings in the reference but the index answers " + describe(actual.toSortedArray()));
+          throw new PropertyViolation("lookup-absent", "key " + prefix
+              + " has no postings in the reference but the index answers " + describe(actual.toSortedArray()));
         }
         return;
       }
       final long[] wanted = logical.sortedNodeKeys();
       if (actual == null) {
-        throw new PropertyViolation("lookup-missing", "key " + prefix + " answers nothing, reference holds " + describe(wanted));
+        throw new PropertyViolation("lookup-missing",
+            "key " + prefix + " answers nothing, reference holds " + describe(wanted));
       }
       final long[] got = actual.toSortedArray();
       if (!Arrays.equals(wanted, got)) {
-        throw new PropertyViolation("lookup-postings", "key " + prefix + " answers " + describe(got) + ", reference holds "
-            + describe(wanted));
+        throw new PropertyViolation("lookup-postings",
+            "key " + prefix + " answers " + describe(got) + ", reference holds " + describe(wanted));
       }
     }
   }
@@ -1396,7 +1411,8 @@ final class HOTStructuralPropertyTest {
       final PageReference root = HOTInvariantValidator.resolveRootRef(reader, IndexType.PROJECTION, indexNumber);
       noteValidation(HOTInvariantValidator.validate(root, reader));
       compareSlots("reader-slot-walk", liveSlotKeys(reader, root, false), new TreeSet<>(expected.keySet()));
-      final Function<Long, byte @Nullable []> read = slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
+      final Function<Long, byte @Nullable []> read =
+          slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
       if (exact) {
         for (final ByteKey key : expected.keySet()) {
           checkBlob(key, read.apply(slotKeyOf(key)), expected);
@@ -1421,21 +1437,23 @@ final class HOTStructuralPropertyTest {
       }
     }
 
-    private static void checkBlob(final ByteKey key, final byte @Nullable [] actual, final TreeMap<ByteKey, byte[]> expected) {
+    private static void checkBlob(final ByteKey key, final byte @Nullable [] actual,
+        final TreeMap<ByteKey, byte[]> expected) {
       final byte[] wanted = expected.get(key);
       if (wanted == null) {
         if (actual != null) {
-          throw new PropertyViolation("blob-absent", "slot " + key + " is tombstoned in the reference but reads "
-              + actual.length + " bytes");
+          throw new PropertyViolation("blob-absent",
+              "slot " + key + " is tombstoned in the reference but reads " + actual.length + " bytes");
         }
         return;
       }
       if (actual == null) {
-        throw new PropertyViolation("blob-missing", "slot " + key + " reads nothing, reference holds " + wanted.length + " bytes");
+        throw new PropertyViolation("blob-missing",
+            "slot " + key + " reads nothing, reference holds " + wanted.length + " bytes");
       }
       if (!Arrays.equals(wanted, actual)) {
-        throw new PropertyViolation("blob-bytes", "slot " + key + " reads " + actual.length + " bytes that differ from the "
-            + wanted.length + " reference bytes");
+        throw new PropertyViolation("blob-bytes", "slot " + key + " reads " + actual.length
+            + " bytes that differ from the " + wanted.length + " reference bytes");
       }
     }
 
@@ -1485,12 +1503,12 @@ final class HOTStructuralPropertyTest {
     for (int i = 0; i < actual.size(); i++) {
       final ByteKey key = actual.get(i);
       if (i > 0 && actual.get(i - 1).compareTo(key) >= 0) {
-        throw new PropertyViolation(check, "slot " + i + " (" + key + ") does not sort above slot " + (i - 1) + " ("
-            + actual.get(i - 1) + ")");
+        throw new PropertyViolation(check,
+            "slot " + i + " (" + key + ") does not sort above slot " + (i - 1) + " (" + actual.get(i - 1) + ")");
       }
       if (!reference.hasNext()) {
-        throw new PropertyViolation(check, "slot " + i + " (" + key + ") is not in the reference, which holds "
-            + expected.size() + " slots");
+        throw new PropertyViolation(check,
+            "slot " + i + " (" + key + ") is not in the reference, which holds " + expected.size() + " slots");
       }
       final ByteKey wanted = reference.next();
       if (!wanted.equals(key)) {
@@ -1529,7 +1547,10 @@ final class HOTStructuralPropertyTest {
     return new QNm(patternedString(op.k1, op.k2));
   }
 
-  /** A run of {@code x}s of the packed prefix length followed by the low packed-width hex digits of the payload. */
+  /**
+   * A run of {@code x}s of the packed prefix length followed by the low packed-width hex digits of
+   * the payload.
+   */
   static String patternedString(final long payload, final long packed) {
     final int prefixLength = (int) (packed & 0xFF);
     final int width = Math.max(1, Math.min(16, (int) ((packed >>> 8) & 0xFF)));
@@ -1924,7 +1945,8 @@ final class HOTStructuralPropertyTest {
         case PREFIX_TRAILING -> 1L + ((phase.base & 0x7FFF00L) | random.nextInt(256));
         case ASCENDING -> 1L + (phase.counter++ & 0x7FFFFFL);
         case DESCENDING -> 1L + (Math.abs(phase.counter--) & 0x7FFFFFL);
-        case CLUSTERED -> 1L + Math.max(0L, phase.centers[random.nextInt(phase.centers.length)] + random.nextInt(33) - 16);
+        case CLUSTERED ->
+          1L + Math.max(0L, phase.centers[random.nextInt(phase.centers.length)] + random.nextInt(33) - 16);
         default -> 1L + random.nextInt(1 << 24);
       };
       final long slotKind = random.nextInt(9);

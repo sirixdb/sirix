@@ -152,9 +152,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final int CONSOLIDATION_INTERVAL = 4096;
 
   /**
-   * Test-only override of {@link #CONSOLIDATION_INTERVAL}, read once per writer at construction;
-   * zero selects the production cadence. A bounded test can only reach the consolidation path at
-   * all by shortening the cadence, since the production one needs thousands of puts per writer.
+   * Test-only override of {@link #CONSOLIDATION_INTERVAL}, read once per writer at construction; zero
+   * selects the production cadence. A bounded test can only reach the consolidation path at all by
+   * shortening the cadence, since the production one needs thousands of puts per writer.
    */
   private static volatile int consolidationIntervalForTesting;
 
@@ -5443,8 +5443,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Bytes a leaf must have free beyond the key and value themselves for a merge to stay in place;
-   * over-estimating only sends a sub-insert to the generic placements, under-estimating would let
-   * it split where the guard below says it cannot.
+   * over-estimating only sends a sub-insert to the generic placements, under-estimating would let it
+   * split where the guard below says it cannot.
    */
   private static final int LEAF_ENTRY_SLACK = 32;
 
@@ -6041,9 +6041,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * A side-map reference whose owning slot is the entry a {@link StructuralSplitKey#PRESENT_AND_DROPPED}
-   * split dropped from its boundary leaf. The owner lives on in {@code K}'s fresh leaf, so the
-   * reference moves there with it.
+   * A side-map reference whose owning slot is the entry a
+   * {@link StructuralSplitKey#PRESENT_AND_DROPPED} split dropped from its boundary leaf. The owner
+   * lives on in {@code K}'s fresh leaf, so the reference moves there with it.
    */
   private record CarriedSideReference(long refKey, PageReference reference) {
   }
