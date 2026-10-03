@@ -1479,42 +1479,45 @@ Cases, in order:
   no longer fails: both merge entries to `integrate` ask `canIntegrateBiNodeCleanly` first and route a
   decline through the complete frontier (§4.5.3, §4.5.2 step 7), counted by
   `MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM` and `MERGE_OVERFLOW_ROUTED_FROM_FULL_PARENT`.
-- A full-node decomposition on §4.5.4 case 2's C2 arm is measured before the insert and re-split
-  after it, and the re-split is not re-checked (§4.5.3). If the sub-insert gives the affected child a
-  root on the half's own live MSB, the refreshed half is published above a child that breaks I11.
-  That break sits on `K`'s route, so `validatePublishedStructuralPath` raises immediately after
-  publication, the transaction is marked rollback-only and the load stops — nothing wrong is
-  committed. The 100,000-record stream takes the arm four times without reaching it; no test
-  constructs it and no key stream is known that does. Its own task.
+- A full-node decomposition on §4.5.4 case 2's C2 arm is still measured before the insert and
+  re-split after it, and the re-split is still not re-checked (§4.5.3) — but the arm no longer
+  accepts the shape that needed it. `subInsertKeepsHalfTrieCondition` declines before the sub-insert
+  whenever `K` and the affected child's extremes span a bit at or above the half's MSB, unless the
+  child is a leaf certain to store `K` in place by count, by free bytes and by keeping its common
+  prefix (§4.5.4); the generic leaf pair or the complete frontier places `K` instead, counted by
+  `DIRECTION_ONE_SPLIT_ABOVE_HALF`. `HOTOrderingGuardTest` pins both overflows that reach the
+  decline, by count and by bytes, and each publishes a malformed path without it. Reachability from
+  an ordinary stream remains unproven: the 100,000-record stream takes the arm four times without
+  reaching the shape, and a bounded search with the property generator (36 seeded heavy streams of
+  8,000 work units each over PATH, CAS and NAME, plus longer 25,000-unit ones) produced none either,
+  so both regressions start from a constructed state.
 - A cascade level whose split bit is the node's own MSB remains unguarded as described in §4.5.3;
   adding a guard belongs with the scenario that reaches it.
 - A **PROJECTION** leaf overflowing by bytes on a key it already holds, routed through the frontier,
-  drops the stale entry; when that entry owns a side reference — a segment page — the reference has no
-  home in either half of the boundary leaf and the split refuses before publication
-  (`rehomeSplitLeafSideReferences`). The transaction **is** marked rollback-only (it is the routed
-  path, where the document node was written while the index entry was not), the insert fails, and a
-  load stops. **Every entry to that route can reach it**: the integrate arm's cascade pre-check —
-  which also refuses the fold declined at the leaf's own parent (§4.5.2 step 7) — and the full-parent
-  handler's both end in the same `spliceOverflowThroughFrontier`, so the projection-index exposure is
-  the union of the two, not one alone. Only PROJECTION reaches it — side references originate in
-  `ProjectionIndexHOTStorage.putSegmentPage` alone, so PATH, CAS, NAME and VALIDTIME leaves have
-  `segmentRefCount() == 0` and the re-homing returns before it can refuse. What the base did differs
-  per entry, and neither committed anything wrong: for the fold declined at `L`'s own parent it
-  already failed closed without publishing — `mergeBiNodeAtExistingDiscBit` refused the same fold
-  out of `integrate` and the transaction was marked rollback-only, so the load stopped at that
-  insert; for the cascade the trie-condition pre-check now declines it completed the insert and
-  published an I11-breaking half latently, so the load stopped only later, and there this refusal
-  moves the stop forward to the insert. No test constructs it; carrying the reference onto `K`'s
-  fresh leaf is a separate task.
+  drops the stale entry; when that entry owns a side reference — a segment page — that reference no
+  longer has to find a home in the two halves of the boundary leaf. It is handed back
+  (`StructuralKeySplit.droppedOwnerSideReferences`) and attached to the one-entry leaf the splice
+  builds for `K`, counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES` (§4.5.2 step 7);
+  `HOTFrontierSideReferenceCarryTest` constructs the trie that reaches the split and fails without
+  the carry. A reference whose owner is in neither half and is *not* the dropped entry still fails
+  closed before publication, so a segment page is never silently orphaned. **Every entry to that
+  route reaches the same split**: the integrate arm's cascade pre-check — which also refuses the fold
+  declined at the leaf's own parent (§4.5.2 step 7) — and the full-parent handler's both end in the
+  same `spliceOverflowThroughFrontier`. Only PROJECTION carries side references at all: they
+  originate in `ProjectionIndexHOTStorage.putSegmentPage` alone, so PATH, CAS, NAME and VALIDTIME
+  leaves have `segmentRefCount() == 0` and the re-homing returns at once. Before the carry the split
+  threw on the routed path — where the document node was written while the index entry was not — so
+  `spliceOverflowThroughFrontier` marked the transaction rollback-only and the load stopped with
+  nothing wrong written.
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 
 | Operation | Cost |
 |---|---|
-| merge without split | O(h) copy-on-write descent + O(log 512) leaf search; allocation only on first touch of a page |
+| merge without split | O(h) copy-on-write descent + O(log 512) leaf search + the spine-order proof of §4.5.1: two comparisons against the leaf's end entries for a key inside its range, otherwise one upward walk that stops at the first level with a neighbour on the moving side; allocation only on first touch of a page |
 | leaf split | O(entries) union materialization (one `Entry` object per key, `hot/HOTIncrementalInsert.java:134-158`) + O(h · 32) integration |
 | branch cases | O(32) node re-encoding + guards O(children · h); exact scans ≤ 63 pages |
-| merge after an overflow split | the same O(children · h) cascade pre-check as the branch arms, once per overflow; the merge fast path (no split) asks nothing |
+| merge after an overflow split | the same O(children · h) cascade pre-check as the branch arms, once per overflow; the merge fast path (no split) still pays the spine-order proof above, and a key that would extend its leaf past a spine neighbour enters the complete-frontier splice without any overflow (`MERGE_SPINE_ORDER_DELEGATED`, §4.5.1) |
 | complete-frontier splice | O(h · 32) child tables + at most one leaf copy for `K`'s boundary and one per side the block's bits cut through (≤ 32 parts), plus one more per child a recanonicalized boundary slice has to split (§4.5.4 case 9) |
 | consolidation | O(32) every 4096 inserts, plus one O(h) route re-validation when it publishes a changed parent (§4.8) |
 

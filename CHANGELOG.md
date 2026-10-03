@@ -180,9 +180,10 @@ All notable changes to SirixDB are documented in this file.
   them, under the handler that dispatched the last of them. Beyond that the default lane, the one CI
   runs, samples nothing: after every operation it runs the structural validator, the full ordered
   slot walk against the reference's slot set, and compares every one of the reference's keys with
-  what the index answers; every commit checks the new revision that way through the reader, including
-  its logical iterator and every value, and every cold reopen re-checks every historical revision
-  from disk. Its streams are sized for that cost (about a minute per kind) and reach tries of height
+  what the index answers; a revert to an earlier revision is followed by those same checks of the
+  writer it rebound, every commit checks the new revision that way through the reader, including its
+  logical iterator and every value, and every cold reopen re-checks every historical revision from
+  disk. Its streams are sized for that cost (about a minute per kind) and reach tries of height
   six, leaf splits by count and by bytes, the pair and strand placements, the fold cascade, the
   complete-frontier splice and the Direction-1 sub-insert. The opt-in `heavy` lane trades those
   checks for reach, which is what a long soak needs and how the three shapes below were found: an

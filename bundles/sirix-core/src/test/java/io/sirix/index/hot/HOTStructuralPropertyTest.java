@@ -91,11 +91,12 @@ import java.util.stream.Stream;
  * writer's uncommitted trie must pass {@link HOTInvariantValidator} (children ascending and
  * non-overlapping, trie condition, sparse-path encoding, every stored key routing back to its
  * leaf), an in-order walk of its live slots must equal the reference's slot set exactly, and
- * <em>every</em> key the reference holds must answer exactly what the reference answers. Every
- * commit checks the new revision through the reader the same way, including its logical iterator
- * and every one of its values; a committed revision is immutable, and every cold reopen re-checks
- * <em>every</em> historical revision that way from disk with the caches cleared, so no revision
- * goes unchecked and none is sampled.
+ * <em>every</em> key the reference holds must answer exactly what the reference answers. A revert
+ * touches no key of its own, so it is followed by exactly those checks of the writer it rebound to
+ * the earlier revision. Every commit checks the new revision through the reader the same way,
+ * including its logical iterator and every one of its values; a committed revision is immutable,
+ * and every cold reopen re-checks <em>every</em> historical revision that way from disk with the
+ * caches cleared, so no revision goes unchecked and none is sampled.
  * </p>
  *
  * <p>
@@ -123,8 +124,9 @@ import java.util.stream.Stream;
  * <p>
  * A failing case is shrunk with delta debugging and reported as a replayable stream whose header
  * names the versioning, consolidation cadence and lane it failed under; {@link #replay} runs such a
- * stream under the same checks. {@code -Dsirix.hot.property.seed=N} pins the default lane to one
- * seed, which still runs all four versioning types.
+ * stream under the same checks, and {@code -Dhot.diag.validationDump=true} makes the writer's own
+ * post-publication validator describe the offending node. {@code -Dsirix.hot.property.seed=N} pins
+ * the default lane to one seed, which still runs all four versioning types.
  * </p>
  */
 final class HOTStructuralPropertyTest {
@@ -308,28 +310,7 @@ final class HOTStructuralPropertyTest {
       throw new IllegalArgumentException(file + " is not a recorded failure: it needs a kind= header and a stream");
     }
     final String stream = String.join("\n", lines.subList(streamFrom, lines.size()));
-    if (Boolean.getBoolean(PROPERTY + "validationDump")) {
-      // The writer's own post-publication validator describes the offending node on stderr.
-      System.setProperty("hot.diag.validationDump", "true");
-    }
-    if (!Boolean.getBoolean(PROPERTY + "reshrink")) {
-      replay(kind, versioning, consolidationInterval, exhaustive, temporaryDirectory.resolve("replay"), stream);
-      return;
-    }
-    // Shrink the recorded stream again under the complete per-operation checks unless its header
-    // recorded the heavy lane, and write the result next to the file.
-    final CaseConfig config = new CaseConfig(kind, versioning, -1L, consolidationInterval, exhaustive);
-    final List<Op> ops = Op.parseStream(stream);
-    final CaseResult result = runCase(config, ops);
-    if (result.failure == null) {
-      System.out.println("[hot-property] " + file + " no longer fails; nothing to shrink");
-      return;
-    }
-    final AssertionError report = shrinkAndReport(config, ops, result);
-    final Path out = Path.of(file + ".shrunk.txt");
-    Files.writeString(out, report.getMessage(), StandardCharsets.UTF_8);
-    System.out.println("[hot-property] reshrunk " + file + " -> " + out);
-    throw report;
+    replay(kind, versioning, consolidationInterval, exhaustive, temporaryDirectory.resolve("replay"), stream);
   }
 
   // ===== budget driver =====
@@ -803,6 +784,8 @@ final class HOTStructuralPropertyTest {
             wtx.revertTo(revision);
             driver.restore(snapshots.get(revision));
             driver.open(wtx.getStorageEngineWriter());
+            // The revert rebound the writer to an older trie: check it as any other operation.
+            driver.verifyWriterStructure();
           }
         }
         case Op.REOPEN -> {
@@ -933,11 +916,18 @@ final class HOTStructuralPropertyTest {
 
     /**
      * Writer-side checks after one stream operation: the touched key's lookup always, and with
-     * {@code full} the structural validator, the ordered slot walk and the lookups as well — every key
-     * the reference holds on the default lane, {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE}
-     * rotating ones on the heavy lane.
+     * {@code full} {@link #verifyWriterStructure} as well.
      */
     void verifyWriterSide(Op lastOp, boolean full);
+
+    /**
+     * The complete writer-side check, for an operation with no key of its own: the structural
+     * validator, the ordered slot walk against the reference's slot set, and the lookups — every key
+     * the reference holds on the default lane, {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE}
+     * rotating ones on the heavy lane. A revert rebinds the writer to an earlier revision and is
+     * checked with this.
+     */
+    void verifyWriterStructure();
 
     /**
      * Reader-side checks of one committed revision against the reference snapshot taken then: structure
@@ -1107,17 +1097,21 @@ final class HOTStructuralPropertyTest {
 
     @Override
     public final void verifyWriterSide(final Op lastOp, final boolean full) {
-      final PostingLookup<K> lookup = writerLookup();
       final K touched = keyOf(lastOp);
-      checkLookup(lookup, prefixKey(touched), touched, model);
-      if (!full) {
-        return;
+      checkLookup(writerLookup(), prefixKey(touched), touched, model);
+      if (full) {
+        verifyWriterStructure();
       }
+    }
+
+    @Override
+    public final void verifyWriterStructure() {
       final AbstractHOTIndexWriter<?> writer = writer();
       final StorageEngineReader reader = writer.getStorageEngineReader();
       final PageReference root = writer.getRootReference();
       noteValidation(HOTInvariantValidator.validate(root, reader));
       compareSlots("writer-slot-walk", liveSlotKeys(reader, root, true), expectedSlots(model));
+      final PostingLookup<K> lookup = writerLookup();
       if (exhaustive) {
         checkEveryLookup(lookup, model);
       } else {
@@ -1473,9 +1467,13 @@ final class HOTStructuralPropertyTest {
     @Override
     public void verifyWriterSide(final Op lastOp, final boolean full) {
       checkBlob(slotKeyBytes(lastOp.k1), storage.getBlob(lastOp.k1), model);
-      if (!full) {
-        return;
+      if (full) {
+        verifyWriterStructure();
       }
+    }
+
+    @Override
+    public void verifyWriterStructure() {
       final StorageEngineReader reader = storage.getStorageEngineReader();
       final PageReference root = storage.getRootReference();
       noteValidation(HOTInvariantValidator.validate(root, reader));

@@ -97,8 +97,9 @@ in CI via the `Deep verification` workflow.
 # so a bulk posting run (the M and X operations) is checked once it has written every node key, not
 # between them. After every operation it runs the structural validator, the full ordered slot walk
 # against the reference and compares every one of the reference's keys with what the index answers;
-# every commit checks the new revision that way through the reader, and every cold reopen re-checks
-# every historical revision from disk. Nothing else is sampled. About a minute per kind;
+# a revert is followed by those same checks of the writer it rebound to the earlier revision, every
+# commit checks the new revision that way through the reader, and every cold reopen re-checks every
+# historical revision from disk. Nothing else is sampled. About a minute per kind;
 # -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
 # Heavy lane: every index kind with a longer seeded budget (each seed again under all four versioning
@@ -112,11 +113,11 @@ in CI via the `Deep verification` workflow.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
                            -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
                            -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
-# Replay one recorded failure under the checks its header records
-# (-Dsirix.hot.property.reshrink=true minimizes it again)
+# Replay one recorded failure under the checks its header records; -Dhot.diag.validationDump=true
+# makes the writer's own post-publication validator describe the offending node on stderr
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
-                           -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-3.txt \
-                           -Dsirix.hot.property.validationDump=true
+                           -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
+                           -Dhot.diag.validationDump=true
 
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
