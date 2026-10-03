@@ -10,12 +10,12 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.ExprUtil;
-import io.sirix.query.json.JsonDBObject;
+import io.brackit.query.jdm.json.Object;
 
 import java.util.function.Predicate;
 
 /** The original dateTime comparison, retained for intervals the index cannot prove exactly. */
-final class ValidTimeResidual implements Predicate<JsonDBObject> {
+final class ValidTimeResidual implements Predicate<Item> {
   private final StaticContext context;
   private final QueryContext queryContext;
   private final Sequence point;
@@ -37,7 +37,7 @@ final class ValidTimeResidual implements Predicate<JsonDBObject> {
   }
 
   @Override
-  public boolean test(final JsonDBObject object) {
+  public boolean test(final Item object) {
     final Bool result;
     if (general) {
       final Item bound = bound(object);
@@ -53,8 +53,8 @@ final class ValidTimeResidual implements Predicate<JsonDBObject> {
     return result != null && result.booleanValue();
   }
 
-  private Item bound(final JsonDBObject object) {
-    final Item value = ExprUtil.asItem(object.get(field));
+  private Item bound(final Item item) {
+    final Item value = item instanceof Object object ? ExprUtil.asItem(object.get(field)) : null;
     return value == null ? null : Cast.cast(context, value, Type.DATI, true);
   }
 }

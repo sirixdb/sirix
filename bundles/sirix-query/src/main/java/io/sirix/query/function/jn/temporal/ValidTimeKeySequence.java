@@ -25,14 +25,14 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private final ValidTimeConfig config;
   private final boolean strictStart;
   private final boolean strictEnd;
-  private final Predicate<JsonDBObject> residual;
+  private final Predicate<? super JsonDBObject> residual;
   private final int indexId;
   private final boolean exactPoint;
   private Evidence evidence;
   private long[] candidates;
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
-      final boolean strictStart, final boolean strictEnd, final Predicate<JsonDBObject> residual,
+      final boolean strictStart, final boolean strictEnd, final Predicate<? super JsonDBObject> residual,
       final int indexId, final Evidence evidence) {
     this.document = document;
     this.instant = instant;

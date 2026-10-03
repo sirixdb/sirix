@@ -441,7 +441,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    *
    * <p>
    * Writer creation resolves its prospective revision's controller and restores the catalogue at its
-   * durable base revision; every commit re-instantiates the writer. Answering each lookup from the
+   * represented revision; every commit re-instantiates the writer. Answering each lookup from the
    * directory costs one {@code readdir} over every catalogue ever written, and a commit with
    * definitions writes one: O(revisions) per commit, O(revisions²) over a commit-per-operation load
    * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
