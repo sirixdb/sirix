@@ -360,13 +360,13 @@ public final class ProjectionBloomChunks {
      * entry {@code chunkCount()}. A range may come out empty; every chunk falls in exactly one.
      *
      * <p>
-     * A sealed block is one page read. The open chunk is one per tail, because each referenced tail is
-     * its own side page even though all of them arrive in a single ranged fetch — and it cannot be
-     * divided without giving that single fetch up. So an even cut over the index can hand the range
-     * that happens to hold the open chunk {@link #CHUNK_LEAVES} page reads while a sibling range of
-     * whole blocks does sixteen, and the only remedy is to give the open chunk's range fewer blocks.
-     * Which shape wins depends on how many tails the chunk holds, so both are priced and the lower peak
-     * is taken; for a column with no open chunk this is exactly the even cut.
+     * A sealed block is one page read. The open chunk is one per REFERENCED tail, because only those
+     * have a side page to fetch — an inline tail is carried in the locator and is probed in place, so
+     * an all-inline open chunk weighs nothing and the even cut is used. A referenced open chunk cannot
+     * be divided without giving up its single ranged fetch, so an even cut over the index can hand the
+     * range that happens to hold it {@link #CHUNK_LEAVES} page reads while a sibling range of whole
+     * blocks does sixteen, and the only remedy is to give that range fewer blocks. Which shape wins
+     * depends on how many of its tails are referenced, so both are priced and the lower peak is taken.
      * </p>
      */
     int[] weightedRangeBounds(final int ranges) {
@@ -375,7 +375,13 @@ public final class ProjectionBloomChunks {
       }
       final int sealed = chunks.size();
       final int count = chunkCount();
-      final int openWeight = tails.size();
+      final int openTails = tails.size();
+      int openWeight = 0;
+      for (int tail = 0; tail < openTails; tail++) {
+        if (tailNeedsFetch(tails, tail)) {
+          openWeight++;
+        }
+      }
       final int evenLen = (count + ranges - 1) / ranges;
       final boolean isolateOpenChunk =
           openWeight > 0 && ranges > 1
@@ -491,9 +497,7 @@ public final class ProjectionBloomChunks {
       scratch.clearTailPayloadsAndOffsets();
       boolean needsFetch = false;
       for (int tail = 0; tail < count; tail++) {
-        if (localTails.inlinePayload(tail) == null && localTails.offset(tail) != Constants.NULL_ID_LONG
-            && localTails.length(tail) > 0
-            && localTails.length(tail) <= ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(1)) {
+        if (tailNeedsFetch(localTails, tail)) {
           scratch.tailOffsets[tail] = localTails.offset(tail);
           needsFetch = true;
         }
@@ -559,6 +563,18 @@ public final class ProjectionBloomChunks {
       }
     }
     return dropped;
+  }
+
+  /**
+   * Whether this open-chunk tail has a payload to fetch. An inline tail is carried in its locator, so
+   * it costs no page read and the open-chunk prune probes it in place; a length outside a single
+   * leaf's bound can never be a usable fingerprint, so it is not fetched either. The prune and the
+   * range split read this one predicate, so what the walk fetches and what the split prices cannot
+   * drift apart.
+   */
+  private static boolean tailNeedsFetch(final ProjectionIndexHOTStorage.BlobLocators tails, final int tail) {
+    return tails.inlinePayload(tail) == null && tails.offset(tail) != Constants.NULL_ID_LONG && tails.length(tail) > 0
+        && tails.length(tail) <= ProjectionIndexColumnSegmentCodec.maxBloomBlockBytes(1);
   }
 
   private static boolean referencedBlockIsValid(final byte @Nullable [] block, final int expectedLength,

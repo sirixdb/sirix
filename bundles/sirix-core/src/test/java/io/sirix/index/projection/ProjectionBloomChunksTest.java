@@ -1579,16 +1579,20 @@ final class ProjectionBloomChunksTest {
   /**
    * The parallel chunk-range split must stay a partition whatever it weighs: every chunk falls in
    * exactly one range, so pruning range by range clears exactly the bits one whole-range walk clears.
-   * With a fat open chunk the split must also stop giving that chunk's range a full share of blocks
-   * on top of its own page-per-tail cost.
+   * An INLINE open chunk must also take the plain even cut: its tails are carried in their locators
+   * and fetch nothing, so pricing them as page reads would isolate them into a range that does no I/O
+   * at all while a sibling range fetches every block — twice the peak of the even cut, with a worker
+   * left idle. Low cardinality is the common shape, so this is the ordinary case, not the exception.
    */
   @Test
-  void theWeightedChunkRangeSplitIsAPartitionAndKeepsTheOpenChunkOutOfAFullBlockRange() {
+  void theWeightedChunkRangeSplitIsAPartitionAndLeavesAnInlineOpenChunkOnTheEvenCut() {
     final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
     final int sealed = 31;
-    final int openTails = 200;
+    final int openTails = 100;
     final int rowGroupCount = sealed * leaves + openTails;
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
+    assertTrue(bloomSegment(encoded).length <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+        "this fixture's point is an all-inline open chunk; got a " + bloomSegment(encoded).length + "-byte tail");
     final long absent = hashRejectedBy(bloomSegment(encoded));
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
@@ -1622,11 +1626,11 @@ final class ProjectionBloomChunksTest {
                 "bounds must not go backwards at " + r + " for " + ranges + " ranges");
           }
         }
-        // Two ranges over 31 blocks and a 200-tail open chunk: sharing hands the open chunk's range
-        // 15 blocks on top of its 200 page reads (peak 215), isolating it peaks at 200.
+        // Two ranges over 31 blocks and 100 INLINE tails: the open chunk fetches nothing, so the even
+        // cut peaks at 16 block fetches, while isolating it would peak at all 31.
         final int[] two = column.weightedRangeBounds(2);
-        assertArrayEquals(new int[] {0, sealed, sealed + 1}, two,
-            "the fat open chunk must get a range of its own instead of a full share of blocks");
+        assertArrayEquals(new int[] {0, 16, sealed + 1}, two,
+            "an open chunk that fetches nothing must not buy a range of its own");
 
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
             ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
@@ -1734,6 +1738,66 @@ final class ProjectionBloomChunksTest {
     }
   }
 
+  /**
+   * The mirror of the inline case: an open chunk whose tails are REFERENCED really does cost one page
+   * read each, and it cannot be divided without giving up its single ranged fetch, so it must get a
+   * range of its own rather than a full share of blocks on top.
+   */
+  @Test
+  void theWeightedChunkRangeSplitIsolatesAnOpenChunkOfReferencedTails() {
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int sealed = 31;
+    final int openTails = 100;
+    final int rowGroupCount = sealed * leaves + openTails;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup inline = encodedRowGroup("present");
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup referenced = fatRowGroup();
+    assertTrue(bloomSegment(referenced).length > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+        "the open chunk's tails must exceed the inline threshold or they cost no page read; got "
+            + bloomSegment(referenced).length + " bytes");
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        // Only the open chunk's tails have to be fat: the split prices the sealed chunks at one page
+        // read each whatever they hold, so the blocks stay cheap to build.
+        for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
+          writer.append(rowGroupId > sealed * leaves
+              ? referenced
+              : inline, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+        writer.publishManifests(storage, rowGroupCount);
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        assertNotNull(evidence);
+        final ProjectionBloomChunks.ColumnEvidence column = evidence[0];
+        assertEquals(sealed + 1, column.chunkCount());
+
+        // Sharing hands the open chunk's range 15 blocks on top of its 100 page reads (peak 115);
+        // isolating it peaks at 100.
+        assertArrayEquals(new int[] {0, sealed, sealed + 1}, column.weightedRangeBounds(2),
+            "a referenced open chunk must get a range of its own instead of a full share of blocks");
+        for (final int ranges : new int[] {1, 2, 3, 4, 8}) {
+          final int[] bounds = column.weightedRangeBounds(ranges);
+          assertEquals(0, bounds[0]);
+          assertEquals(column.chunkCount(), bounds[ranges], "the ranges must end at the last chunk");
+          for (int r = 0; r < ranges; r++) {
+            assertTrue(bounds[r] <= bounds[r + 1],
+                "bounds must not go backwards at " + r + " for " + ranges + " ranges");
+          }
+        }
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
   private static void createVersionedResource(final VersioningType versioning) throws IOException {
     JsonTestHelper.deleteEverything();
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
@@ -1749,6 +1813,19 @@ final class ProjectionBloomChunksTest {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(COLUMN_KINDS.clone());
     page.appendRow(1L, new long[] {0L}, new boolean[] {false}, new String[] {value}, new boolean[] {true},
         new boolean[] {false}, new boolean[] {false}, new boolean[] {false});
+    return ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+  }
+
+  /**
+   * One row group whose fingerprint is large enough to be stored as a referenced side page: at ~10
+   * bits per distinct value, 500 values give an 8 192-bit filter, just over 1 KiB.
+   */
+  private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup fatRowGroup() {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(COLUMN_KINDS.clone());
+    for (int row = 0; row < 500; row++) {
+      page.appendRow(row + 1L, new long[] {0L}, new boolean[] {false}, new String[] {"value-" + row},
+          new boolean[] {true}, new boolean[] {false}, new boolean[] {false}, new boolean[] {false});
+    }
     return ProjectionIndexColumnSegmentCodec.encode(page.serialize());
   }
 
