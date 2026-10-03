@@ -1224,9 +1224,10 @@ final class ProjectionBloomChunksTest {
           ProjectionIndexCatalog.columnSegmentFetcher(session, rtx.getRevisionNumber());
       final long absent = hashRejectedBy(bloomSegment(encoded));
       final int[] fetches = new int[1];
+      final int[] offsetsSeen = new int[1];
       final ProjectionColumnStore.ColumnSegmentFetcher tracking = offsets -> {
         fetches[0]++;
-        assertEquals(count, offsets.length, "the whole open chunk must be asked for in one window");
+        offsetsSeen[0] = offsets.length;
         return delegate.fetchAll(offsets);
       };
       final long[] keep = prune(evidence[0], count, absent, tracking);
@@ -1234,6 +1235,10 @@ final class ProjectionBloomChunksTest {
       // (ceil(33 / FETCH_WINDOW_CHUNKS)) and would cost 33 at a window of 1; the open chunk is one
       // window of its own, so the count is 1 whatever the block window is set to.
       assertEquals(1, fetches[0], "the open chunk's tails must arrive in ONE ranged fetch");
+      // The request spans the whole fixed scratch, not just the live prefix: a ranged fetcher that
+      // gets the full array uses it as-is instead of allocating a copy of the sub-range per prune.
+      assertEquals(ProjectionBloomChunks.CHUNK_LEAVES, offsetsSeen[0],
+          "the fetch must be asked for over the full tail scratch so no offset copy is allocated");
       for (int leaf = 0; leaf < count; leaf++) {
         assertDropped(keep, leaf, "valid referenced tail prunes leaf " + leaf);
       }
@@ -1333,8 +1338,9 @@ final class ProjectionBloomChunksTest {
         assertEquals(1 + openRowGroups, stats.chunksWritten(),
             "one block for the completed chunk plus one tail per open row group, and nothing else");
         assertEquals(grown - built, stats.rowGroupsRead());
-        assertEquals(leaves + openRowGroups, stats.tailSlotReads(),
-            "the completed chunk is recovered from its tails once; each open row group checks its own");
+        assertEquals(built + openRowGroups, stats.tailSlotReads(),
+            "the completed chunk is recovered across the published open span only - " + built + " tails, not all "
+                + leaves + " slots - and each open row group checks its own");
         final byte[] block = storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0));
         assertNotNull(block, "the chunk this commit completed is a block");
         assertEquals(leaves, ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block));
@@ -1383,6 +1389,7 @@ final class ProjectionBloomChunksTest {
     final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
     final int built = leaves - 6;
     final int grown = leaves + 4;
+    final int openRowGroups = grown - leaves;
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
     final long present = ProjectionIndexColumnSegmentCodec.bloomHash("present".getBytes(StandardCharsets.UTF_8));
     final long rejected = hashRejectedBy(bloomSegment(encoded));
@@ -1408,7 +1415,10 @@ final class ProjectionBloomChunksTest {
           storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
           changed.add(rowGroupId);
         }
-        ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, grown, changed);
+        final ProjectionBloomChunks.RewriteStats stats =
+            ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, grown, changed);
+        assertEquals(leaves + openRowGroups, stats.tailSlotReads(),
+            "with no published mark there is no bound to apply, so the whole chunk is swept");
         final byte[] block = storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 0));
         assertNotNull(block, "the chunk the new count classifies as sealed becomes a block");
         assertEquals(leaves, ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block));
@@ -1796,6 +1806,177 @@ final class ProjectionBloomChunksTest {
     } finally {
       writer.release();
     }
+  }
+
+  /**
+   * A commit that completes TWO chunks at once must probe tails only where a tail can be: the chunk
+   * at the column's published mark owns the published open span, and the chunk above it has never had
+   * a tail slot written in its life. Sweeping all 256 slots of that second chunk costs 256 reads plus
+   * 256 tombstone descents per string column and can never find anything.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void completingTwoChunksAtOnceProbesTailsOnlyWhereTheyCanExist(final VersioningType versioning) throws IOException {
+    createVersionedResource(versioning);
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int built = leaves - 6;
+    final int grown = 2 * leaves + 8;
+    final int openRowGroups = grown - 2 * leaves;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
+    final long present = ProjectionIndexColumnSegmentCodec.bloomHash("present".getBytes(StandardCharsets.UTF_8));
+    final long rejected = hashRejectedBy(bloomSegment(encoded));
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= built; rowGroupId++) {
+          writer.append(encoded, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, built, COLUMN_KINDS);
+        writer.publishManifests(storage, built);
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final LongOpenHashSet changed = new LongOpenHashSet();
+        for (int rowGroupId = built + 1; rowGroupId <= grown; rowGroupId++) {
+          storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+          changed.add(rowGroupId);
+        }
+        final ProjectionBloomChunks.RewriteStats stats =
+            ProjectionBloomChunks.rewriteTouchedChunks(storage, COLUMN_KINDS, grown, changed);
+
+        assertEquals(built + openRowGroups, stats.tailSlotReads(),
+            "only chunk 0 owns tails (" + built + " of them) and each open row group checks its own; "
+                + "chunk 1 has never held a tail slot, so it must be probed zero times");
+        assertEquals(2 + openRowGroups, stats.chunksWritten(),
+            "one block per completed chunk plus one tail per open row group");
+        assertEquals(grown - built, stats.rowGroupsRead());
+        for (int chunkId = 0; chunkId < 2; chunkId++) {
+          final byte[] block = storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, chunkId));
+          assertNotNull(block, "completed chunk " + chunkId + " is a block");
+          assertEquals(leaves, ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block));
+        }
+        for (int rowGroupId = 1; rowGroupId <= 2 * leaves; rowGroupId++) {
+          assertNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, rowGroupId)),
+              "completed row group " + rowGroupId + " keeps no tail blob");
+        }
+        for (int rowGroupId = 2 * leaves + 1; rowGroupId <= grown; rowGroupId++) {
+          assertNotNull(storage.getBlob(ProjectionBloomChunks.tailSlotKey(0, rowGroupId)),
+              "open row group " + rowGroupId + " stays a tail blob");
+        }
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, grown);
+        assertNotNull(evidence);
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+            ProjectionIndexCatalog.columnSegmentFetcher(session, 2);
+        final long[] keepPresent = prune(evidence[0], grown, present, fetcher);
+        final long[] keepRejected = prune(evidence[0], grown, rejected, fetcher);
+        for (int leaf = 0; leaf < grown; leaf++) {
+          assertKept(keepPresent, leaf);
+          assertDropped(keepRejected, leaf, "leaf " + leaf + " prunes across both completed chunks");
+        }
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  /**
+   * The even cut's peak must be priced on the range that actually HOLDS the open chunk. When the even
+   * split's last range comes out empty the open chunk sits in the second-to-last one with blocks
+   * beside it, and modelling it as the last range prices those blocks at zero — so a cut whose real
+   * peak is higher is scored as the cheaper one and isolation is wrongly declined.
+   */
+  @Test
+  void theEvenCutIsPricedOnTheRangeHoldingTheOpenChunkEvenWhenItsLastRangeIsEmpty() {
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int sealed = 9;
+    final int openTails = 2;
+    final int ranges = 6;
+    final int rowGroupCount = sealed * leaves + openTails;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup inline = encodedRowGroup("present");
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup referenced = fatRowGroup();
+    assertTrue(bloomSegment(referenced).length > ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+        "the open chunk's tails must be referenced or they cost no page read");
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
+          writer.append(rowGroupId > sealed * leaves
+              ? referenced
+              : inline, rowGroupId, storage);
+        }
+        writer.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+        writer.publishManifests(storage, rowGroupCount);
+        wtx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final ProjectionBloomChunks.ColumnEvidence[] evidence =
+            ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, COLUMN_KINDS, rowGroupCount);
+        assertNotNull(evidence);
+        final ProjectionBloomChunks.ColumnEvidence column = evidence[0];
+        assertEquals(sealed + 1, column.chunkCount());
+
+        // The shape this regression needs: nine blocks and the open chunk over six ranges puts the
+        // even cut at 2 units per range, which fills the first five and leaves the last empty.
+        final int[] even = evenRangeBounds(column.chunkCount(), ranges);
+        assertEquals(even[ranges - 1], even[ranges], "the even cut's last range must be empty here");
+        assertArrayEquals(new int[] {0, 2, 4, 6, 8, 10, 10}, even);
+
+        final int[] chosen = column.weightedRangeBounds(ranges);
+        assertArrayEquals(new int[] {0, 2, 4, 6, 8, sealed, sealed + 1}, chosen,
+            "the open chunk must be isolated: sharing its range costs a block on top of its tails");
+        assertEquals(2, rangePeak(chosen, sealed, openTails), "the chosen cut peaks at the open chunk");
+        assertEquals(3, rangePeak(even, sealed, openTails),
+            "the even cut peaks at the block sharing the open chunk's range, which the model must see");
+        assertTrue(rangePeak(chosen, sealed, openTails) < rangePeak(even, sealed, openTails),
+            "the split must pick the lower real peak");
+      }
+    } finally {
+      writer.release();
+    }
+  }
+
+  /** The plain index-even cut the weighted split is measured against. */
+  private static int[] evenRangeBounds(final int count, final int ranges) {
+    final int[] bounds = new int[ranges + 1];
+    final int len = (count + ranges - 1) / ranges;
+    for (int r = 1; r <= ranges; r++) {
+      bounds[r] = Math.min(r * len, count);
+    }
+    return bounds;
+  }
+
+  /**
+   * Page reads the heaviest range of {@code bounds} performs: one per sealed block it holds, plus
+   * {@code openWeight} for the range holding the open chunk at index {@code sealed}.
+   */
+  private static int rangePeak(final int[] bounds, final int sealed, final int openWeight) {
+    int peak = 0;
+    for (int r = 0; r + 1 < bounds.length; r++) {
+      final int from = bounds[r];
+      final int to = bounds[r + 1];
+      if (from >= to) {
+        continue;
+      }
+      final int blocks = Math.max(0, Math.min(to, sealed) - from);
+      peak = Math.max(peak, blocks + (from <= sealed && sealed < to
+          ? openWeight
+          : 0));
+    }
+    return peak;
   }
 
   private static void createVersionedResource(final VersioningType versioning) throws IOException {
