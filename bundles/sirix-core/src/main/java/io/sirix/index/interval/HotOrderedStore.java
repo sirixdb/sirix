@@ -83,6 +83,18 @@ public final class HotOrderedStore implements OrderedStore {
     }
     final ValidTimeKey from = new ValidTimeKey(store, forkNode, endpointLo);
     final ValidTimeKey to = new ValidTimeKey(store, forkNode, endpointHi);
+    scan(from, to, out);
+  }
+
+  @Override
+  public void scanForks(final long forkLo, final long forkHi, final LongConsumer out) {
+    if (reader == null || forkLo > forkHi) {
+      return;
+    }
+    scan(new ValidTimeKey(store, forkLo, Long.MIN_VALUE), new ValidTimeKey(store, forkHi, Long.MAX_VALUE), out);
+  }
+
+  private void scan(final ValidTimeKey from, final ValidTimeKey to, final LongConsumer out) {
     final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = reader.range(from, to);
     while (it.hasNext()) {
       final NodeReferences refs = it.next().getValue();

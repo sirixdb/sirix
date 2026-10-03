@@ -1,29 +1,75 @@
 package io.sirix.query.function.jn.temporal;
 
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
+import io.brackit.query.atomic.DateTime;
+import io.brackit.query.module.StaticContext;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBObject;
 
 import java.time.Instant;
 
 /**
  * Shared linear-scan ("fallback") implementation of the valid-time point-in-time predicate
- * {@code validFrom <= validTime <= validTo}, used by {@code jn:valid-at} / {@code jn:open-bitemporal}
- * and {@code jn:scan-valid-time-index} when no index applies.
+ * {@code validFrom <= validTime <= validTo}, used by {@code jn:valid-at} /
+ * {@code jn:open-bitemporal} and {@code jn:scan-valid-time-index} when no index applies.
  *
- * <p>The predicate is exactly the one the interval-index and CAS-narrowing paths re-verify against
- * ({@link ValidTimeIndexScan#isValidAtTime}), so all three paths return the identical set.</p>
+ * <p>
+ * The predicate is exactly the one the interval-index and CAS-narrowing paths re-verify against
+ * ({@link ValidTimeIndexScan#isValidAtTime}), so all three paths return the identical set.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class ValidTimeFilter {
 
-  private ValidTimeFilter() {
+  private ValidTimeFilter() {}
+
+  /** Exact fallback for the two original xs:dateTime comparisons, preserving conjunct order. */
+  public static Sequence comparisonScanSequence(final JsonDBItem document, final DateTime point, final String from,
+      final String to, final int mode, final StaticContext context) {
+    if (!(document instanceof Array array)) {
+      throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, "Expected an array for valid-time FLWOR");
+    }
+    final ValidTimeResidual lower = new ValidTimeResidual(context, point, from, true, (mode & 1) != 0);
+    final ValidTimeResidual upper = new ValidTimeResidual(context, point, to, false, (mode & 2) != 0);
+    final ValidTimeResidual first = (mode & 4) == 0
+        ? lower
+        : upper;
+    final ValidTimeResidual second = (mode & 4) == 0
+        ? upper
+        : lower;
+    return new LazySequence() {
+      @Override
+      public Iter iterate() {
+        final Iter input = array.iterate();
+        return new BaseIter() {
+          @Override
+          public Item next() {
+            Item item;
+            while ((item = input.next()) != null) {
+              if (item instanceof JsonDBObject object && first.test(object) && second.test(object)) {
+                return item;
+              }
+            }
+            return null;
+          }
+
+          @Override
+          public void close() {
+            input.close();
+          }
+        };
+      }
+    };
   }
 
   /**
@@ -71,11 +117,10 @@ public final class ValidTimeFilter {
       }
 
       private boolean isValidAt(final JsonDBItem item) {
-        if (!(item instanceof io.brackit.query.jdm.json.Object obj)) {
+        if (!(item instanceof Object obj)) {
           return false;
         }
-        return ValidTimeIndexScan.isValidAtTime(obj, validTime,
-            validTimeConfig.getNormalizedValidFromPath(),
+        return ValidTimeIndexScan.isValidAtTime(obj, validTime, validTimeConfig.getNormalizedValidFromPath(),
             validTimeConfig.getNormalizedValidToPath());
       }
     };

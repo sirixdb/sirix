@@ -29,6 +29,15 @@ final class DateTimeToInstantTest {
   private static final DateTimeToInstant CONVERTER = new DateTimeToInstant();
 
   @Test
+  void preservesOffsetsAndMicrosecondsAcrossDayBoundaries() {
+    final DateTimeToInstant converter = new DateTimeToInstant();
+    assertEquals(Instant.parse("2023-12-31T22:00:00.123456Z"),
+        converter.convert(new DateTime("2024-01-01T00:00:00.123456+02:00")));
+    assertEquals(Instant.parse("2024-01-01T03:30:00Z"), converter.convert(new DateTime("2024-01-01T00:00:00-03:30")));
+    assertEquals(Instant.parse("2024-01-01T00:00:00Z"), converter.convert(new DateTime("2024-01-01T00:00:00Z")));
+  }
+
+  @Test
   void honoursAPositiveOffset() {
     assertConverts("2020-06-15T14:00:00+02:00", "2020-06-15T12:00:00Z");
   }
