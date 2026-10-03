@@ -51,6 +51,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -88,114 +89,143 @@ public final class StorageEngineWriterFactory {
       final UberPage uberPage, final Writer writer, final int trxId, final int representRevision,
       final int lastStoredRevision, final int lastCommitedRevision, final boolean isBoundToNodeTrx,
       final BufferManager bufferManager) {
-    final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
-    final boolean usePathSummary = resourceConfig.withPathSummary;
-    // Use representRevision + 1 because that's the NEW revision being created.
-    // The node transaction will use trx.getRevisionNumber() which returns the new revision,
-    // so we need to use the same revision for the index controller to ensure they share state.
-    final int newRevisionNumber = representRevision + 1;
-    final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
+    TransactionIntentLog log = null;
+    NodeStorageEngineReader storageEngineReader = null;
+    try {
+      final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
+      final boolean usePathSummary = resourceConfig.withPathSummary;
+      // Use representRevision + 1 because that's the NEW revision being created.
+      // The node transaction will use trx.getRevisionNumber() which returns the new revision,
+      // so we need to use the same revision for the index controller to ensure they share state.
+      final int newRevisionNumber = representRevision + 1;
+      final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
 
-    // The prospective-revision controller is cached and may still contain catalogue mutations from
-    // a transaction that is now rolling back. This factory is the authoritative persisted-state
-    // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
-    indexController.getIndexes().reset();
+      // The prospective-revision controller is cached and may still contain catalogue mutations from
+      // a transaction that is now rolling back. This factory is the authoritative persisted-state
+      // rebind point: start empty, then replace it with exactly lastStoredRevision's catalogue below.
+      indexController.getIndexes().reset();
 
-    // Deserialize index definitions.
-    final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                    .resolve(lastStoredRevision + ".xml");
-    if (Files.exists(indexes)) {
-      try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      } catch (IOException | DocumentException | SirixException e) {
-        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
+      // Deserialize index definitions.
+      final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                      .resolve(lastStoredRevision + ".xml");
+      if (Files.exists(indexes)) {
+        try (final InputStream in = new FileInputStream(indexes.toFile())) {
+          indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+        } catch (IOException | DocumentException | SirixException e) {
+          throw new SirixIOException("Index definitions couldn't be deserialized!", e);
+        }
       }
-    }
 
-    final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-    final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
+      final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
+      log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
-    // Create revision tree if needed. Note: This must happen before the storage engine reader is
-    // created.
-    if (uberPage.isBootstrap()) {
-      uberPage.createRevisionTree(log);
-    }
-
-    // Storage engine reader.
-    final NodeStorageEngineReader storageEngineReader = new NodeStorageEngineReader(trxId, resourceSession, uberPage,
-        representRevision, writer, bufferManager, new RevisionRootPageReader(), log);
-
-    // Create new revision root page.
-    final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
-    // Use temporary KeyedTrieWriter to prepare revision root page.
-    final var tempKeyedTrieWriter = new KeyedTrieWriter();
-    final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
-        storageEngineReader, log, representRevision, lastStoredRevision);
-    newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
-    newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
-    if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(
-          lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
-    }
-
-    // First create revision tree if needed.
-    newRevisionRootPage.createDocumentIndexTree(this.databaseType, storageEngineReader, log);
-    newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, storageEngineReader, log);
-
-    if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, storageEngineReader, log);
-    }
-
-    if (usePathSummary) {
-      // Create path summary tree if needed.
-      final PathSummaryPage page = storageEngineReader.getPathSummaryPage(newRevisionRootPage);
-
-      page.createPathSummaryTree(this.databaseType, storageEngineReader, 0, log);
-
-      if (log.get(newRevisionRootPage.getPathSummaryPageReference()) == null) {
-        log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
+      // Create revision tree if needed. Note: This must happen before the storage engine reader is
+      // created.
+      if (uberPage.isBootstrap()) {
+        uberPage.createRevisionTree(log);
       }
-    }
 
-    if (uberPage.isBootstrap()) {
-      final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
-      final DeweyIDPage deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
+      // Storage engine reader.
+      storageEngineReader = new NodeStorageEngineReader(trxId, resourceSession, uberPage, representRevision, writer,
+          bufferManager, new RevisionRootPageReader(), log);
 
-      if (resourceSession instanceof JsonResourceSession) {
-        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
-            NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
-      } else if (resourceSession instanceof XmlResourceSession) {
-        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.ATTRIBUTES_REFERENCE_OFFSET,
-            log);
-        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET,
-            log);
-        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET,
-            log);
-        namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
-            NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
+      // Create new revision root page.
+      final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
+      // Use temporary KeyedTrieWriter to prepare revision root page.
+      final var tempKeyedTrieWriter = new KeyedTrieWriter();
+      final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
+          storageEngineReader, log, representRevision, lastStoredRevision);
+      newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
+      newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
+      if (resourceConfig.storeNodeHistory()) {
+        newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(
+            lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+      }
+
+      // First create revision tree if needed.
+      newRevisionRootPage.createDocumentIndexTree(this.databaseType, storageEngineReader, log);
+      newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, storageEngineReader, log);
+
+      if (resourceConfig.storeNodeHistory()) {
+        newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, storageEngineReader, log);
+      }
+
+      if (usePathSummary) {
+        // Create path summary tree if needed.
+        final PathSummaryPage page = storageEngineReader.getPathSummaryPage(newRevisionRootPage);
+
+        page.createPathSummaryTree(this.databaseType, storageEngineReader, 0, log);
+
+        if (log.get(newRevisionRootPage.getPathSummaryPageReference()) == null) {
+          log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
+        }
+      }
+
+      if (uberPage.isBootstrap()) {
+        final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
+        final DeweyIDPage deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
+
+        if (resourceSession instanceof JsonResourceSession) {
+          namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
+              NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
+          deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
+        } else if (resourceSession instanceof XmlResourceSession) {
+          namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
+              NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
+          namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET,
+              log);
+          namePage.createNameDictionaryTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET,
+              log);
+          namePage.createNameDictionaryTree(this.databaseType, storageEngineReader,
+              NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
+          deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
+        } else {
+          throw new IllegalStateException("Resource session type not known.");
+        }
       } else {
-        throw new IllegalStateException("Resource session type not known.");
-      }
-    } else {
-      // Secondary container pages are intentionally absent from the TIL until their first write.
-      // NodeStorageEngineWriter.prepareSecondaryIndexPage performs the single, typed first-touch
-      // CoW operation. An empty write transaction consequently neither copies nor serializes every
-      // secondary-index container in the resource.
-      if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
-        final Page deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
+        // Secondary container pages are intentionally absent from the TIL until their first write.
+        // NodeStorageEngineWriter.prepareSecondaryIndexPage performs the single, typed first-touch
+        // CoW operation. An empty write transaction consequently neither copies nor serializes every
+        // secondary-index container in the resource.
+        if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
+          final Page deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
+          log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
+        }
+
+        final var revisionRootPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
+                                                                 .setResourceId(storageEngineReader.getResourceId());
+        log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
+        uberPage.setRevisionRootPageReference(revisionRootPageReference);
+        uberPage.setRevisionRootPage(newRevisionRootPage);
       }
 
-      final var revisionRootPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
-                                                               .setResourceId(storageEngineReader.getResourceId());
-      log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
-      uberPage.setRevisionRootPageReference(revisionRootPageReference);
-      uberPage.setRevisionRootPage(newRevisionRootPage);
+      return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController,
+          representRevision, isBoundToNodeTrx);
+    } catch (final RuntimeException | Error failure) {
+      // A failed constructor publishes no writer. The factory still owns its reader, TIL and
+      // backend; drain each independently so cleanup cannot mask an allocation/I/O failure.
+      closeAfterConstructionFailure(storageEngineReader, failure);
+      closeAfterConstructionFailure(log, failure);
+      closeAfterConstructionFailure(writer, failure);
+      throw failure;
     }
+  }
 
-    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController,
-        representRevision, isBoundToNodeTrx);
+
+  private static void closeAfterConstructionFailure(final @Nullable AutoCloseable owner, final Throwable failure) {
+    if (owner == null) {
+      return;
+    }
+    try {
+      owner.close();
+    } catch (final Throwable cleanupFailure) {
+      if (cleanupFailure != failure) {
+        try {
+          failure.addSuppressed(cleanupFailure);
+        } catch (final Throwable ignored) {
+          // Suppression is diagnostic; allocation failure must remain the primary cause.
+        }
+      }
+    }
   }
 }

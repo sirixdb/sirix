@@ -1050,15 +1050,20 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Close current page transaction.
       final int trxID = getId();
-      final int revision = getRevisionNumber();
-      final int revNumber = storageEngineWriter.getUberPage().isBootstrap()
-          ? 0
-          : revision - 1;
-
-      final UberPage uberPage = storageEngineWriter.rollback();
-
-      // Remember successfully committed uber page in resource session.
-      resourceSession.setLastCommittedUberPage(uberPage);
+      final int revNumber;
+      if (storageEngineWriter.isClosed()) {
+        // A durable commit closed its predecessor before successor construction failed. There
+        // is no live writer to abort: recover from the session's already-published durable root.
+        // Entering rollback() on that closed predecessor would dereference its cleared caches.
+        revNumber = resourceSession.getMostRecentRevisionNumber();
+      } else {
+        final int revision = getRevisionNumber();
+        revNumber = storageEngineWriter.getUberPage().isBootstrap()
+            ? 0
+            : revision - 1;
+        final UberPage uberPage = storageEngineWriter.rollback();
+        resourceSession.setLastCommittedUberPage(uberPage);
+      }
 
       resourceSession.closeNodePageWriteTransaction(getId());
       nodeReadOnlyTrx.setPageReadTransaction(null);
@@ -1082,6 +1087,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       reInstantiateIndexes(false);
 
       rollbackOnlyCause = null;
+      state = State.RUNNING;
 
       // Discard update-operation tuples recorded before the rollback: their node keys belong to the
       // aborted revision and must not leak into the next commit's diff (a later commit would
