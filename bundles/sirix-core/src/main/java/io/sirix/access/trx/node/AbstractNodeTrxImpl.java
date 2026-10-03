@@ -979,8 +979,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
       nodeHashing.setBulkInsert(isBulkInsert);
 
-      updateOperationsUnordered.clear();
-      updateOperationsOrdered.clear();
+      if (!isBulkInsert) {
+        updateOperationsUnordered.clear();
+        updateOperationsOrdered.clear();
+      }
 
       reInstantiateIndexes(true);
 

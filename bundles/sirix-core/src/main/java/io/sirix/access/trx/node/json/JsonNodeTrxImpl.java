@@ -212,7 +212,7 @@ final class JsonNodeTrxImpl extends
   /**
    * The revision number before bulk-inserting nodes.
    */
-  private int beforeBulkInsertionRevisionNumber;
+  private int beforeBulkInsertionRevisionNumber = -1;
 
   /**
    * Insert not allowed exception because of absance of parent in array.
@@ -595,7 +595,9 @@ final class JsonNodeTrxImpl extends
         }
 
         checkAccessAndCommit();
-        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+        if (beforeBulkInsertionRevisionNumber < 0) {
+          beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+        }
         nodeHashing.setBulkInsert(true);
         // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
@@ -4340,17 +4342,19 @@ final class JsonNodeTrxImpl extends
       serializeUpdateDiffsWithIngestPositions(revisionNumber);
     } finally {
       ingestArrayPositions = null;
+      if (!nodeHashing.isBulkInsert()) {
+        beforeBulkInsertionRevisionNumber = -1;
+        updateOperationsOrdered.clear();
+        updateOperationsUnordered.clear();
+      }
     }
   }
 
   private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
-    if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
-      // Determine the old revision number for the diff:
-      // - After bulk insert with auto-commit, use the pre-bulk-insert revision
-      // - Otherwise, use the previous revision
-      final int oldRevisionNumber = beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
-          ? beforeBulkInsertionRevisionNumber
-          : revisionNumber - 1;
+    final int oldRevisionNumber = beforeBulkInsertionRevisionNumber < 0
+        ? revisionNumber - 1
+        : beforeBulkInsertionRevisionNumber;
+    if (!nodeHashing.isBulkInsert() && oldRevisionNumber > 0) {
 
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
           oldRevisionNumber, revisionNumber, storeDeweyIDs()
@@ -4386,19 +4390,25 @@ final class JsonNodeTrxImpl extends
         }
         throw new UncheckedIOException(e);
       }
-
-      // Reset beforeBulkInsertionRevisionNumber after writing the diff file
-      // so that subsequent commits use the normal previous revision
-      if (beforeBulkInsertionRevisionNumber != 0) {
-        beforeBulkInsertionRevisionNumber = 0;
-      }
-
-      if (storeDeweyIDs()) {
-        updateOperationsOrdered.clear();
-      } else {
-        updateOperationsUnordered.clear();
-      }
     }
+  }
+
+  @Override
+  public synchronized JsonNodeTrx rollback() {
+    runLocked(() -> {
+      super.rollback();
+      beforeBulkInsertionRevisionNumber = -1;
+    });
+    return this;
+  }
+
+  @Override
+  public JsonNodeTrx revertTo(final int revision) {
+    runLocked(() -> {
+      super.revertTo(revision);
+      beforeBulkInsertionRevisionNumber = -1;
+    });
+    return this;
   }
 
   @Override

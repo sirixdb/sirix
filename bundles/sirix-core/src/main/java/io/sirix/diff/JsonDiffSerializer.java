@@ -13,13 +13,16 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
@@ -244,7 +247,65 @@ public final class JsonDiffSerializer {
       }
     }
 
+    if (oldRevisionNumber < newRevisionNumber) {
+      orderInserts(jsonDiffs);
+    }
     return finish(json, includeIntegrityMetadata);
+  }
+
+  private static void orderInserts(final JsonArray diffs) {
+    int insertCount = 0;
+    long previousKey = -1;
+    boolean ordered = true;
+    for (final var operation : diffs) {
+      if (operation.getAsJsonObject().has("insert")) {
+        final JsonObject insert = operation.getAsJsonObject().getAsJsonObject("insert");
+        final long nodeKey = insert.get("nodeKey").getAsLong();
+        ordered &= nodeKey > previousKey && insert.get("insertPositionNodeKey").getAsLong() < nodeKey;
+        previousKey = nodeKey;
+        insertCount++;
+      }
+    }
+    if (insertCount < 2 || ordered) {
+      return;
+    }
+    final var inserts = new ArrayList<JsonObject>(insertCount);
+    final var rightSiblings = new Long2ObjectOpenHashMap<JsonObject>(insertCount);
+    for (final var operation : diffs) {
+      final JsonObject object = operation.getAsJsonObject();
+      if (object.has("insert")) {
+        inserts.add(object);
+        final JsonObject insert = object.getAsJsonObject("insert");
+        if ("asRightSibling".equals(insert.get("insertPosition").getAsString())) {
+          rightSiblings.put(insert.get("insertPositionNodeKey").getAsLong(), insert);
+        }
+      }
+    }
+    inserts.sort(Comparator.comparingLong(operation -> operation.getAsJsonObject("insert").get("nodeKey").getAsLong()));
+    for (int index = inserts.size() - 1; index >= 0; index--) {
+      final JsonObject insert = inserts.get(index).getAsJsonObject("insert");
+      final long nodeKey = insert.get("nodeKey").getAsLong();
+      final long anchor = insert.get("insertPositionNodeKey").getAsLong();
+      final String position = insert.get("insertPosition").getAsString();
+      final JsonObject rightSibling = rightSiblings.remove(nodeKey);
+      if (rightSibling != null) {
+        rightSibling.addProperty("insertPositionNodeKey", anchor);
+        rightSibling.addProperty("insertPosition", position);
+      }
+      if ("asRightSibling".equals(position)) {
+        if (rightSibling == null) {
+          rightSiblings.remove(anchor);
+        } else {
+          rightSiblings.put(anchor, rightSibling);
+        }
+      }
+    }
+    int insertIndex = 0;
+    for (int index = 0; index < diffs.size(); index++) {
+      if (diffs.get(index).getAsJsonObject().has("insert")) {
+        diffs.set(index, inserts.get(insertIndex++));
+      }
+    }
   }
 
   private static String finish(final JsonObject document, final boolean includeIntegrityMetadata) {

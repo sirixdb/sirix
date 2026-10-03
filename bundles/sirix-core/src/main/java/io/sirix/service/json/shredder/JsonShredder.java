@@ -633,7 +633,9 @@ public final class JsonShredder implements Callable<Long> {
   private void addObjectRecordFused(final String name, final ObjectRecordValue<?> value) throws IOException {
     final long fusedKey;
     if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      fusedKey = wtx.insertObjectRecordWithPrimitiveAsFirstChild(name, value).getNodeKey();
+      fusedKey = (insert == InsertPosition.AS_LAST_CHILD
+          ? wtx.insertObjectRecordAsLastChild(name, value)
+          : wtx.insertObjectRecordWithPrimitiveAsFirstChild(name, value)).getNodeKey();
     } else {
       fusedKey = wtx.insertObjectRecordWithPrimitiveAsRightSibling(name, value).getNodeKey();
     }
