@@ -217,8 +217,9 @@ suite counts (`1,774 tests`, `16 membership tests`) and the `MembershipIndexExpr
 that commit, not HEAD. They were deliberately left as recorded rather than re-written without a new
 measured run.
 
-A JSON `null` key no longer returns `Keys.FALLBACK`. It sets one `hasNull` flag on the `Keys`
-record and a null probe key is answered from that flag, so a single null no longer reverts the
+A JSON `null` key no longer gives the lookup up. It sets one `hasNull` flag — on the `Lookup`
+itself; the `Keys` record this originally described no longer exists — and a null probe key is
+answered from that flag, so a single null no longer reverts the
 whole query to the per-row nested plan. Covered by `HashMembershipStageTest`:
 `nullKeysMatchNullKeysAndNothingElse`, `explicitAndAbsentNullFieldsFollowTheValueComparison`,
 `aNullInnerKeyKeepsTheHashRouteAndItsWorkBound`, `aNullProbeKeyKeepsTheHashRouteAndItsWorkBound`,
@@ -260,38 +261,43 @@ soon as its keys exist, and the memo holds its single entry softly, so the key s
 row's database items are collectable instead of being retained for the lifetime of the caller's
 `Query`.
 
-### Re-measured done bar (2026-10-03, t100k)
+### Re-measured done bar (t100k)
 
-The plan tree changed, so the campaign timings above do not describe this state and are preserved only
-as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show the superseded
-`LetBind sirix:membership0`. The evaluation algorithm then changed twice more (an incremental key set,
-then a probe-scoped iterator), so the 2026-10-02 re-measurement is superseded too and is kept under
-`remeasured_t100k_after_memo_fix` with that note. Q12 was measured again on the current state, against
-a store freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event stream with
-one commit per publication and no batching override (load: 67.071 s):
+Q12 has been re-measured after each change to the lookup's evaluation. Every block in
+`measurements.json` names the commit it was taken at, because the head moves and a recorded number
+does not; read `measured_at_commit` rather than a block's name. The campaign timings above describe
+`79042b96a` only and are kept as history — `t100k-after.plan.txt` / `t250k-after.plan.txt` still show
+the superseded `LetBind sirix:membership0`. The latest pair, `remeasured_t100k_at_73d6e5daf`, ran
+against a store freshly loaded with `BitemporalSirixLoadMain t100k` from the unmodified kit event
+stream with one commit per publication and no batching override:
 
-| Q12 at t100k | seconds | rows | oracle |
-|---|---:|---:|---|
-| baseline `8aa9f0d9e` (historical) | 1069.754587 | 4 | exact |
-| superseded let-bound plan `79042b96a` (historical) | 8.443716 | 4 | exact |
-| **this state, rule disabled** | **987.999106** | 4 | exact |
-| **this state, fresh process** | **5.825218** | 4 | exact |
-| **this state, repeat** | **6.376734** | 4 | exact |
+| Q12 at t100k | measured at | seconds | rows | oracle |
+|---|---|---:|---:|---|
+| baseline | `8aa9f0d9e` | 1069.754587 | 4 | exact |
+| superseded let-bound plan | `79042b96a` | 8.443716 | 4 | exact |
+| rule disabled | `73d6e5daf` | 1039.163508 | 4 | exact |
+| **rule enabled, fresh process** | `73d6e5daf` | **5.267062** | 4 | exact |
+| **rule enabled, repeat** | `73d6e5daf` | **5.532705** | 4 | exact |
 
 The rule-disabled leg is the same classes with `-Dsirix.optimizer.hashMembership=false`, the knob this
 note documents for disabling just this rule, so it is a true pair on one build rather than a comparison
-across two. It executes none of the changed code. All five runs are byte-identical to the independent
-oracle `q12.tsv`, and their answer hash
+across two; it executes none of the changed code. Both enabled runs are byte-identical to the
+independent oracle `q12.tsv`, and their answer hash
 `b86458c4cc53e0102a04652690344f1d319e4bb16a667e2770a6dbb722429068` is the same answer the baseline and
 every intermediate plan produced — so the rewrite is answer-preserving across all of them. That is a
-170x and 155x reduction against the same build with the rule off, and Q12 is far below XTDB 2.1's
-2,360 s at this tier, so the intent's done bar for Q12 is met. The optimized plan is
+197x and 188x reduction against the same build with the rule off, and Q12 is three orders below
+XTDB 2.1's 2,360 s at this tier, so the intent's done bar for Q12 is met. The optimized plan is
 `t100k-after-memofix.plan.txt`: the lookup sits inside the `Selection`'s probe with `GroupBy` and
-`OrderBy` downstream and no membership variable anywhere. Source hashes for the measured state are in
-`measurements.json` under `remeasured_t100k_final_head`, computed from the worktree files the run was
-built from. These are shared-machine single-process measurements — the machine gate reported
-concurrent heavy JVMs from another worktree, and heavy JVMs were serialized through a `flock` so no
-two ran at once — so they support the order-of-growth and done-bar conclusion rather than small
-percentage comparisons. Only Q12 at t100k was run.
+`OrderBy` downstream and no membership variable anywhere.
+
+One commit landed after that pair: the scan's `finally` now publishes the terminal state and releases
+the outer tuple **before** closing the iterator, so a close that throws can no longer skip that
+cleanup. It is reached only when closing the inner iterator throws, which Q12 does not do, so the
+code the pair timed is the code the head runs for Q12 statement for statement; no remeasurement was
+taken for it, and `changed_after_this_run` in the block records exactly that. These are shared-machine
+single-process measurements — the machine gate reported concurrent heavy JVMs from another worktree,
+and heavy JVMs were serialized through a `flock` so no two ran at once — so they support the
+order-of-growth and done-bar conclusion rather than small percentage comparisons. Only Q12 at t100k
+was run.
 
 The authoritative suite result for HEAD is this branch's test step, not the counts above.

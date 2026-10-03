@@ -8,14 +8,17 @@ The **campaign artifacts** here — the `t100k-{before,after}` / `t250k-{before,
 commit `79042b96a` and describe that commit only. The plan trees named `after` therefore show the
 superseded let-bound plan, not the current one.
 
-Later rounds added artifacts that describe **later** states, each carrying its own
-`candidate_sources_sha256`. **`measurements.json#remeasured_t100k_final_head` is the current one** —
-it is the only block whose source hashes match the head of this branch, so cite Q12's latency from
-there. `measurements.json#remeasured_t100k_after_memo_fix` is an earlier re-measurement, superseded
-because the lookup's evaluation algorithm changed twice after it was taken; it is kept for history
-only. The `t100k-after-memofix*.plan.txt` trees show the nested-probe plan both of those blocks ran,
-which is still the current plan shape — only the runtime behaviour changed after them. Changes made
-after the campaign are listed in the addendum of the implementation note.
+Later rounds added artifacts that describe **later** states. Each measurement block in
+`measurements.json` names the commit it was taken at in `measured_at_commit` and pins the source
+hashes it was built from — **check that field rather than trusting a block's name.** The latest is
+`remeasured_t100k_at_73d6e5daf`; `remeasured_t100k_final_head` (taken at `e24c6b854`, despite the
+name) and `remeasured_t100k_after_memo_fix` are earlier re-measurements kept for history and marked
+`superseded_by`. Commits landing after a block was taken are recorded in its
+`changed_after_this_run`, which says what they touched and whether Q12's path changed; that is the
+honest way to read these numbers, because the head moves and a block never does. The
+`t100k-after-memofix*.plan.txt` trees show the nested-probe plan every later block ran, which is
+still the current plan shape — only runtime behaviour changed after them. Changes made after the
+campaign are listed in the addendum of the implementation note.
 
 - `Q12Probe.java.txt`: exact runner used for the recorded SH1 measurements. It canonicalizes the
   answer and checks byte equality with the independent oracle before printing a timing.
@@ -29,8 +32,9 @@ after the campaign are listed in the addendum of the implementation note.
   queries have identical optimized plan trees on frozen main and the candidate. This is a plan check,
   not an isolated ClickBench timing campaign.
 - `measurements.json`: oracle-verified measurements, answer/input hashes, and candidate source hashes
-  for the campaign, plus two later oracle-checked re-measurements — `remeasured_t100k_final_head`
-  (current; hashes match this branch's head) and `remeasured_t100k_after_memo_fix` (superseded).
+  for the campaign, plus three later oracle-checked re-measurements, each labelled with the commit it
+  was taken at — `remeasured_t100k_at_73d6e5daf` (latest), `remeasured_t100k_final_head` and
+  `remeasured_t100k_after_memo_fix` (both superseded).
 - `validation.json`: complete query-suite and work-budget counts plus the work-counter mutation.
 
 ## Reproduction

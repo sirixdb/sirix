@@ -481,6 +481,30 @@ final class HashMembershipStageTest {
   }
 
   @Test
+  void aFailingCloseStillLeavesTheLookupTerminal() throws Exception {
+    // The close runs in the same finally that publishes the terminal state, so a close that throws
+    // must not be able to skip it. The source is referenced directly, so the memo keys on the bound
+    // object and the lookup survives the failed execution into the retry.
+    try (final BasicJsonDBStore store = store();
+        final SirixCompileChain chain = chain(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final ThrowingCloseSequence inner = new ThrowingCloseSequence(64, 2);
+      context.bind(new QNm("src"), inner);
+      final Query query = new Query(chain, "declare variable $src external;"
+          + " for $a in (1,1,1) where empty(for $b in $src where $b eq $a return $b) return $a");
+      final Exception failure = assertThrows(Exception.class, () -> answer(query, context));
+      assertInstanceOf(IllegalStateException.class, rootCause(failure), "the close failure must propagate");
+      // Row 1 was indexed before the read failed, so key 1 is retained and all three outer rows are
+      // answered from it: a terminal lookup never re-enters the scan.
+      final int readBeforeRetry = inner.visited;
+      assertEquals(1, readBeforeRetry);
+      assertEquals("", answer(query, context));
+      assertEquals(readBeforeRetry, inner.visited, "the retry must not re-read the inner side");
+      assertEquals(1, inner.opened, "a terminal lookup opens no second scan");
+    }
+  }
+
+  @Test
   void anAbruptInnerFailureLeavesTheLookupDelegating() throws Exception {
     // The scan releases the outer tuple it evaluates the source against, so a scan that leaves
     // without a verdict can never be resumed. An error that is not a QueryException takes exactly
@@ -810,6 +834,51 @@ final class HashMembershipStageTest {
       public Object remove(final int index) {
         return delegate.remove(index);
       }
+    }
+  }
+
+  /** Fails its first read mid-iteration and its first close, then behaves. */
+  private static final class ThrowingCloseSequence extends LazySequence {
+    private final int size;
+    private final int failAt;
+    private boolean readFailed;
+    private boolean closeFailed;
+    private int visited;
+    private int opened;
+
+    private ThrowingCloseSequence(final int size, final int failAt) {
+      this.size = size;
+      this.failAt = failAt;
+    }
+
+    @Override
+    public Iter iterate() {
+      opened++;
+      return new BaseIter() {
+        private int position;
+
+        @Override
+        public Item next() {
+          if (position == size) {
+            return null;
+          }
+          position++;
+          if (!readFailed && position == failAt) {
+            readFailed = true;
+            throw new IllegalStateException("inner read failed mid-scan");
+          }
+          visited++;
+          return new Int32(position);
+        }
+
+        @Override
+        public void close() {
+          if (!closeFailed) {
+            closeFailed = true;
+            throw new IllegalStateException("inner close failed");
+          }
+        }
+      };
     }
   }
 

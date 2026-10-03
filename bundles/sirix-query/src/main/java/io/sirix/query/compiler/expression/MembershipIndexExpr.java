@@ -289,17 +289,18 @@ public final class MembershipIndexExpr implements Expr, Reference {
         delegate = true;
         return -1;
       } finally {
-        if (iter != null) {
-          iter.close();
-        }
         // The tuple is only an evaluation context for the source; holding it would pin one outer
         // row, and with it a database transaction, for as long as the lookup lives. Releasing it
         // means a scan that did not reach a verdict can never be resumed, so one that leaves
         // abruptly — an error no QueryException covers — hands every later probe to the original
-        // predicate instead of re-entering with no tuple to evaluate the source against.
+        // predicate instead of re-entering with no tuple to evaluate the source against. Both
+        // happen before the close, because a close that throws must not be able to skip them.
         origin = null;
         if (!complete) {
           delegate = true;
+        }
+        if (iter != null) {
+          iter.close();
         }
       }
     }
