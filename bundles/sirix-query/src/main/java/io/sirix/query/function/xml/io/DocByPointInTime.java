@@ -16,14 +16,10 @@ import io.sirix.query.node.XmlDBCollection;
 import java.time.Instant;
 
 /**
- * <p>
- * Function for opening a document in a collection/database. If successful, this function returns
- * the document-node. Supported signatures are:
- * </p>
- * <ul>
- * <li><code>xml:open($coll as xs:string, $res as xs:string, $pointInTime as xs:long) as node()</code>
- * </li>
- * </ul>
+ * Opens an XML resource at a point in time.
+ *
+ * @see XMLFun
+ * @see DateTimeToInstant
  *
  * @author Max Bechtold
  * @author Johannes Lichtenberger

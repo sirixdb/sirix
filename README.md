@@ -299,6 +299,15 @@ jn:doc('mydb','myresource', 5)
 jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
 ```
 
+JSONiq/XQuery timestamp inputs for temporal queries and commits honor explicit timezone
+offsets: `2024-01-15T12:30:00+02:00` denotes the same instant as `2024-01-15T10:30:00Z`.
+Offsets must be whole minutes from `-14:00` through `+14:00`. Inputs without a timezone
+are converted as UTC, independently of the query's implicit timezone.
+
+The query context captures `current-dateTime()` on first use with the JVM's timezone
+offset at that instant. `current-date()`, `current-time()`, and `implicit-timezone()`
+derive from that same snapshot, which remains stable for the context's lifetime.
+
 ### Temporal Axis Functions
 
 Navigate a node's history across revisions — `jn:previous`, `jn:next`, `jn:first`, `jn:last`,

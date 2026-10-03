@@ -11,19 +11,16 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.json.JsonDBCollection;
 
 import java.time.Instant;
 
 /**
- * <p>
- * Function for opening a document in a collection/database. If successful, this function returns
- * the document-node. Supported signatures are:
- * </p>
- * <ul>
- * <li><code>jn:open($coll as xs:string, $res as xs:string, $pointInTime as xs:long) as json-item()</code>
- * </li>
- * </ul>
+ * Opens a JSON resource at a point in time.
+ *
+ * @see JNFun
+ * @see DateTimeToInstant
  *
  * @author Max Bechtold
  * @author Johannes Lichtenberger

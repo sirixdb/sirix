@@ -35,6 +35,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -95,6 +97,12 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
    * The commit timestamp if any.
    */
   private final Instant commitTimestamp;
+
+  private @Nullable DateTime dateTime;
+
+  private @Nullable Date date;
+
+  private @Nullable Time time;
 
   public static SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
     return new SirixQueryContext(nodeStore, null, CommitStrategy.AUTO, null, null);
@@ -314,22 +322,38 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public DateTime getDateTime() {
-    return queryContextDelegate.getDateTime();
+    if (dateTime == null) {
+      final OffsetDateTime now = OffsetDateTime.ofInstant(Instant.now(), ZoneId.systemDefault());
+      final int offsetSeconds = now.getOffset().getTotalSeconds();
+      final int magnitude = Math.abs(offsetSeconds);
+      // DTD encodes its sign separately from the hour and minute magnitudes.
+      final DTD timezone = new DTD(offsetSeconds < 0, 0, (byte) (magnitude / 3600), (byte) (magnitude / 60 % 60),
+          magnitude % 60 * 1_000_000);
+      dateTime = new DateTime((short) now.getYear(), (byte) now.getMonthValue(), (byte) now.getDayOfMonth(),
+          (byte) now.getHour(), (byte) now.getMinute(), now.getSecond() * 1_000_000 + now.getNano() / 1_000, timezone);
+    }
+    return dateTime;
   }
 
   @Override
   public Date getDate() {
-    return queryContextDelegate.getDate();
+    if (date == null) {
+      date = new Date(getDateTime());
+    }
+    return date;
   }
 
   @Override
   public Time getTime() {
-    return queryContextDelegate.getTime();
+    if (time == null) {
+      time = new Time(getDateTime());
+    }
+    return time;
   }
 
   @Override
   public DTD getImplicitTimezone() {
-    return queryContextDelegate.getImplicitTimezone();
+    return getDateTime().getTimezone();
   }
 
   @Override
