@@ -8,14 +8,16 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 
 /**
- * Manual replacement for the Dagger-generated {@code DaggerDatabaseManager}. Creates and holds
- * the singleton dependencies that were previously managed by the Dagger component graph.
+ * Manual replacement for the Dagger-generated {@code DaggerDatabaseManager}. Creates and holds the
+ * singleton dependencies that were previously managed by the Dagger component graph.
  *
- * <p>Dependency wiring (previously 3 Dagger levels):
+ * <p>
+ * Dependency wiring (previously 3 Dagger levels):
  * <ul>
- *   <li>Level 1 (root singletons): {@link WriteLocksRegistry}, {@link PathBasedPool} instances</li>
- *   <li>Level 2 (database scope): wired per-call inside the database factory lambdas</li>
- *   <li>Level 3 (resource session scope): wired per-call inside the resource session factory lambdas</li>
+ * <li>Level 1 (root singletons): {@link WriteLocksRegistry}, {@link PathBasedPool} instances</li>
+ * <li>Level 2 (database scope): wired per-call inside the database factory lambdas</li>
+ * <li>Level 3 (resource session scope): wired per-call inside the resource session factory
+ * lambdas</li>
  * </ul>
  */
 public final class DatabaseManagerFactory {
@@ -37,11 +39,11 @@ public final class DatabaseManagerFactory {
 
     // JSON database factory (replaces JsonLocalDatabaseComponent + JsonLocalDatabaseModule)
     final LocalDatabaseFactory<JsonResourceSession> jsonFactory =
-        new LocalJsonDatabaseFactory(writeLocksRegistry, databaseSessions, resourceSessions);
+        new LocalJsonDatabaseFactory(writeLocksRegistry, resourceSessions);
 
     // XML database factory (replaces XmlLocalDatabaseComponent + XmlLocalDatabaseModule)
     final LocalDatabaseFactory<XmlResourceSession> xmlFactory =
-        new LocalXmlDatabaseFactory(writeLocksRegistry, databaseSessions, resourceSessions);
+        new LocalXmlDatabaseFactory(writeLocksRegistry, resourceSessions);
 
     return new DatabaseManagerImpl(jsonFactory, xmlFactory, databaseSessions);
   }
@@ -56,8 +58,7 @@ public final class DatabaseManagerFactory {
     private final PathBasedPool<Database<?>> sessions;
 
     DatabaseManagerImpl(final LocalDatabaseFactory<JsonResourceSession> jsonDatabaseFactory,
-        final LocalDatabaseFactory<XmlResourceSession> xmlDatabaseFactory,
-        final PathBasedPool<Database<?>> sessions) {
+        final LocalDatabaseFactory<XmlResourceSession> xmlDatabaseFactory, final PathBasedPool<Database<?>> sessions) {
       this.jsonDatabaseFactory = jsonDatabaseFactory;
       this.xmlDatabaseFactory = xmlDatabaseFactory;
       this.sessions = sessions;
