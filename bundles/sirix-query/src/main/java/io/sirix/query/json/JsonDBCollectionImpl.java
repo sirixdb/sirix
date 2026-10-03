@@ -173,7 +173,11 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
         }
       }
 
-      return getItem(trx);
+      final JsonDBItem item = getItem(trx);
+      if (item == null) {
+        trx.close();
+      }
+      return item;
     } catch (final Exception e) {
       if (trx != null && !trx.isClosed()) {
         trx.close();

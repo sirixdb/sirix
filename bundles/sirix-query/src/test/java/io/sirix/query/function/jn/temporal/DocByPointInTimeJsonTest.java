@@ -4,15 +4,23 @@ import io.brackit.query.Query;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.JsonTestHelper;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBItem;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -20,6 +28,7 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -117,6 +126,52 @@ public final class DocByPointInTimeJsonTest {
         if (!rtx.isClosed()) {
           rtx.close();
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  public void test_whenPointInTimeSelectsEmptyRevision_thenLookupTransactionCloses(final StorageType storageType) {
+    final Instant firstCommit = Instant.parse("2010-01-01T00:00:00Z");
+    final Instant pointInTime = Instant.parse("2000-01-01T00:00:00Z");
+    try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build()) {
+      assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(SIRIX_DB_PATH)));
+      final JsonDBCollection collection = store.lookup("json-path1");
+      collection.getDatabase()
+          .createResource(ResourceConfiguration.newBuilder("mydoc.jn")
+              .storageType(storageType)
+              .customCommitTimestamps(true)
+              .build());
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("mydoc.jn");
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertObjectAsFirstChild();
+        wtx.commit(null, firstCommit);
+      }
+
+      try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        try (final JsonNodeReadOnlyTrx bootstrap = session.beginNodeReadOnlyTrx(pointInTime)) {
+          assertEquals(0, bootstrap.getRevisionNumber());
+          assertEquals(Instant.EPOCH, bootstrap.getRevisionTimestamp());
+        }
+        final int baseline = session.activeTrxCount();
+        for (int i = 0; i < 3; i++) {
+          assertNull(collection.getDocument("mydoc.jn", pointInTime));
+          assertEquals(baseline, session.activeTrxCount(), "an absent document must release its lookup transaction");
+          assertFalse(session.isClosed(), "the shared resource session was closed");
+          assertFalse(rtx.isClosed(), "an unrelated open transaction was closed");
+          assertTrue(rtx.moveToDocumentRoot());
+          assertTrue(rtx.moveToFirstChild());
+        }
+
+        final JsonDBItem document = collection.getDocument("mydoc.jn", firstCommit);
+        assertNotNull(document);
+        try (final JsonNodeReadOnlyTrx documentTrx = document.getTrx()) {
+          assertEquals(baseline + 1, session.activeTrxCount());
+          assertEquals(1, documentTrx.getRevisionNumber());
+          assertTrue(documentTrx.isObject());
+        }
+        assertEquals(baseline, session.activeTrxCount());
       }
     }
   }
