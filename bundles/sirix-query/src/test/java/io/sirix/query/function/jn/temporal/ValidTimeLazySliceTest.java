@@ -41,6 +41,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import static io.brackit.query.util.path.Path.parse;
@@ -179,8 +180,8 @@ final class ValidTimeLazySliceTest {
         // the strict routes union the verification postings, so the record's own registered
         // whole-domain interval is what the other two depend on.
         for (final String upper : List.of("lt", "le")) {
-          assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT + " "
-              + upper + " xs:dateTime($x.vt) return $x.id").execute(context)), resource + " " + upper);
+          assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT
+              + " " + upper + " xs:dateTime($x.vt) return $x.id").execute(context)), resource + " " + upper);
         }
         assertEquals(List.of(1L, 2L),
             values(new Query(chain,
@@ -372,13 +373,15 @@ final class ValidTimeLazySliceTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
-        assertEquals(List.of(1L), values(new Query(chain,
-            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
-        assertEquals(List.of(1L), values(new Query(chain,
-            "for $x in " + source(resource) + " where xs:dateTime($x.vf) lt " + POINT + " return $x.id").execute(context)));
-        assertEquals(List.of(1L), values(new Query(chain,
-            "for $x in jn:scan-valid-time-index(jn:doc('slice','" + resource + "')," + POINT
-                + ") return $x.id").execute(context)));
+        assertEquals(List.of(1L), values(
+            new Query(chain, "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(
+                context)));
+        assertEquals(List.of(1L),
+            values(new Query(chain,
+                "for $x in " + source(resource) + " where xs:dateTime($x.vf) lt " + POINT + " return $x.id").execute(
+                    context)));
+        assertEquals(List.of(1L), values(new Query(chain, "for $x in jn:scan-valid-time-index(jn:doc('slice','"
+            + resource + "')," + POINT + ") return $x.id").execute(context)));
       }
     }
   }
@@ -410,20 +413,21 @@ final class ValidTimeLazySliceTest {
         writer.moveTo(second);
         writer.insertObjectRecordAsFirstChild("vt", new StringValue("bad"));
         writer.commit();
-        assertEquals(List.of(1L, 2L), values(new Query(chain,
-            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
+        assertEquals(List.of(1L, 2L), values(
+            new Query(chain, "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(
+                context)));
       }
     }
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
-      assertEquals(List.of(), values(new Query(chain,
-          "for $x in jn:scan-valid-time-index(jn:doc('slice','indexed'," + oldRevision + ")," + POINT
-              + ") return $x.id").execute(context)));
+      assertEquals(List.of(), values(new Query(chain, "for $x in jn:scan-valid-time-index(jn:doc('slice','indexed',"
+          + oldRevision + ")," + POINT + ") return $x.id").execute(context)));
       for (final String resource : List.of("indexed", "plain")) {
-        assertEquals(List.of(1L, 2L), values(new Query(chain,
-            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
+        assertEquals(List.of(1L, 2L), values(
+            new Query(chain, "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(
+                context)));
       }
     }
   }
@@ -439,11 +443,13 @@ final class ValidTimeLazySliceTest {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
         final String fields = "for $vt in ('vt','other') for $x in ";
-        assertEquals(List.of(1L), values(new Query(chain, fields + source(resource)
-            + " where " + POINT + " lt xs:dateTime($x.$vt) return $x.id").execute(context)));
-        assertEquals(List.of(1L), values(new Query(chain, fields + "jn:doc('slice','" + resource
-            + "')[] where xs:dateTime($x.vf) le " + POINT + " and " + POINT
-            + " lt xs:dateTime($x.$vt) return $x.id").execute(context)));
+        assertEquals(List.of(1L),
+            values(new Query(chain,
+                fields + source(resource) + " where " + POINT + " lt xs:dateTime($x.$vt) return $x.id").execute(
+                    context)));
+        assertEquals(List.of(1L),
+            values(new Query(chain, fields + "jn:doc('slice','" + resource + "')[] where xs:dateTime($x.vf) le " + POINT
+                + " and " + POINT + " lt xs:dateTime($x.$vt) return $x.id").execute(context)));
       }
     }
   }
@@ -464,20 +470,21 @@ final class ValidTimeLazySliceTest {
         for (final String operator : List.of("lt", "le")) {
           final String end = point + " " + operator + " xs:dateTime($x.vt)";
           final String start = "xs:dateTime($x.vf) " + operator + " " + point;
-          assertEquals(List.of(1L, 2L), values(new Query(chain,
-              "for $x in " + direct + " where " + end + " return $x.id").execute(context)));
-          assertEquals(List.of(1L, 2L), values(new Query(chain,
-              "for $x in " + direct + " where " + start + " return $x.id").execute(context)));
-          assertEquals(List.of(1L, 2L), values(new Query(chain,
-              "for $x in jn:doc('slice','" + resource + "')[] where " + start + " and " + end
-                  + " return $x.id").execute(context)));
-          final String mirror = operator.equals("lt") ? "gt" : "ge";
+          assertEquals(List.of(1L, 2L),
+              values(new Query(chain, "for $x in " + direct + " where " + end + " return $x.id").execute(context)));
+          assertEquals(List.of(1L, 2L),
+              values(new Query(chain, "for $x in " + direct + " where " + start + " return $x.id").execute(context)));
+          assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in jn:doc('slice','" + resource + "')[] where "
+              + start + " and " + end + " return $x.id").execute(context)));
+          final String mirror = operator.equals("lt")
+              ? "gt"
+              : "ge";
           assertEquals(List.of(2L), values(new Query(chain,
-              "for $x in " + direct + " where xs:dateTime($x.vt) " + mirror + " " + point
-                  + " return $x.id").execute(context)));
+              "for $x in " + direct + " where xs:dateTime($x.vt) " + mirror + " " + point + " return $x.id").execute(
+                  context)));
           assertEquals(List.of(1L), values(new Query(chain,
-              "for $x in " + direct + " where " + point + " " + mirror
-                  + " xs:dateTime($x.vf) return $x.id").execute(context)));
+              "for $x in " + direct + " where " + point + " " + mirror + " xs:dateTime($x.vf) return $x.id").execute(
+                  context)));
         }
       }
     }
@@ -497,13 +504,15 @@ final class ValidTimeLazySliceTest {
         context.bind(new QNm("p"), new ItemSequence());
         assertEquals(List.of(), values(new Query(chain, "declare variable $p external; " + rows
             + "xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
-        context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
-            new DateTime("2024-01-01T00:00:00Z")));
+        context.bind(new QNm("p"),
+            new ItemSequence(new DateTime("2024-01-01T00:00:00Z"), new DateTime("2024-01-01T00:00:00Z")));
         final String points = "declare variable $p external; ";
-        assertEquals(List.of(1L), values(new Query(chain, points + rows
-            + "xs:dateTime($x.vf) <= $p and $p < xs:dateTime($x.vt) return $x.id").execute(context)));
-        assertThrows(QueryException.class, () -> values(new Query(chain, points + rows
-            + "xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
+        assertEquals(List.of(1L), values(new Query(chain,
+            points + rows + "xs:dateTime($x.vf) <= $p and $p < xs:dateTime($x.vt) return $x.id").execute(context)));
+        assertThrows(QueryException.class,
+            () -> values(new Query(chain,
+                points + rows + "xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(
+                    context)));
       }
     }
   }
@@ -516,11 +525,13 @@ final class ValidTimeLazySliceTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
-        context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
-            new DateTime("2024-01-01T00:00:00Z")));
-        assertEquals(List.of(), values(new Query(chain, "declare variable $p external; "
-            + "for $x in jn:doc('slice','" + resource
-            + "')[] where xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
+        context.bind(new QNm("p"),
+            new ItemSequence(new DateTime("2024-01-01T00:00:00Z"), new DateTime("2024-01-01T00:00:00Z")));
+        assertEquals(List.of(),
+            values(new Query(chain,
+                "declare variable $p external; " + "for $x in jn:doc('slice','" + resource
+                    + "')[] where xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(
+                        context)));
       }
     }
   }
@@ -531,14 +542,19 @@ final class ValidTimeLazySliceTest {
     create("""
         [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
          {"id":2,"vf":"%s","vt":"%s"}]
-        """.formatted(field.equals("vf") ? "bad" : "2023-01-01T00:00:00Z",
-            field.equals("vt") ? "bad" : "2025-01-01T00:00:00Z"));
+        """.formatted(field.equals("vf")
+        ? "bad"
+        : "2023-01-01T00:00:00Z",
+        field.equals("vt")
+            ? "bad"
+            : "2025-01-01T00:00:00Z"));
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
-        final String predicate = field.equals("vf") ? "xs:dateTime($x.vf) lt " + POINT
+        final String predicate = field.equals("vf")
+            ? "xs:dateTime($x.vf) lt " + POINT
             : POINT + " lt xs:dateTime($x.vt)";
         final String expression = "for $x in " + source(resource) + " where " + predicate + " return $x";
         final Sequence sequence = new Query(chain, expression).execute(context);
@@ -552,10 +568,10 @@ final class ValidTimeLazySliceTest {
         }
       }
       final JsonDBItem document = store.lookup("slice").getDocument("indexed");
-      final Sequence sequence = ValidTimeIntervalIndex.sequence(document, Instant.parse("2024-01-01T00:00:00Z"),
-          document.getResourceSession().getResourceConfig().getValidTimeConfig(), field.equals("vf"), !field.equals("vf"),
-          new ValidTimeResidual(null, context, () -> new DateTime("2024-01-01T00:00:00Z"), field,
-              field.equals("vf"), true, false, field.equals("vf")));
+      final Sequence sequence = Objects.requireNonNull(ValidTimeIntervalIndex.sequence(document,
+          Instant.parse("2024-01-01T00:00:00Z"), document.getResourceSession().getResourceConfig().getValidTimeConfig(),
+          field.equals("vf"), !field.equals("vf"), new ValidTimeResidual(null, context,
+              () -> new DateTime("2024-01-01T00:00:00Z"), field, field.equals("vf"), true, false, field.equals("vf"))));
       assertEquals(1, ((Numeric) ((JsonDBObject) sequence.get(Int32.ONE)).get(new QNm("id"))).intValue());
       assertThrows(QueryException.class, () -> sequence.get(new Int32(2)));
       assertThrows(QueryException.class, sequence::size);
@@ -565,13 +581,22 @@ final class ValidTimeLazySliceTest {
   @ParameterizedTest
   @CsvSource({"vf,build", "vt,build", "vf,update", "vt,update", "vf,seed", "vt,seed", "vf,insert", "vt,insert"})
   void emptyFractionsRetainCastErrorsAcrossBuildUpdateSeedAndInsert(final String field, final String route) {
-    final String raw = field.equals("vf") ? "2023-01-01T00:00:00.Z" : "2025-01-01T00:00:00.Z";
+    final String raw = field.equals("vf")
+        ? "2023-01-01T00:00:00.Z"
+        : "2025-01-01T00:00:00.Z";
     final String good = "{\"id\":1,\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}";
-    final String bad = "{\"id\":2,\"vf\":\"%s\",\"vt\":\"%s\"}".formatted(
-        field.equals("vf") ? raw : "2023-01-01T00:00:00Z",
-        field.equals("vt") ? raw : "2025-01-01T00:00:00Z");
-    create("[" + good + (route.equals("insert") ? "" : "," +
-        (route.equals("update") ? good.replace("\"id\":1", "\"id\":2") : bad)) + "]");
+    final String bad = "{\"id\":2,\"vf\":\"%s\",\"vt\":\"%s\"}".formatted(field.equals("vf")
+        ? raw
+        : "2023-01-01T00:00:00Z",
+        field.equals("vt")
+            ? raw
+            : "2025-01-01T00:00:00Z");
+    create("[" + good + (route.equals("insert")
+        ? ""
+        : "," + (route.equals("update")
+            ? good.replace("\"id\":1", "\"id\":2")
+            : bad))
+        + "]");
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -588,12 +613,19 @@ final class ValidTimeLazySliceTest {
             assertTrue(writer.moveToFirstChild());
             assertTrue(writer.moveToRightSibling());
             assertTrue(writer.moveToFirstChild());
-            final String changedField = route.equals("seed") ? (field.equals("vf") ? "vt" : "vf") : field;
+            final String changedField = route.equals("seed")
+                ? (field.equals("vf")
+                    ? "vt"
+                    : "vf")
+                : field;
             while (!changedField.equals(writer.getName().getLocalName())) {
               assertTrue(writer.moveToRightSibling());
             }
             writer.setStringValue(route.equals("seed")
-                ? (field.equals("vf") ? "2026-01-01T00:00:00Z" : "2022-01-01T00:00:00Z") : raw);
+                ? (field.equals("vf")
+                    ? "2026-01-01T00:00:00Z"
+                    : "2022-01-01T00:00:00Z")
+                : raw);
           }
           writer.commit();
         }
@@ -604,34 +636,45 @@ final class ValidTimeLazySliceTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final QNm castError = assertThrows(QueryException.class, () -> new DateTime(raw)).getCode();
-      final String comparison = field.equals("vf") ? "xs:dateTime($x.vf) lt " + POINT
+      final String comparison = field.equals("vf")
+          ? "xs:dateTime($x.vf) lt " + POINT
           : POINT + " lt xs:dateTime($x.vt)";
-      assertEquals(castError, assertThrows(QueryException.class, () -> new Query(chain,
-          "count(for $x in " + source("indexed") + " where " + comparison + " return $x)")
-          .evaluate(context)).getCode());
+      assertEquals(castError,
+          assertThrows(QueryException.class,
+              () -> new Query(chain,
+                  "count(for $x in " + source("indexed") + " where " + comparison + " return $x)").evaluate(
+                      context)).getCode());
       final JsonDBItem document = store.lookup("slice").getDocument("indexed");
       final var cursor = document.getTrx();
       assertTrue(cursor.moveTo(document.getNodeKey()));
       assertTrue(cursor.moveToFirstChild());
       assertTrue(cursor.moveToRightSibling());
       final long badKey = cursor.getNodeKey();
-      final IndexDef definition = document.getResourceSession().getRtxIndexController(cursor.getRevisionNumber())
-          .getIndexes().getIndexDefs().stream().filter(IndexDef::isValidTimeIndex).findFirst().orElseThrow();
+      final IndexDef definition = document.getResourceSession()
+                                          .getRtxIndexController(cursor.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDefs()
+                                          .stream()
+                                          .filter(IndexDef::isValidTimeIndex)
+                                          .findFirst()
+                                          .orElseThrow();
       final LongOpenHashSet unverified = new LongOpenHashSet();
       ValidTimeIntervalIndexFactory.createVerificationStore(cursor.getStorageEngineReader(), definition.getID())
-          .scan(0, 0, 0, unverified::add);
+                                   .scan(0, 0, 0, unverified::add);
       assertEquals(LongOpenHashSet.of(badKey), unverified);
       final JsonDBObject badObject = new JsonDBObject(cursor, document.getCollection());
-      final Sequence badOnly = ValidTimeIntervalIndex.sequence(badObject, Instant.parse("2024-01-01T00:00:00Z"),
-          document.getResourceSession().getResourceConfig().getValidTimeConfig(), field.equals("vf"), field.equals("vt"),
-          new ValidTimeResidual(null, context, () -> new DateTime("2024-01-01T00:00:00Z"), field,
-              field.equals("vf"), true, false, field.equals("vf")));
+      final Sequence badOnly = Objects.requireNonNull(ValidTimeIntervalIndex.sequence(badObject,
+          Instant.parse("2024-01-01T00:00:00Z"), document.getResourceSession().getResourceConfig().getValidTimeConfig(),
+          field.equals("vf"), field.equals("vt"), new ValidTimeResidual(null, context,
+              () -> new DateTime("2024-01-01T00:00:00Z"), field, field.equals("vf"), true, false, field.equals("vf"))));
       assertEquals(castError, assertThrows(QueryException.class, badOnly::booleanValue).getCode());
       for (final String resource : List.of("indexed", "plain")) {
         assertEquals(2, ((Numeric) new Query(chain, "count(" + source(resource) + ")").evaluate(context)).intValue());
-        final String other = field.equals("vf") ? POINT + " lt xs:dateTime($x.vt)" : "xs:dateTime($x.vf) lt " + POINT;
-        assertEquals(List.of(1L, 2L), values(new Query(chain,
-            "for $x in " + source(resource) + " where " + other + " return $x.id").execute(context)));
+        final String other = field.equals("vf")
+            ? POINT + " lt xs:dateTime($x.vt)"
+            : "xs:dateTime($x.vf) lt " + POINT;
+        assertEquals(List.of(1L, 2L), values(
+            new Query(chain, "for $x in " + source(resource) + " where " + other + " return $x.id").execute(context)));
         for (final String operator : List.of("lt", "le", "<", "<=")) {
           for (final boolean mirror : new boolean[] {false, true}) {
             final String inverse = switch (operator) {
@@ -642,8 +685,12 @@ final class ValidTimeLazySliceTest {
             };
             final String bound = "xs:dateTime($x." + field + ")";
             final String predicate = mirror
-                ? (field.equals("vf") ? POINT + " " + inverse + " " + bound : bound + " " + inverse + " " + POINT)
-                : (field.equals("vf") ? bound + " " + operator + " " + POINT : POINT + " " + operator + " " + bound);
+                ? (field.equals("vf")
+                    ? POINT + " " + inverse + " " + bound
+                    : bound + " " + inverse + " " + POINT)
+                : (field.equals("vf")
+                    ? bound + " " + operator + " " + POINT
+                    : POINT + " " + operator + " " + bound);
             final String folded = "for $x in " + source(resource) + " where " + predicate + " return $x";
             final String plainSource = "for $x in jn:doc('slice','" + resource + "')[] where ";
             for (final String expression : List.of(folded, plainSource + predicate + " and " + other + " return $x",
@@ -661,15 +708,18 @@ final class ValidTimeLazySliceTest {
             }
           }
         }
-        final String outside = field.equals("vf") ? "xs:dateTime('2019-01-01T00:00:00Z')"
+        final String outside = field.equals("vf")
+            ? "xs:dateTime('2019-01-01T00:00:00Z')"
             : "xs:dateTime('2030-01-01T00:00:00Z')";
-        final String predicate = field.equals("vf") ? "xs:dateTime($x.vf) le " + outside
+        final String predicate = field.equals("vf")
+            ? "xs:dateTime($x.vf) le " + outside
             : outside + " lt xs:dateTime($x.vt)";
         assertEquals(0, ((Numeric) new Query(chain, "count(for $x in " + source(resource).replace(POINT, outside)
             + " where " + predicate + " return $x)").evaluate(context)).intValue());
-        assertEquals(castError, assertThrows(QueryException.class, () -> new Query(chain,
-            "count(for $x in jn:doc('slice','" + resource + "')[] where " + predicate + " and "
-                + other.replace(POINT, outside) + " return $x)").evaluate(context)).getCode());
+        assertEquals(castError,
+            assertThrows(QueryException.class,
+                () -> new Query(chain, "count(for $x in jn:doc('slice','" + resource + "')[] where " + predicate
+                    + " and " + other.replace(POINT, outside) + " return $x)").evaluate(context)).getCode());
       }
     }
   }
@@ -698,19 +748,27 @@ final class ValidTimeLazySliceTest {
       final var session = document.getResourceSession();
       final JsonNodeTrx writer = session.getNodeTrx().orElseGet(session::beginNodeTrx);
       if (route.equals("cas")) {
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vf", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
-            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vt", PathParser.Type.JSON)), 1, IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(
+                   IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vf", PathParser.Type.JSON)), 0,
+                       IndexDef.DbType.JSON),
+                   IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vt", PathParser.Type.JSON)), 1,
+                       IndexDef.DbType.JSON)),
+                   writer);
       }
       writer.moveTo(document.getNodeKey());
       writer.moveSubtreeToFirstChild(second);
       writer.commit();
-      final List<Long> expected = route.equals("linear") ? List.of(2L, 1L) : List.of(1L, 2L);
+      final List<Long> expected = route.equals("linear")
+          ? List.of(2L, 1L)
+          : List.of(1L, 2L);
       for (final String point : List.of(POINT, "xs:dateTime('2024-01-01T00:00:00')")) {
         final String source = source("indexed").replace(POINT, point);
         assertEquals(expected, values(new Query(chain, "for $x in " + source + " return $x.id").execute(context)));
         for (final boolean start : List.of(false, true)) {
-          for (final String field : start ? List.of("vf", "otherFrom") : List.of("vt", "otherTo")) {
+          for (final String field : start
+              ? List.of("vf", "otherFrom")
+              : List.of("vt", "otherTo")) {
             for (final boolean strict : List.of(false, true)) {
               for (final boolean general : List.of(false, true)) {
                 for (final boolean mirror : List.of(false, true)) {
@@ -749,7 +807,9 @@ final class ValidTimeLazySliceTest {
           for (final boolean strict : List.of(false, true)) {
             for (final boolean general : List.of(false, true)) {
               for (final boolean mirror : List.of(false, true)) {
-                final String predicate = comparison(start ? "vf" : "vt", start, strict, general, mirror, "$p");
+                final String predicate = comparison(start
+                    ? "vf"
+                    : "vt", start, strict, general, mirror, "$p");
                 final String prefix = "declare variable $p external; for $x";
                 final String suffix = " in " + source + " where " + predicate + " return $x.id";
                 final Query reference = new Query(chain, prefix + " at $position" + suffix);
@@ -758,10 +818,10 @@ final class ValidTimeLazySliceTest {
                   assertEquals(List.of(1L), values(reference.execute(context)), suffix);
                   assertEquals(List.of(1L), values(folded.execute(context)), suffix);
                 } else {
-                  final QueryException expected = assertThrows(QueryException.class,
-                      () -> values(reference.execute(context)), suffix);
-                  final QueryException actual = assertThrows(QueryException.class,
-                      () -> values(folded.execute(context)), suffix);
+                  final QueryException expected =
+                      assertThrows(QueryException.class, () -> values(reference.execute(context)), suffix);
+                  final QueryException actual =
+                      assertThrows(QueryException.class, () -> values(folded.execute(context)), suffix);
                   assertEquals(expected.getCode(), actual.getCode(), suffix);
                 }
               }
@@ -780,16 +840,18 @@ final class ValidTimeLazySliceTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
-      context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
-          new DateTime("2024-01-01T00:00:00Z")));
+      context.bind(new QNm("p"),
+          new ItemSequence(new DateTime("2024-01-01T00:00:00Z"), new DateTime("2024-01-01T00:00:00Z")));
       for (final boolean firstStart : List.of(false, true)) {
         for (final boolean firstGeneral : List.of(false, true)) {
           for (final boolean secondGeneral : List.of(false, true)) {
             for (final boolean mirror : List.of(false, true)) {
-              final String first = comparison(firstStart ? "vf" : "vt", firstStart, !firstStart,
-                  firstGeneral, mirror, "$p");
-              final String second = comparison(firstStart ? "vt" : "vf", !firstStart, firstStart,
-                  secondGeneral, mirror, "$p");
+              final String first = comparison(firstStart
+                  ? "vf"
+                  : "vt", firstStart, !firstStart, firstGeneral, mirror, "$p");
+              final String second = comparison(firstStart
+                  ? "vt"
+                  : "vf", !firstStart, firstStart, secondGeneral, mirror, "$p");
               final String prefix = "declare variable $p external; for $x in jn:doc('slice','";
               final String suffix = "')[] where " + first + " and " + second + " return 1";
               final Query reference = new Query(chain, prefix + "plain" + suffix);
@@ -798,10 +860,10 @@ final class ValidTimeLazySliceTest {
                 assertEquals(List.of(), values(reference.execute(context)), suffix);
                 assertEquals(List.of(), values(folded.execute(context)), suffix);
               } else {
-                final QueryException expected = assertThrows(QueryException.class,
-                    () -> values(reference.execute(context)), suffix);
-                final QueryException actual = assertThrows(QueryException.class,
-                    () -> values(folded.execute(context)), suffix);
+                final QueryException expected =
+                    assertThrows(QueryException.class, () -> values(reference.execute(context)), suffix);
+                final QueryException actual =
+                    assertThrows(QueryException.class, () -> values(folded.execute(context)), suffix);
                 assertEquals(expected.getCode(), actual.getCode(), suffix);
               }
             }
@@ -811,20 +873,35 @@ final class ValidTimeLazySliceTest {
     }
   }
 
-  private static String comparison(final String field, final boolean start, final boolean strict,
-      final boolean general, final boolean mirror, final String point) {
-    final String operator = general ? (strict ? "<" : "<=") : (strict ? "lt" : "le");
+  private static String comparison(final String field, final boolean start, final boolean strict, final boolean general,
+      final boolean mirror, final String point) {
+    final String operator = general
+        ? (strict
+            ? "<"
+            : "<=")
+        : (strict
+            ? "lt"
+            : "le");
     final String bound = "xs:dateTime($x." + field + ")";
     if (!mirror) {
-      return start ? bound + " " + operator + " " + point : point + " " + operator + " " + bound;
+      return start
+          ? bound + " " + operator + " " + point
+          : point + " " + operator + " " + bound;
     }
-    final String swapped = general ? (strict ? ">" : ">=") : (strict ? "gt" : "ge");
-    return start ? point + " " + swapped + " " + bound : bound + " " + swapped + " " + point;
+    final String swapped = general
+        ? (strict
+            ? ">"
+            : ">=")
+        : (strict
+            ? "gt"
+            : "ge");
+    return start
+        ? point + " " + swapped + " " + bound
+        : bound + " " + swapped + " " + point;
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"[]", "[1]",
-      "[{\"id\":1,\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]",
+  @ValueSource(strings = {"[]", "[1]", "[{\"id\":1,\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]",
       "[{\"id\":1,\"vf\":\"field-error\",\"vt\":\"field-error\"}]"})
   void pointExpressionsWaitForRowsAndPreserveComparisonErrorOrder(final String json) {
     create(json);
@@ -834,11 +911,11 @@ final class ValidTimeLazySliceTest {
       index(chain, context);
       final String point = "xs:dateTime('point-error')";
       for (int shape = 0; shape < 128; shape++) {
-        final String start = comparison("vf", true, (shape & 1) != 0, (shape & 4) != 0,
-            (shape & 16) != 0, point);
-        final String end = comparison("vt", false, (shape & 2) != 0, (shape & 8) != 0,
-            (shape & 32) != 0, point);
-        final String predicate = (shape & 64) == 0 ? start + " and " + end : end + " and " + start;
+        final String start = comparison("vf", true, (shape & 1) != 0, (shape & 4) != 0, (shape & 16) != 0, point);
+        final String end = comparison("vt", false, (shape & 2) != 0, (shape & 8) != 0, (shape & 32) != 0, point);
+        final String predicate = (shape & 64) == 0
+            ? start + " and " + end
+            : end + " and " + start;
         final String suffix = "')[] where " + predicate + " return $x";
         final Query reference = new Query(chain, "for $x in jn:doc('slice','plain" + suffix);
         final Query folded = new Query(chain, "for $x in jn:doc('slice','indexed" + suffix);
@@ -849,7 +926,9 @@ final class ValidTimeLazySliceTest {
         }
         assertNull(actualRows.get(Int32.ZERO), predicate);
         if (json.equals("[]")) {
-          assertEquals(0, expectedRows == null ? 0 : expectedRows.size().intValue(), predicate);
+          assertEquals(0, expectedRows == null
+              ? 0
+              : expectedRows.size().intValue(), predicate);
           assertEquals(0, actualRows.size().intValue(), predicate);
           assertFalse(actualRows.booleanValue(), predicate);
           assertNull(actualRows.get(Int32.ONE), predicate);
@@ -874,9 +953,9 @@ final class ValidTimeLazySliceTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
-        final String text = "for $p in (" + POINT + ",xs:dateTime('2026-01-01T00:00:00Z')) "
-            + "for $x in jn:doc('slice','" + resource + "')[] where xs:dateTime($x.vf) le $p "
-            + "and $p lt xs:dateTime($x.vt) return $x.id";
+        final String text =
+            "for $p in (" + POINT + ",xs:dateTime('2026-01-01T00:00:00Z')) " + "for $x in jn:doc('slice','" + resource
+                + "')[] where xs:dateTime($x.vf) le $p " + "and $p lt xs:dateTime($x.vt) return $x.id";
         final Sequence rows = new Query(chain, text).execute(context);
         assertEquals(List.of(1L, 2L), values(rows));
         assertEquals(List.of(1L, 2L), values(rows));
