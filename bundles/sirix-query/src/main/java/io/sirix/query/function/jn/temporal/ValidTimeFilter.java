@@ -2,7 +2,7 @@ package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryException;
-import io.brackit.query.atomic.DateTime;
+import io.brackit.query.QueryContext;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
@@ -34,13 +34,15 @@ public final class ValidTimeFilter {
   private ValidTimeFilter() {}
 
   /** Exact fallback for the two original xs:dateTime comparisons, preserving conjunct order. */
-  public static Sequence comparisonScanSequence(final JsonDBItem document, final DateTime point, final String from,
-      final String to, final int mode, final StaticContext context) {
+  public static Sequence comparisonScanSequence(final JsonDBItem document, final Sequence point, final String from,
+      final String to, final int mode, final StaticContext context, final QueryContext queryContext) {
     if (!(document instanceof Array array)) {
       throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, "Expected an array for valid-time FLWOR");
     }
-    final ValidTimeResidual lower = new ValidTimeResidual(context, point, from, true, (mode & 1) != 0);
-    final ValidTimeResidual upper = new ValidTimeResidual(context, point, to, false, (mode & 2) != 0);
+    final ValidTimeResidual lower = new ValidTimeResidual(context, queryContext, point, from, true, (mode & 1) != 0,
+        (mode & 8) != 0, (mode & 32) == 0);
+    final ValidTimeResidual upper = new ValidTimeResidual(context, queryContext, point, to, false, (mode & 2) != 0,
+        (mode & 16) != 0, (mode & 64) != 0);
     final ValidTimeResidual first = (mode & 4) == 0
         ? lower
         : upper;

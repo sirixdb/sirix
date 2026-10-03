@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
-import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
@@ -36,16 +35,23 @@ import org.junit.jupiter.api.Test;
 final class IndexDefPersistedDefinitionTest {
 
   @Test
-  void validTimeCatalogRequiresTheMetadataFormat() {
+  void validTimeCatalogMarksObsoleteFormatsForRebuild() {
     final IndexDef definition =
         IndexDefs.createValidTimeIdxDef(Set.of(json("/[]/vf"), json("/[]/vt")), 0, IndexDef.DbType.JSON);
     assertTrue(definition.hasSameDefinition(roundTrip(definition)));
+    assertFalse(roundTrip(definition).needsValidTimeRebuild());
     final Node<?> persisted = definition.materialize();
     final QNm format = new QNm("validTimeFormat");
     assertTrue(persisted.deleteAttribute(format));
-    assertThrows(DocumentException.class, () -> new IndexDef(IndexDef.DbType.JSON).init(persisted));
+    final IndexDef missingFormat = new IndexDef(IndexDef.DbType.JSON);
+    missingFormat.init(persisted);
+    assertTrue(missingFormat.needsValidTimeRebuild());
     persisted.setAttribute(format, new Str("1"));
-    assertThrows(DocumentException.class, () -> new IndexDef(IndexDef.DbType.JSON).init(persisted));
+    final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
+    oldFormat.init(persisted);
+    assertTrue(oldFormat.needsValidTimeRebuild());
+    assertTrue(roundTrip(oldFormat).needsValidTimeRebuild());
+    assertFalse(definition.hasSameDefinition(oldFormat));
   }
 
   private static Path<QNm> json(final String path) {

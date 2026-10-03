@@ -19,6 +19,9 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import io.sirix.io.StorageType;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -31,6 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
@@ -72,7 +77,17 @@ final class ValidTimeSliceWorkBudgetTest {
    */
   @Test
   void aClosedStabOutsideEveryIntervalReadsNoObjectWhenEveryRecordNeedsVerification() {
-    final int count = 64;
+    assertInexactEmptyStabBudget(64);
+  }
+
+  @Test
+  @Tag("heavy")
+  @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
+  void oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab() {
+    assertInexactEmptyStabBudget(100_000);
+  }
+
+  private void assertInexactEmptyStabBudget(final int count) {
     final StringBuilder json = new StringBuilder("[");
     for (int i = 0; i < count; i++) {
       if (i != 0) {
@@ -85,7 +100,7 @@ final class ValidTimeSliceWorkBudgetTest {
     }
     json.append(']');
     shredRows(json.toString());
-    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain,
@@ -106,15 +121,29 @@ final class ValidTimeSliceWorkBudgetTest {
       verify(cursor, never()).getValue();
       verify(cursor, never()).getFirstChildKey();
 
+      for (final String method : new String[] {"moveTo", "getFirstChildKey", "getValue"}) {
+        final long calls = mockingDetails(cursor).getInvocations().stream()
+            .filter(invocation -> method.equals(invocation.getMethod().getName())).count();
+        System.out.printf("valid-time empty stab records=%d %s=%d%n", count, method, calls);
+        assertEquals(0, calls);
+      }
+
       // Non-vacuity: the same decorated cursor verifies every one of those records when the point
       // does fall inside their intervals, so the zero above is a gated union and not a dead route.
       clearInvocations(cursor);
       final Sequence inside =
           ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false, null);
       assertNotNull(inside);
-      assertEquals(count, inside.size().intValue());
-      verify(cursor, atLeast(count)).moveTo(anyLong());
-      verify(cursor, atLeast(count)).getValue();
+      if (count == 64) {
+        assertEquals(count, inside.size().intValue());
+        verify(cursor, atLeast(count)).moveTo(anyLong());
+        verify(cursor, atLeast(count)).getValue();
+      } else {
+        assertNotNull(inside.get(Int32.ONE));
+        verify(cursor, atLeast(1)).moveTo(anyLong());
+        verify(cursor, atLeast(1)).getValue();
+        verify(cursor, atLeast(1)).getFirstChildKey();
+      }
     }
   }
 
@@ -122,7 +151,7 @@ final class ValidTimeSliceWorkBudgetTest {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").validTimePaths("vf", "vt").build());
+      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL).validTimePaths("vf", "vt").build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         writer.commit();
@@ -141,7 +170,7 @@ final class ValidTimeSliceWorkBudgetTest {
     }
     json.append(']');
     shredRows(json.toString());
-    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain,
@@ -185,6 +214,7 @@ final class ValidTimeSliceWorkBudgetTest {
       verify(cursor, times(1)).getValue();
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(store.lookup("budget")));
       doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
+      doReturn(observed).when(collection).getDocument(eq("rows"), anyInt());
       final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
       doReturn(collection).when(observedStore).lookup("budget");
       try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
@@ -201,6 +231,21 @@ final class ValidTimeSliceWorkBudgetTest {
         clearInvocations(cursor);
         assertEquals(count, ((Numeric) new Query(observedChain, directSlice).evaluate(observedContext)).intValue());
         verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        final String plainSlice = "for $x in jn:doc('budget','rows')[] where "
+            + "xs:dateTime($x.vf) le xs:dateTime('2024-01-01T00:00:00Z') and "
+            + "xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt) return $x";
+        clearInvocations(cursor);
+        assertEquals(count, ((Numeric) new Query(observedChain, "count(" + plainSlice + ")")
+            .evaluate(observedContext)).intValue());
+        verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        clearInvocations(cursor);
+        final Sequence demanded = new Query(observedChain, plainSlice).execute(observedContext);
+        try (var iterator = demanded.iterate()) {
+          assertNotNull(iterator.next());
+        }
+        verify(cursor, atLeast(1)).getFirstChildKey();
         verify(cursor, never()).getValue();
         if (!includeUserFunction) {
           return;

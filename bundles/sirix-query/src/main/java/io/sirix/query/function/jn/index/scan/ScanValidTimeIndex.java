@@ -11,6 +11,7 @@ import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.type.AnyJsonItemType;
+import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
@@ -71,7 +72,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   public static ScanValidTimeIndex forComparisons() {
     return new ScanValidTimeIndex(new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
         new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.One),
-        new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+        new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany), new SequenceType(AtomicType.STR, Cardinality.One),
         new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INR, Cardinality.One)));
   }
 
@@ -82,7 +83,6 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     }
 
     final JsonDBItem document = (JsonDBItem) args[0];
-    final Instant validTime = dateTimeToInstant.convert((DateTime) args[1]);
 
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
@@ -97,18 +97,22 @@ public final class ScanValidTimeIndex extends AbstractFunction {
       final String from = ((Str) args[2]).stringValue();
       final String to = ((Str) args[3]).stringValue();
       final int mode = ((IntNumeric) args[4]).intValue();
-      if (mode < 0 || mode > 7) {
+      if (mode < 0 || mode > 127) {
         throw new QueryException(new QNm("Invalid valid-time comparison mode"));
       }
-      if (from.equals(validTimeConfig.getNormalizedValidFromPath())
-          && to.equals(validTimeConfig.getNormalizedValidToPath())
-          && ValidTimeIntervalIndex.hasExactArrayBounds(document, validTime)) {
-        return ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, (mode & 1) != 0, (mode & 2) != 0,
-            null);
+      if (args[1] instanceof DateTime point && point.getTimezone() != null
+          && from.equals(validTimeConfig.getNormalizedValidFromPath())
+          && to.equals(validTimeConfig.getNormalizedValidToPath())) {
+        final Sequence sequence = ValidTimeIntervalIndex.comparisonSequence(document, dateTimeToInstant.convert(point),
+            validTimeConfig, (mode & 1) != 0, (mode & 2) != 0);
+        if (sequence != null) {
+          return sequence;
+        }
       }
-      return ValidTimeFilter.comparisonScanSequence(document, (DateTime) args[1], from, to, mode, sctx);
+      return ValidTimeFilter.comparisonScanSequence(document, args[1], from, to, mode, sctx, ctx);
     }
 
+    final Instant validTime = dateTimeToInstant.convert((DateTime) args[1]);
     // Fast path: the persistent interval index.
     final Sequence intervalSequence =
         ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
