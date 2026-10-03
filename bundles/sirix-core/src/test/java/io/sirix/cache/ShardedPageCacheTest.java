@@ -390,6 +390,70 @@ class ShardedPageCacheTest {
     }
   }
 
+  @Test
+  @Timeout(20)
+  @DisplayName("removePage: a detach still inside its own compute is not reported as a lost-key violation")
+  void concurrentRemovePageToleratesADetachThatAlreadyForgotTheKey() throws Exception {
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final HOTLeafPage page = mock(HOTLeafPage.class);
+    final PageReference key = keyFor(56);
+    final AtomicReference<PageReference> remembered = new AtomicReference<>();
+    final CountDownLatch forgotten = new CountDownLatch(1);
+    final CountDownLatch finishDetach = new CountDownLatch(1);
+    when(page.getActualMemorySize()).thenReturn(PAGE_BYTES);
+    when(page.lastCacheKey()).thenAnswer(_ -> remembered.get());
+    doAnswer(invocation -> {
+      final PageReference newKey = invocation.getArgument(0);
+      remembered.set(newKey);
+      if (newKey == null) {
+        forgotten.countDown();
+        assertTrue(finishDetach.await(5, TimeUnit.SECONDS), "the test must release the detach");
+      }
+      return null;
+    }).when(page).setLastCacheKey(any());
+    cache.put(key, page);
+
+    final FutureTask<Void> detach = new FutureTask<>(() -> {
+      cache.remove(key);
+      return null;
+    });
+    final FutureTask<Void> instanceRemoval = new FutureTask<>(() -> {
+      cache.removePage(page);
+      return null;
+    });
+    final Thread detacher = new Thread(detach, "cache-key-detacher");
+    final Thread remover = new Thread(instanceRemoval, "cache-instance-remover");
+    try {
+      detacher.start();
+      assertTrue(forgotten.await(5, TimeUnit.SECONDS));
+      // CHM keeps the node linked and iterable until the detach's compute RETURNS, so the mapping
+      // is still visible to a scan while the page already reports no key.
+      assertSame(page, cache.asMap().get(key), "the in-flight detach must still be visible");
+      assertNull(page.lastCacheKey(), "the detach must already have forgotten the key");
+
+      remover.start();
+      while (remover.isAlive() && remover.getState() != State.BLOCKED) {
+        if (Thread.currentThread().isInterrupted()) {
+          throw new InterruptedException("interrupted while waiting for per-key contention");
+        }
+        Thread.yield();
+      }
+      finishDetach.countDown();
+      detach.get(5, TimeUnit.SECONDS);
+      // Confirming the sighting under the mapping's own compute lock resolves it to "already gone"
+      // instead of an invariant violation no detach caused.
+      instanceRemoval.get(5, TimeUnit.SECONDS);
+
+      assertTrue(cache.asMap().isEmpty(), "the detach must still complete its removal");
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    } finally {
+      finishDetach.countDown();
+      detacher.join(5000);
+      remover.join(5000);
+      cache.close();
+    }
+  }
+
   private enum LoadRemoval {
     CLOSED_GET, FAILED_GUARD, COMPUTED_DROP, GUARDED_DROP, COMPUTED_REPLACEMENT, GUARDED_REPLACEMENT
   }
