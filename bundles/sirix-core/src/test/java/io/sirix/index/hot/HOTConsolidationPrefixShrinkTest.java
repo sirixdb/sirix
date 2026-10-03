@@ -7,6 +7,7 @@ package io.sirix.index.hot;
 
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -133,7 +134,8 @@ final class HOTConsolidationPrefixShrinkTest {
     final PageReference reference = new PageReference();
     final byte[] payload = fixture.heavy.copyStoredValue(0);
     reference.setPage(new OverflowPage(payload));
-    assertTrue(fixture.heavy.updateValue(0, NodeReferencesSerializer.encodeReferenced(refKey, payload.length)));
+    assertTrue(fixture.heavy.updateValue(0, NodeReferencesSerializer.encodeReferenced(refKey, payload.length,
+        ProjectionIndexColumnSegmentCodec.contentHash(payload))));
     fixture.heavy.setPageReference(refKey, reference);
     final List<PageReference> dropped = new ArrayList<>();
     try {

@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PostingDeltaRollbackTest {
@@ -177,8 +179,7 @@ final class PostingDeltaRollbackTest {
           expected.remove(2000L);
           expected.remove(1001L);
           final byte[] beforeMarker = baseMarker(first, key);
-          // The next fold keeps both cardinality and serialized size unchanged. Its marker has the
-          // same hash/length, but the immutable side payload differs from first's cached bitmap.
+          // The next fold keeps both cardinality and serialized size unchanged.
           for (int i = 0; i < PostingDeltas.FOLD_BOUND / 2 - 2; i++) {
             assertTrue(second.remove(key, 2L * i));
             expected.remove(2L * i);
@@ -187,7 +188,13 @@ final class PostingDeltaRollbackTest {
             second.indexNodeKey(key, 3000L + i);
             expected.add(3000L + i);
           }
-          assertArrayEquals(beforeMarker, baseMarker(second, key), "same marker, different side-page contents");
+          final byte[] afterMarker = baseMarker(second, key);
+          assertEquals(NodeReferencesSerializer.referencedKey(beforeMarker, 0),
+              NodeReferencesSerializer.referencedKey(afterMarker, 0), "same side-map reference key");
+          assertEquals(NodeReferencesSerializer.referencedPayloadLength(beforeMarker, 0),
+              NodeReferencesSerializer.referencedPayloadLength(afterMarker, 0), "same serialized payload length");
+          assertNotEquals(NodeReferencesSerializer.referencedPayloadHash(beforeMarker, 0),
+              NodeReferencesSerializer.referencedPayloadHash(afterMarker, 0), "different side-page contents");
           assertTrue(first.remove(key, 3000), "decoded-base reuse must compare the resolved payload");
           expected.remove(3000L);
           assertArrayEquals(keys(expected), first.get(key, SearchMode.EQUAL).toSortedArray());

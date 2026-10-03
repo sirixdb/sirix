@@ -191,6 +191,10 @@ public final class HOTTrieReader implements AutoCloseable {
     return storageEngineReader.readSideOverflowPage(reference);
   }
 
+  public boolean verifyChecksumsOnRead() {
+    return storageEngineReader.getResourceSession().getResourceConfig().verifyChecksumsOnRead;
+  }
+
   /** The storage engine reader. */
   private final StorageEngineReader storageEngineReader;
 

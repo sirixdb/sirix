@@ -390,6 +390,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
         view.readBase(NodeReferencesSerializer.resolveReferencedPayload(baseLeaf,
             NodeReferencesSerializer.referencedKey(baseLeaf, ref),
             NodeReferencesSerializer.referencedPayloadLength(baseLeaf, ref),
+            NodeReferencesSerializer.referencedPayloadHash(baseLeaf, ref),
+            storageEngineWriter.getResourceSession().getResourceConfig().verifyChecksumsOnRead,
             storageEngineWriter::readSideOverflowPage));
       } else {
         if (length < hotChunkBytes) {

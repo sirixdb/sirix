@@ -33,6 +33,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
@@ -1987,7 +1988,10 @@ public abstract class AbstractHOTIndexWriter<K> {
   private byte[] referencedPayloadForWrite(final HOTLeafPage leaf, final int index) {
     final long ref = leaf.valueRef(index);
     return NodeReferencesSerializer.resolveReferencedPayload(leaf, NodeReferencesSerializer.referencedKey(leaf, ref),
-        NodeReferencesSerializer.referencedPayloadLength(leaf, ref), storageEngineWriter::readSideOverflowPage);
+        NodeReferencesSerializer.referencedPayloadLength(leaf, ref),
+        NodeReferencesSerializer.referencedPayloadHash(leaf, ref),
+        storageEngineWriter.getResourceSession().getResourceConfig().verifyChecksumsOnRead,
+        storageEngineWriter::readSideOverflowPage);
   }
 
   /**
@@ -2005,7 +2009,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       return;
     }
     final byte[] merged = NodeReferencesSerializer.serialize(existing);
-    if (!leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, merged.length))) {
+    if (!leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, merged.length,
+        ProjectionIndexColumnSegmentCodec.contentHash(merged)))) {
       throw new IllegalStateException(
           "referenced chunk marker could not be rewritten in place at leaf " + leaf.getPageKey() + ", slot " + index);
     }
@@ -2044,7 +2049,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         if ((owner < 0 && leaf.getPageReference(refKey) == null) || owner == index) {
           // Serializer buffers are reusable scratch. A side page must own immutable, exact bytes.
           final byte[] payload = Arrays.copyOf(valueBuf, valueLen);
-          if (leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, valueLen))) {
+          if (leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, valueLen,
+              ProjectionIndexColumnSegmentCodec.contentHash(payload)))) {
             attachReferencedPayload(leaf, refKey, payload);
             if (VersioningType.hotMergeDiagEnabled()) {
               REFERENCED_CHUNK_WRITES.incrementAndGet();
@@ -2316,7 +2322,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (referenced) {
       pendingReferencedPayload = NodeReferencesSerializer.serialize(chunkReferences);
       lastSerializedValueBuf =
-          NodeReferencesSerializer.encodeReferenced(pendingReferencedKey, pendingReferencedPayload.length);
+          NodeReferencesSerializer.encodeReferenced(pendingReferencedKey, pendingReferencedPayload.length,
+              ProjectionIndexColumnSegmentCodec.contentHash(pendingReferencedPayload));
       lastSerializedValueLen = lastSerializedValueBuf.length;
       return lastSerializedValueLen;
     }
@@ -8109,8 +8116,10 @@ public abstract class AbstractHOTIndexWriter<K> {
           // Hashes need only be unique within a leaf. Two source leaves can share a hash and a
           // frontier rebuild can place both owners together. Rename this marker before attaching.
           refKey = unusedPostingReferenceKey(owner, refKey);
-          final int length = NodeReferencesSerializer.referencedPayloadLength(owner, owner.valueRef(index));
-          if (!owner.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, length))) {
+          final long value = owner.valueRef(index);
+          final int length = NodeReferencesSerializer.referencedPayloadLength(owner, value);
+          final long hash = NodeReferencesSerializer.referencedPayloadHash(owner, value);
+          if (!owner.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, length, hash))) {
             throw new IllegalStateException("Cannot rename a colliding posting reference marker");
           }
         }
