@@ -139,10 +139,10 @@ public final class DocByPointInTimeJsonTest {
       assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(SIRIX_DB_PATH)));
       final JsonDBCollection collection = store.lookup("json-path1");
       collection.getDatabase()
-          .createResource(ResourceConfiguration.newBuilder("mydoc.jn")
-              .storageType(storageType)
-              .customCommitTimestamps(true)
-              .build());
+                .createResource(ResourceConfiguration.newBuilder("mydoc.jn")
+                                                     .storageType(storageType)
+                                                     .customCommitTimestamps(true)
+                                                     .build());
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("mydoc.jn");
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertObjectAsFirstChild();
