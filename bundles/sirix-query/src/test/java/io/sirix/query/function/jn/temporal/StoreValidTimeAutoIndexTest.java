@@ -93,8 +93,8 @@ public final class StoreValidTimeAutoIndexTest {
     final List<Record> records = buildDataset();
     final String json = toJson(records, VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\"})");
 
     // COLD reopen: the valid-time config and the interval index must be persisted, and data + index
     // must have landed in ONE revision.
@@ -132,10 +132,10 @@ public final class StoreValidTimeAutoIndexTest {
           final Set<Integer> brute = bruteForce(records, t);
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must equal brute force at t=" + t);
 
-          final ValidTimeIntervalIndex.Result fast =
-              ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig);
+          final Sequence fast =
+              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null);
           assertNotNull(fast, "the auto-created interval index must be usable at t=" + t);
-          assertEquals(brute, idsOfItems(fast.items()), "interval-index scan must equal brute force at t=" + t);
+          assertEquals(brute, idsOfSequence(fast), "interval-index scan must equal brute force at t=" + t);
 
           // The auto-created xs:dateTime CAS pair must power the CAS-narrowing scan (union of the
           // two one-sided temporal ranges) and agree with brute force as well.
@@ -155,8 +155,8 @@ public final class StoreValidTimeAutoIndexTest {
     final List<Record> records = buildDataset();
     final String json = toJson(records, "_validFrom", "_validTo");
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"useConventionalValidTime\": true()})");
+    storeViaQuery(
+        "jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"useConventionalValidTime\": true()})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
         JsonResourceSession session = database.beginResourceSession(RES)) {
@@ -189,9 +189,8 @@ public final class StoreValidTimeAutoIndexTest {
     final List<Record> records = buildDataset();
     final String json = toJson(records, VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\", "
-        + "\"autoCreateValidTimeIndex\": false()})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\", " + "\"autoCreateValidTimeIndex\": false()})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
         JsonResourceSession session = database.beginResourceSession(RES)) {
@@ -215,7 +214,7 @@ public final class StoreValidTimeAutoIndexTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
         final Instant t = Instant.parse("2021-01-15T00:00:00Z");
-        assertNull(ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig),
+        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null),
             "the interval-index fast path must NOT apply after opting out");
         assertEquals(bruteForce(records, t), idsFromValidAt(chain, ctx, t),
             "jn:valid-at must still be correct via fallback at t=" + t);
@@ -227,8 +226,8 @@ public final class StoreValidTimeAutoIndexTest {
   @DisplayName("validFromPath without validToPath is rejected")
   void validTimePathOptionsMustBePaired() {
     assertThrows(QueryException.class,
-        () -> storeViaQuery("jn:store('" + DB + "','" + RES + "','[]', true(), "
-            + "{\"validFromPath\": \"" + VALID_FROM + "\"})"),
+        () -> storeViaQuery(
+            "jn:store('" + DB + "','" + RES + "','[]', true(), " + "{\"validFromPath\": \"" + VALID_FROM + "\"})"),
         "specifying only one of validFromPath/validToPath must fail");
   }
 
@@ -238,8 +237,8 @@ public final class StoreValidTimeAutoIndexTest {
     final List<Record> records = new ArrayList<>(buildDataset());
     final String json = toJson(records, VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\"})");
 
     // Insert a record in a LATER revision — the listener registered from the persisted index
     // definition must maintain the interval index.
@@ -252,9 +251,8 @@ public final class StoreValidTimeAutoIndexTest {
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // the top-level array
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"id\": " + newId + ", \"" + VALID_FROM + "\": \"" + newFrom + "\", \"" + VALID_TO + "\": \"" + newTo
-              + "\"}"), JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"id\": " + newId + ", \"" + VALID_FROM + "\": \""
+          + newFrom + "\", \"" + VALID_TO + "\": \"" + newTo + "\"}"), JsonNodeTrx.Commit.NO);
       wtx.commit();
     }
     Databases.getGlobalBufferManager().clearAllCaches();
@@ -270,10 +268,10 @@ public final class StoreValidTimeAutoIndexTest {
           assertEquals(brute, idsFromValidAt(chain, ctx, t),
               "jn:valid-at must equal brute force after a post-store insert at t=" + t);
 
-          final ValidTimeIntervalIndex.Result fast =
-              ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig);
+          final Sequence fast =
+              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null);
           assertNotNull(fast, "the interval index must still be usable after a post-store insert at t=" + t);
-          assertEquals(brute, idsOfItems(fast.items()),
+          assertEquals(brute, idsOfSequence(fast),
               "interval-index scan must include listener-maintained entries at t=" + t);
         }
         assertTrue(idsFromValidAt(chain, ctx, newFrom).contains(newId),
@@ -289,8 +287,8 @@ public final class StoreValidTimeAutoIndexTest {
     final String json1 = toJson(records.subList(0, 3), VALID_FROM, VALID_TO);
     final String json2 = toJson(records.subList(3, records.size()), VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "', (), ('" + json1 + "', '" + json2 + "'), true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+    storeViaQuery("jn:store('" + DB + "', (), ('" + json1 + "', '" + json2 + "'), true(), " + "{\"validFromPath\": \""
+        + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB))) {
       final List<Path> resources = database.listResources();
@@ -314,9 +312,8 @@ public final class StoreValidTimeAutoIndexTest {
   void stringBooleanOptionValuesAreParsedTextually() {
     final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\", "
-        + "\"autoCreateValidTimeIndex\": \"false\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\", " + "\"autoCreateValidTimeIndex\": \"false\"})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
         JsonResourceSession session = database.beginResourceSession(RES)) {
@@ -356,8 +353,8 @@ public final class StoreValidTimeAutoIndexTest {
   void explicitCreateAfterAutoCreateIsIdempotent() {
     final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\"})");
 
     // The documented explicit workflow, run on an already auto-indexed resource.
     storeViaQuery("let $doc := jn:doc('" + DB + "','" + RES + "') "
@@ -378,8 +375,7 @@ public final class StoreValidTimeAutoIndexTest {
   void versionTypeOptionIsHonored() {
     final String json = toJson(buildDataset(), VALID_FROM, VALID_TO);
 
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), "
-        + "{\"versionType\": \"FULL\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','" + json + "', true(), " + "{\"versionType\": \"FULL\"})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
         JsonResourceSession session = database.beginResourceSession(RES)) {
@@ -391,8 +387,8 @@ public final class StoreValidTimeAutoIndexTest {
   @Test
   @DisplayName("store an empty resource with valid-time options: index definition persisted for future data")
   void storeEmptyResourcePersistsIndexDefinition() {
-    storeViaQuery("jn:store('" + DB + "','" + RES + "','', true(), "
-        + "{\"validFromPath\": \"" + VALID_FROM + "\", \"validToPath\": \"" + VALID_TO + "\"})");
+    storeViaQuery("jn:store('" + DB + "','" + RES + "','', true(), " + "{\"validFromPath\": \"" + VALID_FROM
+        + "\", \"validToPath\": \"" + VALID_TO + "\"})");
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(sirixPath.resolve(DB));
         JsonResourceSession session = database.beginResourceSession(RES)) {
@@ -450,9 +446,17 @@ public final class StoreValidTimeAutoIndexTest {
       if (i > 0) {
         sb.append(",");
       }
-      sb.append("{\"id\": ").append(r.id())
-        .append(", \"").append(validFromField).append("\": \"").append(r.validFrom())
-        .append("\", \"").append(validToField).append("\": \"").append(r.validTo()).append("\"}");
+      sb.append("{\"id\": ")
+        .append(r.id())
+        .append(", \"")
+        .append(validFromField)
+        .append("\": \"")
+        .append(r.validFrom())
+        .append("\", \"")
+        .append(validToField)
+        .append("\": \"")
+        .append(r.validTo())
+        .append("\"}");
     }
     sb.append("]");
     return sb.toString();
@@ -492,6 +496,22 @@ public final class StoreValidTimeAutoIndexTest {
     final Set<Integer> ids = new TreeSet<>();
     for (final JsonDBItem item : items) {
       ids.add(((Numeric) ((Object) item).get(new QNm("id"))).intValue());
+    }
+    return ids;
+  }
+
+  /** Drain a (possibly lazy) result sequence, reading each item's {@code id} as it is produced. */
+  private static Set<Integer> idsOfSequence(final Sequence sequence) {
+    final Set<Integer> ids = new TreeSet<>();
+    final QNm id = new QNm("id");
+    final Iter iter = sequence.iterate();
+    try {
+      Item item;
+      while ((item = iter.next()) != null) {
+        ids.add(((Numeric) ((Object) item).get(id)).intValue());
+      }
+    } finally {
+      iter.close();
     }
     return ids;
   }

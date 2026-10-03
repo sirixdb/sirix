@@ -446,9 +446,12 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       Collections.sort(expected);
       assertEquals(expected, actual, "valid-time entries at " + point + " in revision " + revision);
       final LongOpenHashSet all = new LongOpenHashSet();
-      tree.rangeIntersect(0, domain.maxValue() + 1, all::add);
+      tree.forEachRef(all::add);
+      final LongOpenHashSet needingVerification = new LongOpenHashSet();
       ValidTimeIntervalIndexFactory.createVerificationStore(rtx.getStorageEngineReader(), INDEX_ID)
-                                   .scan(0, 0, 0, all::add);
+                                   .scan(0, 0, 0, needingVerification::add);
+      assertTrue(all.containsAll(needingVerification),
+          "a verification posting must belong to a registered interval at revision " + revision);
       final var expectedParents = new HashMap<Long, LongOpenHashSet>();
       final var keys = all.iterator();
       while (keys.hasNext()) {
@@ -459,7 +462,7 @@ final class JsonValidTimeIncrementalMaintenanceTest {
       final var membership =
           ValidTimeIntervalIndexFactory.createMembershipStore(rtx.getStorageEngineReader(), INDEX_ID);
       final LongArrayList allMembers = new LongArrayList();
-      membership.scanForks(Long.MIN_VALUE, Long.MAX_VALUE, allMembers::add);
+      membership.forEachRef(allMembers::add);
       assertEquals(all.size(), allMembers.size(), "each registered object has exactly one parent posting");
       assertEquals(all, new LongOpenHashSet(allMembers));
       for (final var parent : expectedParents.entrySet()) {

@@ -87,11 +87,12 @@ public final class HotOrderedStore implements OrderedStore {
   }
 
   @Override
-  public void scanForks(final long forkLo, final long forkHi, final LongConsumer out) {
-    if (reader == null || forkLo > forkHi) {
+  public void forEachRef(final LongConsumer out) {
+    if (reader == null) {
       return;
     }
-    scan(new ValidTimeKey(store, forkLo, Long.MIN_VALUE), new ValidTimeKey(store, forkHi, Long.MAX_VALUE), out);
+    scan(new ValidTimeKey(store, Long.MIN_VALUE, Long.MIN_VALUE),
+        new ValidTimeKey(store, Long.MAX_VALUE, Long.MAX_VALUE), out);
   }
 
   private void scan(final ValidTimeKey from, final ValidTimeKey to, final LongConsumer out) {

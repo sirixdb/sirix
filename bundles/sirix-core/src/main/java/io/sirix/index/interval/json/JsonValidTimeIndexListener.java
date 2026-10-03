@@ -315,10 +315,10 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private void reconcileState(final long objectKey, final State state) {
     final Interval mapped = indexWriter.toInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
                                        .withExactLexicalBounds(state.fromLexical && state.toLexical);
-    final ImmutableNode object = mapped.hasPostings()
+    final ImmutableNode object = mapped.present()
         ? loadNode(objectKey)
         : null;
-    if (mapped.hasPostings() && object == null) {
+    if (mapped.present() && object == null) {
       final IllegalStateException failure = new IllegalStateException("Valid-time object disappeared: " + objectKey);
       markRollbackOnly(failure);
       throw failure;
@@ -347,11 +347,11 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
     boolean publicationStarted = false;
     try {
-      if (current.hasPostings()) {
+      if (current.present()) {
         publicationStarted = true;
         indexWriter.delete(objectKey, current);
       }
-      if (desired.hasPostings()) {
+      if (desired.present()) {
         publicationStarted = true;
         indexWriter.insert(objectKey, desired);
       }

@@ -31,7 +31,8 @@ import java.time.Instant;
  * the resulting interval is non-inverted ({@code lo <= hi}) — exactly matching the exact predicate
  * ({@code ValidTimeIndexScan.isValidAtTime}), which treats an absent bound as unbounded on that
  * side. A record with neither bound, or an inverted interval, matches no {@code x} in the scan and
- * so is not registered.
+ * so is not registered — unless a duplicate bound field makes the builder's choice of pair
+ * uncertain, in which case it is registered over the whole domain and left to exact verification.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -66,27 +67,23 @@ public final class ValidTimeIntervalIndexWriter {
 
   /**
    * An interval extracted from a record's bounds. {@code present} controls registration in the
-   * RI-tree. Ambiguous duplicates can instead require a verification-only posting even when the
-   * selected pair is inverted; the query's original field lookup decides their answer. The parent
-   * posting follows either form, independently of whether the interval is exact at millisecond
-   * resolution.
+   * RI-tree and is the single gate for every posting: a record the query side can reach is always
+   * registered, so a stab is the only candidate source. Ambiguous duplicates whose selected pair is
+   * absent or inverted span the whole domain and are marked inexact, so the stab yields them
+   * everywhere and the query's original field lookup decides their answer.
    */
-  public record Interval(boolean present, long lo, long hi, boolean exact, long parentKey, boolean verificationOnly) {
-    static final Interval ABSENT = new Interval(false, 0L, 0L, false, -1L, false);
+  public record Interval(boolean present, long lo, long hi, boolean exact, long parentKey) {
+    static final Interval ABSENT = new Interval(false, 0L, 0L, false, -1L);
 
     public Interval withExactLexicalBounds(final boolean lexical) {
       return exact && !lexical
-          ? new Interval(present, lo, hi, false, parentKey, verificationOnly)
+          ? new Interval(present, lo, hi, false, parentKey)
           : this;
     }
 
-    public boolean hasPostings() {
-      return present || verificationOnly;
-    }
-
     public Interval atParent(final long parent) {
-      return hasPostings()
-          ? new Interval(present, lo, hi, exact, parent, verificationOnly)
+      return present
+          ? new Interval(present, lo, hi, exact, parent)
           : this;
     }
   }
@@ -159,7 +156,7 @@ public final class ValidTimeIntervalIndexWriter {
     final boolean duplicates = fromCount > 1 || toCount > 1;
     if (from == null && to == null) {
       return duplicates
-          ? new Interval(false, 0, 0, false, -1, true)
+          ? unresolvable()
           : Interval.ABSENT;
     }
     final long lo = domain.lowerBound(from); // null -> 1 (open-ended start)
@@ -167,31 +164,39 @@ public final class ValidTimeIntervalIndexWriter {
     if (lo > hi) {
       // Inverted interval: never stabbed by any x in the scan's exact predicate.
       // Duplicate lookup semantics need the original field predicate even if the builder's
-      // first-parseable pair is inverted. Keep an exceptional posting without a tree interval.
+      // first-parseable pair is inverted, so span the domain instead of dropping the record.
       return duplicates
-          ? new Interval(false, 0, 0, false, -1, true)
+          ? unresolvable()
           : Interval.ABSENT;
     }
-    return new Interval(true, lo, hi, fromCount == 1 && toCount == 1 && domain.isExact(from) && domain.isExact(to), -1L,
-        false);
+    return new Interval(true, lo, hi, fromCount == 1 && toCount == 1 && domain.isExact(from) && domain.isExact(to),
+        -1L);
   }
 
-  /** Register {@code [lo, hi]} for the record object {@code ref} in the RI-tree. */
+  /**
+   * Duplicate bounds the builder cannot resolve span the whole domain, so every stab yields them for
+   * exact verification. Registering them keeps the RI-tree the only candidate source: no query has to
+   * union the verification postings of records it could never match.
+   */
+  private Interval unresolvable() {
+    return new Interval(true, domain.lowerBound(null), domain.upperBound(null), false, -1L);
+  }
+
+  /**
+   * Register {@code [lo, hi]} and the record's postings for the record object {@code ref}. The
+   * interval must be {@link Interval#present()}; the RI-tree rejects anything else.
+   */
   public void insert(final long ref, final Interval interval) {
-    if (interval.present()) {
-      tree.insert(ref, interval.lo(), interval.hi());
-    }
+    tree.insert(ref, interval.lo(), interval.hi());
     membershipStore.insert(interval.parentKey(), 0, ref);
     if (!interval.exact()) {
       verificationStore.insert(0, 0, ref);
     }
   }
 
-  /** Remove {@code [lo, hi]} for the record object {@code ref} from the RI-tree. */
+  /** Remove {@code [lo, hi]} and the record's postings for the record object {@code ref}. */
   public void delete(final long ref, final Interval interval) {
-    if (interval.present()) {
-      tree.delete(ref, interval.lo(), interval.hi());
-    }
+    tree.delete(ref, interval.lo(), interval.hi());
     membershipStore.remove(interval.parentKey(), 0, ref);
     if (!interval.exact()) {
       verificationStore.remove(0, 0, ref);
@@ -204,7 +209,7 @@ public final class ValidTimeIntervalIndexWriter {
   public Interval indexObjectAtCursor(final JsonNodeReadOnlyTrx rtx) {
     final long objectKey = rtx.getNodeKey();
     final Interval interval = readIntervalAtCursor(rtx);
-    if (interval.hasPostings()) {
+    if (interval.present()) {
       insert(objectKey, interval);
       checkOrder(objectKey, interval.parentKey(), rtx.getLeftSiblingKey(), rtx.getRightSiblingKey());
     }
