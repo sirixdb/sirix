@@ -107,34 +107,29 @@ public final class OpenBitemporal extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    final String field = args.length == 7
-        ? ((Str) args[4]).stringValue()
-        : null;
-    final int encodedMode = args.length == 7
-        ? ((IntNumeric) args[5]).intValue()
-        : 0;
-    if (args.length == 7 && (encodedMode < 1 || encodedMode > 16)) {
+    if (args.length == 4) {
+      return closedSequence(document, validTime, validTimeConfig);
+    }
+    return sliceSequence(sctx, ctx, args, validDateTime, document, validTime, validTimeConfig);
+  }
+
+  private static Sequence sliceSequence(final StaticContext sctx, final QueryContext ctx, final Sequence[] args,
+      final DateTime validDateTime, final JsonDBItem document, final Instant validTime,
+      final ValidTimeConfig validTimeConfig) {
+    final String field = ((Str) args[4]).stringValue();
+    final int encodedMode = ((IntNumeric) args[5]).intValue();
+    if (encodedMode < 1 || encodedMode > 16) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
-    final int mode = encodedMode == 0
-        ? 0
-        : ((encodedMode - 1) & 3) + 1;
+    final int mode = ((encodedMode - 1) & 3) + 1;
     final boolean start = mode == 1 || mode == 2;
     final boolean strict = mode == 2 || mode == 4;
-    final Sequence comparisonPoint = args.length == 7
-        ? args[6]
-        : null;
-    final ValidTimeResidual residual = field == null
-        ? null
-        : new ValidTimeResidual(sctx, ctx, () -> comparisonPoint, field, start, strict, encodedMode > 8,
-            ((encodedMode - 1) & 4) == 0
-                ? start
-                : !start);
-    final boolean indexedField = field == null || field.equals(start
-        ? validTimeConfig.getNormalizedValidFromPath()
-        : validTimeConfig.getNormalizedValidToPath());
-    if (indexedField && (residual == null || (comparisonPoint instanceof DateTime point && point.getTimezone() != null
-        && point.cmp(validDateTime) == 0))) {
+    final Sequence comparisonPoint = args[6];
+    final ValidTimeResidual residual = new ValidTimeResidual(sctx, ctx, () -> comparisonPoint, field, start, strict,
+        encodedMode > 8, ((encodedMode - 1) & 4) == 0
+            ? start
+            : !start);
+    if (matchesIndexedComparison(field, validTimeConfig, start, comparisonPoint, validDateTime)) {
       final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
           !start && strict, residual);
       if (sequence != null) {
@@ -142,34 +137,41 @@ public final class OpenBitemporal extends AbstractFunction {
       }
     }
 
-    if (residual != null) {
-      final Sequence source = closedSequence(document, validTime, validTimeConfig);
-      return new LazySequence() {
-        @Override
-        public Iter iterate() {
-          final Iter input = source.iterate();
-          return new BaseIter() {
-            @Override
-            public @Nullable Item next() {
-              Item item;
-              while ((item = input.next()) != null) {
-                if (residual.test(item)) {
-                  return item;
-                }
+    return filterSequence(closedSequence(document, validTime, validTimeConfig), residual);
+  }
+
+  private static boolean matchesIndexedComparison(final String field, final ValidTimeConfig config, final boolean start,
+      final @Nullable Sequence comparisonPoint, final DateTime validDateTime) {
+    return field.equals(start
+        ? config.getNormalizedValidFromPath()
+        : config.getNormalizedValidToPath()) && comparisonPoint instanceof DateTime point && point.getTimezone() != null
+        && point.cmp(validDateTime) == 0;
+  }
+
+  private static Sequence filterSequence(final Sequence source, final ValidTimeResidual residual) {
+    return new LazySequence() {
+      @Override
+      public Iter iterate() {
+        final Iter input = source.iterate();
+        return new BaseIter() {
+          @Override
+          public @Nullable Item next() {
+            Item item;
+            while ((item = input.next()) != null) {
+              if (residual.test(item)) {
+                return item;
               }
-              return null;
             }
+            return null;
+          }
 
-            @Override
-            public void close() {
-              input.close();
-            }
-          };
-        }
-      };
-    }
-
-    return closedSequence(document, validTime, validTimeConfig);
+          @Override
+          public void close() {
+            input.close();
+          }
+        };
+      }
+    };
   }
 
   private static Sequence closedSequence(final JsonDBItem document, final Instant validTime,

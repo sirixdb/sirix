@@ -124,30 +124,7 @@ final class ValidTimeSliceWorkBudgetTest {
             for (final boolean strict : new boolean[] {false, true}) {
               for (final boolean general : new boolean[] {false, true}) {
                 for (final boolean mirror : new boolean[] {false, true}) {
-                  final String bound = "xs:dateTime($x." + (start
-                      ? "vf"
-                      : "vt") + ")";
-                  final String operator = general
-                      ? (strict
-                          ? "<"
-                          : "<=")
-                      : (strict
-                          ? "lt"
-                          : "le");
-                  final String swapped = general
-                      ? (strict
-                          ? ">"
-                          : ">=")
-                      : (strict
-                          ? "gt"
-                          : "ge");
-                  final String predicate = mirror
-                      ? (start
-                          ? point + " " + swapped + " " + bound
-                          : bound + " " + swapped + " " + point)
-                      : (start
-                          ? bound + " " + operator + " " + point
-                          : point + " " + operator + " " + bound);
+                  final String predicate = comparisonPredicate(point, start, strict, general, mirror);
                   final String text = "for $x in " + source + " where " + predicate + " return $x";
                   final int expected = revision == changedRevision && !start && strict
                       ? 1
@@ -181,6 +158,35 @@ final class ValidTimeSliceWorkBudgetTest {
         }
       }
     }
+  }
+
+
+  private static String comparisonPredicate(final String point, final boolean start, final boolean strict,
+      final boolean general, final boolean mirror) {
+    final String bound = "xs:dateTime($x." + (start
+        ? "vf"
+        : "vt") + ")";
+    final String operator = general
+        ? (strict
+            ? "<"
+            : "<=")
+        : (strict
+            ? "lt"
+            : "le");
+    final String swapped = general
+        ? (strict
+            ? ">"
+            : ">=")
+        : (strict
+            ? "gt"
+            : "ge");
+    return mirror
+        ? (start
+            ? point + " " + swapped + " " + bound
+            : bound + " " + swapped + " " + point)
+        : (start
+            ? bound + " " + operator + " " + point
+            : point + " " + operator + " " + bound);
   }
 
   /**
@@ -226,75 +232,13 @@ final class ValidTimeSliceWorkBudgetTest {
           "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
               context);
       final JsonDBItem document = store.lookup("budget").getDocument("rows");
-      final var config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
       final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
       final JsonDBItem observed =
           mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
       doReturn(cursor).when(observed).getTrx();
 
       final Instant[] outsidePoints = {Instant.parse("2019-01-01T00:00:00Z"), Instant.parse("2021-01-01T00:00:00Z")};
-      for (final Instant point : outsidePoints) {
-        for (int mode = 0; mode < 4; mode++) {
-          clearInvocations(cursor);
-          final boolean strictStart = (mode & 1) != 0;
-          final boolean strictEnd = (mode & 2) != 0;
-          final var setup = INDEX_WORK.call(() -> Objects.requireNonNull(
-              ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd, null)));
-          final Sequence outside = setup.result();
-          assertNotNull(outside);
-          assertZeroIndexWork(setup.work(), count, point, mode, "before-demand");
-          assertZeroObjectReads(cursor, count, point, mode, "before-demand");
-          final WorkReport work = INDEX_WORK.run(() -> {
-            assertEquals(0, outside.size().intValue());
-            assertNull(outside.get(Int32.ONE));
-            assertFalse(outside.booleanValue());
-            try (var iterator = outside.iterate()) {
-              assertNull(iterator.next());
-            }
-          });
-          assertZeroIndexWork(work, count, point, mode, "sequence");
-          assertZeroObjectReads(cursor, count, point, mode, "sequence");
-        }
-        for (final boolean strictEnd : new boolean[] {false, true}) {
-          clearInvocations(cursor);
-          final var capture = INDEX_WORK.call(() -> ValidTimeIntervalIndex.keys(observed, point, strictEnd));
-          assertEquals(0, capture.result().length);
-          assertZeroIndexWork(capture.work(), count, point, strictEnd
-              ? 2
-              : 0, "keys");
-          assertZeroObjectReads(cursor, count, point, strictEnd
-              ? 2
-              : 0, "keys");
-        }
-      }
-
-      for (final Instant point : new Instant[] {Instant.parse("2020-06-01T00:00:00Z"),
-          Instant.parse("2020-12-31T23:59:59Z")}) {
-        for (int mode = 0; mode < 4; mode++) {
-          clearInvocations(cursor);
-          final Sequence inside =
-              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null);
-          assertNotNull(inside);
-          final WorkReport positive = INDEX_WORK.run(() -> {
-            if (count == 64) {
-              assertEquals(count, inside.size().intValue());
-              verify(cursor, atLeast(count)).moveTo(anyLong());
-              verify(cursor, atLeast(count)).getValue();
-            } else {
-              assertNotNull(inside.get(Int32.ONE));
-              verify(cursor, atLeast(1)).moveTo(anyLong());
-              verify(cursor, atLeast(1)).getValue();
-              verify(cursor, atLeast(1)).getFirstChildKey();
-            }
-          });
-          assertPositiveIndexWork(positive, count);
-          INDEX_WORK.run(() -> assertNotNull(inside.get(Int32.ONE)))
-                    .assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS,
-                        "repeat demand must reuse the candidate set")
-                    .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
-                        "repeat demand must reuse posting evidence");
-        }
-      }
+      assertDirectStabs(observed, cursor, count, outsidePoints);
 
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(store.lookup("budget")));
       doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
@@ -302,49 +246,121 @@ final class ValidTimeSliceWorkBudgetTest {
       doReturn(collection).when(observedStore).lookup("budget");
       try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
           var observedChain = SirixCompileChain.createWithJsonStore(observedStore)) {
-        for (final Instant point : outsidePoints) {
-          for (int mode = 0; mode < 4; mode++) {
-            final String expression = bitemporalExpression(point, mode);
-            clearInvocations(cursor);
-            final var capture =
-                INDEX_WORK.call(() -> ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
-                    observedContext)).intValue());
-            assertEquals(0, capture.result());
-            assertZeroIndexWork(capture.work(), count, point, mode, "query-count");
-            assertZeroObjectReads(cursor, count, point, mode, "query-count");
-            clearInvocations(cursor);
-            final WorkReport work = INDEX_WORK.run(() -> {
-              final Sequence outside = new Query(observedChain, expression).execute(observedContext);
-              if (outside != null) {
-                try (var iterator = outside.iterate()) {
-                  assertNull(iterator.next());
-                }
-              }
-            });
-            assertZeroIndexWork(work, count, point, mode, "query-first");
-            assertZeroObjectReads(cursor, count, point, mode, "query-first");
+        assertBitemporalStabs(observedChain, observedContext, cursor, count, outsidePoints);
+      }
+    }
+  }
+
+  private static void assertDirectStabs(final JsonDBItem observed, final JsonNodeReadOnlyTrx cursor, final int count,
+      final Instant[] outsidePoints) throws Exception {
+    final var config = observed.getResourceSession().getResourceConfig().getValidTimeConfig();
+    for (final Instant point : outsidePoints) {
+      for (int mode = 0; mode < 4; mode++) {
+        clearInvocations(cursor);
+        final boolean strictStart = (mode & 1) != 0;
+        final boolean strictEnd = (mode & 2) != 0;
+        final var setup = INDEX_WORK.call(() -> Objects.requireNonNull(
+            ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd, null)));
+        final Sequence outside = setup.result();
+        assertNotNull(outside);
+        assertZeroIndexWork(setup.work(), count, point, mode, "before-demand");
+        assertZeroObjectReads(cursor, count, point, mode, "before-demand");
+        final WorkReport work = INDEX_WORK.run(() -> {
+          assertEquals(0, outside.size().intValue());
+          assertNull(outside.get(Int32.ONE));
+          assertFalse(outside.booleanValue());
+          try (var iterator = outside.iterate()) {
+            assertNull(iterator.next());
           }
-        }
-        for (final Instant point : new Instant[] {Instant.parse("2020-06-01T00:00:00Z"),
-            Instant.parse("2020-12-31T23:59:59Z")}) {
-          for (int mode = 0; mode < 4; mode++) {
-            final String expression = bitemporalExpression(point, mode);
-            clearInvocations(cursor);
-            final WorkReport positive = INDEX_WORK.run(() -> {
-              if (count == 64) {
-                assertEquals(count, ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
-                    observedContext)).intValue());
-              } else {
-                final Sequence inside = new Query(observedChain, expression).execute(observedContext);
-                try (var iterator = inside.iterate()) {
-                  assertNotNull(iterator.next());
-                }
-              }
-            });
-            assertPositiveIndexWork(positive, count);
+        });
+        assertZeroIndexWork(work, count, point, mode, "sequence");
+        assertZeroObjectReads(cursor, count, point, mode, "sequence");
+      }
+      for (final boolean strictEnd : new boolean[] {false, true}) {
+        clearInvocations(cursor);
+        final var capture = INDEX_WORK.call(() -> ValidTimeIntervalIndex.keys(observed, point, strictEnd));
+        assertEquals(0, capture.result().length);
+        assertZeroIndexWork(capture.work(), count, point, strictEnd
+            ? 2
+            : 0, "keys");
+        assertZeroObjectReads(cursor, count, point, strictEnd
+            ? 2
+            : 0, "keys");
+      }
+    }
+
+    for (final Instant point : new Instant[] {Instant.parse("2020-06-01T00:00:00Z"),
+        Instant.parse("2020-12-31T23:59:59Z")}) {
+      for (int mode = 0; mode < 4; mode++) {
+        clearInvocations(cursor);
+        final Sequence inside =
+            ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null);
+        assertNotNull(inside);
+        final WorkReport positive = INDEX_WORK.run(() -> {
+          if (count == 64) {
+            assertEquals(count, inside.size().intValue());
+            verify(cursor, atLeast(count)).moveTo(anyLong());
+            verify(cursor, atLeast(count)).getValue();
+          } else {
+            assertNotNull(inside.get(Int32.ONE));
+            verify(cursor, atLeast(1)).moveTo(anyLong());
             verify(cursor, atLeast(1)).getValue();
+            verify(cursor, atLeast(1)).getFirstChildKey();
           }
-        }
+        });
+        assertPositiveIndexWork(positive, count);
+        INDEX_WORK.run(() -> assertNotNull(inside.get(Int32.ONE)))
+                  .assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, "repeat demand must reuse the candidate set")
+                  .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "repeat demand must reuse posting evidence");
+      }
+    }
+
+  }
+
+  private static void assertBitemporalStabs(final SirixCompileChain observedChain,
+      final SirixQueryContext observedContext, final JsonNodeReadOnlyTrx cursor, final int count,
+      final Instant[] outsidePoints) throws Exception {
+    for (final Instant point : outsidePoints) {
+      for (int mode = 0; mode < 4; mode++) {
+        final String expression = bitemporalExpression(point, mode);
+        clearInvocations(cursor);
+        final var capture =
+            INDEX_WORK.call(() -> ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
+                observedContext)).intValue());
+        assertEquals(0, capture.result());
+        assertZeroIndexWork(capture.work(), count, point, mode, "query-count");
+        assertZeroObjectReads(cursor, count, point, mode, "query-count");
+        clearInvocations(cursor);
+        final WorkReport work = INDEX_WORK.run(() -> {
+          final Sequence outside = new Query(observedChain, expression).execute(observedContext);
+          if (outside != null) {
+            try (var iterator = outside.iterate()) {
+              assertNull(iterator.next());
+            }
+          }
+        });
+        assertZeroIndexWork(work, count, point, mode, "query-first");
+        assertZeroObjectReads(cursor, count, point, mode, "query-first");
+      }
+    }
+    for (final Instant point : new Instant[] {Instant.parse("2020-06-01T00:00:00Z"),
+        Instant.parse("2020-12-31T23:59:59Z")}) {
+      for (int mode = 0; mode < 4; mode++) {
+        final String expression = bitemporalExpression(point, mode);
+        clearInvocations(cursor);
+        final WorkReport positive = INDEX_WORK.run(() -> {
+          if (count == 64) {
+            assertEquals(count,
+                ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(observedContext)).intValue());
+          } else {
+            final Sequence inside = new Query(observedChain, expression).execute(observedContext);
+            try (var iterator = inside.iterate()) {
+              assertNotNull(iterator.next());
+            }
+          }
+        });
+        assertPositiveIndexWork(positive, count);
+        verify(cursor, atLeast(1)).getValue();
       }
     }
   }

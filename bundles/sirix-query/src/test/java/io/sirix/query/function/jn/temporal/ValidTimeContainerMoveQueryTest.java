@@ -52,32 +52,7 @@ final class ValidTimeContainerMoveQueryTest {
   @ParameterizedTest
   @CsvSource({"vf,first", "vf,right", "vf,left", "vt,first", "vt,right", "vt,left"})
   void movedContainersKeepPublicTemporalConsumersExact(final String duplicate, final String mode) throws Exception {
-    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
-        var context = SirixQueryContext.createWithJsonStore(store);
-        var chain = SirixCompileChain.createWithJsonStore(store)) {
-      for (final String resource : List.of("indexed", "plain")) {
-        new Query(chain,
-            "jn:store('moves','" + resource + "','" + ValidTimeMoveTestSupport.rows(duplicate) + "',"
-                + (resource.equals("indexed")
-                    ? "true()"
-                    : "false()")
-                + ",{\"validFromPath\":\"vf\",\"validToPath\":\"vt\",\"autoCreateValidTimeIndex\":"
-                + (resource.equals("indexed")
-                    ? "true()"
-                    : "false()")
-                + "})").evaluate(context);
-        final var collection = requireNonNull(store.lookup("moves"));
-        final var document = requireNonNull(collection.getDocument(resource));
-        final Keys keys = ValidTimeMoveTestSupport.keys(document.getTrx());
-        final var session = document.getResourceSession();
-        try (var writer = session.beginNodeTrx()) {
-          for (int step = 1; step <= 5; step++) {
-            ValidTimeMoveTestSupport.mutate(writer, keys, mode, step);
-            writer.commit();
-          }
-        }
-      }
-    }
+    createMovedResources(duplicate, mode);
     Databases.clearGlobalCaches();
     for (int step = 0; step <= 5; step++) {
       try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
@@ -119,77 +94,121 @@ final class ValidTimeContainerMoveQueryTest {
             : step >= 3
                 ? List.of(3L, 1L)
                 : List.of(1L);
-        for (final String resource : List.of("indexed", "plain")) {
-          final var represented = requireNonNull(collection.getDocument(resource, revision));
-          final String transaction = "xs:dateTime('" + represented.getTrx().getRevisionTimestamp() + "')";
-          final String source = "jn:open-bitemporal('moves','" + resource + "'," + transaction + "," + POINT + ")";
-          final List<Long> expected = resource.equals("indexed")
-              ? closed
-              : documentOrder;
-          assertDemand(chain, context, source, expected);
-          for (final boolean start : List.of(false, true)) {
-            for (final boolean strict : List.of(false, true)) {
-              for (final boolean general : List.of(false, true)) {
-                for (final boolean mirror : List.of(false, true)) {
-                  final String bound = "xs:dateTime($x." + (start
-                      ? "vf"
-                      : "vt") + ")";
-                  final String operator = general
-                      ? (strict
-                          ? "<"
-                          : "<=")
-                      : (strict
-                          ? "lt"
-                          : "le");
-                  final String swapped = general
-                      ? (strict
-                          ? ">"
-                          : ">=")
-                      : (strict
-                          ? "gt"
-                          : "ge");
-                  final String predicate = start != mirror
-                      ? bound + " " + (mirror
-                          ? swapped
-                          : operator) + " " + POINT
-                      : POINT + " " + (mirror
-                          ? swapped
-                          : operator) + " " + bound;
-                  assertDemand(chain, context, "for $x in " + source + " where " + predicate + " return $x", expected);
-                }
-              }
-            }
-          }
-          final String from = "jn:doc('moves','" + resource + "'," + revision + ")";
-          final String comparisons = "xs:dateTime($x.vf) le " + POINT + " and " + POINT + " lt xs:dateTime($x.vt)";
-          assertEquals(documentOrder,
-              ids(new Query(chain, "for $x in " + from + "[] where " + comparisons + " return $x").execute(context)));
-          assertEquals(List.of(1L, 3L), ids(requireNonNull(
-              new Query(chain, "jn:valid-at('moves','" + resource + "'," + POINT + ")").execute(context))).stream()
-                                                                                                          .sorted()
-                                                                                                          .toList());
-        }
-        final var plainDocument = requireNonNull(collection.getDocument("plain", revision));
-        final var plainKeys =
-            ValidTimeMoveTestSupport.keys(requireNonNull(collection.getDocument("plain", 1)).getTrx());
-        final var plainReader = plainDocument.getTrx();
-        assertEquals(closed,
-            ids(ValidTimeFilter.linearScanSequence(plainDocument, INSTANT,
-                requireNonNull(plainDocument.getResourceSession().getResourceConfig().getValidTimeConfig()))).stream()
-                                                                                                             .sorted()
-                                                                                                             .toList());
-        assertTrue(plainReader.moveTo(plainKeys.destination()));
-        final var plainDestination = (JsonDBItem) JsonItemFactory.INSTANCE.getSequence(plainReader, collection);
-        final List<Long> destination = step == 1
-            ? List.of(1L)
-            : step >= 5
-                ? List.of(4L)
-                : List.of();
-        assertEquals(destination, ids(ValidTimeFilter.linearScanSequence(plainDestination, INSTANT,
-            requireNonNull(plainDestination.getResourceSession().getResourceConfig().getValidTimeConfig()))));
+        assertResourceQueries(chain, context, collection, revision, closed, documentOrder);
+        assertPlainScopes(collection, revision, step, closed);
       }
       Databases.clearGlobalCaches();
     }
+  }
+
+  private void createMovedResources(final String duplicate, final String mode) {
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      for (final String resource : List.of("indexed", "plain")) {
+        new Query(chain,
+            "jn:store('moves','" + resource + "','" + ValidTimeMoveTestSupport.rows(duplicate) + "',"
+                + (resource.equals("indexed")
+                    ? "true()"
+                    : "false()")
+                + ",{\"validFromPath\":\"vf\",\"validToPath\":\"vt\",\"autoCreateValidTimeIndex\":"
+                + (resource.equals("indexed")
+                    ? "true()"
+                    : "false()")
+                + "})").evaluate(context);
+        final var collection = requireNonNull(store.lookup("moves"));
+        final var document = requireNonNull(collection.getDocument(resource));
+        final Keys keys = ValidTimeMoveTestSupport.keys(document.getTrx());
+        final var session = document.getResourceSession();
+        try (var writer = session.beginNodeTrx()) {
+          for (int step = 1; step <= 5; step++) {
+            ValidTimeMoveTestSupport.mutate(writer, keys, mode, step);
+            writer.commit();
+          }
+        }
+      }
+    }
+  }
+
+  private static void assertResourceQueries(final SirixCompileChain chain, final SirixQueryContext context,
+      final JsonDBCollection collection, final int revision, final List<Long> closed, final List<Long> documentOrder) {
+    for (final String resource : List.of("indexed", "plain")) {
+      final var represented = requireNonNull(collection.getDocument(resource, revision));
+      final String transaction = "xs:dateTime('" + represented.getTrx().getRevisionTimestamp() + "')";
+      final String source = "jn:open-bitemporal('moves','" + resource + "'," + transaction + "," + POINT + ")";
+      final List<Long> expected = resource.equals("indexed")
+          ? closed
+          : documentOrder;
+      assertDemand(chain, context, source, expected);
+      for (final boolean start : List.of(false, true)) {
+        for (final boolean strict : List.of(false, true)) {
+          for (final boolean general : List.of(false, true)) {
+            for (final boolean mirror : List.of(false, true)) {
+              final String predicate = comparisonPredicate(start, strict, general, mirror);
+              assertDemand(chain, context, "for $x in " + source + " where " + predicate + " return $x", expected);
+            }
+          }
+        }
+      }
+      final String from = "jn:doc('moves','" + resource + "'," + revision + ")";
+      final String comparisons = "xs:dateTime($x.vf) le " + POINT + " and " + POINT + " lt xs:dateTime($x.vt)";
+      assertEquals(documentOrder,
+          ids(new Query(chain, "for $x in " + from + "[] where " + comparisons + " return $x").execute(context)));
+      assertEquals(List.of(1L, 3L),
+          ids(requireNonNull(
+              new Query(chain, "jn:valid-at('moves','" + resource + "'," + POINT + ")").execute(context))).stream()
+                                                                                                          .sorted()
+                                                                                                          .toList());
+    }
+  }
+
+  private static String comparisonPredicate(final boolean start, final boolean strict, final boolean general,
+      final boolean mirror) {
+    final String bound = "xs:dateTime($x." + (start
+        ? "vf"
+        : "vt") + ")";
+    final String operator = general
+        ? (strict
+            ? "<"
+            : "<=")
+        : (strict
+            ? "lt"
+            : "le");
+    final String swapped = general
+        ? (strict
+            ? ">"
+            : ">=")
+        : (strict
+            ? "gt"
+            : "ge");
+    return start != mirror
+        ? bound + " " + (mirror
+            ? swapped
+            : operator) + " " + POINT
+        : POINT + " " + (mirror
+            ? swapped
+            : operator) + " " + bound;
+  }
+
+  private static void assertPlainScopes(final JsonDBCollection collection, final int revision, final int step,
+      final List<Long> closed) {
+    final var plainDocument = requireNonNull(collection.getDocument("plain", revision));
+    final var plainKeys = ValidTimeMoveTestSupport.keys(requireNonNull(collection.getDocument("plain", 1)).getTrx());
+    final var plainReader = plainDocument.getTrx();
+    assertEquals(closed,
+        ids(ValidTimeFilter.linearScanSequence(plainDocument, INSTANT,
+            requireNonNull(plainDocument.getResourceSession().getResourceConfig().getValidTimeConfig()))).stream()
+                                                                                                         .sorted()
+                                                                                                         .toList());
+    assertTrue(plainReader.moveTo(plainKeys.destination()));
+    final var plainDestination = (JsonDBItem) JsonItemFactory.INSTANCE.getSequence(plainReader, collection);
+    final List<Long> destination = step == 1
+        ? List.of(1L)
+        : step >= 5
+            ? List.of(4L)
+            : List.of();
+    assertEquals(destination, ids(ValidTimeFilter.linearScanSequence(plainDestination, INSTANT,
+        requireNonNull(plainDestination.getResourceSession().getResourceConfig().getValidTimeConfig()))));
   }
 
   private static void assertArrayScope(final SirixCompileChain chain, final SirixQueryContext context,

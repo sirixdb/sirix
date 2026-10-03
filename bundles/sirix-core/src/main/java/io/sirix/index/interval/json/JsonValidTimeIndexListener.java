@@ -571,9 +571,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
         if (validFromField.equals(fieldName)) {
           fromFieldCount++;
           if (from == null) {
-            from = child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
-                ? ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue())
-                : null;
+            from = parseBound(child);
             if (from != null) {
               fromNodeKey = childKey;
               fromLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
@@ -582,9 +580,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
         } else if (validToField.equals(fieldName)) {
           toFieldCount++;
           if (to == null) {
-            to = child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
-                ? ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue())
-                : null;
+            to = parseBound(child);
             if (to != null) {
               toNodeKey = childKey;
               toLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
@@ -605,6 +601,12 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     state.toNodeKey = toNodeKey;
     state.fromFieldCount = fromFieldCount;
     state.toFieldCount = toFieldCount;
+  }
+
+  private static @Nullable Instant parseBound(final ImmutableNode child) {
+    return child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
+        ? ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue())
+        : null;
   }
 
   private @Nullable ImmutableNode loadNode(final long key) {
