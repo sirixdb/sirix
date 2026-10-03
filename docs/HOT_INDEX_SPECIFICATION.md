@@ -1193,23 +1193,32 @@ half's own MSB, the sub-insert's `integrate` gives `C` a fresh BiNode root on ex
 the refreshed half is published above a child whose MSB is no longer strictly less significant than
 its own: I11 broken.
 
-Re-taking the measurement there is not a matter of adding a call. By the time the node's children
-are current again (`ensureNodeChildrenLoaded`) the sub-insert has published and `K` lives inside the
-child subtree, so declining to the complete frontier would place `K` twice.
+Re-taking the measurement there is not a matter of adding a call, which is why the remedy had to go
+in front of the sub-insert rather than after the re-split: by the time the node's children are
+current again (`ensureNodeChildrenLoaded`) the sub-insert has published and `K` lives inside the
+child subtree, so declining to the complete frontier at that point would place `K` twice.
 
-What it looks like if it bites: `K` is inside the refreshed child, so the violation sits on `K`'s own
-route and `validatePublishedStructuralPath` raises `IllegalStateException("HOT published structural …
-is malformed")` immediately after publication. The transaction is marked rollback-only, the load
-stops, and nothing wrong is committed — the same fail-closed ending as the defect this change fixes,
-not a silent wrong answer.
+What it did before the guard: `K` is inside the refreshed child, so the violation sat on `K`'s own
+route and `validatePublishedStructuralPath` raised `IllegalStateException("HOT published structural …
+is malformed")` immediately after publication. The transaction was marked rollback-only, the load
+stopped, and nothing wrong was committed — a fail-closed ending, not a silent wrong answer.
 
-Evidence, for exactly what it covers: the 100,000-record stream takes this arm four times
-(`FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT` reads 4 after `HOTValidTimeCorrectionStreamTest`), every
-insert succeeding and the committed trie clean. **No test constructs the hazard, and no key stream is
-known that reaches it** — it is a shape derived from the code, not an observed failure. Closing it is
-filed as its own task, with three candidate remedies: refuse the arm before the sub-insert when the
-affected child straddles the half's MSB; route the whole C2 arm through the complete frontier; or
-restructure so the re-split can still decline.
+**The arm now declines before the sub-insert**, so the stale measurement can no longer let such a
+half out: `subInsertKeepsHalfTrieCondition` refuses when `K` and the affected child's extremes span a
+bit at or above the half's MSB, unless the child is a leaf certain to store `K` in place, and the
+generic leaf pair or the complete frontier places `K` instead, counted by
+`DIRECTION_ONE_SPLIT_ABOVE_HALF`. §4.5.4 specifies the predicate and the one exception.
+`HOTOrderingGuardTest` pins both overflows that reach the decline, by count and by bytes, and each
+publishes a malformed path without it.
+
+Evidence, for exactly what it covers: the decline is exercised only from an assembled state. The
+100,000-record stream takes this arm four times (`FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT` reads 4
+after `HOTValidTimeCorrectionStreamTest`) without reaching the shape, and a bounded search with the
+property generator — 36 seeded heavy streams of 8,000 work units each over PATH, CAS and NAME, plus
+longer 25,000-unit ones — produced no put stream that reaches it either, so **reachability from an
+ordinary stream remains unproven**: it is a shape derived from the code, refused because the decline
+is cheap and the complete frontier places the key correctly either way. The window the next paragraph describes — a β ∈ D cascade whose split bit is
+the node's *own* MSB — is a different shape, and that one is still unguarded.
 
 The predicate reads the node's existing children, and a β ∈ D cascade splits a node the insertion has
 already widened. Where β is *below* the node's MSB the two are the same question: the inserted child
@@ -1221,8 +1230,8 @@ node's children decides that, and `canIntegrateBiNodeCleanly` does not decline t
 reaches the shape (a counter placed on such a decline stayed at zero over the sirix-core index suites
 and the 100,000-record stream), so a decline could not be shown to fire and was not shipped. If the
 cascade ever builds such a half, it lies on `K`'s route when `K`'s leaf half joins it, and
-`validatePublishedStructuralPath` refuses it at publication — fail-closed, as §4.5.6 describes for
-the Direction-1 window; when `K`'s half stays on the slot's side, the far half is off `K`'s route and
+`validatePublishedStructuralPath` refuses it at publication — fail-closed, the same ending §4.5.6
+records for the Direction-1 window before its guard; when `K`'s half stays on the slot's side, the far half is off `K`'s route and
 is seen only when the published scope fits the validation budget (§4.8).
 `HOTSplitHalfTrieConditionTest` pins the primitive fact a future guard rests on. The
 `IllegalArgumentException` both fold primitives raise (§4.5.3) remains the last line, not the
@@ -1366,8 +1375,9 @@ Cases, in order:
    `FULL_EXISTING_BIT_LONE_HALF_FULL`. A C2 collision adds no child and needs no room: on one,
    `foldIntoSplitHalf` continues into `directionOneIntoSplitHalf`, which sub-inserts `K` into the
    affected child and re-splits the node — a second decomposition the trie-condition guard is *not*
-   re-asked about, because by then the sub-insert has published and declining would place `K` twice;
-   §4.5.3 states the window and what it looks like if it bites. Every fold publishes the folded page
+   re-asked about, because by then the sub-insert has published and declining would place `K` twice,
+   so `subInsertKeepsHalfTrieCondition` asks its own question *before* the sub-insert and declines
+   the arm instead (`DIRECTION_ONE_SPLIT_ABOVE_HALF`, specified below and in §4.5.3). Every fold publishes the folded page
    under a **fresh** `PageReference`, around which the split's BiNode is rebuilt before `integrate`,
    never by re-pointing the half's reference. That is load-bearing for a bare half: its reference is
    d*'s own and already names the unfolded child in the transaction log, where `registerFreshPage`
