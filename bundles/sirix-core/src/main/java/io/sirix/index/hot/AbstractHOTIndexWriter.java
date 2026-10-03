@@ -3464,11 +3464,11 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Whether merging {@code K} into the routed leaf keeps every spine neighbour in order — the
    * {@link #keyKeepsSpineOrder} question for the leaf itself, asked of the serialization buffer
-   * {@code keyBuf[0..keyLen)} so that the ordinary merge allocates nothing. A key present in the leaf
-   * or inside its range moves no extreme and costs two comparisons against the leaf's end entries;
-   * only a key beyond one end walks the spine, which compares the neighbour's extreme on the leaf
-   * that holds it, so no array is allocated there either. Only a declined merge materializes the
-   * exact key, for the structural frontier that then places it.
+   * {@code keyBuf[0..keyLen)} so that the guard materializes no key arrays for an ordinary merge. A
+   * key present in the leaf or inside its range moves no extreme and costs two comparisons against
+   * the leaf's end entries; only a key beyond one end walks the spine, which compares the neighbour's
+   * extreme on the leaf that holds it, so no array is allocated there either. Only a declined merge
+   * materializes the exact key, for the structural frontier that then places it.
    */
   private boolean mergeKeepsSpineOrder(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen) {
     final int pathDepth = navResult.pathDepth();
@@ -5034,24 +5034,25 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
-   * integrate), or would split a full node into a half that breaks the trie condition against its own
-   * children ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the
-   * caller uses the complete frontier.
+   * integrate), a fresh-bit fold whose upper half would sort past a sibling, or a full-node split
+   * into a half that breaks the trie condition against its own children
+   * ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the caller uses
+   * the complete frontier.
    *
    * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
    * throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every level
-   * whose mask contains the running β. The β evolution exactly matches integrate's full-node cascade
-   * (β becomes {@code parent.MSB} after a split). It does not model integrate's
-   * intermediate-placement short-circuit (a height comparison) — skipping it can only choose the
-   * complete-frontier arm unnecessarily, never miss a crash, because integrate never folds at an
-   * intermediate level.
+   * whose mask contains the running β, and {@link HOTIncrementalInsert#freshBitLandsBesideSlot} where
+   * β is fresh. The β evolution exactly matches integrate's full-node cascade (β becomes
+   * {@code parent.MSB} after a split). It does not model integrate's intermediate-placement
+   * short-circuit (a height comparison) — skipping it can only choose the complete-frontier arm
+   * unnecessarily, never miss a crash, because integrate never folds at an intermediate level.
    *
    * @param pathNodes the spine, root-to-leaf
    * @param childSlots the child slot taken at each spine node
    * @param currentDepth the depth at which the initial BiNode integrates
    * @param biNodeBeta the initial BiNode's discriminative bit
-   * @return {@code true} iff the integrate cascade folds without an un-mergeable overlap
+   * @return {@code true} when the cascade passes the fold-order and existing-child trie checks
    */
   private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int[] childSlots, int currentDepth,
       int biNodeBeta) {
@@ -6053,7 +6054,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     return spliced;
   }
 
-  /** The two persistent halves of a subtree split immediately before an absent key. */
+  /** Persistent boundary halves; a dropped owner's references await the key's fresh leaf. */
   private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right,
       @Nullable List<CarriedSideReference> droppedOwnerSideReferences) {
     StructuralKeySplit(final @Nullable PageReference left, final @Nullable PageReference right) {

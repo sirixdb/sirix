@@ -175,23 +175,11 @@ All notable changes to SirixDB are documented in this file.
   HOT index kind — CAS, PATH, NAME, VALIDTIME and the projection slot store with its segment side
   map — with generated put, remove, bulk-posting, commit, revert and cold-reopen streams, every seed
   run under all four versioning types, and shrinks a failing case to a replayable stream; the shape
-  appeared on a projection store after 770 ordinary writes. A step is one operation of the stream in
-  both lanes, so a bulk posting run is checked once it has written every node key rather than between
-  them, under the handler that dispatched the last of them. Beyond that the default lane, the one CI
-  runs, samples nothing: after every operation it runs the structural validator, the full ordered
-  slot walk against the reference's slot set, and compares every one of the reference's keys with
-  what the index answers; a revert to an earlier revision is followed by those same checks of the
-  writer it rebound, every commit checks the new revision that way through the reader, including its
-  logical iterator and every value, and every cold reopen re-checks every historical revision from
-  disk. Its streams are sized for that cost (about a minute per kind) and reach tries of height
-  six, leaf splits by count and by bytes, the pair and strand placements, the fold cascade, the
-  complete-frontier splice and the Direction-1 sub-insert. The opt-in `heavy` lane trades those
-  checks for reach, which is what a long soak needs and how the three shapes below were found: an
-  operation that merged or removed in place is followed by that key's lookups alone, with the
-  complete check every 32nd operation and after every other handler; lookup passes compare 16
-  rotating keys; a commit checks the new revision, comparing every value only every eighth commit,
-  plus three rotating older revisions; and a cold reopen checks every revision but compares every
-  value only for the newest. `docs/VERIFICATION.md` has both commands.
+  appeared on a projection store after 770 ordinary writes. The default lane checks the full
+  structure and reference answers after every stream operation, including completed bulk operations
+  and successful reverts, at every commit, and for every historical revision on cold reopen.
+  [Verification](docs/VERIFICATION.md#running-the-layers) owns the default and heavy lane cadences
+  and their commands.
   The merge arm now proves, before the merge, that the key keeps the spine's order — the question
   every branch placement already asks — and hands a key that would cross a neighbour to the
   complete-frontier splice, counted by
@@ -257,20 +245,11 @@ All notable changes to SirixDB are documented in this file.
   is now discharged through that same complete-frontier splice: the parent's subtree is split
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
-  a side reference the dropped entry owned has no home in either half, so the split refuses before
-  publication rather than orphaning a segment page and the load stops. Only a projection index can
-  reach that — side references are attached to a HOT leaf by `ProjectionIndexHOTStorage` alone, so
-  path, CAS, name and valid-time leaves never carry one — every entry to that route can, not just the
-  declined fold. What the two entries did before differs, and neither committed anything wrong: a
-  fold declined at the leaf's own parent already failed closed without publishing, because the
-  cascade reached the same refusal and the transaction was marked rollback-only, so the load stopped
-  at that insert exactly as it stops now; a cascade the trie-condition pre-check now declines instead
-  completed the insert and published a half that broke the condition latently, so the load stopped
-  only later. For that second entry a projection index with a dropped side reference now stops at the
-  insert rather than later. Carrying the dropped entry's reference onto the key's fresh leaf is a
-  separate task. Further into the same load, splitting a full node published a half that broke the
-  trie condition (I11) against its own child: a half keeps only the bits that still vary within it, so
-  a child that sat safely below the node's most significant bit can sit above the half's. Only the
+  projection side-reference ownership on that route is specified in
+  [the merge path](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path). Further into the same load,
+  splitting a full node published a half that broke the trie condition (I11) against its own child:
+  a half keeps only the bits that still vary within it, so a child that sat safely below the node's
+  most significant bit can sit above the half's. Only the
   half the new key joins was checked and lies on the key's route, so the other went out unseen,
   committed, and stopped the load three publications later with `HOT published structural path is
   malformed`, when an insert was first routed through it. A full-node decomposition, and the
@@ -280,12 +259,11 @@ All notable changes to SirixDB are documented in this file.
   outright because the cascaded split bit's straddle partial is taken or would not land beside the
   slot, both hand the overflow to the complete-frontier splice before anything is allocated. Only
   where the cascade would fold — a parent taller than the split keeps nesting the halves under a node
-  of their own, which touches no block. The same question on the other branch-path decomposition of
-  a full node, and a cascade whose split bit is the node's own most significant bit, were considered
-  and left unguarded: no test enters the one or reaches the other, so a guard there could not be
-  shown to fire; both are stated as known limits in the specification. A failed index write on the
-  merge path's split arm poisons the transaction exactly as it always did — before, inside or after
-  the integration — because the key's document node is already written there while its index entry is
+  of their own, which touches no block. Current full-node candidate checks and the remaining cascade
+  limit are specified in [the integration and branch paths](docs/HOT_INDEX_SPECIFICATION.md#453-integrate-propagating-a-binode).
+  A failed index write on the merge path's split arm poisons the transaction exactly as it always
+  did — before, inside or after the integration — because the key's document node is already written
+  there while its index entry is
   not, so a caller that caught the failure and committed would hold a document with no posting. The
   new routing takes no exception to that rule: the overflow handed to the complete-frontier splice,
   a split the handler could not construct, a fault while the halves are retired and a failure inside
@@ -293,16 +271,14 @@ All notable changes to SirixDB are documented in this file.
   inside the integration unreachable, and no test exercises one. The 100,000-record valid-time correction stream the
   regression test replays (25 publications, 1,080,574 index-writer operations) never starts a
   merge-path capacity cascade, so both entries are covered by constructed scenarios instead, each of
-  which fails without its own pre-check; the trie-condition reason is decided by the same predicate
-  call but is not reached through the merge path by any test. One decomposition is still measured before its insert and re-split after it: on a combination
-  collision the full-node branch arm sub-inserts the key into the affected child and re-splits the
-  same node without re-asking the guard, which can publish a half above a child that breaks the trie
-  condition. That break sits on the key's own route, so the published-structure validation catches
-  it, the transaction is poisoned and the load stops with nothing wrong committed; the 100,000-record
-  stream takes the arm four times without reaching it, no test constructs it, and closing it is a
-  separate task. The same wrong assumption about routing held at three further placements, all found
-  by the SH1 bitemporal benchmark on the experimental sorted-encoded-chunks prototype. A branch
-  handler placed the key inside the subtree the sparse-partial descent chose, and the pair-leaf
+  which fails without its own pre-check. Current cascade coverage is recorded in
+  [the integration path](docs/HOT_INDEX_SPECIFICATION.md#453-integrate-propagating-a-binode).
+  The Direction-1 re-split guard and its constructed regressions are specified in
+  [the branch path](docs/HOT_INDEX_SPECIFICATION.md#454-branch-path);
+  reachability of that shape from ordinary writes remains unproven. The same wrong assumption about
+  routing held at three further placements, all found by the SH1 bitemporal benchmark on the
+  experimental sorted-encoded-chunks prototype. A branch handler placed the key inside the subtree
+  the sparse-partial descent chose, and the pair-leaf
   handler kept the descended leaf's slot while the key became that slot's new maximum — in both
   cases moving an extreme past a neighbour no handler had compared it against, since each handler
   proves only the node it rebuilds well-formed and an ancestor sees that subtree solely through its

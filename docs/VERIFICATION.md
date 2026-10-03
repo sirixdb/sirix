@@ -19,7 +19,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/BatchedSegmentReadWorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
-| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns and nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
+| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
 | SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
 
 ## Why these layers, specifically
@@ -103,11 +103,18 @@ in CI via the `Deep verification` workflow.
 # -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
 # Heavy lane: every index kind with a longer seeded budget (each seed again under all four versioning
-# types), sampling for reach instead - an operation whose last handler merged or removed in place is
-# followed by that key's lookups alone, with the complete check every 32nd operation and after every
-# other handler; 16 rotating keys per lookup pass; per commit the new revision, with every value
-# compared only every 8th commit, plus three rotating older revisions; a cold reopen checks every
-# revision but compares every value only for the newest.
+# types), sampling for reach instead. A mutation whose last handler merged or removed in place checks
+# its touched key alone, except at zero-based stream positions divisible by 32. At those positions,
+# after every other mutation handler, and after every successful revert, it also runs the structural
+# validator, full ordered slot walk and a sampled lookup pass. The position counts all operations,
+# including commit/revert/reopen; a bulk run still checks only after its last node key.
+# Sampled writer and reader lookup passes target 16 keys using stride max(1, floor(size / min(16,
+# size))) for a nonempty reference, rotating the offset modulo that stride each pass. Rounding can
+# select more than 16 keys; stride 1 checks all keys. Every commit checks structure and slot order for
+# the new revision, plus three rotating older-revision checks when an older revision exists (these
+# can repeat). Every 8th commit requests exhaustive new-revision values and its logical iterator,
+# where provided; other revision checks sample values. A cold reopen checks structure and
+# slot order for every revision, all values for the newest, and sampled values for older revisions.
 # Records each shrunk failure as a replayable stream whose header names the versioning, cadence and
 # lane it failed under (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \

@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
  * Replacing that blob with an inline value writes the new value first and releases the page
  * afterwards, so when the larger value overflows the leaf the slot still owns the page. The
  * overflow is discharged through the complete frontier only where the integrate cascade is refused,
- * which an ordinary trie reaches at a full parent under a full grandparent whose split would break
+ * which this constructed trie reaches at a full parent under a full grandparent whose split breaks
  * the trie condition: here the grandparent's upper half is a node that straddles bit 44 next to a
  * leaf that differs from it below that bit, so the recompressed half would discriminate on the
  * node's own most significant bit. The frontier then splits the overflowing leaf immediately before

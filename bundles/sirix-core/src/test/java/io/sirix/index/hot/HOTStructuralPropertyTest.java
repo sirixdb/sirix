@@ -63,7 +63,7 @@ import java.util.stream.Stream;
 
 /**
  * A seeded, property-based exercise of every HOT index kind the writer serves, against the complete
- * structural invariant and a plain sorted reference after every operation of the stream.
+ * structural invariant and a plain sorted reference after every operation of the default lane.
  *
  * <p>
  * A case is one seed's generated stream run under one versioning type: an index kind (CAS, PATH,
@@ -111,14 +111,16 @@ import java.util.stream.Stream;
  * {@code -Dsirix.hot.property.heavy.seeds} / {@code heavy.ops}, each seed again under all four
  * versioning types; the advisory cross-platform CI lanes exclude it) and samples on fixed cadences:
  * an operation whose last handler merged into a leaf in place, or removed a posting bit in place,
- * is followed by the lookups of the key it touched alone, with the complete check every
- * {@value #FULL_CHECK_EVERY}th operation; every other handler is followed by the complete check;
- * writer-side and inexact reader-side lookups compare {@value #LOOKUP_SAMPLE} rotating keys instead
- * of all of them; a commit checks the new revision, comparing every value only every
- * {@value #EXACT_COMMIT_EVERY}th commit, plus {@value #OLDER_REVISIONS_PER_COMMIT} rotating older
- * revisions; and a cold reopen checks every revision but compares every value only for the newest.
- * With {@code -Dsirix.hot.property.collect=true} it records every distinct failure instead of
- * stopping at the first.
+ * is followed by the lookups of the key it touched alone, with the complete check at each
+ * zero-based stream position divisible by {@value #FULL_CHECK_EVERY}; every other mutation handler
+ * and every successful revert is followed by the complete check. Writer-side and inexact
+ * reader-side lookup passes target {@value #LOOKUP_SAMPLE} rotating keys, with stride rounding
+ * sometimes selecting more; a commit checks the new revision, requesting exhaustive value checks
+ * every {@value #EXACT_COMMIT_EVERY}th commit and sampled lookups otherwise, plus
+ * {@value #OLDER_REVISIONS_PER_COMMIT} rotating older-revision checks when an older revision
+ * exists. A cold reopen checks every revision, with exhaustive values for the newest and sampled
+ * values for older revisions. With {@code -Dsirix.hot.property.collect=true} it records every
+ * distinct failure instead of stopping at the first.
  * </p>
  *
  * <p>
@@ -152,7 +154,7 @@ final class HOTStructuralPropertyTest {
 
   // ===== heavy-lane sampling cadences; the default lane checks every operation completely =====
 
-  /** Keys compared per sampled lookup pass, rotating so a long run still visits all of them. */
+  /** Target keys per sampled lookup pass; stride rounding can select more, with a rotating offset. */
   static final int LOOKUP_SAMPLE = 16;
   /** Commits between two revision checks that compare every value rather than a sample. */
   static final int EXACT_COMMIT_EVERY = 8;
@@ -923,9 +925,9 @@ final class HOTStructuralPropertyTest {
     /**
      * The complete writer-side check, for an operation with no key of its own: the structural
      * validator, the ordered slot walk against the reference's slot set, and the lookups — every key
-     * the reference holds on the default lane, {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE}
-     * rotating ones on the heavy lane. A revert rebinds the writer to an earlier revision and is
-     * checked with this.
+     * the reference holds on the default lane, a rotating stride sample targeting
+     * {@value HOTStructuralPropertyTest#LOOKUP_SAMPLE} on the heavy lane. A revert rebinds the writer
+     * to an earlier revision and is checked with this.
      */
     void verifyWriterStructure();
 

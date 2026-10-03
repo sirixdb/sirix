@@ -1049,8 +1049,9 @@ PCRs (`idx/cas/CASIndex.java:599-605`).
       `MERGE_SPINE_ORDER_DELEGATED`. Both questions are asked of the writer's serialization buffer
       over `[0, keyLen)`, and the walk compares each neighbour's facing extreme on the leaf that
       holds it (`extremeLeafOfSubtree` plus `HOTLeafPage.compareKeyWithBound`) rather than
-      materializing that key, so the ordinary merge allocates nothing at all; only a declined merge
-      materializes the exact key the frontier needs. The seeded structural property test
+      materializing that key, so the guard materializes no key arrays for an ordinary merge; only a
+      declined merge materializes the exact key the frontier needs. Leaf-update allocation remains
+      dependent on prefix and value handling (§3.2.2). The seeded structural property test
       (`HOTStructuralPropertyTest`) built the shape on a projection store with 770 ordinary writes;
       `HOTOrderingGuardTest` pins it with three leaves and one node;
    3. structural changes are validated after publication (§4.8);
@@ -1290,9 +1291,13 @@ Evidence, stated for exactly what it covers. `HOTValidTimeCorrectionStreamTest` 
 all, so it exercises neither entry. Both are covered by constructed scenarios instead:
 `HOTDeclinedOverflowFrontierRouteTest` drives the integrate arm and the full-parent handler through
 the public writer, each scenario pinning the counter of the entry it claims, and each fails without
-its own pre-check with the `IllegalArgumentException` of shape 2 and passes with it. What those
-scenarios do *not* reach is the trie-condition (I11) reason at a full level of the merge cascade: the
-same predicate call decides it, but no test arrives at it through the merge path.
+its own pre-check with the `IllegalArgumentException` of shape 2 and passes with it. The trie-condition
+(I11) reason at a full level of the merge cascade is exercised by
+`HOTFrontierSideReferenceCarryTest`: its assembled projection trie has a full parent under a full
+grandparent whose recompressed upper half would branch on the child's own MSB. The merge overflow
+reaches that refusal through the public writer, pins `MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM`, and
+then checks the dropped owner's reference on `K`'s fresh leaf (§4.5.2 step 7). This is constructed
+state coverage, not evidence of an ordinary put stream reaching the shape.
 
 Each `integrate` publishes with exactly one `setPage` (`:1969-1972`, `:1983`, `:2003`). Node
 "upgrades" from span to multi node are implicit: the layout is chosen from the discriminative-bit
@@ -1377,7 +1382,7 @@ Cases, in order:
    affected child and re-splits the node — a second decomposition the trie-condition guard is *not*
    re-asked about, because by then the sub-insert has published and declining would place `K` twice,
    so `subInsertKeepsHalfTrieCondition` asks its own question *before* the sub-insert and declines
-   the arm instead (`DIRECTION_ONE_SPLIT_ABOVE_HALF`, specified below and in §4.5.3). Every fold publishes the folded page
+   the arm instead (`DIRECTION_ONE_SPLIT_ABOVE_HALF`, specified above and in §4.5.3). Every fold publishes the folded page
    under a **fresh** `PageReference`, around which the split's BiNode is rebuilt before `integrate`,
    never by re-pointing the half's reference. That is load-bearing for a bare half: its reference is
    d*'s own and already names the unfolded child in the transaction log, where `registerFreshPage`
@@ -1528,7 +1533,7 @@ Cases, in order:
 
 | Operation | Cost |
 |---|---|
-| merge without split | O(h) copy-on-write descent + O(log 512) leaf search + the spine-order proof of §4.5.1: two comparisons against the leaf's end entries for a key inside its range, otherwise one upward walk that stops at the first level with a neighbour on the moving side and one descent to that neighbour's facing extreme leaf — every comparison in place, over the serialization buffer and the stored entry; allocation only on first touch of a page |
+| merge without split | O(h) copy-on-write descent + O(log 512) leaf search + the spine-order proof of §4.5.1: two comparisons against the leaf's end entries for a key inside its range, otherwise one upward walk that stops at the first level with a neighbour on the moving side and one descent to that neighbour's facing extreme leaf — every comparison in place, over the serialization buffer and the stored entry; the guard materializes no key arrays, while copy-on-write and leaf updates retain their page-, prefix- and value-dependent allocations (§3.2.2) |
 | leaf split | O(entries) union materialization (one `Entry` object per key, `hot/HOTIncrementalInsert.java:134-158`) + O(h · 32) integration |
 | branch cases | O(32) node re-encoding + guards O(children · h); exact scans ≤ 63 pages |
 | merge after an overflow split | the same O(children · h) cascade pre-check as the branch arms, once per overflow; the merge fast path (no split) still pays the spine-order proof above, and a key that would extend its leaf past a spine neighbour enters the complete-frontier splice without any overflow (`MERGE_SPINE_ORDER_DELEGATED`, §4.5.1) |
