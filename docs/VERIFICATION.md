@@ -18,6 +18,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Crash injection / soak | Durability across simulated crashes; leak-free long-running bitemporal workloads | `crash/CrashRecoveryInjectionTest`, `stress/BitemporalSoakStressTest`, `stress.yml` workflow |
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/BatchedSegmentReadWorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
+| JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
 | Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns and nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
 | SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
 
@@ -98,6 +99,9 @@ in CI via the `Deep verification` workflow.
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
+
+# JUnit framework consistency (part of the normal query test task)
+./gradlew :sirix-query:test --tests 'io.sirix.query.JUnitFrameworkConsistencyTest'
 
 # Static bug detection
 ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne

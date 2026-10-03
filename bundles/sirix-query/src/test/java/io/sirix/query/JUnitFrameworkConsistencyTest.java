@@ -37,29 +37,31 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Guards this module's test source set against classes that mix JUnit 4 and JUnit 5 (Jupiter).
+ * Guards this module's test source set against classes with both standard JUnit 4 and Jupiter
+ * annotation markers.
  *
  * <p>
  * This module runs on the JUnit Platform with both the Jupiter and the Vintage engine on the test
- * runtime classpath, so every class is claimed by exactly one of them: the engine that recognises
- * its {@code @Test} methods. The other engine's lifecycle annotations are then metadata nothing
- * reads — a class with {@code org.junit.Test} methods and an {@code @BeforeEach} fixture compiles,
- * runs and reports green while that fixture is never invoked. The silence is the whole danger,
- * which is why it is asserted here rather than left to a reviewer's eye.
+ * runtime classpath. Each engine discovers its own test methods and honours only its own lifecycle
+ * annotations; a class can be discovered by both engines if it declares tests for both frameworks.
+ * A class with only {@code org.junit.Test} methods and an {@code @BeforeEach} fixture can compile
+ * and run without that fixture ever being invoked. This guard rejects mixed markers so a passing
+ * test result cannot silently hide a skipped fixture.
  * </p>
  *
  * <p>
  * Each class compiled into this module's test output is judged together with its superclass chain,
  * because an engine runs inherited fixtures as the subclass' own. Enclosing classes are
  * deliberately not folded in: a {@code @Nested} class is itself a Jupiter construct and is judged
- * on its own markers.
+ * on its own markers. Only the annotations listed below are checked directly; composed annotations
+ * and test interfaces are not traversed.
  * </p>
  */
 final class JUnitFrameworkConsistencyTest {
 
   /**
-   * Annotations that make a class JUnit 4's. {@code RunWith}, {@code Rule} and {@code ClassRule}
-   * belong here because they only ever mean anything to the Vintage engine.
+   * {@code RunWith}, {@code Rule} and {@code ClassRule} count as JUnit 4 markers because Jupiter
+   * ignores these runner and rule annotations.
    *
    * <p>
    * {@code org.junit.Test} is the one type this file cannot import: its simple name collides with the
@@ -69,7 +71,6 @@ final class JUnitFrameworkConsistencyTest {
   private static final List<Class<? extends Annotation>> JUNIT4_MARKERS = List.of(org.junit.Test.class, Before.class,
       After.class, BeforeClass.class, AfterClass.class, Ignore.class, Rule.class, ClassRule.class, RunWith.class);
 
-  /** Annotations that make a class Jupiter's. */
   private static final List<Class<? extends Annotation>> JUPITER_MARKERS = List.of(Test.class, BeforeEach.class,
       AfterEach.class, BeforeAll.class, AfterAll.class, Disabled.class, Nested.class, TestFactory.class,
       TestTemplate.class, RepeatedTest.class, ExtendWith.class, ParameterizedTest.class);
