@@ -29,7 +29,10 @@ independently of the source function's dateTime argument conversion. Their fallb
 original closed interval/CAS/linear source in its existing order.
 Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
 FLWOR points. Computed field dereferences are not folded. Non-object array members evaluate the
-original comparisons with empty field dereferences; empty arrays never demand point cardinality.
+original comparisons with empty field dereferences. Plain-FLWOR points are evaluated only on row
+demand and at their original operand position; empty arrays never evaluate their point expression.
+Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the closed source's
+order, while plain FLWOR retains its document-order admission check.
 
 ## Index representation
 
