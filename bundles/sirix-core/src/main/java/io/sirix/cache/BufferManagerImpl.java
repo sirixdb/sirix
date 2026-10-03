@@ -68,6 +68,53 @@ public final class BufferManagerImpl implements BufferManager {
    */
   private static final long MIN_HOT_FRAGMENT_BUDGET_BYTES = 32L * HOTLeafPage.DEFAULT_SIZE;
 
+  /** Fraction of the JVM max heap each heap-resident HOT cache may retain by default. */
+  private static final long HOT_HEAP_CACHE_BUDGET_DIVISOR = 16L;
+
+  /**
+   * Ceiling in bytes for EACH HOT cache that retains Java-heap images rather than allocator frames:
+   * the raw-fragment cache, whose compact decoded images own a packed {@code byte[]}, and the
+   * resolved-slot mini cache. Both are charged their full heap footprint (packed bytes plus the
+   * page's conservative fixed per-page estimate), so this is a bound on retained heap and cannot be
+   * derived from the allocator's off-heap budget the way the complete-leaf ceiling is.
+   *
+   * <p>
+   * Operator-facing because the right size depends on how much of the heap the embedding application
+   * wants to lend the versioning window. The default is one {@value #HOT_HEAP_CACHE_BUDGET_DIVISOR}th
+   * of {@link Runtime#maxMemory()}, matching the fraction the metadata page cache and the mini cache
+   * already take of their own budgets, and floored at {@link #MIN_HOT_FRAGMENT_BUDGET_BYTES} so a
+   * small heap still holds one carry-forward window rather than thrashing. At that default the two
+   * caches together cannot retain more than an eighth of the heap; a per-image charge is the packed
+   * slot bytes plus about 4 KiB of fixed per-page estimate, so the smallest supported heap still
+   * holds several hundred sparse delta fragments.
+   * </p>
+   */
+  public static final String HOT_HEAP_CACHE_BYTES_PROPERTY = "sirix.hotHeapCache.maxBytes";
+
+  /** The retained-heap ceiling applied to each heap-resident HOT cache. */
+  private static long hotHeapCacheBudgetBytes() {
+    final long fallback =
+        Math.max(MIN_HOT_FRAGMENT_BUDGET_BYTES, Runtime.getRuntime().maxMemory() / HOT_HEAP_CACHE_BUDGET_DIVISOR);
+    final String configured = System.getProperty(HOT_HEAP_CACHE_BYTES_PROPERTY);
+    if (configured == null) {
+      return fallback;
+    }
+    long parsed;
+    try {
+      parsed = Long.parseLong(configured.trim());
+    } catch (final NumberFormatException malformed) {
+      parsed = -1L;
+    }
+    // No "disable" sentinel: ShardedPageCache reads a non-positive maximum as UNBOUNDED, so honouring
+    // a zero or negative value here would remove the very ceiling this property exists to impose.
+    if (parsed <= 0) {
+      LOGGER.warn("Ignoring invalid {}={} (expected a positive byte count), using the default of {} bytes",
+          HOT_HEAP_CACHE_BYTES_PROPERTY, configured, fallback);
+      return fallback;
+    }
+    return parsed;
+  }
+
   /**
    * Memoized HOT point lookups to retain.
    *
@@ -288,8 +335,15 @@ public final class BufferManagerImpl implements BufferManager {
 
     // Budget-aware HOT caches, together capped at a quarter of the record-page budget.
     // That ceiling is SPLIT between combined leaves and raw fragments, not granted to each: giving
-    // the new fragment cache its own quarter would silently double the HOT off-heap ceiling from
-    // 25% to 50% of the record-page budget.
+    // the new fragment cache its own quarter would silently double the HOT ceiling from 25% to 50%
+    // of the record-page budget.
+    //
+    // The record-page budget is derived from the allocator's OFF-HEAP budget, so it sizes the
+    // combined-leaf cache correctly — a complete leaf always owns an allocator frame. The
+    // raw-fragment and resolved-slot caches retain JAVA-HEAP images instead (a compact decoded
+    // fragment owns a packed byte[], a mini page a packed byte[]), so each of those is additionally
+    // capped by HOT_HEAP_CACHE_BYTES_PROPERTY. Heap capacity those caps decline returns to the
+    // combined-leaf cache below, so the total off-heap HOT allowance is unchanged either way.
     //
     // The split is 3:1 in favour of the combined leaves, not even. Combined leaves back every HOT
     // read, and their working set is the whole live index; fragments back only the copy-on-write
@@ -305,15 +359,17 @@ public final class BufferManagerImpl implements BufferManager {
     // is skipped entirely when the record-page cache is disabled (budget 0), where ShardedPageCache
     // reads a non-positive maximum as "unbounded" and a floor would create an uncapped cache.
     final long hotLeafBudget = maxRecordPageCacheWeight / 4;
+    final long hotHeapBudget = hotHeapCacheBudgetBytes();
     final long hotFragmentBudget = hotLeafBudget <= 0
         ? hotLeafBudget
-        : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
+        : Math.min(Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES)),
+            hotHeapBudget);
     // Reserve 1/16 of the existing complete-leaf share (at most 64 MiB) for resolved slots.
     // The total HOT allowance and raw-fragment allowance do not increase.
     final long combinedBudget = hotLeafBudget - hotFragmentBudget;
     final long miniBudget = combinedBudget <= 0
         ? 0
-        : Math.min(combinedBudget / 16, 64L << 20);
+        : Math.min(Math.min(combinedBudget / 16, 64L << 20), hotHeapBudget);
     hotMiniPageCache = miniBudget == 0
         ? HOTMiniPageCache.disabled()
         : new HOTMiniPageCache(miniBudget);

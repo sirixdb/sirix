@@ -82,12 +82,23 @@ normal guarded cache lifecycle and byte accounting. Invalidation fences in-fligh
 key's own admission stripe, so promoting one leaf to its complete image neither serialises nor
 rejects a concurrent resolution of an unrelated leaf; a bulk clear fences every stripe.
 Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB, taken
-from that allowance. Complete adoption discards the corresponding mini page. Point resolutions
+from that allowance. Complete adoption discards the corresponding mini page.
+
+Both the raw-fragment cache and the mini cache retain Java-heap images, and each is charged its
+packed bytes plus the page's conservative fixed per-page heap estimate. The record-page budget they
+are carved from is derived from the allocator's off-heap budget, which sizes the complete-leaf cache
+correctly but says nothing about the heap, so each of the two is additionally capped by
+`sirix.hotHeapCache.maxBytes`. That ceiling defaults to one sixteenth of `Runtime.maxMemory()`,
+floored at one carry-forward window, so the pair cannot retain more than an eighth of the heap.
+Capacity the ceiling declines returns to the off-heap complete-leaf cache, leaving the total HOT
+allowance unchanged. Allocator pressure eviction still backs the native complete-leaf cache; a
+heap-resident image consumes no allocator frame and is bounded by this ceiling and the clock sweeper
+instead. Point resolutions
 contribute to `EngineWorkCounters.HOT_LEAF_LOADS`, older point fragments contribute to
 `HOT_FRAGMENTS_WALKED`, and FULL direct reads contribute one leaf load. Existing work-budget
 bounds are unchanged.
 
-Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`,
+Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
 `HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
 `ProjectionBlobHistoryReadTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
 `docs/VERIFICATION.md` remains the required load/query work check.

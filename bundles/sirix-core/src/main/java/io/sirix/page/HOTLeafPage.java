@@ -908,21 +908,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     // --- PEXT fast path (for ≤PEXT_MAX_ENTRIES entries) ---
     if (useRoutingIndex && !pextValid && entryCount >= 2 && entryCount <= PEXT_MAX_ENTRIES) {
-      // A freshly changed page often receives an exterior probe (ascending/descending builds,
-      // misses, extrema). Its two endpoints already prove the answer. Building a routing index
-      // here would allocate metadata which the very next insertion invalidates again.
-      final int last = compareSuffixWithKey(entryCount - 1, key, keyLen);
-      if (last <= 0) {
-        return last == 0
-            ? entryCount - 1
-            : -(entryCount + 1);
-      }
-      final int first = compareSuffixWithKey(0, key, keyLen);
-      if (first >= 0) {
-        return first == 0
-            ? 0
-            : -1;
-      }
       buildPextIndex();
     }
 

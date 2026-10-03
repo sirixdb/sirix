@@ -2,6 +2,7 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -94,6 +95,30 @@ final class HOTCompactFragmentReadTest {
         }
       }
       verify(pipeline, never()).decompressScoped(any(MemorySegment.class));
+    }
+  }
+
+  @Test
+  void aCachedCompactImageIsChargedItsPackedBytesPlusItsFixedPerPageHeap() throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = leaf(64)) {
+      wire = serialize(original);
+    }
+    try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
+        HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
+      assertFalse(compact.slots().isNative(), "this charge is only interesting for a heap-resident image");
+      final long packed = compact.slots().byteSize();
+      final long perPageHeap = compact.estimatedCanonicalCacheRetainedHeapBytes();
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+      final PageReference key = new PageReference().setKey(123).setDatabaseId(0).setResourceId(0);
+      cache.put(key, compact);
+      assertEquals(packed + perPageHeap, cache.getCurrentWeightBytes(),
+          "a heap-resident image must be charged its packed bytes and its fixed per-page heap");
+      assertTrue(cache.getCurrentWeightBytes() - packed >= 4L * 1024L,
+          "the page object, slot directory, dirty bitmap and side map must be charged too, not only the "
+              + "packed bytes: " + (cache.getCurrentWeightBytes() - packed));
+      cache.remove(key);
+      assertEquals(0L, cache.getCurrentWeightBytes());
     }
   }
 
