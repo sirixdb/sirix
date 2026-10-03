@@ -346,9 +346,18 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  /** Clear only this page's swizzle; never erase a replacement installed on the same reference. */
+  /** Forget only the key whose mapping no longer owns this page. */
+  private static void forgetCacheKeyIfSame(final PageReference reference, final CacheablePage page) {
+    final PageReference remembered = page.lastCacheKey();
+    if (remembered != null && (remembered == reference || reference.equals(remembered))) {
+      page.setLastCacheKey(null);
+    }
+  }
+
+  /** Clear only this page's ownership metadata; never erase a replacement's swizzle or key. */
   private static void clearSwizzleIfSame(PageReference reference, CacheablePage page, RetirementFailures failures) {
     try {
+      forgetCacheKeyIfSame(reference, page);
       if (page instanceof Page swizzledPage) {
         reference.clearPageIfSame(swizzledPage);
       }
@@ -908,11 +917,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     // Validate before entering compute: a rejected candidate must not retire the existing winner.
     final long valueWeight = weightOf(value);
     value.markAccessed();
-    value.setLastCacheKey(key);
     final RetirementFailures failures = new RetirementFailures();
     lifecycleLock.readLock().lock();
     try {
       map.compute(key, (k, existing) -> {
+        // Record ownership under the same per-key lock as detachment. Otherwise a concurrent
+        // removal can forget the key after we record it but before this mapping is published.
+        value.setLastCacheKey(k);
         chargeWeight(k, valueWeight);
         if (existing != null && existing != value) {
           // Returning value transfers this key's cache ownership from existing to value. Any reader
@@ -1040,6 +1051,13 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   /**
+   * HOT leaves record their cache key; other page types may use the interface's no-op setter.
+   */
+  private static boolean recordsCacheKey(final CacheablePage page) {
+    return page instanceof HOTLeafPage;
+  }
+
+  /**
    * Remove a page from the cache by reference identity, without closing it.
    *
    * <p>
@@ -1061,6 +1079,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       // before acting, so a stale remembered key simply falls through to the scan below.
       final PageReference remembered = page.lastCacheKey();
       if (remembered != null && removeMappingIfSameWhileLocked(remembered, page)) {
+        return;
+      }
+      if (remembered == null && recordsCacheKey(page)) {
+        // A HOT leaf is owned under at most one key. Admission records it before publication and
+        // every detach forgets it, so no key means this leaf was never cached or already removed.
+        // A stale key, or a page type that does not record keys, still needs the exact scan.
         return;
       }
       for (final var entry : map.entrySet()) {
