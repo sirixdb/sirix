@@ -1,12 +1,5 @@
 package io.sirix.query;
 
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.Ignore;
-import org.junit.Rule;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,10 +12,10 @@ import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.runner.RunWith;
 
 import java.io.IOException;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URISyntaxException;
@@ -64,16 +57,18 @@ final class JUnitFrameworkConsistencyTest {
    * ignores these runner and rule annotations.
    *
    * <p>
-   * {@code org.junit.Test} is the one type this file cannot import: its simple name collides with the
-   * Jupiter {@code @Test} this class is itself annotated with.
+   * JUnit 4 markers are matched by annotation type name so {@code org.junit.Test} does not collide
+   * with the imported Jupiter {@code @Test} this class is itself annotated with.
    * </p>
    */
-  private static final List<Class<? extends Annotation>> JUNIT4_MARKERS = List.of(org.junit.Test.class, Before.class,
-      After.class, BeforeClass.class, AfterClass.class, Ignore.class, Rule.class, ClassRule.class, RunWith.class);
+  private static final List<String> JUNIT4_MARKERS =
+      List.of("org.junit.Test", "org.junit.Before", "org.junit.After", "org.junit.BeforeClass", "org.junit.AfterClass",
+          "org.junit.Ignore", "org.junit.Rule", "org.junit.ClassRule", "org.junit.runner.RunWith");
 
-  private static final List<Class<? extends Annotation>> JUPITER_MARKERS = List.of(Test.class, BeforeEach.class,
-      AfterEach.class, BeforeAll.class, AfterAll.class, Disabled.class, Nested.class, TestFactory.class,
-      TestTemplate.class, RepeatedTest.class, ExtendWith.class, ParameterizedTest.class);
+  private static final List<String> JUPITER_MARKERS = List.of(Test.class.getName(), BeforeEach.class.getName(),
+      AfterEach.class.getName(), BeforeAll.class.getName(), AfterAll.class.getName(), Disabled.class.getName(),
+      Nested.class.getName(), TestFactory.class.getName(), TestTemplate.class.getName(), RepeatedTest.class.getName(),
+      ExtendWith.class.getName(), ParameterizedTest.class.getName());
 
   private static final String CLASS_FILE_SUFFIX = ".class";
 
@@ -120,14 +115,15 @@ final class JUnitFrameworkConsistencyTest {
    * Collects the simple names of every annotation out of {@code markers} that occurs on the class, on
    * one of its declared methods or on one of its declared fields, walking the superclass chain.
    */
-  private static List<String> markersOn(final Class<?> candidate, final List<Class<? extends Annotation>> markers) {
+  private static List<String> markersOn(final Class<?> candidate, final List<String> markers) {
     final List<String> found = new ArrayList<>(2);
     for (Class<?> type = candidate; type != null && type != Object.class; type = type.getSuperclass()) {
       final Method[] methods = type.getDeclaredMethods();
       final Field[] fields = type.getDeclaredFields();
-      for (final Class<? extends Annotation> marker : markers) {
-        if (!found.contains(marker.getSimpleName()) && declares(type, methods, fields, marker)) {
-          found.add(marker.getSimpleName());
+      for (final String marker : markers) {
+        final String simpleName = marker.substring(marker.lastIndexOf('.') + 1);
+        if (!found.contains(simpleName) && declares(type, methods, fields, marker)) {
+          found.add(simpleName);
         }
       }
     }
@@ -135,17 +131,26 @@ final class JUnitFrameworkConsistencyTest {
   }
 
   private static boolean declares(final Class<?> type, final Method[] methods, final Field[] fields,
-      final Class<? extends Annotation> marker) {
-    if (type.isAnnotationPresent(marker)) {
+      final String marker) {
+    if (hasAnnotation(type, marker)) {
       return true;
     }
     for (final Method method : methods) {
-      if (method.isAnnotationPresent(marker)) {
+      if (hasAnnotation(method, marker)) {
         return true;
       }
     }
     for (final Field field : fields) {
-      if (field.isAnnotationPresent(marker)) {
+      if (hasAnnotation(field, marker)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasAnnotation(final AnnotatedElement element, final String marker) {
+    for (final Annotation annotation : element.getAnnotations()) {
+      if (annotation.annotationType().getName().equals(marker)) {
         return true;
       }
     }
