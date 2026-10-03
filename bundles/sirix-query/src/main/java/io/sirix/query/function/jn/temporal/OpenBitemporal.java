@@ -113,21 +113,22 @@ public final class OpenBitemporal extends AbstractFunction {
     final String field = args.length == 6
         ? ((Str) args[4]).stringValue()
         : null;
-    final int mode = args.length == 6
+    final int encodedMode = args.length == 6
         ? ((IntNumeric) args[5]).intValue()
         : 0;
-    if (args.length == 6 && (mode < 1 || mode > 4)) {
+    if (args.length == 6 && (encodedMode < 1 || encodedMode > 8)) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
+    final int mode = encodedMode == 0 ? 0 : ((encodedMode - 1) & 3) + 1;
     final boolean start = mode == 1 || mode == 2;
     final boolean strict = mode == 2 || mode == 4;
     final ValidTimeResidual residual = field == null
         ? null
-        : new ValidTimeResidual(sctx, validDateTime, field, start, strict);
+        : new ValidTimeResidual(sctx, ctx, validDateTime, field, start, strict, false, encodedMode <= 4 ? start : !start);
     final boolean indexedField = field == null || field.equals(start
         ? validTimeConfig.getNormalizedValidFromPath()
         : validTimeConfig.getNormalizedValidToPath());
-    if (indexedField) {
+    if (indexedField && (residual == null || validDateTime.getTimezone() != null)) {
       final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
           !start && strict, residual);
       if (sequence != null) {

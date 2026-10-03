@@ -73,6 +73,7 @@ failure table and tells the reader where the work went.
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
 | | grouped top-K, clean range | the sorted view stops serving it, or reads data leaves, or reads more summaries than the range has leaves |
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
+| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed stab reads candidates from unrelated inexact intervals (64 rows in CI, opt-in 100,000-row evidence fixture) |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
@@ -82,7 +83,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
-Every one of these was checked **by mutation**: the defect it guards was put back, the test was seen
+The original budgets were checked **by mutation**: the defect it guards was put back, the test was seen
 to fail with the expected counter, and the source was restored. The measured healthy and broken
 figures are in each test's comments.
 
@@ -146,10 +147,13 @@ maintains, so a budget quotes the same numbers an investigation would:
   constructor argument, and adding an engine counter would put one on a cursor move. It counts only
   what the test itself hands in, so there is no global state and nothing to restore - but a decorator
   reads zero when the route stops going through it, so give its bound a floor, or a second capture
-  on the same seam that must read non-zero. Today those are
-  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper and
-  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`, which decorates the segment fetcher the
-  prune already takes as an argument and carries its floor on the referenced payloads it requested.
+  on the same seam that must read non-zero. Today these include
+  `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper,
+  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`, and
+  `ValidTimeSliceWorkBudgetTest`'s decorated real JSON cursor. The counting fetcher decorates the
+  segment fetcher the prune already takes as an argument and carries its floor on the referenced
+  payloads it requested. The valid-time cursor intercepts both transaction-time and revision-based
+  document opening and requires observed reads on item demand.
 
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture

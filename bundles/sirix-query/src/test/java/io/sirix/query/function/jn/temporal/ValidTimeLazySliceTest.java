@@ -4,12 +4,16 @@ import io.brackit.query.Query;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.DateTime;
+import io.sirix.query.json.JsonDBObject;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.sequence.ItemSequence;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -21,6 +25,9 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
@@ -147,7 +154,8 @@ final class ValidTimeLazySliceTest {
   @Test
   void duplicateBoundsSpanningTheDomainStillUseTheOriginalFieldLookup() {
     create("""
-        [{"id":1,"vf":"invalid","vf":"2026-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        [{"id":1,"vf":"invalid","vf":"2026-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":2,"vf":"invalid","vf":"2026-01-01T00:00:00Z","vt":"2030-01-01T00:00:00Z"}]
         """);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
@@ -158,10 +166,10 @@ final class ValidTimeLazySliceTest {
         // the strict routes union the verification postings, so the record's own registered
         // whole-domain interval is what the other two depend on.
         for (final String upper : List.of("lt", "le")) {
-          assertEquals(List.of(1L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT + " "
+          assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT + " "
               + upper + " xs:dateTime($x.vt) return $x.id").execute(context)), resource + " " + upper);
         }
-        assertEquals(List.of(1L),
+        assertEquals(List.of(1L, 2L),
             values(new Query(chain,
                 "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)),
             resource);
@@ -338,6 +346,206 @@ final class ValidTimeLazySliceTest {
           values(new Query(chain, "for $x in jn:doc('slice','indexed')" + predicate).execute(context)));
       assertEquals(List.of(1L, 2L), values(
           new Query(chain, "for $x in jn:doc('slice','indexed'," + revision + ")" + predicate).execute(context)));
+    }
+  }
+
+  @Test
+  void duplicateEndBoundsMatchBeyondTheFirstParseableEnd() {
+    create("""
+        [{"id":1,"vf":"2020-01-01T00:00:00Z","vt":"bad","vt":"2021-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        assertEquals(List.of(1L), values(new Query(chain,
+            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
+        assertEquals(List.of(1L), values(new Query(chain,
+            "for $x in " + source(resource) + " where xs:dateTime($x.vf) lt " + POINT + " return $x.id").execute(context)));
+        assertEquals(List.of(1L), values(new Query(chain,
+            "for $x in jn:scan-valid-time-index(jn:doc('slice','" + resource + "')," + POINT
+                + ") return $x.id").execute(context)));
+      }
+    }
+  }
+
+  @Test
+  void incrementalDuplicateBoundsAndHistoricalReadsUseFirstOccurrences() {
+    create("""
+        [{"id":1,"vf":"2026-01-01T00:00:00Z","vt":"2030-01-01T00:00:00Z"},
+         {"id":2,"vf":"2020-01-01T00:00:00Z","vt":"2021-01-01T00:00:00Z"}]
+        """);
+    final int oldRevision;
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      oldRevision = store.lookup("slice").getDocument("indexed").getTrx().getRevisionNumber();
+      for (final String resource : List.of("indexed", "plain")) {
+        final JsonDBItem document = store.lookup("slice").getDocument(resource);
+        final var cursor = document.getTrx();
+        cursor.moveTo(document.getNodeKey());
+        cursor.moveToFirstChild();
+        final long first = cursor.getNodeKey();
+        cursor.moveToRightSibling();
+        final long second = cursor.getNodeKey();
+        final var session = document.getResourceSession();
+        final JsonNodeTrx writer = session.getNodeTrx().orElseGet(session::beginNodeTrx);
+        writer.moveTo(first);
+        writer.insertObjectRecordAsFirstChild("vf", new StringValue("bad"));
+        writer.moveTo(second);
+        writer.insertObjectRecordAsFirstChild("vt", new StringValue("bad"));
+        writer.commit();
+        assertEquals(List.of(1L, 2L), values(new Query(chain,
+            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      assertEquals(List.of(), values(new Query(chain,
+          "for $x in jn:scan-valid-time-index(jn:doc('slice','indexed'," + oldRevision + ")," + POINT
+              + ") return $x.id").execute(context)));
+      for (final String resource : List.of("indexed", "plain")) {
+        assertEquals(List.of(1L, 2L), values(new Query(chain,
+            "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)));
+      }
+    }
+  }
+
+  @Test
+  void computedFieldsKeepTheirPerTupleValues() {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z","other":"2022-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        final String fields = "for $vt in ('vt','other') for $x in ";
+        assertEquals(List.of(1L), values(new Query(chain, fields + source(resource)
+            + " where " + POINT + " lt xs:dateTime($x.$vt) return $x.id").execute(context)));
+        assertEquals(List.of(1L), values(new Query(chain, fields + "jn:doc('slice','" + resource
+            + "')[] where xs:dateTime($x.vf) le " + POINT + " and " + POINT
+            + " lt xs:dateTime($x.$vt) return $x.id").execute(context)));
+      }
+    }
+  }
+
+  @Test
+  void timezoneLessPointsUseOrdinaryComparisonsForBothRoutesAndDirections() {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2024-01-01T00:00:00Z"},
+         {"id":2,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    final String point = "xs:dateTime('2024-01-01T00:00:00')";
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        final String direct = source(resource).replace(POINT, point);
+        for (final String operator : List.of("lt", "le")) {
+          final String end = point + " " + operator + " xs:dateTime($x.vt)";
+          final String start = "xs:dateTime($x.vf) " + operator + " " + point;
+          assertEquals(List.of(1L, 2L), values(new Query(chain,
+              "for $x in " + direct + " where " + end + " return $x.id").execute(context)));
+          assertEquals(List.of(1L, 2L), values(new Query(chain,
+              "for $x in " + direct + " where " + start + " return $x.id").execute(context)));
+          assertEquals(List.of(1L, 2L), values(new Query(chain,
+              "for $x in jn:doc('slice','" + resource + "')[] where " + start + " and " + end
+                  + " return $x.id").execute(context)));
+          final String mirror = operator.equals("lt") ? "gt" : "ge";
+          assertEquals(List.of(2L), values(new Query(chain,
+              "for $x in " + direct + " where xs:dateTime($x.vt) " + mirror + " " + point
+                  + " return $x.id").execute(context)));
+          assertEquals(List.of(1L), values(new Query(chain,
+              "for $x in " + direct + " where " + point + " " + mirror
+                  + " xs:dateTime($x.vf) return $x.id").execute(context)));
+        }
+      }
+    }
+  }
+
+  @Test
+  void comparisonPointsPreserveEmptyAndMultipleItemSemantics() {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        final String rows = "for $x in jn:doc('slice','" + resource + "')[] where ";
+        context.bind(new QNm("p"), new ItemSequence());
+        assertEquals(List.of(), values(new Query(chain, "declare variable $p external; " + rows
+            + "xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
+        context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
+            new DateTime("2024-01-01T00:00:00Z")));
+        final String points = "declare variable $p external; ";
+        assertEquals(List.of(1L), values(new Query(chain, points + rows
+            + "xs:dateTime($x.vf) <= $p and $p < xs:dateTime($x.vt) return $x.id").execute(context)));
+        assertThrows(QueryException.class, () -> values(new Query(chain, points + rows
+            + "xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
+      }
+    }
+  }
+
+  @Test
+  void emptyArraysDoNotEvaluateThePointCardinality() {
+    create("[]");
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
+            new DateTime("2024-01-01T00:00:00Z")));
+        assertEquals(List.of(), values(new Query(chain, "declare variable $p external; "
+            + "for $x in jn:doc('slice','" + resource
+            + "')[] where xs:dateTime($x.vf) le $p and $p lt xs:dateTime($x.vt) return $x.id").execute(context)));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"vf", "vt"})
+  void residualErrorsWaitForTheRequestedCandidate(final String field) {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":2,"vf":"%s","vt":"%s"}]
+        """.formatted(field.equals("vf") ? "bad" : "2023-01-01T00:00:00Z",
+            field.equals("vt") ? "bad" : "2025-01-01T00:00:00Z"));
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        final String predicate = field.equals("vf") ? "xs:dateTime($x.vf) lt " + POINT
+            : POINT + " lt xs:dateTime($x.vt)";
+        final String expression = "for $x in " + source(resource) + " where " + predicate + " return $x";
+        final Sequence sequence = new Query(chain, expression).execute(context);
+        try (final Iter iterator = sequence.iterate()) {
+          assertEquals(1, ((Numeric) ((JsonDBObject) iterator.next()).get(new QNm("id"))).intValue());
+          assertThrows(QueryException.class, iterator::next);
+        }
+        final Sequence first = new Query(chain, "subsequence((" + expression + "),1,1)").execute(context);
+        try (final Iter iterator = first.iterate()) {
+          assertEquals(1, ((Numeric) ((JsonDBObject) iterator.next()).get(new QNm("id"))).intValue());
+        }
+      }
+      final JsonDBItem document = store.lookup("slice").getDocument("indexed");
+      final Sequence sequence = ValidTimeIntervalIndex.sequence(document, Instant.parse("2024-01-01T00:00:00Z"),
+          document.getResourceSession().getResourceConfig().getValidTimeConfig(), field.equals("vf"), !field.equals("vf"),
+          new ValidTimeResidual(null, context, new DateTime("2024-01-01T00:00:00Z"), field,
+              field.equals("vf"), true, false, field.equals("vf")));
+      assertEquals(1, ((Numeric) ((JsonDBObject) sequence.get(Int32.ONE)).get(new QNm("id"))).intValue());
+      assertThrows(QueryException.class, () -> sequence.get(new Int32(2)));
+      assertThrows(QueryException.class, sequence::size);
     }
   }
 

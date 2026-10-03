@@ -24,6 +24,8 @@ loop bindings retain their original evaluation.
 
 Transaction time is resolved at each evaluation. No revision is captured during compilation.
 Timezone offsets in `xs:dateTime` arguments are preserved when converting to `Instant`.
+Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
+FLWOR points. Computed field dereferences are not folded. Empty arrays never demand point cardinality.
 
 ## Index representation
 
@@ -43,11 +45,15 @@ minus the interval index id, reserving the upper half of the physical id space. 
 to the same `ValidTimeIndexPage` and commit atomically through the transaction intent log. The order
 guard is conservative: rebuilding can reestablish orderedness after subsequent edits restore it.
 
-The catalog declares `validTimeFormat="3"`. Older valid-time index catalogs are rejected explicitly;
-resources must be rebuilt. There is no migration or old-format compatibility path.
+The catalog declares `validTimeFormat="4"`. Opening a resource with an obsolete valid-time catalog
+rebuilds its indexes from document data into fresh physical roots and commits a new revision before
+returning the session. Reopening the upgraded resource does not rebuild again. Historical revisions
+omit the obsolete index from discovery and use the ordinary exact query fallback; no old index-layout
+reader is retained. Writer rebinding also rebuilds obsolete definitions when reverting to an old
+revision, so subsequent mutations maintain the current representation.
 
 Every record carrying postings is registered in the interval tree, so a stab is the only candidate
-source. A duplicate-bound record whose first-parseable pair is absent or inverted is registered over
+source. Every duplicate-bound record is registered over
 the whole domain and marked inexact, so the original field lookup and cast determine its answer
 wherever a query could match it. Verification postings therefore flag refs the tree already yields
 and are unioned back into the candidates only for a strict endpoint at an exactly representable
@@ -56,8 +62,11 @@ stab can skip the record and the strict-start tie removal can drop it, while a c
 can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
 so it already returns a superset — and an answer that no interval contains reads no candidate
 object at all. Membership filters nested objects entirely from index postings. Exceptional residuals
-run after the original closed predicate; a strict integer tie must not suppress an original cast
-error.
+run after the original closed predicate and only as each candidate is demanded. Iteration and
+positional access can stop before a later malformed cast; counting evaluates all candidates that
+need verification. Exact candidates require no field reads. A strict integer tie must not suppress
+an original cast error. Membership, verification and order evidence is collected once per evaluation
+and shared by plain-FLWOR admission and candidate filtering.
 
 ## Verification plan
 
@@ -81,13 +90,27 @@ uses a 512 MB initial/6 GB maximum test heap and a 2 GB Gradle heap.
 
 The new budget decorates a real transaction. Before demand and during exact-key counting it permits
 zero candidate moves, timestamp reads, and object-constructor child-pointer reads. The first `next()`
-permits one object read. Direct function counts and direct FLWOR slice counts exercise the
-query interface. A second case holds only sub-millisecond bounds, so every record carries a
+permits one object read. Direct function, direct FLWOR slice and plain `jn:doc(...)[]` FLWOR counts exercise the
+query interface through the decorated cursor. A second case holds only sub-millisecond bounds, so every record carries a
 verification posting, and bounds a closed stab that no interval contains at zero candidate moves and
-zero timestamp reads, with a second capture on the same cursor that must verify every one of those
+zero timestamp reads and constructor reads, with a second capture on the same cursor that must verify every one of those
 records when the point does fall inside their intervals. A separate user-function count budget is
 retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
+
+The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the
+100,000-record variant and record its printed `moveTo`, `getFirstChildKey`, and `getValue` counts,
+all zero for the empty answer. It is opt-in so ordinary CI retains fixture-scale coverage:
+
+```bash
+SIRIX_VALID_TIME_LARGE_BUDGET=true ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
+  -Dmaven.repo.local="$PWD/build/m2-private" --max-workers=2 \
+  -PtestHeapMin=512m -PtestHeapMax=2g :sirix-query:test \
+  --tests '*ValidTimeSliceWorkBudgetTest.oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab' --info
+```
+
+If the dedicated Test phase increases a JVM heap above 2 GB, wrap that invocation in the captured
+`heavy()` limiter. This review phase adds the executable scenario; it does not claim a 100k result.
 
 Correctness coverage includes exhaustive small RI-tree domains, hand-computed strict/inclusive
 answers, reversed operators, dynamic resources and correlated points, nested objects, missing and
@@ -138,10 +161,14 @@ These are cold-process measurements, not a forced OS-page-cache eviction. Also r
 TSVs at both tiers. Timing results are recorded only after these checks pass.
 
 
-## Validation results (2026-10-03)
+## Historical validation results (2026-10-03)
 
-These figures were recorded before the posting layout moved to `validTimeFormat="3"`, so the stores
-they used must be rebuilt; the query answers they checked are unaffected by that change.
+These historical figures measured implementation revision
+`a17efd081a1a9f2928058785d7b4c7b0a6a7fb07` (`ship`) against
+`79c7ab99e769300dffd1ab51d8f65ec8b9501818` (`baseline`). Both CSVs record that revision for every
+row. They predate the subsequent correctness and posting-layout fixes and are not evidence for
+current code. The dedicated Test phase must rebuild stores and rerun affected SH1 oracle checks
+and measurements on the actual corrected revision before reporting current results.
 
 The complete core suite passed: 11,957 tests, zero failures/errors, 76 existing skips. The complete
 query suite passed: 1,818 tests, zero failures/errors, six skips (five existing skips and the explicitly
@@ -149,9 +176,9 @@ pending Brackit UDF budget). The focused interval/temporal and all work-budget c
 as did both module formatter checks. The deliberate eager-materialization mutation failed the active
 budget at its zero-candidate-moves assertion before being restored.
 
-Both fresh final-code SH1 stores used the kit's natural 25-publication batching. Every TSV from the
+Both historical implementation SH1 stores used the kit's natural 25-publication batching. Every TSV from the
 unmodified twelve-query kit matched its oracle byte-for-byte at t25k and t100k. Each reported timing
-repetition also checked its oracle. The t100k final store used 366,795,207 logical bytes versus
+repetition also checked its oracle. The historical t100k implementation store used 366,795,207 logical bytes versus
 358,405,103 for the baseline (about 2.34% more for the additional revisioned postings).
 
 The baseline is `79c7ab99e769300dffd1ab51d8f65ec8b9501818`. Measurements used frozen compiled
