@@ -94,8 +94,8 @@ final class RankPassDictionaryAppender {
    * @return the rank, counting from 1
    */
   int accept(final byte[] value, final int offset, final int length) {
-    if (previousLength >= 0
-        && ValueDictionaryEntryNode.compareUtf16Range(previousValue, 0, previousLength, value, offset, length) >= 0) {
+    if (previousLength >= 0 && ValueDictionaryEntryNode.compareCodePointRange(previousValue, 0, previousLength, value,
+        offset, length) >= 0) {
       throw new IllegalStateException(
           "rank pass received a value that does not follow its predecessor in collation order at rank "
               + (entryCount + 1));

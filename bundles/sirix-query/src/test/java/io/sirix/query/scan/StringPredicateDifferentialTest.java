@@ -32,9 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Selectivity is SWEPT (common / mid / rare / none / absent-from-dictionary) — a wrong-answer bug
  * once hid behind a common literal for a whole session, its error scaling with rarity. The corpus
  * also carries a SUPPLEMENTARY character (U+10400, a 4-byte UTF-8 sequence) alongside a BMP
- * character in U+E000..U+FFFF (U+FF01) — the exact pair where raw UTF-8 byte order and the
- * interpreter's UTF-16 {@code String.compareTo} order DISAGREE, so a kernel comparing bytes without
- * the 4-byte-lead fallback inverts their order.
+ * character in U+E000..U+FFFF (U+FF01), which distinguishes Unicode codepoint order from Java's
+ * UTF-16 code-unit order. Supplementary characters must order after all BMP characters.
  */
 public final class StringPredicateDifferentialTest {
 
@@ -75,8 +74,7 @@ public final class StringPredicateDifferentialTest {
       sb.append('"');
       // sup: the collation adversary. U+FF01 (BMP, 3-byte UTF-8: EF BC 81) vs U+10400
       // (supplementary, 4-byte UTF-8: F0 90 90 80). UTF-8 byte order says FF01 < 10400;
-      // UTF-16 code-unit order says U+10400 (surrogate D801) < U+FF01. The interpreter uses
-      // the latter.
+      // UTF-16 code-unit order would invert them. The interpreter uses codepoint order.
       sb.append(",\"sup\":\"")
         .append(i % 3 == 0
             ? "！mark"
@@ -141,9 +139,9 @@ public final class StringPredicateDifferentialTest {
 
   @Test
   void supplementaryCharacterOrderingMatchesTheInterpreter() throws Exception {
-    // The UTF-8-vs-UTF-16 divergence pair: U+10400 orders BELOW U+FF01 in the interpreter's
-    // collation but ABOVE it in raw byte order. Both directions swept.
+    // U+10400 orders ABOVE U+FF01 in Unicode codepoint order. Sweep both sides and directions.
     assertGroupServedDifferential("$u.sup lt \"！\"");
+    assertGroupServedDifferential("$u.sup gt \"！\"");
     assertGroupServedDifferential("$u.sup ge \"！\"");
     assertGroupServedDifferential("$u.sup le \"𐐀deseret\"");
   }

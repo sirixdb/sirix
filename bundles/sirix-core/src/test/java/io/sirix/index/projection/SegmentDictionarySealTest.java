@@ -54,9 +54,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <b>Mutations this must fail:</b> the seal skipping {@code attachRankTable} (mints decode to the
  * value at their own position — the scrambled fixture pins mint 1 to the LAST value); building the
  * table before the block index (refused by {@code buildBlockIndex}); a comparator in byte order
- * rather than UTF-16 order (the astral trap inverts); the identity check inverted (a table where
- * none is needed, or none where one is); the strictness check dropped (a duplicate value seals);
- * the generation cut off by one (the interner refuses the 16385th value).
+ * under UTF-16 order rather than codepoint order (the astral trap inverts); the identity check
+ * inverted (a table where none is needed, or none where one is); the strictness check dropped (a
+ * duplicate value seals); the generation cut off by one (the interner refuses the 16385th value).
  * </p>
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -336,16 +336,15 @@ final class SegmentDictionarySealTest {
   }
 
   @Test
-  @DisplayName("mints are ranked in UTF-16 collation, strictly, and the identity is recognised")
-  void rankingIsCollationNotByteOrder() {
-    // U+FF61 is EF BD A1 in UTF-8 and a single BMP unit in UTF-16; U+10000 is F0 90 80 80 in UTF-8
-    // and the surrogate pair D800 DC00 in UTF-16. Byte order puts U+FF61 first, UTF-16 order U+10000.
+  @DisplayName("mints are ranked in Unicode codepoint collation, strictly, and the identity is recognised")
+  void rankingUsesCodePointOrder() {
+    // U+FF61 precedes U+10000 in codepoint order; UTF-16 code-unit order would invert them.
     final byte[] bmp = utf8("x" + new String(Character.toChars(0xFF61)));
     final byte[] astral = utf8("x" + new String(Character.toChars(0x10000)));
-    assertTrue(Arrays.compareUnsigned(bmp, astral) < 0, "the fixture must invert between the two orders");
+    assertTrue(Arrays.compareUnsigned(bmp, astral) < 0, "UTF-8 byte order agrees with Unicode codepoint order");
     final int[] mintsByRank = SegmentDictionarySeal.rankMints(new byte[][] {bmp, astral, utf8("a")});
-    assertArrayEquals(new int[] {3, 2, 1}, mintsByRank, "a, then the astral value, then the BMP value");
-    assertArrayEquals(new int[] {0, 3, 2, 1}, SegmentDictionarySeal.invert(mintsByRank));
+    assertArrayEquals(new int[] {3, 1, 2}, mintsByRank, "a, then the BMP value, then the astral value");
+    assertArrayEquals(new int[] {0, 2, 3, 1}, SegmentDictionarySeal.invert(mintsByRank));
     assertFalse(SegmentDictionarySeal.isIdentity(mintsByRank));
     assertTrue(SegmentDictionarySeal.isIdentity(SegmentDictionarySeal.rankMints(new byte[][] {utf8("a"), utf8("b")})));
     assertTrue(SegmentDictionarySeal.isIdentity(SegmentDictionarySeal.rankMints(new byte[0][])));
@@ -417,6 +416,6 @@ final class SegmentDictionarySealTest {
   }
 
   private static int compareCollation(final byte[] left, final byte[] right) {
-    return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
+    return ValueDictionaryEntryNode.compareCodePointRange(left, 0, left.length, right, 0, right.length);
   }
 }

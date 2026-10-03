@@ -83,7 +83,7 @@ public final class GroupTopKDifferentialTest {
         // Sparse STRING operand for the deferred-extremum route: absent for the ENTIRE Ops
         // dept (an all-missing group's min/max is the EMPTY sequence), and salted with the
         // collation adversary pair — U+FF01 vs U+10400 order OPPOSITE ways under raw UTF-8
-        // bytes vs the interpreter's UTF-16 units, so max(nick) catches a byte-order kernel.
+        // codepoints vs UTF-16 units, so max(nick) catches a code-unit-order kernel.
         final String nick = i % 97 == 0
             ? "！"
             : i % 89 == 0
@@ -698,7 +698,7 @@ public final class GroupTopKDifferentialTest {
   void stringMinAndMaxWithCollationAdversariesAndAllMissingGroup() throws Exception {
     // All four depts win: Ops carries NO nick at all (empty min/max → JSON null), and the
     // other depts contain both U+FF01 and U+10400 — max(nick) inverts if the kernel compares
-    // raw UTF-8 bytes without the UTF-16 fallback.
+    // UTF-16 code units instead of Unicode codepoints.
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
         + "let $c := count($u) order by $c descending "
         + "return {\"d\": $d, \"lo\": min($u.nick), \"hi\": max($u.nick), \"c\": $c}, 1, 4)");

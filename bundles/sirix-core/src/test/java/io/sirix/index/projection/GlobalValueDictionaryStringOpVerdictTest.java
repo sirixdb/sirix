@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -36,13 +38,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * The reference is INDEPENDENT of the code under test: every value decodes to a {@link String} and
- * the op evaluates with {@code String.compareTo} (the interpreter's {@code Str#cmp} collation —
- * UTF-16 code-unit order), {@code String.contains}, and {@code String.equals}. The corpus sets the
- * one trap that separates UTF-16 collation from raw byte order: a supplementary character (4-byte
- * UTF-8, lead {@code >= 0xF0}) orders AFTER U+E000..U+FFFF byte-wise but BEFORE it in UTF-16,
- * because surrogates live at 0xD800..0xDFFF. A verdict builder that compared bytes without the
- * supplementary gate would order ids 5 and 6 backwards — for packed slices AND for the spill lane,
- * which reaches its verdict through a different entry point ({@code compareToRange}).
+ * the ordering op evaluates with Brackit's {@code Str#atomicCmpInternal}, while equality and
+ * substring matching use {@code String.equals} and {@code String.contains}. Supplementary
+ * characters distinguish codepoint order from UTF-16 code-unit order, for both packed slices and
+ * the spill lane, which reaches its verdict through {@code compareToRange}.
  *
  * <p>
  * One value exceeds {@code MAX_BLOCK_BYTES}, forcing the SPILL representation, so both dispatch
@@ -78,10 +77,10 @@ final class GlobalValueDictionaryStringOpVerdictTest {
     return switch (op) {
       case EQ -> value.equals(literal);
       case NE -> !value.equals(literal);
-      case STR_LT -> value.compareTo(literal) < 0;
-      case STR_LE -> value.compareTo(literal) <= 0;
-      case STR_GT -> value.compareTo(literal) > 0;
-      case STR_GE -> value.compareTo(literal) >= 0;
+      case STR_LT -> compareStrings(value, literal) < 0;
+      case STR_LE -> compareStrings(value, literal) <= 0;
+      case STR_GT -> compareStrings(value, literal) > 0;
+      case STR_GE -> compareStrings(value, literal) >= 0;
       case STR_CONTAINS -> value.contains(literal);
       default -> throw new IllegalStateException("not a string op: " + op);
     };

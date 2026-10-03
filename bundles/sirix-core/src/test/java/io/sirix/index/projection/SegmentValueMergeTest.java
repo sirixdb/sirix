@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.utils.StringComparisonOracle;
+
+
 import io.sirix.node.ValueDictionaryEntryNode;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +36,7 @@ final class SegmentValueMergeTest {
   void equalBoundaryValuesKeepOneRankAndTheFirstRunRepresentative() {
     final String[][] values = new String[5][];
     for (int run = 0; run < values.length; run++) {
-      final TreeSet<String> mine = new TreeSet<>();
+      final TreeSet<String> mine = new TreeSet<>(StringComparisonOracle::compareStrings);
       mine.add("");
       mine.add("same-prefix/" + "z".repeat(70_000)); // a spill can also be the competing head
       for (int block = 0; block < 6; block++) {
@@ -56,7 +59,7 @@ final class SegmentValueMergeTest {
     for (final int count : new int[] {1, 2, 3, 8, 19}) {
       final String[][] values = new String[count][];
       for (int run = 0; run < count; run++) {
-        final TreeSet<String> mine = new TreeSet<>();
+        final TreeSet<String> mine = new TreeSet<>(StringComparisonOracle::compareStrings);
         for (int i = 0; i < 800; i++) {
           final int number = i < 400
               ? run * 1_000 + i
@@ -71,12 +74,12 @@ final class SegmentValueMergeTest {
   }
 
   @Test
-  void mixedUtf8WidthsKeepUtf16OrderAcrossInterleavedRuns() {
+  void mixedUtf8WidthsKeepCodePointOrderAcrossInterleavedRuns() {
     final int[] alphabet = {0, 65, 127, 128, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10001, 0x1F642, 0x10FFFF};
     final SplittableRandom random = new SplittableRandom(0x16C011A7);
     final String[][] values = new String[7][];
     for (int run = 0; run < values.length; run++) {
-      final TreeSet<String> mine = new TreeSet<>();
+      final TreeSet<String> mine = new TreeSet<>(StringComparisonOracle::compareStrings);
       for (int i = 0; i < 1_000; i++) {
         final StringBuilder word = new StringBuilder();
         for (int c = 0; c < 3; c++) {
@@ -94,9 +97,9 @@ final class SegmentValueMergeTest {
     final int[] segments = new int[values.length];
     final int[] counts = new int[values.length];
     final long[][] marks = new long[values.length][];
-    final TreeMap<String, Long> expected = new TreeMap<>();
+    final TreeMap<String, Long> expected = new TreeMap<>(StringComparisonOracle::compareStrings);
     for (int run = 0; run < values.length; run++) {
-      Arrays.sort(values[run]);
+      Arrays.sort(values[run], StringComparisonOracle::compareStrings);
       segments[run] = run;
       counts[run] = values[run].length;
       marks[run] = new long[(counts[run] >>> 6) + 1];
@@ -147,7 +150,7 @@ final class SegmentValueMergeTest {
     final SegmentValueMerge.Result result = SegmentValueMerge.merge(resolver, segments, marks, counts,
         SegmentGroupCanonicaliser.SERIAL_SEGMENTS, rangeTarget, null);
     assertEquals(expected.size(), result.representatives().length);
-    final Map<String, Integer> ranks = new TreeMap<>();
+    final Map<String, Integer> ranks = new TreeMap<>(StringComparisonOracle::compareStrings);
     int rank = 0;
     for (final Map.Entry<String, Long> entry : expected.entrySet()) {
       assertEquals(entry.getValue().longValue(), result.representatives()[rank], "stable value representative");

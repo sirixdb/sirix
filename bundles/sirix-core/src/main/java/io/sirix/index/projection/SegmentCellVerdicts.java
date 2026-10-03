@@ -155,7 +155,6 @@ public final class SegmentCellVerdicts {
   private final AtomicInteger refusals = new AtomicInteger();
   private final ProjectionIndexScan.Op op;
   private final byte[] literalUtf8;
-  private final boolean literalHasSupplementary;
 
   /** {@code memo[segment][id]} — written under this instance's monitor, read without one. */
   @SuppressWarnings("VolatileArrayField") // the volatile is on the reference, which is what publishes
@@ -230,7 +229,6 @@ public final class SegmentCellVerdicts {
     if (segments < 0) {
       throw new IllegalArgumentException("segments must not be negative: " + segments);
     }
-    this.literalHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
     final int lanes = Math.max(segments, 1);
     final byte[][] tables = new byte[lanes][];
     if (store != null) {
@@ -278,8 +276,8 @@ public final class SegmentCellVerdicts {
 
   private static CellMatcher matcherOver(final Supplier<GlobalValueDictionary.ReadView> views,
       final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
-    final boolean supplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
-    return cell -> views.get().cellMatchesStringOp(cell, op, literalUtf8, supplementary);
+
+    return cell -> views.get().cellMatchesStringOp(cell, op, literalUtf8);
   }
 
   /** The op this verdict answers. */

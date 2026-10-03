@@ -62,8 +62,8 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   private final int generation;
 
   /**
-   * Ids {@code 1..orderedPrefixCount} are in UTF-16 collation order of their VALUES; ids above it are
-   * in append (first-intern) order.
+   * Ids {@code 1..orderedPrefixCount} are in Unicode codepoint collation order of their VALUES; ids
+   * above it are in append (first-intern) order.
    *
    * <p>
    * Zero for every dictionary the streaming mint built, which is semantically correct rather than
@@ -287,9 +287,10 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   }
 
   /**
-   * Whether comparing two ids as integers compares their values under UTF-16 collation: the storage
-   * is fully ordered AND ids are storage positions. The test an ordering arm must make instead of
-   * {@link #isFullyOrdered()}, which under a rank table is true of the storage but not of the ids.
+   * Whether comparing two ids as integers compares their values under Unicode codepoint collation:
+   * the storage is fully ordered AND ids are storage positions. The test an ordering arm must make
+   * instead of {@link #isFullyOrdered()}, which under a rank table is true of the storage but not of
+   * the ids.
    */
   public boolean idsAreCollationOrdered() {
     return isFullyOrdered() && rankTableKey == 0L;

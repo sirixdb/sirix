@@ -3,6 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.utils.StringComparisonOracle;
+
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
@@ -458,7 +462,7 @@ final class SegmentGroupCanonicaliserTest {
                 ? i
                 : i * segments + segment);
       }
-      Arrays.sort(mine);
+      Arrays.sort(mine, StringComparisonOracle::compareStrings);
       for (int i = 0; i < perSegment; i++) {
         final int mint = perSegment - i; // downward: mint order is the reverse of position order
         final long cell = ProjectionIndexRowGroupPage.packSegmentCell(segment, mint);
@@ -565,7 +569,7 @@ final class SegmentGroupCanonicaliserTest {
     final long first = ProjectionIndexRowGroupPage.packSegmentCell(0, 1);
     final long second = ProjectionIndexRowGroupPage.packSegmentCell(1, 3);
     assertTrue(first < second);
-    assertTrue(corpus.values().get(first).compareTo(corpus.values().get(second)) > 0);
+    assertTrue(compareStrings(corpus.values().get(first), corpus.values().get(second)) > 0);
     final SegmentGroupCanonicaliser operand = new SegmentGroupCanonicaliser(corpus, 2);
     final ColumnSlice[] operandRows = {sliceOf(first), sliceOf(second)};
     assertTrue(operand.observeColumn(operandRows, null, SegmentGroupCanonicaliser.SERIAL_SEGMENTS));
@@ -959,7 +963,7 @@ final class SegmentGroupCanonicaliserTest {
     // the order.
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
     for (int rank = 2; rank <= segments * perSegment; rank++) {
-      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+      assertTrue(compareStrings(canonicaliser.valueOf(rank - 1), canonicaliser.valueOf(rank)) < 0);
     }
 
     // A second pass over the same cells is free: the walk skips memoised mints and the row loop hits.
@@ -1088,7 +1092,7 @@ final class SegmentGroupCanonicaliserTest {
       final String current = merged.valueOf(rank);
       assertNotNull(previous);
       assertNotNull(current);
-      assertTrue(previous.compareTo(current) < 0,
+      assertTrue(compareStrings(previous, current) < 0,
           "rank " + (rank - 1) + " (" + previous + ") must collate before rank " + rank + " (" + current + ")");
     }
 
@@ -1264,8 +1268,8 @@ final class SegmentGroupCanonicaliserTest {
     assertEquals(3L, kept.max());
     // The merge seal sees a space of three, sorted.
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
-    assertTrue(canonicaliser.valueOf(1).compareTo(canonicaliser.valueOf(2)) < 0);
-    assertTrue(canonicaliser.valueOf(2).compareTo(canonicaliser.valueOf(3)) < 0);
+    assertTrue(compareStrings(canonicaliser.valueOf(1), canonicaliser.valueOf(2)) < 0);
+    assertTrue(compareStrings(canonicaliser.valueOf(2), canonicaliser.valueOf(3)) < 0);
   }
 
   @Test
@@ -1467,7 +1471,7 @@ final class SegmentGroupCanonicaliserTest {
         "segment 1 ids must rise with position: " + second[0] + ", " + second[100] + ", " + second[199]);
     assertTrue(canonicaliser.sealByPositionMerge(canonicaliser.size()));
     for (int rank = 2; rank <= 6; rank++) {
-      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+      assertTrue(compareStrings(canonicaliser.valueOf(rank - 1), canonicaliser.valueOf(rank)) < 0);
     }
   }
 
@@ -1642,7 +1646,7 @@ final class SegmentGroupCanonicaliserTest {
     assertTrue(canonicaliser.sealOrderPreserving());
     assertTrue(canonicaliser.isOrderPreserving());
     for (int rank = 2; rank <= segments * perSegment; rank++) {
-      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0,
+      assertTrue(compareStrings(canonicaliser.valueOf(rank - 1), canonicaliser.valueOf(rank)) < 0,
           "rank " + rank + " collates after rank " + (rank - 1));
     }
     assertEquals("value-00000", canonicaliser.valueOf(1));
@@ -1889,7 +1893,7 @@ final class SegmentGroupCanonicaliserTest {
     assertFalse(canonicaliser.isOrderPreserving());
     assertTrue(canonicaliser.sealOrderPreserving(), "eleven values still sort");
     for (int rank = 2; rank <= perSegment + 1; rank++) {
-      assertTrue(canonicaliser.valueOf(rank - 1).compareTo(canonicaliser.valueOf(rank)) < 0);
+      assertTrue(compareStrings(canonicaliser.valueOf(rank - 1), canonicaliser.valueOf(rank)) < 0);
     }
     assertEquals("value-00003.5", canonicaliser.valueOf(5), "value-00003 < value-00003.5 < value-00004");
     final ColumnSlice[] sealed = canonicaliser.canonicalise(new ColumnSlice[] {sliceOf(fresh)});

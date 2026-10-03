@@ -1048,7 +1048,7 @@ public final class GlobalValueDictionary {
     }
 
     public @Nullable Boolean cellMatchesStringOp(final long cell, final ProjectionIndexScan.Op op,
-        final byte[] literalUtf8, final boolean literalHasSupplementary) {
+        final byte[] literalUtf8) {
       Objects.requireNonNull(op, "op must not be null");
       Objects.requireNonNull(literalUtf8, "literalUtf8 must not be null");
       final ReadView view;
@@ -1066,12 +1066,10 @@ public final class GlobalValueDictionary {
       final int slot = view.sliceSlot(id);
       final ValueDictionaryEntryNode spill = view.cachedSpills[slot];
       if (spill != null) {
-        final byte[] bytes = spill.getValue();
-        return ProjectionIndexScan.stringDictEntryMatches(bytes, 0, bytes.length, op, literalUtf8,
-            literalHasSupplementary);
+        return spillMatches(spill, op, literalUtf8);
       }
       return ProjectionIndexScan.stringDictEntryMatches(view.cachedBacking[slot], view.cachedOffsets[slot],
-          view.cachedLengths[slot], op, literalUtf8, literalHasSupplementary);
+          view.cachedLengths[slot], op, literalUtf8);
     }
 
     public String valueAsString(final int id) {
@@ -1099,9 +1097,9 @@ public final class GlobalValueDictionary {
      * afterwards answers each row with one bit test against the id it already stores. Packed ids
      * evaluate over their zero-copy {@code (backing, offset, length)} slices through the same per-entry
      * authority the leaf kernels use ({@code ProjectionIndexScan.stringDictEntryMatches}), so op
-     * semantics — including the UTF-16 collation contract for the ordering ops — cannot drift between
-     * the two dictionary tiers. Spilled ids evaluate through their record's own entry points, which
-     * exist so the record's array never escapes.
+     * semantics — including the Unicode codepoint collation contract for the ordering ops — cannot
+     * drift between the two dictionary tiers. Spilled ids evaluate through their record's own entry
+     * points, which exist so the record's array never escapes.
      *
      * <p>
      * Sequential ids share sub-blocks, so the sweep runs at block-cache speed; the returned bitset is
@@ -1229,7 +1227,7 @@ public final class GlobalValueDictionary {
 
     private long[] sweepStringOp(final ProjectionIndexScan.Op op, final byte[] literalUtf8) {
       final long[] verdict = newVerdict();
-      final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+
       final int buckets = verdictBucketCount();
       for (int bucket = 0; bucket < buckets; bucket++) {
         final ValueDictionaryValueBucketNode bucketNode =
@@ -1252,8 +1250,7 @@ public final class GlobalValueDictionary {
           int start = node.offsetAt(0);
           for (int index = 0; index < count; index++) {
             final int end = node.offsetAt(index + 1);
-            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8,
-                litHasSupplementary)) {
+            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8)) {
               final int id = mintAtPosition(blockFirstPosition + index);
               verdict[id >>> 6] |= 1L << (id & 63);
             }
@@ -1296,7 +1293,7 @@ public final class GlobalValueDictionary {
       if (bucketLo == bucketHi) {
         return;
       }
-      final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(literalUtf8, 0, literalUtf8.length);
+
       // BLOCK-AT-A-TIME, not id-at-a-time. A per-id walk routes all entryCount values through
       // sliceSlot, whose direct-mapped slice cache MISSES on every one of them — ascending ids never
       // repeat a slot — so each value pays a revision check, two cache probes and a bucket search to
@@ -1326,8 +1323,7 @@ public final class GlobalValueDictionary {
           int start = node.offsetAt(0);
           for (int index = 0; index < count; index++) {
             final int end = node.offsetAt(index + 1);
-            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8,
-                litHasSupplementary)) {
+            if (ProjectionIndexScan.stringDictEntryMatches(bytes, start, end - start, op, literalUtf8)) {
               final int id = blockFirstId + index;
               out[(id >>> 6) - wordBase] |= 1L << (id & 63);
             }
@@ -1354,9 +1350,8 @@ public final class GlobalValueDictionary {
 
     /**
      * Op dispatch for a SPILLED value, through the record's no-escape entry points. Semantics mirror
-     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which is UTF-16
-     * collation unconditionally — the same order the byte-path arm reaches via its
-     * supplementary-character fallback.
+     * {@code stringDictEntryMatches} arm for arm; ordering uses {@code compareToRange}, which uses
+     * Unicode codepoint collation — the same order as the packed UTF-8 byte path.
      */
     private static boolean spillMatches(final ValueDictionaryEntryNode spill, final ProjectionIndexScan.Op op,
         final byte[] literalUtf8) {
@@ -1372,7 +1367,10 @@ public final class GlobalValueDictionary {
       };
     }
 
-    /** Compare two ids under the query engine's UTF-16 string collation without materialisation. */
+    /**
+     * Compare two ids under the query engine's Unicode codepoint string collation without
+     * materialisation.
+     */
     /**
      * Order two packed CELLS by the values they name, under the dictionary's collation.
      *
@@ -1407,14 +1405,14 @@ public final class GlobalValueDictionary {
       final ValueDictionaryEntryNode rightSpill = right.cachedSpills[rightSlot];
       if (leftSpill == null) {
         return rightSpill == null
-            ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength,
+            ? ValueDictionaryEntryNode.compareCodePointRange(leftBacking, leftOffset, leftLength,
                 right.cachedBacking[rightSlot], right.cachedOffsets[rightSlot], right.cachedLengths[rightSlot])
             : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
       }
       return rightSpill == null
           ? leftSpill.compareToRange(right.cachedBacking[rightSlot], right.cachedOffsets[rightSlot],
               right.cachedLengths[rightSlot])
-          : leftSpill.compareValueUtf16(rightSpill);
+          : leftSpill.compareValueCodePoints(rightSpill);
     }
 
     public int compareIds(final int leftId, final int rightId) {
@@ -1447,13 +1445,13 @@ public final class GlobalValueDictionary {
       final ValueDictionaryEntryNode rightSpill = cachedSpills[rightSlot];
       if (leftSpill == null) {
         return rightSpill == null
-            ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength, rightBacking,
+            ? ValueDictionaryEntryNode.compareCodePointRange(leftBacking, leftOffset, leftLength, rightBacking,
                 cachedOffsets[rightSlot], cachedLengths[rightSlot])
             : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
       }
       return rightSpill == null
           ? leftSpill.compareToRange(rightBacking, cachedOffsets[rightSlot], cachedLengths[rightSlot])
-          : leftSpill.compareValueUtf16(rightSpill);
+          : leftSpill.compareValueCodePoints(rightSpill);
     }
 
     /**
@@ -1481,7 +1479,7 @@ public final class GlobalValueDictionary {
       locate(position);
       final ValueDictionaryEntryNode spill = locatedSpill;
       return spill == null
-          ? ValueDictionaryEntryNode.compareUtf16Range(locatedBacking, locatedOffset, locatedLength, utf8, offset,
+          ? ValueDictionaryEntryNode.compareCodePointRange(locatedBacking, locatedOffset, locatedLength, utf8, offset,
               length)
           : spill.compareToRange(utf8, offset, length);
     }
@@ -2591,9 +2589,10 @@ public final class GlobalValueDictionary {
       cut++;
     }
     final byte[] candidate = Arrays.copyOf(next, cut);
-    return ValueDictionaryEntryNode.compareUtf16Range(previous, 0, previous.length, candidate, 0, candidate.length) < 0
-        ? candidate
-        : next.clone();
+    return ValueDictionaryEntryNode.compareCodePointRange(previous, 0, previous.length, candidate, 0,
+        candidate.length) < 0
+            ? candidate
+            : next.clone();
   }
 
   /**
@@ -2602,11 +2601,9 @@ public final class GlobalValueDictionary {
    * so the caller translates through {@link ReadView#mintAtPosition}.
    *
    * <p>
-   * The comparator MUST be {@link ValueDictionaryEntryNode#compareUtf16Range} and not unsigned byte
-   * order: the two differ for supplementary characters, which sort after U+E000..U+FFFF in UTF-8
-   * bytes but before them in UTF-16. The rank pass sorts with a byte substitution that is provably
-   * equivalent to this comparator, so searching with anything else would look up a value in an order
-   * it was not stored in and answer ABSENT for a value that is present.
+   * The comparator must agree with {@link ValueDictionaryEntryNode#compareCodePointRange}: stored
+   * ranks, block separators and probes all use Unicode codepoint order. Well-formed UTF-8 unsigned
+   * byte order agrees with that order, including supplementary characters.
    * </p>
    *
    * @return the storage position, or {@link #ID_ABSENT} when the prefix provably does not hold the

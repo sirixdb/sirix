@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
@@ -182,8 +184,8 @@ final class PackedDictionaryPredicateTest {
     if (value == null) {
       return false;
     }
-    // Brackit's Str#cmp uses UTF-16 code-unit order, including the supplementary/BMP inversion.
-    final int order = value.compareTo(literal);
+    // Brackit's Str#cmp uses Unicode codepoint order, including supplementary characters.
+    final int order = compareStrings(value, literal);
     return switch (op) {
       case EQ -> order == 0;
       case NE -> order != 0;

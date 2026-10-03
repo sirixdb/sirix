@@ -1352,18 +1352,18 @@ public final class ProjectionColumnStore {
       // Two DISTINCT extrema per side: an entry equal to the current first stays out of the second
       // slot (a dictionary is not obliged to be duplicate-free), and an entry equal to the current
       // second changes nothing.
-      final int cmpMin = compareDictEntries(dictBytes, dictOffsets, i, min1, supplementary);
+      final int cmpMin = compareDictEntries(dictBytes, dictOffsets, i, min1);
       if (cmpMin < 0) {
         min2 = min1;
         min1 = i;
-      } else if (cmpMin > 0 && (min2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, min2, supplementary) < 0)) {
+      } else if (cmpMin > 0 && (min2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, min2) < 0)) {
         min2 = i;
       }
-      final int cmpMax = compareDictEntries(dictBytes, dictOffsets, i, max1, supplementary);
+      final int cmpMax = compareDictEntries(dictBytes, dictOffsets, i, max1);
       if (cmpMax > 0) {
         max2 = max1;
         max1 = i;
-      } else if (cmpMax < 0 && (max2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, max2, supplementary) > 0)) {
+      } else if (cmpMax < 0 && (max2 < 0 || compareDictEntries(dictBytes, dictOffsets, i, max2) > 0)) {
         max2 = i;
       }
     }
@@ -1384,19 +1384,14 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Order of two entries of ONE dictionary under the interpreter's collation: unsigned UTF-8 bytes,
-   * decoded comparison as soon as a supplementary character is in the dictionary — the gate every
-   * dict kernel uses.
+   * Order of two entries of ONE dictionary under the interpreter's Unicode codepoint collation.
    */
-  private static int compareDictEntries(final byte[] dictBytes, final int[] dictOffsets, final int a, final int b,
-      final boolean supplementary) {
+  private static int compareDictEntries(final byte[] dictBytes, final int[] dictOffsets, final int a, final int b) {
     final int aOff = dictOffsets[a];
     final int aLen = dictOffsets[a + 1] - aOff;
     final int bOff = dictOffsets[b];
     final int bLen = dictOffsets[b + 1] - bOff;
-    return supplementary
-        ? ProjectionIndexByteScan.compareStrSlices(dictBytes, aOff, aLen, dictBytes, bOff, bLen)
-        : Arrays.compareUnsigned(dictBytes, aOff, aOff + aLen, dictBytes, bOff, bOff + bLen);
+    return Arrays.compareUnsigned(dictBytes, aOff, aOff + aLen, dictBytes, bOff, bOff + bLen);
   }
 
   /**

@@ -3,6 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.utils.StringComparisonOracle;
+
+import static io.sirix.utils.StringComparisonOracle.compareStrings;
+
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -289,8 +293,8 @@ final class SegmentTopKBoundsTest {
 
   private static long[] expected(final Fixture fixture, final String exclusion, final boolean descending, final int k) {
     final Comparator<String> order = descending
-        ? Comparator.reverseOrder()
-        : Comparator.naturalOrder();
+        ? (left, right) -> compareStrings(right, left)
+        : StringComparisonOracle::compareStrings;
     return fixture.rows()
                   .stream()
                   .filter(row -> row.value() != null && !row.value().equals(exclusion))

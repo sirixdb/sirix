@@ -26,9 +26,9 @@ import io.sirix.utils.ToStringHelper;
  *
  * <p>
  * <b>The separator contract</b>, which is what makes a search over truncated keys exact:
- * {@code previousBlockLastValue < separator[i] <= firstValueOf(block i)} under the engine's UTF-16
- * collation. A needle therefore belongs to block {@code i} exactly when {@code i} is the LARGEST
- * index whose separator does not exceed it — there is no ambiguity to resolve by probing
+ * {@code previousBlockLastValue < separator[i] <= firstValueOf(block i)} under the engine's Unicode
+ * codepoint collation. A needle therefore belongs to block {@code i} exactly when {@code i} is the
+ * LARGEST index whose separator does not exceed it — there is no ambiguity to resolve by probing
  * neighbours, and no case where a truncated separator makes a present value look absent. Entry 0's
  * separator is empty, so every value is at or after it.
  * </p>
@@ -130,7 +130,7 @@ public final class ValueDictionaryBlockIndexNode implements DataRecord {
     int high = firstIds.length - 1;
     while (low < high) {
       final int mid = (low + high + 1) >>> 1;
-      final int comparison = ValueDictionaryEntryNode.compareUtf16Range(separators, offsets[mid],
+      final int comparison = ValueDictionaryEntryNode.compareCodePointRange(separators, offsets[mid],
           offsets[mid + 1] - offsets[mid], utf8, offset, length);
       if (comparison <= 0) {
         low = mid;

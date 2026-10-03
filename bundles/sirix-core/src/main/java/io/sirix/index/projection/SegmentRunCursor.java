@@ -84,8 +84,8 @@ public abstract class SegmentRunCursor {
   }
 
   /**
-   * Order the values two positioned cursors hold, under the dictionary's UTF-16 collation, reading
-   * both in place: negative, zero or positive as {@code left} orders before, with, or after
+   * Order the values two positioned cursors hold, under the dictionary's Unicode codepoint collation,
+   * reading both in place: negative, zero or positive as {@code left} orders before, with, or after
    * {@code right}.
    */
   public static int compare(final SegmentRunCursor left, final SegmentRunCursor right) {
@@ -102,13 +102,13 @@ public abstract class SegmentRunCursor {
       final int rightLength, final @Nullable ValueDictionaryEntryNode rightSpill) {
     if (leftSpill == null) {
       return rightSpill == null
-          ? ValueDictionaryEntryNode.compareUtf16Range(leftBacking, leftOffset, leftLength, rightBacking, rightOffset,
-              rightLength)
+          ? ValueDictionaryEntryNode.compareCodePointRange(leftBacking, leftOffset, leftLength, rightBacking,
+              rightOffset, rightLength)
           : -rightSpill.compareToRange(leftBacking, leftOffset, leftLength);
     }
     return rightSpill == null
         ? leftSpill.compareToRange(rightBacking, rightOffset, rightLength)
-        : leftSpill.compareValueUtf16(rightSpill);
+        : leftSpill.compareValueCodePoints(rightSpill);
   }
 
   /**
@@ -119,7 +119,7 @@ public abstract class SegmentRunCursor {
       final int length) {
     final ValueDictionaryEntryNode spill = cursor.spill;
     return spill == null
-        ? ValueDictionaryEntryNode.compareUtf16Range(cursor.backing, cursor.offset, cursor.length, bytes, offset,
+        ? ValueDictionaryEntryNode.compareCodePointRange(cursor.backing, cursor.offset, cursor.length, bytes, offset,
             length)
         : spill.compareToRange(bytes, offset, length);
   }

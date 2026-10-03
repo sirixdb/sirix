@@ -12,14 +12,15 @@ import io.sirix.utils.ToStringHelper;
  * <p>
  * A segment dictionary mints ids the moment a value is first encoded — on a flush thread, into a
  * page that is written long before the segment's value set is closed — so the ids in the pages are
- * in arrival order (MINTS). The seal then stores the values in UTF-16 collation order (RANKS, the
- * storage positions), which is what makes the front-coded blocks pay and a probe a binary search
- * over a separator array. The forward run is the bridge every read takes: {@code entryOf(mint)} is
- * the position the value occupies in the ordered storage. The inverse run serves the probe, which
- * finds a POSITION by binary search and must hand back the id the rows carry: one record read per
- * probe instead of an {@code orderedPrefixCount}-int inverse built per view — at a 100M scale a
- * per-probe allocation of megabytes on the query path, for a table that costs the same bytes again
- * on disk (≈ 2.5 B per distinct value, a rounding error of the resource).
+ * in arrival order (MINTS). The seal then stores the values in Unicode codepoint collation order
+ * (RANKS, the storage positions), which is what makes the front-coded blocks pay and a probe a
+ * binary search over a separator array. The forward run is the bridge every read takes:
+ * {@code entryOf(mint)} is the position the value occupies in the ordered storage. The inverse run
+ * serves the probe, which finds a POSITION by binary search and must hand back the id the rows
+ * carry: one record read per probe instead of an {@code orderedPrefixCount}-int inverse built per
+ * view — at a 100M scale a per-probe allocation of megabytes on the query path, for a table that
+ * costs the same bytes again on disk (≈ 2.5 B per distinct value, a rounding error of the
+ * resource).
  * </p>
  *
  * <p>

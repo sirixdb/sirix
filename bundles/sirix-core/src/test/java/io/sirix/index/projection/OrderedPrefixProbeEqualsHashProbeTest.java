@@ -61,9 +61,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * <b>Mutations this must fail:</b> dropping the final byte comparison after the search converges
  * (the collision pair then returns its neighbour's id); using {@code <} where {@code <=} is meant
- * at a block boundary (the first value of each block is reported absent); comparing with unsigned
- * byte order instead of {@link ValueDictionaryEntryNode#compareUtf16Range} (the
- * supplementary-character cases inverts against the U+E000..U+FFFF ones).
+ * at a block boundary (the first value of each block is reported absent); comparing with UTF-16
+ * code-unit order instead of {@link ValueDictionaryEntryNode#compareCodePointRange} (the
+ * supplementary-character cases invert against the U+E000..U+FFFF ones).
  * </p>
  *
  * <p>
@@ -241,7 +241,7 @@ final class OrderedPrefixProbeEqualsHashProbeTest {
   }
 
   private static int compareCollation(final byte[] left, final byte[] right) {
-    return ValueDictionaryEntryNode.compareUtf16Range(left, 0, left.length, right, 0, right.length);
+    return ValueDictionaryEntryNode.compareCodePointRange(left, 0, left.length, right, 0, right.length);
   }
 
   /**
