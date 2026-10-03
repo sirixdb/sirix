@@ -1,0 +1,132 @@
+{
+  "core": {
+    "tests": 12109,
+    "skipped": 76,
+    "failures": []
+  },
+  "query": {
+    "tests": 2006,
+    "skipped": 7,
+    "failures": [
+      {
+        "class": "io.sirix.query.scan.GroupTopKDifferentialTest",
+        "test": "stringMinAndMaxWithCollationAdversariesAndAllMissingGroup()",
+        "message": "org.opentest4j.AssertionFailedError: served ordered result differs from interpreted for: subsequence(for $u in jn:doc('topk-gb-db','records.jn')[] let $d := $u.dept group by $d let $c := count($u) order by $c descending return {\"d\": $d, \"lo\": min($u.nick), \"hi\": max($u.nick), \"c\": $c}, 1, 4) ==> expected: <{\"d\":\"Mkt\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":533} {\"d\":\"Ops\",\"lo\":null,\"hi\":null,\"c\":513} {\"d\":\"Eng\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":487} {\"d\":\"Sales\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":470}> but was: <{\"d\":\"Mkt\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":533} {\"d\":\"Ops\",\"lo\":null,\"hi\":null,\"c\":513} {\"d\":\"Eng\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":487} {\"d\":\"Sales\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":470}>"
+      },
+      {
+        "class": "io.sirix.query.scan.StringPredicateDifferentialTest",
+        "test": "supplementaryCharacterOrderingMatchesTheInterpreter()",
+        "message": "org.opentest4j.AssertionFailedError: served result differs for predicate: $u.sup lt \"\uff01\" ==> expected: <> but was: <{\"k\":1,\"c\":1} {\"k\":2,\"c\":1} {\"k\":4,\"c\":1} {\"k\":5,\"c\":1} {\"k\":7,\"c\":1} {\"k\":8,\"c\":1} {\"k\":10,\"c\":1}>"
+      }
+    ]
+  },
+  "focused": [
+    {
+      "name": "io.sirix.query.compiler.optimizer.OpaqueConjunctTest",
+      "tests": "45",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.CheapFirstConjunctTest",
+      "tests": "23",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.ScalarDependencyTest",
+      "tests": "14",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.ConjunctInputTest",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "core_budgets": [
+    {
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": "15",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "query_budgets": [
+    {
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "oracles": {
+    "t25k": {
+      "passed": 12,
+      "total": 12,
+      "kit_natural_batching": true
+    },
+    "t100k": {
+      "passed": 12,
+      "total": 12,
+      "kit_natural_batching": true
+    }
+  }
+}

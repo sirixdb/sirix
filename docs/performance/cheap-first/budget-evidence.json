@@ -1,0 +1,22 @@
+{
+  "mutation_failures": [
+    {
+      "test": "cheapPredicateLimitsTimestampEvaluationToSurvivors()",
+      "message": "org.opentest4j.AssertionFailedError: both casts run only on the one survivor ==> expected: <2> but was: <101>"
+    },
+    {
+      "test": "correlatedTemporalOpenFiltersEachFreshRowBeforeItsTimestampCasts()",
+      "message": "org.opentest4j.AssertionFailedError: two casts per survivor, across two correlated opens ==> expected: <4> but was: <202>"
+    }
+  ],
+  "restored": {
+    "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+    "tests": "2",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-03T21:43:29.096Z",
+    "hostname": "luna",
+    "time": "2.021"
+  }
+}

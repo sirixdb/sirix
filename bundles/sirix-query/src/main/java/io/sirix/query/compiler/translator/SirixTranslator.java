@@ -38,6 +38,9 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
+import io.sirix.query.compiler.expression.GuardedConjunctExpr;
+import io.sirix.query.compiler.expression.ConjunctInputs;
+import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
@@ -163,6 +166,19 @@ public class SirixTranslator extends TopDownTranslator {
       table.unbind();
     }
     return result;
+  }
+
+  @Override
+  protected Expr andExpr(final AST node) throws QueryException {
+    final Expr ordered = super.andExpr(node);
+    final AST original = (AST) node.getProperty(CheapFirstConjunctStage.ORIGINAL);
+    return original == null
+        ? ordered
+        : new GuardedConjunctExpr(ordered, super.andExpr(original),
+            new ConjunctInputs((QNm[]) node.getProperty(CheapFirstConjunctStage.INPUTS),
+                (QNm[]) node.getProperty(CheapFirstConjunctStage.CAPTURED),
+                (QNm[]) node.getProperty(CheapFirstConjunctStage.DEFAULTS), table,
+                Boolean.TRUE.equals(node.getProperty(CheapFirstConjunctStage.NATIVE_STORE))));
   }
 
   protected Expr derefDescendantExpr(AST node) throws QueryException {
