@@ -97,12 +97,8 @@ All notable changes to SirixDB are documented in this file.
 ### Changed
 
 - **A database has one owning process and shared state across local handles.** Opens take an
-  exclusive OS lock on the persistent `.lock` file and refuse another process with
-  `SirixDatabaseLockException` naming the canonical path. The last local handle releases the
-  lock; process exit or a crash also releases it without making a stale file block reopening.
-  Handles at the same canonical path share storage, committed revisions and catalogue state
-  while preserving each handle's user and transaction lifetime. A writer through either handle
-  advances the view used by new readers and writers; existing readers retain their pinned revision.
+  exclusive OS lock; independently closeable handles share revision and catalogue state while
+  preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).
 - **A commit no longer lists the index-catalogue directory.** Every commit re-instantiates the
   writer, which asks for the catalogue of the revision it is about to create; that file cannot
   exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file

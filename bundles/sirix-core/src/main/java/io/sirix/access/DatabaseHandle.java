@@ -66,6 +66,8 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
     close(true);
   }
 
+  // Reference release must share the monitor used by Databases.open/remove, not a handle-local lock.
+  @SuppressWarnings("LockOnNonEnclosingClassLiteral")
   void close(final boolean releaseOwnership) {
     synchronized (Databases.class) {
       synchronized (this) {
