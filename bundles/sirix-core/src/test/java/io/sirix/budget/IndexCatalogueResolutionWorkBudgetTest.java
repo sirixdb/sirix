@@ -62,7 +62,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * revision it answered for instead of the newest one it saw, makes a later revision read no
  * definitions. So every fixture is its own oracle: each revision's definitions are read back in the
  * session that wrote them, in a session that committed on top of them, and in a fresh one whose
- * first lookup is its oldest revision. Without the writer's report, revision 3 reads none.
+ * first lookup is its oldest revision. Without the writer's report, revision 3 reads none. And a
+ * catalogue committed through another handle on the same database, which no lock refuses, is found
+ * because the revision's own file is probed before the session trusts its memory: trusting the
+ * memory first reads no definitions at that revision.
  */
 @Isolated
 final class IndexCatalogueResolutionWorkBudgetTest {
@@ -267,6 +270,45 @@ final class IndexCatalogueResolutionWorkBudgetTest {
           assertEquals(1, casDefinitions(session.getRtxIndexController(revision)),
               "CAS definitions at revision " + revision);
         }
+      }
+    }
+  }
+
+  /**
+   * Nothing makes a session the only writer of its resource: {@code Databases.openDatabase} mints a
+   * database handle per call, each with its own resource sessions, and the shared write lock only
+   * serializes their writers. A commit through a second handle creates a catalogue file this session
+   * never heard of, at the revision this session would commit next. The resolution has to find that
+   * file before it trusts what it remembers; answering from memory alone reads no definitions here,
+   * and the listing it replaced would have found the file.
+   */
+  @Test
+  void aCatalogueCommittedThroughAnotherSessionIsFoundAtItsRevision() throws Exception {
+    final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
+              JsonNodeTrx.Commit.NO);
+          trx.commit(); // 1: no catalogue; the session has listed and remembers that
+          insertObject(trx, "b");
+          trx.commit(); // 2
+          assertEquals(3, trx.getRevisionNumber(), "the fixture's revision bookkeeping");
+        }
+        assertEquals(0, casDefinitions(session.getRtxIndexController(2)), "no catalogue before the other commit");
+
+        try (final Database<JsonResourceSession> other = Databases.openJsonDatabase(databasePath);
+            final JsonResourceSession otherSession = other.beginResourceSession(RESOURCE);
+            final JsonNodeTrx trx = otherSession.beginNodeTrx()) {
+          createCasIndex(otherSession, trx, 0);
+          trx.commit(); // 3: a catalogue this session's writers never reported
+        }
+
+        final WorkReport lookup = CAPTURE.run(() -> assertEquals(1, casDefinitions(session.getRtxIndexController(3)),
+            "CAS definitions at the revision another session committed"));
+        lookup.assertZero(LISTINGS, "a catalogue found through the revision's own file needed a listing");
       }
     }
   }

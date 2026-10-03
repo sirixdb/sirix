@@ -363,32 +363,47 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
    * directory is consulted last:
    * <ol>
+   * <li>the requested revision's own file, one {@code stat}: a reader of a revision that committed
+   * definitions, and the one file at or below the request that a writer outside this session can have
+   * added (see below);</li>
    * <li>what this session knows. Once it has listed the directory, the greatest catalogue revision is
    * the greater of that listing's and of what its own writers serialized since, and a request at or
-   * above it resolves to it without touching the file system. This also answers every writer of a
+   * above it resolves to it without further file-system access. This also answers every writer of a
    * resource that has no catalogue at all;</li>
-   * <li>the requested revision's own file: a reader of a revision that committed definitions;</li>
-   * <li>the previous revision's file: the first writer of a session, one {@code stat};</li>
-   * <li>one directory listing, which establishes (1) for the rest of the session.</li>
+   * <li>the previous revision's file: the first writer of a session, one more {@code stat};</li>
+   * <li>one directory listing, which establishes (2) for the rest of the session.</li>
    * </ol>
-   * Each step returns what the listing would return. (2) is the greatest revision the request admits,
-   * and (3) the greatest one left once (2) has missed. (1) holds because only this session's writers
-   * add catalogue files while it is open, each reports its file through
-   * {@link #recordSerializedIndexCatalogueRevision(int)} as soon as it is durable, and nothing
-   * removes one. A request that races a commit sees the catalogues reported so far, as a listing
-   * taken at that instant would; a revision can only be read once its commit, and with it the report,
-   * is complete.
+   * Each step returns what the listing would return. (1) is the greatest revision the request admits,
+   * and (3) the greatest one left once (1) has missed. (2) holds because every catalogue file this
+   * session's writers create is reported through {@link #recordSerializedIndexCatalogueRevision(int)}
+   * as soon as it is durable, and nothing removes one under an open session
+   * ({@code Databases.removeResource} refuses while a session is registered; a restore only fills an
+   * empty directory).
+   *
+   * <p>
+   * Nothing makes this session the only writer of the resource, though:
+   * {@code Databases.openDatabase} mints a database handle per call, each with its own resource
+   * sessions, the write lock is shared across those sessions ({@code WriteLocksRegistry}) and only
+   * serializes their writers, and the database's {@code .lock} file is declared but never created or
+   * checked, so a second process is not refused either. Such a writer commits the revision this
+   * session would commit next, and that commit creates exactly that revision's catalogue file. (1)
+   * runs before (2) so that file is found whenever it exists: for every request at or below the
+   * session's most recent revision plus one, which is every request a transaction of this session
+   * makes, the answer is the greatest catalogue at or below it as it stands when the file is probed,
+   * foreign commits included. (What a foreign writer commits beyond that lies outside this session's
+   * view altogether: {@code lastCommittedUberPage}, which bounds the revisions this session reads and
+   * bases its next writer on, is advanced by its own writers only.)
    */
   private int resolveIndexCatalogueRevision(final Path indexesDir, final int revision) {
+    if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
+      return revision;
+    }
     final int listed = listedIndexCatalogueRevision;
     if (listed != INDEX_CATALOGUE_NOT_LISTED) {
       final int newest = Math.max(listed, serializedIndexCatalogueRevision.get());
       if (newest <= revision) {
         return newest;
       }
-    }
-    if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
-      return revision;
     }
     if (revision > 0 && Files.exists(indexesDir.resolve((revision - 1) + ".xml"))) {
       return revision - 1;

@@ -92,13 +92,16 @@ All notable changes to SirixDB are documented in this file.
   exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file
   per revision that had definitions: work proportional to the revision count on every commit (78 %
   of a one-operation-per-commit load's commit CPU after 21,000 revisions). A resource session now
-  resolves a lookup from what it already knows — the newest catalogue its own writers serialized or
-  its one earlier listing found — or from the requested or previous revision's file, and lists the
-  directory only when none of those can answer: for a session's writers at most once, when the
-  resource has no catalogue or its catalogue was emptied; a reader of an old revision with neither
-  its own nor its predecessor's catalogue still lists. The resolved definitions are unchanged, as
-  is the on-disk layout of `indexes/`. Guarded by the `IndexCatalogueResolutionWorkBudgetTest`
-  work budget.
+  resolves a lookup from the requested revision's own file, then from what it already knows — the
+  newest catalogue its own writers serialized or its one earlier listing found — then from the
+  previous revision's file, and lists the directory only when none of those can answer: for a
+  session's writers at most once, when the resource has no catalogue or its catalogue was emptied;
+  a reader of an old revision with neither its own nor its predecessor's catalogue still lists. The
+  revision's own file comes first because nothing makes a session the only writer of its resource
+  (a second database handle on the same path, or a second process, is not refused), and a commit
+  through another handle creates exactly that file. The resolved definitions are unchanged, as is
+  the on-disk layout of `indexes/`. Guarded by the `IndexCatalogueResolutionWorkBudgetTest` work
+  budget.
 - **A join whose where clause mixes an equality with a general comparison is keyed on the
   equality.** Brackit's predicate pull-up stacks the selections below a binding in an order that no
   longer follows the where clause, and its join recognition keys the join on whichever join-capable
