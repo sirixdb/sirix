@@ -145,7 +145,7 @@ final class ValidTimeLazySliceTest {
   }
 
   @Test
-  void duplicateBoundsWithoutATreeIntervalStillUseTheOriginalFieldLookup() {
+  void duplicateBoundsSpanningTheDomainStillUseTheOriginalFieldLookup() {
     create("""
         [{"id":1,"vf":"invalid","vf":"2026-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
         """);
@@ -154,13 +154,44 @@ final class ValidTimeLazySliceTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
+        // Strict and inclusive endpoints, and the plain closed point route, must all reach it: only
+        // the strict routes union the verification postings, so the record's own registered
+        // whole-domain interval is what the other two depend on.
+        for (final String upper : List.of("lt", "le")) {
+          assertEquals(List.of(1L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT + " "
+              + upper + " xs:dateTime($x.vt) return $x.id").execute(context)), resource + " " + upper);
+        }
         assertEquals(List.of(1L),
             values(new Query(chain,
-                "for $x in " + source(resource) + " where " + POINT + " lt xs:dateTime($x.vt) return $x.id").execute(
-                    context)));
+                "for $x in jn:valid-at('slice','" + resource + "'," + POINT + ") return $x.id").execute(context)),
+            resource);
         final Query malformed = new Query(chain,
             "for $x in " + source(resource) + " where xs:dateTime($x.vf) lt " + POINT + " return $x.id");
         assertThrows(QueryException.class, () -> values(malformed.execute(context)));
+      }
+    }
+  }
+
+  /**
+   * A {@code validFrom} before the domain origin clamps to the domain minimum, so the strict-start
+   * tie removal drops it at the origin even though it really starts earlier. Only the verification
+   * union restores it, which is why a strict start needs that union just as a strict end does.
+   */
+  @Test
+  void aClampedStartBoundStillMatchesAStrictStartSliceAtTheDomainOrigin() {
+    create("""
+        [{"id":1,"vf":"1969-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      final String origin = "xs:dateTime('1970-01-01T00:00:00Z')";
+      for (final String resource : List.of("indexed", "plain")) {
+        final Query query = new Query(chain, "for $x in jn:open-bitemporal('slice','" + resource + "'," + TRANSACTION
+            + "," + origin + ") where xs:dateTime($x.vf) lt " + origin + " return $x.id");
+        assertTrue(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE), resource);
+        assertEquals(List.of(1L), values(query.execute(context)), resource);
       }
     }
   }

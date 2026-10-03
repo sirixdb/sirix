@@ -7,6 +7,7 @@ package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
@@ -124,7 +125,8 @@ public final class ValidTimeIndexDropTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
         final Instant t = UNIVERSAL;
-        assertNotNull(ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), t, validTimeConfig),
+        assertNotNull(
+            ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null),
             "interval index must be usable before the drop");
         assertTrue(optimizedContainsScanFunction(store, flwor(t)), "optimizer must rewrite before the drop");
       }
@@ -162,8 +164,8 @@ public final class ValidTimeIndexDropTest {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
 
         // The interval-index fast path must NO LONGER be taken (index gone).
-        assertNull(ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), UNIVERSAL, validTimeConfig),
-            "interval-index fast path must NOT apply after the drop");
+        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, validTimeConfig, false,
+            false, null), "interval-index fast path must NOT apply after the drop");
 
         for (final Instant t : sampleTimes) {
           final Set<Integer> brute = bruteForce(records, t);
@@ -227,12 +229,11 @@ public final class ValidTimeIndexDropTest {
         // open the document at the pre-drop revision and verify the interval index is usable there.
         final JsonDBItem preDropDoc = collection.getDocument(RES, preDropRevision);
         for (final Instant t : List.of(UNIVERSAL, records.get(0).validFrom(), records.get(0).validTo())) {
-          final ValidTimeIntervalIndex.Result fast =
-              ValidTimeIntervalIndex.tryIndexScan(preDropDoc, t, validTimeConfig);
+          final Sequence fast = ValidTimeIntervalIndex.sequence(preDropDoc, t, validTimeConfig, false, false, null);
           assertNotNull(fast, "time-travel: interval index must still be usable at the pre-drop revision at t=" + t);
           // The pre-drop revision's data does NOT include the post-drop-inserted record.
           final Set<Integer> brutePreDrop = bruteForceExcluding(records, t, newId);
-          assertEquals(brutePreDrop, idsOfItems(fast.items()),
+          assertEquals(brutePreDrop, idsOfSequence(fast),
               "time-travel: interval index at pre-drop revision must equal brute force (pre-drop data) at t=" + t);
         }
       }
@@ -296,7 +297,7 @@ public final class ValidTimeIndexDropTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final ValidTimeConfig vtc = new ValidTimeConfig(VALID_FROM, VALID_TO);
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
-        assertNull(ValidTimeIntervalIndex.tryIndexScan(collection.getDocument(RES), UNIVERSAL, vtc),
+        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, vtc, false, false, null),
             "interval-index fast path must be gone after the drop");
         for (final Instant t : List.of(UNIVERSAL, records.get(0).validFrom(), records.get(0).validTo())) {
           assertEquals(bruteForce(records, t), idsFromValidAt(chain, ctx, t),
@@ -478,11 +479,18 @@ public final class ValidTimeIndexDropTest {
     return ids;
   }
 
-  private static Set<Integer> idsOfItems(final List<JsonDBItem> items) {
+  /** Drain a (possibly lazy) result sequence, reading each item's {@code id} as it is produced. */
+  private static Set<Integer> idsOfSequence(final Sequence sequence) {
     final Set<Integer> ids = new TreeSet<>();
-    for (final JsonDBItem item : items) {
-      final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-      ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
+    final QNm id = new QNm("id");
+    final Iter iter = sequence.iterate();
+    try {
+      Item item;
+      while ((item = iter.next()) != null) {
+        ids.add(((Numeric) ((io.brackit.query.jdm.json.Object) item).get(id)).intValue());
+      }
+    } finally {
+      iter.close();
     }
     return ids;
   }

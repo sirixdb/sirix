@@ -33,6 +33,7 @@ import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -58,6 +59,77 @@ final class ValidTimeSliceWorkBudgetTest {
     assertSliceBudget(true);
   }
 
+  /**
+   * Guards the candidate-source invariant: records needing exact verification are registered in the
+   * RI-tree, so a closed stab that no interval contains must not re-materialize any of them.
+   *
+   * <p>
+   * Healthy: zero {@code moveTo} and zero {@code getValue} for the empty answer, and at least 64 of
+   * each for the 64-record answer. Checked by mutation — making the verification-posting union
+   * unconditional again fails the empty answer at its first {@code moveTo} inside
+   * {@code ValidTimeIntervalIndex.keys}, while the other budget in this class stays green.
+   * </p>
+   */
+  @Test
+  void aClosedStabOutsideEveryIntervalReadsNoObjectWhenEveryRecordNeedsVerification() {
+    final int count = 64;
+    final StringBuilder json = new StringBuilder("[");
+    for (int i = 0; i < count; i++) {
+      if (i != 0) {
+        json.append(',');
+      }
+      // Sub-millisecond bounds: every record is inexact, so every record carries a verification posting.
+      json.append("{\"id\":")
+          .append(i)
+          .append(",\"vf\":\"2020-01-01T00:00:00.000500Z\",\"vt\":\"2020-12-31T23:59:59.000500Z\"}");
+    }
+    json.append(']');
+    shredRows(json.toString());
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final JsonDBItem document = store.lookup("budget").getDocument("rows");
+      final var config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+
+      final Sequence outside =
+          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2019-01-01T00:00:00Z"), config, false, false, null);
+      assertNotNull(outside);
+      assertEquals(0, outside.size().intValue());
+      verify(cursor, never()).moveTo(anyLong());
+      verify(cursor, never()).getValue();
+      verify(cursor, never()).getFirstChildKey();
+
+      // Non-vacuity: the same decorated cursor verifies every one of those records when the point
+      // does fall inside their intervals, so the zero above is a gated union and not a dead route.
+      clearInvocations(cursor);
+      final Sequence inside =
+          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false, null);
+      assertNotNull(inside);
+      assertEquals(count, inside.size().intValue());
+      verify(cursor, atLeast(count)).moveTo(anyLong());
+      verify(cursor, atLeast(count)).getValue();
+    }
+  }
+
+  private void shredRows(final String json) {
+    final Path databasePath = directory.resolve("budget");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (var database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("rows").validTimePaths("vf", "vt").build());
+      try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+        writer.commit();
+      }
+    }
+  }
+
   private void assertSliceBudget(final boolean includeUserFunction) {
     final int count = 64;
     final StringBuilder json = new StringBuilder("[");
@@ -68,15 +140,7 @@ final class ValidTimeSliceWorkBudgetTest {
       json.append("{\"id\":").append(i).append(",\"vf\":\"2020-01-01T00:00:00Z\",\"vt\":\"2030-01-01T00:00:00Z\"}");
     }
     json.append(']');
-    final Path databasePath = directory.resolve("budget");
-    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").validTimePaths("vf", "vt").build());
-      try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
-        writer.commit();
-      }
-    }
+    shredRows(json.toString());
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
