@@ -4,6 +4,7 @@ SirixDB databases are directories of append-only files, which makes backups simp
 the database directory taken while no commit is in flight is a complete, valid backup. The
 `io.sirix.backup.BackupManager` API automates this safely for a *live* database from within
 its owning process. The `backup`/`restore` CLI verbs use the same API.
+Sirix has no streaming or incremental backup tool.
 
 ## Backup (CLI)
 
@@ -60,8 +61,8 @@ restored to (must not exist yet or be empty). The restore:
 
 1. validates the backup has the database directory structure,
 2. copies it to the target,
-3. **verifies** the result by opening the restored database and every resource read-only at its
-   most recent revision (this exercises superblock validation, beacon checksums, the
+3. **verifies** the result by opening the restored database and a read-only transaction on each
+   resource at its most recent revision (this exercises superblock validation, beacon checksums, the
    checksummed revision slots and the page-checksum chain on the root page),
 4. on *any* failure deletes the partial target, so you never end up with a half-restored
    database.
@@ -91,3 +92,6 @@ A cold copy may include the runtime files the CLI skips (`.lock`, `log/.commit`,
 directory. Do **not** cold-copy while a writer is active: a commit could interleave with the
 copy and leave the data/revisions pair inconsistent; use `BackupManager` within the owning
 process for an online backup instead.
+
+Filesystem snapshots (LVM, ZFS) are safe only if the snapshot is atomic across all files of
+the resource. ext4 + LVM is fine; per-file snapshots are not.

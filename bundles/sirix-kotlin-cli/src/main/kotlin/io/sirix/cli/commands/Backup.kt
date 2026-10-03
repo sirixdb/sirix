@@ -1,6 +1,8 @@
 package io.sirix.cli.commands
 
 import io.sirix.backup.BackupManager
+import io.sirix.cli.CliOptions
+import io.sirix.cli.CliPrinter
 import java.nio.file.Paths
 
 /**
@@ -9,7 +11,7 @@ import java.nio.file.Paths
  * writer lock is held while its files are copied). Operational prerequisites are in
  * `docs/BACKUP.md`.
  */
-class Backup(options: io.sirix.cli.CliOptions, private val targetPath: String) : CliCommand(options) {
+class Backup(options: CliOptions, private val targetPath: String) : CliCommand(options) {
 
     override fun execute() {
         val summary = BackupManager.backupDatabase(path(), Paths.get(targetPath))
@@ -19,7 +21,7 @@ class Backup(options: io.sirix.cli.CliOptions, private val targetPath: String) :
 }
 
 /** Prints the per-resource detail of a backup/restore summary (verbose only). */
-internal fun printBackupSummary(summary: BackupManager.BackupSummary, cliPrinter: io.sirix.cli.CliPrinter) {
+internal fun printBackupSummary(summary: BackupManager.BackupSummary, cliPrinter: CliPrinter) {
     cliPrinter.prnLnV("Resources: ${summary.resourcesCopied()}, total bytes: ${summary.totalBytesCopied()}")
     summary.resources().forEach {
         cliPrinter.prnLnV("  - ${it.resourceName()}: revision ${it.mostRecentRevision()}, ${it.bytesCopied()} bytes")

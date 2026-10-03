@@ -79,6 +79,7 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
       }
       closing = true;
     }
+    // Timed writer hooks can call back through this handle; quiesce outside its admission monitor.
     try {
       resourceStore.close();
       Databases.releaseDatabase(owner, this);

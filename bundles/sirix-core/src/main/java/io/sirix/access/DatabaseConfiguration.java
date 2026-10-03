@@ -537,7 +537,8 @@ public final class DatabaseConfiguration {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");
-      jsonReader.nextString(); // The serialized location is informational; the actual path owns I/O.
+      // The serialized location is informational; the actual path owns I/O.
+      final String _ = jsonReader.nextString();
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();

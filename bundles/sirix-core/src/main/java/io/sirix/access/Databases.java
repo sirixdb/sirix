@@ -60,6 +60,8 @@ public final class Databases {
 
   /** One database and OS lock per real directory; guarded by the database lifecycle monitor. */
   private static final Map<Path, OpenDatabase<?>> OPEN_DATABASES = new HashMap<>();
+  // Guarded by Databases.class; reserve removal until both lock channels close. Opening and closing
+  // a competing descriptor can release the remover's POSIX process lock, even if tryLock fails.
   private static final Set<Path> REMOVING_DATABASES = new HashSet<>();
 
   static final class OpenDatabase<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> {
