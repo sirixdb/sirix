@@ -11,8 +11,6 @@ import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.jdm.json.Array;
-import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
@@ -24,7 +22,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonDBObject;
 
 import java.time.Instant;
 
@@ -78,7 +75,7 @@ public final class OpenBitemporal extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 4 && args.length != 6) {
+    if (args.length != 4 && args.length != 7) {
       throw new QueryException(new QNm("Expected 4 arguments: collection, resource, transactionTime, validTime"));
     }
 
@@ -110,25 +107,28 @@ public final class OpenBitemporal extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    final String field = args.length == 6
+    final String field = args.length == 7
         ? ((Str) args[4]).stringValue()
         : null;
-    final int encodedMode = args.length == 6
+    final int encodedMode = args.length == 7
         ? ((IntNumeric) args[5]).intValue()
         : 0;
-    if (args.length == 6 && (encodedMode < 1 || encodedMode > 8)) {
+    if (args.length == 7 && (encodedMode < 1 || encodedMode > 16)) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
     final int mode = encodedMode == 0 ? 0 : ((encodedMode - 1) & 3) + 1;
     final boolean start = mode == 1 || mode == 2;
     final boolean strict = mode == 2 || mode == 4;
+    final Sequence comparisonPoint = args.length == 7 ? args[6] : null;
     final ValidTimeResidual residual = field == null
         ? null
-        : new ValidTimeResidual(sctx, ctx, validDateTime, field, start, strict, false, encodedMode <= 4 ? start : !start);
+        : new ValidTimeResidual(sctx, ctx, comparisonPoint, field, start, strict, encodedMode > 8,
+            ((encodedMode - 1) & 4) == 0 ? start : !start);
     final boolean indexedField = field == null || field.equals(start
         ? validTimeConfig.getNormalizedValidFromPath()
         : validTimeConfig.getNormalizedValidToPath());
-    if (indexedField && (residual == null || validDateTime.getTimezone() != null)) {
+    if (indexedField && (residual == null || comparisonPoint instanceof DateTime point && point.getTimezone() != null
+        && point.cmp(validDateTime) == 0)) {
       final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
           !start && strict, residual);
       if (sequence != null) {
@@ -137,7 +137,7 @@ public final class OpenBitemporal extends AbstractFunction {
     }
 
     if (residual != null) {
-      final Sequence source = ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
+      final Sequence source = closedSequence(document, validTime, validTimeConfig);
       return new LazySequence() {
         @Override
         public Iter iterate() {
@@ -147,7 +147,7 @@ public final class OpenBitemporal extends AbstractFunction {
             public Item next() {
               Item item;
               while ((item = input.next()) != null) {
-                if (item instanceof JsonDBObject object && residual.test(object)) {
+                if (residual.test(item)) {
                   return item;
                 }
               }
@@ -163,98 +163,18 @@ public final class OpenBitemporal extends AbstractFunction {
       };
     }
 
-    // Fast path: if a CAS index exists on a valid-time path, narrow candidates with an index range
-    // scan and verify each by reading (provably the same result set as the linear scan below).
+    return closedSequence(document, validTime, validTimeConfig);
+  }
+
+  private static Sequence closedSequence(final JsonDBItem document, final Instant validTime,
+      final ValidTimeConfig validTimeConfig) {
+    final Sequence intervalSequence =
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
+    if (intervalSequence != null) {
+      return intervalSequence;
+    }
     final ValidTimeIndexScan.Result indexResult = ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
-    if (indexResult != null) {
-      return new ItemSequence(indexResult.items().toArray(new Item[0]));
-    }
-
-    // Fallback: lazy sequence that filters by valid time with a linear scan.
-    return new BitemporalFilterSequence(document, validTime, validTimeConfig);
-  }
-
-  /**
-   * A lazy sequence that filters items by valid time in a bitemporal query.
-   */
-  private static class BitemporalFilterSequence extends LazySequence {
-    private final JsonDBItem document;
-    private final Instant validTime;
-    private final ValidTimeConfig validTimeConfig;
-
-    BitemporalFilterSequence(JsonDBItem document, Instant validTime, ValidTimeConfig validTimeConfig) {
-      this.document = document;
-      this.validTime = validTime;
-      this.validTimeConfig = validTimeConfig;
-    }
-
-    @Override
-    public Iter iterate() {
-      return new BitemporalFilterIter(document, validTime, validTimeConfig);
-    }
-  }
-
-  /**
-   * Iterator that filters items by valid time for bitemporal queries.
-   */
-  private static class BitemporalFilterIter extends BaseIter {
-    private final JsonDBItem document;
-    private final Instant validTime;
-    private final ValidTimeConfig validTimeConfig;
-    private Iter childIter;
-    private boolean initialized;
-
-    BitemporalFilterIter(JsonDBItem document, Instant validTime, ValidTimeConfig validTimeConfig) {
-      this.document = document;
-      this.validTime = validTime;
-      this.validTimeConfig = validTimeConfig;
-      this.initialized = false;
-    }
-
-    @Override
-    public Item next() {
-      if (!initialized) {
-        initialized = true;
-        // Check if the document itself matches the valid time criteria
-        if (isValidAtTime(document)) {
-          return document;
-        }
-        // If the document is an array, iterate its children
-        if (document instanceof Array array) {
-          childIter = array.iterate();
-        }
-      }
-
-      if (childIter != null) {
-        Item item;
-        while ((item = childIter.next()) != null) {
-          if (item instanceof JsonDBItem jsonItem && isValidAtTime(jsonItem)) {
-            return item;
-          }
-        }
-      }
-
-      return null;
-    }
-
-    /**
-     * Checks if the given item is valid at the specified time.
-     *
-     * @param item the item to check
-     * @return true if the item is valid at the specified time
-     */
-    private boolean isValidAtTime(JsonDBItem item) {
-      // Delegate to the single shared predicate so the linear fallback, the interval-index
-      // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
-      return item instanceof Object obj && ValidTimeIndexScan.isValidAtTime(obj, validTime,
-          validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
-    }
-
-    @Override
-    public void close() {
-      if (childIter != null) {
-        childIter.close();
-      }
-    }
+    return indexResult != null ? new ItemSequence(indexResult.items().toArray(new Item[0]))
+        : ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 }

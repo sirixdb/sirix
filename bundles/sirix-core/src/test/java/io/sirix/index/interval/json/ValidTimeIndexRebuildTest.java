@@ -19,6 +19,7 @@ import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -41,18 +42,62 @@ final class ValidTimeIndexRebuildTest {
   @ParameterizedTest
   @ValueSource(strings = {"", "1", "2", "3"})
   void openingRebuildsObsoleteRootsOnceAndRebindsMaintenance(final String format) throws Exception {
+    rebuildAndMaintain(format, false);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "1", "2", "3"})
+  void revertingAfterOpeningUpgradeRebuildsRepresentedCatalogue(final String format) throws Exception {
+    rebuildAndMaintain(format, true);
+  }
+
+  @Test
+  void revertingToRevisionWithoutIndexesPersistsEmptyCatalogue() {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final Path catalogue;
-    final int oldRevision;
-    final long objectKey;
-    final long endKey;
     try (var database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
           .validTimePaths("vf", "vt").build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
             [{"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+            """), JsonNodeTrx.Commit.NO);
+        writer.commit();
+        final int originalRevision = session.getMostRecentRevisionNumber();
+        final IndexDef definition = IndexDefs.createValidTimeIdxDef(
+            Set.of(parse("/[]/vf", PathParser.Type.JSON), parse("/[]/vt", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(definition), writer);
+        writer.commit();
+        writer.revertTo(originalRevision);
+        writer.commit();
+        assertTrue(session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
+      assertEquals(3, session.getMostRecentRevisionNumber());
+      assertTrue(session.getRtxIndexController(3).getIndexes().getIndexDefs().isEmpty());
+      try (var writer = session.beginNodeTrx()) {
+        assertTrue(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
+      }
+    }
+  }
+
+  private void rebuildAndMaintain(final String format, final boolean revert) throws Exception {
+    final Path databasePath = directory.resolve("database");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final Path catalogue;
+    final int oldRevision;
+    final long objectKey;
+    final long endKey;
+    final long unchangedKey;
+    try (var database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
+          .validTimePaths("vf", "vt").build());
+      try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+             {"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
             """), JsonNodeTrx.Commit.NO);
         writer.moveToDocumentRoot();
         assertTrue(writer.moveToFirstChild());
@@ -61,6 +106,9 @@ final class ValidTimeIndexRebuildTest {
         assertTrue(writer.moveToFirstChild());
         assertTrue(writer.moveToRightSibling());
         endKey = writer.getNodeKey();
+        assertTrue(writer.moveTo(objectKey));
+        assertTrue(writer.moveToRightSibling());
+        unchangedKey = writer.getNodeKey();
         final IndexDef definition = IndexDefs.createValidTimeIdxDef(
             Set.of(parse("/[]/vf", PathParser.Type.JSON), parse("/[]/vt", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(definition), writer);
@@ -103,7 +151,28 @@ final class ValidTimeIndexRebuildTest {
         final IntervalDomain domain = new IntervalDomain();
         ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), rebuiltId, domain)
             .stab(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
-        assertEquals(LongOpenHashSet.of(objectKey), matches);
+        assertEquals(LongOpenHashSet.of(objectKey, unchangedKey), matches);
+      }
+    }
+    if (revert) {
+      try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows");
+          var writer = session.beginNodeTrx()) {
+        writer.revertTo(oldRevision);
+        writer.commit();
+      }
+      Databases.clearGlobalCaches();
+    }
+    try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
+      final int revision = oldRevision + (revert ? 2 : 1);
+      assertEquals(revision, session.getMostRecentRevisionNumber());
+      final IndexDef definition = session.getRtxIndexController(revision).getIndexes().getIndexDef(rebuiltId, IndexType.VALIDTIME);
+      assertFalse(definition.needsValidTimeRebuild());
+      try (var reader = session.beginNodeReadOnlyTrx()) {
+        final LongOpenHashSet matches = new LongOpenHashSet();
+        final IntervalDomain domain = new IntervalDomain();
+        ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), rebuiltId, domain)
+            .stab(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
+        assertEquals(LongOpenHashSet.of(objectKey, unchangedKey), matches);
       }
       try (var writer = session.beginNodeTrx()) {
         assertTrue(writer.moveTo(endKey));
@@ -115,14 +184,21 @@ final class ValidTimeIndexRebuildTest {
         final IntervalDomain domain = new IntervalDomain();
         ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), rebuiltId, domain)
             .stab(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
-        assertTrue(matches.isEmpty());
+        assertEquals(LongOpenHashSet.of(unchangedKey), matches);
       }
     }
     Databases.clearGlobalCaches();
     try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
-      assertEquals(oldRevision + 2, session.getMostRecentRevisionNumber());
-      assertFalse(session.getRtxIndexController(oldRevision + 2).getIndexes()
+      assertEquals(oldRevision + (revert ? 3 : 2), session.getMostRecentRevisionNumber());
+      assertFalse(session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes()
           .getIndexDef(rebuiltId, IndexType.VALIDTIME).needsValidTimeRebuild());
+      try (var reader = session.beginNodeReadOnlyTrx()) {
+        final LongOpenHashSet matches = new LongOpenHashSet();
+        final IntervalDomain domain = new IntervalDomain();
+        ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), rebuiltId, domain)
+            .stab(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
+        assertEquals(LongOpenHashSet.of(unchangedKey), matches);
+      }
     }
   }
 }

@@ -8,6 +8,11 @@ import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.DateTime;
 import io.sirix.query.json.JsonDBObject;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Una;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.jdm.Item;
@@ -33,7 +38,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
+import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -547,6 +554,154 @@ final class ValidTimeLazySliceTest {
       assertThrows(QueryException.class, () -> sequence.get(new Int32(2)));
       assertThrows(QueryException.class, sequence::size);
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"interval", "cas", "linear"})
+  void foldedFallbackPreservesClosedSourceOrderAndFirstDemand(final String route) {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+          "otherFrom":"2023-01-01T00:00:00Z","otherTo":"2025-01-01T00:00:00Z"},
+         {"id":2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+          "otherFrom":"2023-01-01T00:00:00Z","otherTo":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      if (route.equals("interval")) {
+        index(chain, context);
+      }
+      final JsonDBItem document = store.lookup("slice").getDocument("indexed");
+      final var cursor = document.getTrx();
+      cursor.moveTo(document.getNodeKey());
+      assertTrue(cursor.moveToFirstChild());
+      assertTrue(cursor.moveToRightSibling());
+      final long second = cursor.getNodeKey();
+      final var session = document.getResourceSession();
+      final JsonNodeTrx writer = session.getNodeTrx().orElseGet(session::beginNodeTrx);
+      if (route.equals("cas")) {
+        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
+            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vf", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
+            IndexDefs.createCASIdxDef(false, Type.DATI, Set.of(parse("/[]/vt", PathParser.Type.JSON)), 1, IndexDef.DbType.JSON)), writer);
+      }
+      writer.moveTo(document.getNodeKey());
+      writer.moveSubtreeToFirstChild(second);
+      writer.commit();
+      final List<Long> expected = route.equals("linear") ? List.of(2L, 1L) : List.of(1L, 2L);
+      for (final String point : List.of(POINT, "xs:dateTime('2024-01-01T00:00:00')")) {
+        final String source = source("indexed").replace(POINT, point);
+        assertEquals(expected, values(new Query(chain, "for $x in " + source + " return $x.id").execute(context)));
+        for (final boolean start : List.of(false, true)) {
+          for (final String field : start ? List.of("vf", "otherFrom") : List.of("vt", "otherTo")) {
+            for (final boolean strict : List.of(false, true)) {
+              for (final boolean general : List.of(false, true)) {
+                for (final boolean mirror : List.of(false, true)) {
+                  final String predicate = comparison(field, start, strict, general, mirror, point);
+                  final String rows = "for $x in " + source + " where " + predicate + " return $x";
+                  final String reference = "for $x at $position in " + source + " where " + predicate + " return $x.id";
+                  assertEquals(expected, values(new Query(chain, reference).execute(context)), reference);
+                  assertEquals(expected, values(new Query(chain, rows + ".id").execute(context)), rows);
+                  final Sequence first = new Query(chain, "subsequence((" + rows + "),1,1)").execute(context);
+                  try (final Iter iterator = first.iterate()) {
+                    assertEquals(expected.getFirst().longValue(),
+                        ((Numeric) ((JsonDBObject) iterator.next()).get(new QNm("id"))).longValue(), rows);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void bitemporalFoldingPreservesUntypedComparisonOperandAndKind() {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      context.bind(new QNm("p"), new Una("2024-01-01T00:00:00Z"));
+      for (final String resource : List.of("indexed", "plain")) {
+        final String source = source(resource).replace(POINT, "$p");
+        for (final boolean start : List.of(false, true)) {
+          for (final boolean strict : List.of(false, true)) {
+            for (final boolean general : List.of(false, true)) {
+              for (final boolean mirror : List.of(false, true)) {
+                final String predicate = comparison(start ? "vf" : "vt", start, strict, general, mirror, "$p");
+                final String prefix = "declare variable $p external; for $x";
+                final String suffix = " in " + source + " where " + predicate + " return $x.id";
+                final Query reference = new Query(chain, prefix + " at $position" + suffix);
+                final Query folded = new Query(chain, prefix + suffix);
+                if (general) {
+                  assertEquals(List.of(1L), values(reference.execute(context)), suffix);
+                  assertEquals(List.of(1L), values(folded.execute(context)), suffix);
+                } else {
+                  final QueryException expected = assertThrows(QueryException.class,
+                      () -> values(reference.execute(context)), suffix);
+                  final QueryException actual = assertThrows(QueryException.class,
+                      () -> values(folded.execute(context)), suffix);
+                  assertEquals(expected.getCode(), actual.getCode(), suffix);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"[1]", "[null]", "[true]", "[\"text\"]", "[[]]", "[]"})
+  void plainFallbackPreservesNonobjectAndEmptyArrayEvaluation(final String json) {
+    create(json);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      context.bind(new QNm("p"), new ItemSequence(new DateTime("2024-01-01T00:00:00Z"),
+          new DateTime("2024-01-01T00:00:00Z")));
+      for (final boolean firstStart : List.of(false, true)) {
+        for (final boolean firstGeneral : List.of(false, true)) {
+          for (final boolean secondGeneral : List.of(false, true)) {
+            for (final boolean mirror : List.of(false, true)) {
+              final String first = comparison(firstStart ? "vf" : "vt", firstStart, !firstStart,
+                  firstGeneral, mirror, "$p");
+              final String second = comparison(firstStart ? "vt" : "vf", !firstStart, firstStart,
+                  secondGeneral, mirror, "$p");
+              final String prefix = "declare variable $p external; for $x in jn:doc('slice','";
+              final String suffix = "')[] where " + first + " and " + second + " return 1";
+              final Query reference = new Query(chain, prefix + "plain" + suffix);
+              final Query folded = new Query(chain, prefix + "indexed" + suffix);
+              if (json.equals("[]") || firstGeneral) {
+                assertEquals(List.of(), values(reference.execute(context)), suffix);
+                assertEquals(List.of(), values(folded.execute(context)), suffix);
+              } else {
+                final QueryException expected = assertThrows(QueryException.class,
+                    () -> values(reference.execute(context)), suffix);
+                final QueryException actual = assertThrows(QueryException.class,
+                    () -> values(folded.execute(context)), suffix);
+                assertEquals(expected.getCode(), actual.getCode(), suffix);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private static String comparison(final String field, final boolean start, final boolean strict,
+      final boolean general, final boolean mirror, final String point) {
+    final String operator = general ? (strict ? "<" : "<=") : (strict ? "lt" : "le");
+    final String bound = "xs:dateTime($x." + field + ")";
+    if (!mirror) {
+      return start ? bound + " " + operator + " " + point : point + " " + operator + " " + bound;
+    }
+    final String swapped = general ? (strict ? ">" : ">=") : (strict ? "gt" : "ge");
+    return start ? point + " " + swapped + " " + bound : bound + " " + swapped + " " + point;
   }
 
   private void create(final String json) {
