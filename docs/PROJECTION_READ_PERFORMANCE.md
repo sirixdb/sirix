@@ -84,16 +84,19 @@ rejects a concurrent resolution of an unrelated leaf; a bulk clear fences every 
 Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB, taken
 from that allowance. Complete adoption discards the corresponding mini page.
 
-Both the raw-fragment cache and the mini cache retain Java-heap images, and each is charged its
-packed bytes plus the page's conservative fixed per-page heap estimate. The record-page budget they
-are carved from is derived from the allocator's off-heap budget, which sizes the complete-leaf cache
-correctly but says nothing about the heap, so each of the two is additionally capped by
-`sirix.hotHeapCache.maxBytes`. That ceiling defaults to one sixteenth of `Runtime.maxMemory()`,
-floored at one carry-forward window, so the pair cannot retain more than an eighth of the heap.
-Capacity the ceiling declines returns to the off-heap complete-leaf cache, leaving the total HOT
-allowance unchanged. Allocator pressure eviction still backs the native complete-leaf cache; a
-heap-resident image consumes no allocator frame and is bounded by this ceiling and the clock sweeper
-instead. Point resolutions
+The raw-fragment cache is mixed-residency and is split accordingly. A committed fragment decodes
+into an allocator frame on every backend that does not implement the compact reads — `MEMORY_MAPPED`,
+anything reached through a plain `Reader` default — and on any byte pipeline whose handler has no
+memory-segment support; it decodes into packed Java-heap bytes only on `FILE_CHANNEL` with a
+segment-capable pipeline. One budget cannot bound both honestly, so `HOTFragmentCache` holds two
+separately weighted halves and consults both on lookup, routing each admission by the image's own
+residency. The native half keeps the pre-existing off-heap fragment share in full, with the allocator
+pressure listener still behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
+unchanged. The compact half and the mini cache retain heap instead, are each charged their packed
+bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
+`sirix.hotHeapCache.maxBytes` — one sixteenth of `Runtime.maxMemory()` by default, floored at one
+carry-forward window. That ceiling spends no off-heap allowance and takes none away; a heap-resident
+image holds no allocator frame, so the clock sweeper and this ceiling are what bound it. Point resolutions
 contribute to `EngineWorkCounters.HOT_LEAF_LOADS`, older point fragments contribute to
 `HOT_FRAGMENTS_WALKED`, and FULL direct reads contribute one leaf load. Existing work-budget
 bounds are unchanged.

@@ -8,30 +8,45 @@ import io.sirix.page.HOTMiniPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Predicate;
 
 /**
  * Buffer-manager-owned, byte-budgeted cache of immutable resolved HOT slots. Hits use the ordinary
- * page-cache guard. Only admissions lock (per key stripe); invalidation fences every in-flight
+ * page-cache guard. Only admissions lock (per resource); invalidation fences every in-flight
  * read-through admission so truncation cannot resurrect an answer under a reused durable offset.
- * The fence lives on the key's own stripe, so promoting one leaf to its complete image never
- * serialises or rejects the concurrent resolution of an unrelated leaf.
+ * The fence lives on the owning resource, so promoting one leaf to its complete image never
+ * serialises or rejects the concurrent resolution of a leaf belonging to any other resource.
  */
 public final class HOTMiniPageCache {
   /** Four distinct confirmed point misses justify one ordinary complete-view reconstruction. */
   public static final int POINT_PROMOTION_DISTINCT_KEYS = 4;
   private static final HOTMiniPageCache DISABLED = new HOTMiniPageCache();
   private final @Nullable ShardedPageCache<HOTMiniPage> pages;
-  private final AdmissionStripe @Nullable [] stripes;
+  /** Copy-on-write, one entry per resource ever admitted; scanned without allocating. */
+  private volatile AdmissionStripe @Nullable [] stripes;
 
   /**
-   * One admission stripe: the monitor that serialises admissions for its keys, and the invalidation
-   * generation those admissions check. Keeping both on the same object is what makes the fence
-   * key-scoped — a bump is published by the same monitor release the admitting thread acquires.
+   * One resource's admission fence: the monitor that serialises its admissions, and the invalidation
+   * generation those admissions check. Keeping both on the same object is what publishes a bump
+   * through the very monitor release the admitting thread acquires.
+   *
+   * <p>
+   * Scoped to the resource rather than to a hash bucket of keys. A hash stripe made two unrelated
+   * resources share a fence, so promoting a leaf in one could reject an in-flight admission in the
+   * other; a resource is the smallest scope every bulk invalidation already works in.
+   * </p>
    */
   private static final class AdmissionStripe {
+    private final long databaseId;
+    private final long resourceId;
     private volatile long generation;
+
+    private AdmissionStripe(final long databaseId, final long resourceId) {
+      this.databaseId = databaseId;
+      this.resourceId = resourceId;
+    }
   }
 
   public HOTMiniPageCache(final long maxWeightBytes) {
@@ -39,10 +54,7 @@ public final class HOTMiniPageCache {
       throw new IllegalArgumentException("Mini-page cache budget must be positive; use disabled()");
     }
     pages = new ShardedPageCache<>(maxWeightBytes);
-    stripes = new AdmissionStripe[64];
-    for (int i = 0; i < stripes.length; i++) {
-      stripes[i] = new AdmissionStripe();
-    }
+    stripes = new AdmissionStripe[0];
   }
 
   private HOTMiniPageCache() {
@@ -56,9 +68,9 @@ public final class HOTMiniPageCache {
 
   /**
    * The fence to capture BEFORE reading anything an admission for {@code key} will be derived from,
-   * and to hand back to {@link #admit} or {@link #claimPointPromotion}. It is striped, so a discard
-   * may conservatively reject an admission for another key sharing the stripe; it can never let a
-   * stale one through.
+   * and to hand back to {@link #admit} or {@link #claimPointPromotion}. It is per resource, so a
+   * discard may conservatively reject an admission for another leaf of the SAME resource; it never
+   * touches another resource, and it can never let a stale admission through.
    */
   public long generation(final PageReference key) {
     Objects.requireNonNull(key);
@@ -68,8 +80,29 @@ public final class HOTMiniPageCache {
   }
 
   private AdmissionStripe stripeFor(final PageReference key) {
-    final AdmissionStripe[] all = Objects.requireNonNull(stripes);
-    return all[key.hashCode() & (all.length - 1)];
+    final long databaseId = key.getDatabaseId();
+    final long resourceId = key.getResourceId();
+    final AdmissionStripe[] existing = Objects.requireNonNull(stripes);
+    for (final AdmissionStripe candidate : existing) {
+      if (candidate.databaseId == databaseId && candidate.resourceId == resourceId) {
+        return candidate;
+      }
+    }
+    return addStripe(databaseId, resourceId);
+  }
+
+  private synchronized AdmissionStripe addStripe(final long databaseId, final long resourceId) {
+    final AdmissionStripe[] existing = Objects.requireNonNull(stripes);
+    for (final AdmissionStripe candidate : existing) {
+      if (candidate.databaseId == databaseId && candidate.resourceId == resourceId) {
+        return candidate;
+      }
+    }
+    final AdmissionStripe created = new AdmissionStripe(databaseId, resourceId);
+    final AdmissionStripe[] grown = Arrays.copyOf(existing, existing.length + 1);
+    grown[existing.length] = created;
+    stripes = grown;
+    return created;
   }
 
   public @Nullable HOTMiniPage getAndGuard(final PageReference key) {
@@ -164,7 +197,7 @@ public final class HOTMiniPageCache {
 
   /**
    * Drop the subset after complete-page promotion and reject earlier, unfinished admissions for this
-   * key. Every complete-leaf reconstruction calls this, so it touches only the key's own stripe: an
+   * key. Every complete-leaf reconstruction calls this, so it touches only its own resource: an
    * admission either publishes before the bump and is removed here, or sees the bump and declines.
    */
   public void discard(final PageReference key) {

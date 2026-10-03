@@ -1037,13 +1037,14 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public @Nullable HOTLeafPage advanceToNextLeaf() {
     // Pop back up the tree until we find an unvisited sibling
+    final TraversalPath path = traversalPath();
     while (pathDepth > 0) {
       final int parentIdx = pathDepth - 1;
-      final HOTIndirectPage parent = traversalPath().nodes[parentIdx];
+      final HOTIndirectPage parent = path.nodes[parentIdx];
       final int numChildren = parent.getNumChildren();
 
-      for (int nextChildIdx = traversalPath().childIndices[parentIdx] + 1; nextChildIdx < numChildren; nextChildIdx++) {
-        traversalPath().childIndices[parentIdx] = nextChildIdx;
+      for (int nextChildIdx = path.childIndices[parentIdx] + 1; nextChildIdx < numChildren; nextChildIdx++) {
+        path.childIndices[parentIdx] = nextChildIdx;
 
         final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef == null) {
@@ -1118,12 +1119,13 @@ public final class HOTTrieReader implements AutoCloseable {
   private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren,
       final int depth) {
     // Hint each sibling once per visit of its parent: start past the watermark, and advance it.
-    final int from = Math.max(startIdx, traversalPath().prefetchedUntil[depth]);
+    final TraversalPath path = traversalPath();
+    final int from = Math.max(startIdx, path.prefetchedUntil[depth]);
     final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
     if (from >= end) {
       return;
     }
-    traversalPath().prefetchedUntil[depth] = end;
+    path.prefetchedUntil[depth] = end;
     if (spanPrefetchCapable) {
       // One batched span hint for the whole window: zero threads, zero locks, and the
       // backend coalesces (WILLNEED readahead on mmap; one ring submit on io_uring).

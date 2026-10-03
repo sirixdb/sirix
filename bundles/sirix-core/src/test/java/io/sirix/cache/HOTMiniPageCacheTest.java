@@ -380,6 +380,41 @@ final class HOTMiniPageCacheTest {
   }
 
   @Test
+  void aPromotionInOneResourceCannotRejectAnAdmissionInAnotherEvenWhenTheKeysCollide() {
+    final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
+    final PageReference promoted = key(1, 2, 3);
+    try {
+      // A hash-bucketed fence put these two keys on one stripe; a per-resource fence cannot.
+      PageReference colliding = null;
+      for (long offset = 4; offset < 8_192 && colliding == null; offset++) {
+        final PageReference candidate = key(1, 3, offset);
+        if ((candidate.hashCode() & 63) == (promoted.hashCode() & 63)) {
+          colliding = candidate;
+        }
+      }
+      assertNotNull(colliding, "no key of the sibling resource lands in the promoted key's hash bucket");
+      final long siblingGeneration = cache.generation(colliding);
+      cache.discard(promoted);
+      assertEquals(siblingGeneration, cache.generation(colliding),
+          "promoting a leaf of one resource must not advance another resource's fence");
+      cache.admit(colliding, siblingGeneration, 1, KEY, -1, new HOTLeafEntry(VALUE, null));
+      final HOTMiniPage admitted = cache.getAndGuard(colliding);
+      assertNotNull(admitted, "the sibling resource's admission was rejected by an unrelated promotion");
+      assertArrayEquals(VALUE, admitted.copyEntry(admitted.find(KEY, -1)).value());
+      admitted.releaseGuard();
+
+      final PageReference sameResource = key(1, 2, 99);
+      final long ownGeneration = cache.generation(sameResource);
+      cache.discard(promoted);
+      cache.admit(sameResource, ownGeneration, 1, KEY, -1, new HOTLeafEntry(VALUE, null));
+      assertNull(cache.getAndGuard(sameResource),
+          "within one resource the fence stays conservative, as the contract documents");
+    } finally {
+      cache.clear();
+    }
+  }
+
+  @Test
   void aPromotionFencesItsOwnKeyUnderARaceAndLeavesUnrelatedLeavesAdmitting() throws Exception {
     final HOTMiniPageCache cache = new HOTMiniPageCache(1L << 20);
     final PageReference promoted = key(1, 2, 3);
@@ -387,7 +422,7 @@ final class HOTMiniPageCacheTest {
       final PageReference[] unrelated = new PageReference[64];
       final long[] captured = new long[unrelated.length];
       for (int i = 0; i < unrelated.length; i++) {
-        unrelated[i] = key(1, 2, 1_000 + i);
+        unrelated[i] = key(1, 3 + i, 1_000 + i);
         captured[i] = cache.generation(unrelated[i]);
       }
       cache.discard(promoted);
@@ -492,8 +527,10 @@ final class HOTMiniPageCacheTest {
     cache.clear();
     assertEquals(0, cache.getCurrentWeightBytes());
     try (final BufferManagerImpl manager = new BufferManagerImpl(1L << 20, 1L << 28, 1L << 20, 4, 4, 4)) {
-      assertEquals(1L << 26, manager.getHOTLeafPageCacheMaxWeightBytes()
-          + manager.getHOTLeafFragmentCacheMaxWeightBytes() + manager.getHOTMiniPageCacheMaxWeightBytes());
+      assertEquals(1L << 26,
+          manager.getHOTLeafPageCacheMaxWeightBytes() + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes()
+              + manager.getHOTMiniPageCacheMaxWeightBytes(),
+          "the off-heap HOT allowance covers the complete leaves, the native fragments and the slots");
       final HOTMiniPageCache mini = manager.getHOTMiniPageCache();
       final PageReference key = key(1, 2, 3);
       mini.admit(key, mini.generation(key), 1, KEY, -1, null);

@@ -259,10 +259,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. A compact decoder-only image
    * owns exactly {@code entryCount} offsets; {@link #ensureMutableSlotMemorySlow} widens it before
-   * the first in-place mutation and every copy restores full capacity. Only that promotion ever
-   * replaces the array, with identical contents, so a concurrent read of either array is equivalent.
+   * the first in-place mutation and every copy restores full capacity.
+   *
+   * <p>
+   * Volatile because that promotion replaces the array while unsynchronized readers index it: a plain
+   * reference store publishes the widened array unsafely, so a racing reader could observe it with
+   * default-zero elements and silently resolve every slot to entry 0's header. The volatile store is
+   * the release that publishes the copied contents, and each reader's load is the matching acquire.
+   * Loops that index it more than once snapshot it into a local, so the barrier is paid once per
+   * search rather than once per comparison.
+   * </p>
    */
-  private int[] slotOffsets;
+  private volatile int[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
 
@@ -666,15 +674,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     int minBytePos = Integer.MAX_VALUE;
     int maxBytePos = 0;
     final int[] diffBits = new int[entryCount - 1];
+    final int[] offsets = slotOffsets;
     boolean hasDiffBits = false;
 
     for (int i = 0; i < entryCount - 1; i++) {
       // Zero-alloc: pass both suffix regions (offset+length) within slotMemory directly to
       // DiscriminativeBitComputer instead of materializing two NativeMemorySegmentImpl views
       // via asSlice. The slot table already validated these offsets at deserialization.
-      final int off1 = slotOffsets[i];
+      final int off1 = offsets[i];
       final int len1 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off1));
-      final int off2 = slotOffsets[i + 1];
+      final int off2 = offsets[i + 1];
       final int len2 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off2));
       final int diffBit = DiscriminativeBitComputer.computeDifferingBit(slotMemory, off1 + 2L, len1, off2 + 2L, len2);
       diffBits[i] = diffBit;
@@ -935,11 +944,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   private int binarySearchCompactSuffix(final byte[] key, final int keyLen, final byte[] slots) {
+    final int[] offsets = slotOffsets;
     int low = 0;
     int high = entryCount;
     while (low < high) {
       final int middle = (low + high) >>> 1;
-      final int offset = slotOffsets[middle];
+      final int offset = offsets[middle];
       final int suffixLength = (slots[offset] & 0xff) | (slots[offset + 1] & 0xff) << 8;
       final int start = offset + Short.BYTES;
       final int comparison = Arrays.compareUnsigned(slots, start, start + suffixLength, key, commonPrefixLen, keyLen);

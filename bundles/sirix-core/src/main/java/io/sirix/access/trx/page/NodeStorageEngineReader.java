@@ -3297,14 +3297,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private Page[] readDurableBatch(final PageReference[] references, final boolean hotFragments) {
-    Page[] loaded = hotFragments
+    final Page[] loaded = hotFragments
         ? pageReader.readHOTLeafFragments(references, resourceConfig)
         : pageReader.read(references, resourceConfig);
-    if (loaded == null && hotFragments) {
-      // Preserve the ordinary batch supplied by a partial backend or test double that predates
-      // the optional compact decoder. Real readers always return an input-aligned array.
-      loaded = pageReader.read(references, resourceConfig);
-    }
     if (loaded == null) {
       final Page[] scalar = new Page[references.length];
       try {

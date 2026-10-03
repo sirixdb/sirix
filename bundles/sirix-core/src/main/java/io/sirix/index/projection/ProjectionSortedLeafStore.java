@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
 
@@ -111,6 +112,16 @@ final class ProjectionSortedLeafStore {
 
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber,
       final int leafId) {
+    return read(reader, indexNumber, leafId, HOTReadIntent.SCAN);
+  }
+
+  /**
+   * Read one data leaf under an explicit read intent. A seek resolves exactly this leaf and takes
+   * {@link HOTReadIntent#POINT}; a cursor advance keeps {@link HOTReadIntent#SCAN} because it is
+   * walking the view in order and wants the complete physical leaf it will keep reading from.
+   */
+  static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber, final int leafId,
+      final HOTReadIntent intent) {
     if (reader == null) {
       throw new NullPointerException("storage reader is required");
     }
@@ -118,7 +129,7 @@ final class ProjectionSortedLeafStore {
     if (observer != null) {
       observer.accept(leafId);
     }
-    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId));
+    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId), intent);
     return bytes == null
         ? null
         : ProjectionSortedLeaf.open(bytes);

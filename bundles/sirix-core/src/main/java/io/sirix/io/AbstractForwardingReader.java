@@ -75,6 +75,35 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
+  public Page readHOTLeafFragment(PageReference key, ResourceConfiguration resourceConfiguration) {
+    // Forward explicitly — the interface default falls back to the full read, which would strip the
+    // delegate's compact fragment decode from every write transaction reached through a forwarder.
+    return delegate().readHOTLeafFragment(key, resourceConfiguration);
+  }
+
+  @Override
+  public Page readHOTLeafFragment(PageReference key, ResourceConfiguration resourceConfiguration,
+      long committedExtent) {
+    // Forward explicitly — same reason, and the inherited default also discards the chain's
+    // already-captured extent bound, re-consulting the file for every scalar fragment.
+    return delegate().readHOTLeafFragment(key, resourceConfiguration, committedExtent);
+  }
+
+  @Override
+  public Page[] readHOTLeafFragments(PageReference[] references, ResourceConfiguration resourceConfiguration) {
+    // Forward explicitly — the interface default delegates to the batch read, whose own default is a
+    // scalar loop, so a forwarder silently lost both the batch I/O and the compact decode.
+    return delegate().readHOTLeafFragments(references, resourceConfiguration);
+  }
+
+  @Override
+  public long committedDataExtent() {
+    // Forward explicitly — the interface default reports "no bound", which makes every scalar
+    // fragment read of a chain consult the file size again.
+    return delegate().committedDataExtent();
+  }
+
+  @Override
   public int preferredPrefetchBatch() {
     return delegate().preferredPrefetchBatch();
   }

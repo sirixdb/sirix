@@ -73,10 +73,12 @@ public final class BufferManagerImpl implements BufferManager {
 
   /**
    * Ceiling in bytes for EACH HOT cache that retains Java-heap images rather than allocator frames:
-   * the raw-fragment cache, whose compact decoded images own a packed {@code byte[]}, and the
-   * resolved-slot mini cache. Both are charged their full heap footprint (packed bytes plus the
+   * the compact half of the raw-fragment cache, whose decoded images own a packed {@code byte[]}, and
+   * the resolved-slot mini cache. Both are charged their full heap footprint (packed bytes plus the
    * page's conservative fixed per-page estimate), so this is a bound on retained heap and cannot be
-   * derived from the allocator's off-heap budget the way the complete-leaf ceiling is.
+   * derived from the allocator's off-heap budget the way the complete-leaf ceiling is. It does NOT
+   * touch native fragment images: a backend without compact decode (MEMORY_MAPPED, or any byte
+   * pipeline whose handler has no memory-segment support) keeps the whole off-heap fragment share.
    *
    * <p>
    * Operator-facing because the right size depends on how much of the heap the embedding application
@@ -264,7 +266,7 @@ public final class BufferManagerImpl implements BufferManager {
 
   // Individual HOT leaf fragments, keyed by their own durable offset (see the interface javadoc for
   // why this cannot share hotLeafPageCache).
-  private final ShardedPageCache<HOTLeafPage> hotLeafFragmentCache;
+  private final HOTFragmentCache hotLeafFragmentCache;
 
   private final HOTMiniPageCache hotMiniPageCache;
 
@@ -338,12 +340,11 @@ public final class BufferManagerImpl implements BufferManager {
     // the new fragment cache its own quarter would silently double the HOT ceiling from 25% to 50%
     // of the record-page budget.
     //
-    // The record-page budget is derived from the allocator's OFF-HEAP budget, so it sizes the
-    // combined-leaf cache correctly — a complete leaf always owns an allocator frame. The
-    // raw-fragment and resolved-slot caches retain JAVA-HEAP images instead (a compact decoded
-    // fragment owns a packed byte[], a mini page a packed byte[]), so each of those is additionally
-    // capped by HOT_HEAP_CACHE_BYTES_PROPERTY. Heap capacity those caps decline returns to the
-    // combined-leaf cache below, so the total off-heap HOT allowance is unchanged either way.
+    // The record-page budget is derived from the allocator's OFF-HEAP budget, so it sizes every
+    // cache of allocator frames correctly: the combined leaves, and the native half of the fragment
+    // cache, which keeps that share in full. Compact fragment images and mini pages retain JAVA-HEAP
+    // bytes instead, so they are bounded by HOT_HEAP_CACHE_BYTES_PROPERTY, which is derived from the
+    // heap. The heap ceiling spends no off-heap allowance and takes none away.
     //
     // The split is 3:1 in favour of the combined leaves, not even. Combined leaves back every HOT
     // read, and their working set is the whole live index; fragments back only the copy-on-write
@@ -362,8 +363,7 @@ public final class BufferManagerImpl implements BufferManager {
     final long hotHeapBudget = hotHeapCacheBudgetBytes();
     final long hotFragmentBudget = hotLeafBudget <= 0
         ? hotLeafBudget
-        : Math.min(Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES)),
-            hotHeapBudget);
+        : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
     // Reserve 1/16 of the existing complete-leaf share (at most 64 MiB) for resolved slots.
     // The total HOT allowance and raw-fragment allowance do not increase.
     final long combinedBudget = hotLeafBudget - hotFragmentBudget;
@@ -374,7 +374,9 @@ public final class BufferManagerImpl implements BufferManager {
         ? HOTMiniPageCache.disabled()
         : new HOTMiniPageCache(miniBudget);
     hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget);
-    hotLeafFragmentCache = new ShardedPageCache<>(hotFragmentBudget);
+    hotLeafFragmentCache = new HOTFragmentCache(hotFragmentBudget, hotFragmentBudget <= 0
+        ? hotFragmentBudget
+        : hotHeapBudget);
 
     // PageCache uses Caffeine which internally uses long for weights
     pageCache = new PageCache(maxPageCacheWeight);
@@ -393,7 +395,8 @@ public final class BufferManagerImpl implements BufferManager {
           recordPageCache.getCurrentWeightBytes(), recordPageCache.getMaxWeightBytes(), recordPageCache.size(),
           recordPageFragmentCache.getCurrentWeightBytes(), recordPageFragmentCache.getMaxWeightBytes(),
           hotLeafPageCache.getCurrentWeightBytes(), hotLeafPageCache.getMaxWeightBytes(),
-          hotLeafFragmentCache.getCurrentWeightBytes(), hotLeafFragmentCache.getMaxWeightBytes());
+          hotLeafFragmentCache.nativeImages().getCurrentWeightBytes(),
+          hotLeafFragmentCache.nativeImages().getMaxWeightBytes());
       recordPageCache.evictUnderPressure();
       recordPageFragmentCache.evictUnderPressure();
       hotLeafPageCache.evictUnderPressure();
@@ -576,9 +579,10 @@ public final class BufferManagerImpl implements BufferManager {
 
     // Start ClockSweeper for HOTLeafFragmentCache (GLOBAL)
     {
-      final ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.getShard(new PageReference());
+      final ShardedPageCache.Shard<HOTLeafPage> shard =
+          hotLeafFragmentCache.nativeImages().getShard(new PageReference());
       final ClockSweeper sweeper =
-          new ClockSweeper(shard, hotLeafFragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+          new ClockSweeper(shard, hotLeafFragmentCache.nativeImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
       final Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragment-GLOBAL");
       thread.setDaemon(true);
       thread.start();
@@ -744,9 +748,19 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache.getCurrentWeightBytes();
   }
 
-  /** Configured max weight (bytes) of the HOT-leaf-fragment cache. */
+  /** Configured max weight (bytes) of the HOT-leaf-fragment cache, both residencies together. */
   public long getHOTLeafFragmentCacheMaxWeightBytes() {
     return hotLeafFragmentCache.getMaxWeightBytes();
+  }
+
+  /** Off-heap budget of the fragment cache's allocator-frame images, unaffected by the heap cap. */
+  public long getNativeHOTLeafFragmentCacheMaxWeightBytes() {
+    return hotLeafFragmentCache.nativeImages().getMaxWeightBytes();
+  }
+
+  /** Retained-heap budget of the fragment cache's compact decoded images. */
+  public long getHeapHOTLeafFragmentCacheMaxWeightBytes() {
+    return hotLeafFragmentCache.heapImages().getMaxWeightBytes();
   }
 
   @Override
@@ -1086,7 +1100,8 @@ public final class BufferManagerImpl implements BufferManager {
       clearHotPageCache(hotLeafPageCache, matches);
     } finally {
       try {
-        clearHotPageCache(hotLeafFragmentCache, matches);
+        clearHotPageCache(hotLeafFragmentCache.nativeImages(), matches);
+        clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
       } finally {
         hotMiniPageCache.invalidate(matches);
       }
