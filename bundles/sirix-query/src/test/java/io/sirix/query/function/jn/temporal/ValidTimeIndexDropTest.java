@@ -12,6 +12,7 @@ import io.brackit.query.compiler.AST;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Object;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
@@ -343,7 +344,7 @@ public final class ValidTimeIndexDropTest {
     if (node == null) {
       return false;
     }
-    final Object v = node.getValue();
+    final var v = node.getValue();
     if (v != null && v.toString().contains(sub)) {
       return true;
     }
@@ -470,8 +471,8 @@ public final class ValidTimeIndexDropTest {
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-        ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
+        final Object obj = (Object) item;
+        ids.add(((Numeric) obj.get(new QNm("id"))).intValue());
       }
     } finally {
       iter.close();
@@ -487,7 +488,7 @@ public final class ValidTimeIndexDropTest {
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        ids.add(((Numeric) ((io.brackit.query.jdm.json.Object) item).get(id)).intValue());
+        ids.add(((Numeric) ((Object) item).get(id)).intValue());
       }
     } finally {
       iter.close();
