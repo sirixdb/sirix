@@ -19,6 +19,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -1807,6 +1808,152 @@ final class ProjectionBloomChunksTest {
     }
   }
 
+  @ParameterizedTest
+  @CsvSource({"FULL,true,false", "FULL,false,false", "FULL,true,true", "FULL,false,true",
+      "DIFFERENTIAL,true,false", "DIFFERENTIAL,false,false", "DIFFERENTIAL,true,true", "DIFFERENTIAL,false,true",
+      "INCREMENTAL,true,false", "INCREMENTAL,false,false", "INCREMENTAL,true,true", "INCREMENTAL,false,true",
+      "SLIDING_SNAPSHOT,true,false", "SLIDING_SNAPSHOT,false,false", "SLIDING_SNAPSHOT,true,true",
+      "SLIDING_SNAPSHOT,false,true"})
+  void regrownOpenSpansRetireStaleBlocksBeforeRefolding(final VersioningType versioning,
+      final boolean missingManifest, final boolean alignedRetreat) throws IOException {
+    createVersionedResource(versioning);
+    final byte[] kinds =
+        {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
+    final int leaves = ProjectionBloomChunks.CHUNK_LEAVES;
+    final int[] counts = alignedRetreat
+        ? new int[] {2 * leaves + 3, leaves, leaves + 1, 2 * leaves}
+        : new int[] {3 * leaves + 3, leaves + 7, 2 * leaves + 1, 3 * leaves};
+    final int editedRowGroup = counts[2];
+    final long editedHash =
+        ProjectionIndexColumnSegmentCodec.bloomHash("updated-right".getBytes(StandardCharsets.UTF_8));
+    assertFalse(ProjectionIndexColumnSegmentCodec.bloomMayContainHash(
+        bloomSegment(twoColumnRowGroup(kinds, "left", "right"), 1), editedHash));
+    for (int revision = 1; revision <= counts.length; revision++) {
+      final int attempts = revision == counts.length ? 2 : 1;
+      for (int attempt = 0; attempt < attempts; attempt++) {
+        final boolean rollback = attempts == 2 && attempt == 0;
+        try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+            JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage =
+              new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+          final int count = counts[revision - 1];
+          if (revision == 1) {
+            final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+            try {
+              for (int rowGroupId = 1; rowGroupId <= count; rowGroupId++) {
+                final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+                    twoColumnRowGroup(kinds, rowGroupId, "left", "right");
+                storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+                writer.append(encoded, rowGroupId, storage);
+              }
+              writer.finishChunks(storage, count, kinds);
+              writer.publishManifests(storage, count);
+            } finally {
+              writer.release();
+            }
+          } else {
+            final LongOpenHashSet changed = new LongOpenHashSet();
+            if (revision == 2) {
+              if (missingManifest) {
+                storage.tombstoneBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(1));
+              } else {
+                storage.putBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(1), new byte[] {9, 8, 7});
+              }
+              changed.add(1L);
+            } else {
+              for (int rowGroupId = counts[revision - 2] + 1; rowGroupId <= count; rowGroupId++) {
+                storage.putRowGroupAsColumnSegmentSlots(rowGroupId,
+                    twoColumnRowGroup(kinds, rowGroupId, "left", rowGroupId == editedRowGroup
+                        ? "updated-right"
+                        : "right"));
+                changed.add(rowGroupId);
+              }
+            }
+            ProjectionBloomChunks.rewriteTouchedChunks(storage, kinds, count, changed);
+          }
+          if (rollback) {
+            wtx.rollback();
+          } else {
+            wtx.commit();
+          }
+          assertEquals(rollback ? revision - 1 : revision, session.getMostRecentRevisionNumber());
+        }
+        final int visibleRevision = rollback ? revision - 1 : revision;
+        assertRegrowthRevision(visibleRevision, counts[visibleRevision - 1], visibleRevision >= 3 ? editedRowGroup : -1,
+            kinds);
+      }
+    }
+    for (int revision = counts.length; revision >= 1; revision--) {
+      assertRegrowthRevision(revision, counts[revision - 1], revision >= 3 ? editedRowGroup : -1, kinds);
+    }
+  }
+
+  private static void assertRegrowthRevision(final int revision, final int count, final int editedRowGroup,
+      final byte[] kinds) {
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+        JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final ProjectionBloomChunks.ColumnEvidence[] evidence =
+          ProjectionBloomChunks.read(rtx.getStorageEngineReader(), INDEX_NUMBER, kinds, count);
+      assertNotNull(evidence);
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher =
+          ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final List<byte[]> payloads = new ArrayList<>(count);
+      for (int rowGroupId = 1; rowGroupId <= count; rowGroupId++) {
+        final byte[] payload = ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, rowGroupId);
+        assertNotNull(payload);
+        final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(payload);
+        assertEquals(1, page.getRowCount());
+        assertEquals(rowGroupId, page.firstRecordKey());
+        payloads.add(payload);
+      }
+      final String[] values = {"updated-right", "right", "left", "absent"};
+      for (int query = 0; query < values.length; query++) {
+        final int column = query == 2 ? 0 : 1;
+        final byte[] value = values[query].getBytes(StandardCharsets.UTF_8);
+        final long[] keep =
+            prune(evidence[column], count, ProjectionIndexColumnSegmentCodec.bloomHash(value), fetcher);
+        final ProjectionIndexScan.ColumnPredicate[] predicates =
+            {ProjectionIndexScan.ColumnPredicate.stringEq(column, value)};
+        final LongArrayList expectedKeys = new LongArrayList(count);
+        final LongArrayList actualKeys = new LongArrayList(count);
+        final LongArrayList prunedKeys = new LongArrayList(count);
+        for (int leaf = 0; leaf < count; leaf++) {
+          final int rowGroupId = leaf + 1;
+          final boolean expectedMatch = switch (query) {
+            case 0 -> rowGroupId == editedRowGroup;
+            case 1 -> rowGroupId != editedRowGroup;
+            case 2 -> true;
+            default -> false;
+          };
+          if (expectedMatch) {
+            expectedKeys.add(rowGroupId);
+          }
+          final boolean actualMatch =
+              ProjectionIndexScan.conjunctiveCount(List.of(payloads.get(leaf)), predicates) == 1L;
+          if (actualMatch) {
+            actualKeys.add(rowGroupId);
+          }
+          final boolean kept = (keep[leaf >>> 6] & (1L << (leaf & 63))) != 0L;
+          if (kept && actualMatch) {
+            prunedKeys.add(rowGroupId);
+          }
+          if (query == 0 && expectedMatch) {
+            assertKept(keep, leaf, "the regrown row must survive refolding at revision " + revision);
+          } else {
+            assertEquals(expectedMatch, kept,
+                "keep bit for " + values[query] + " at row group " + rowGroupId + " in revision " + revision);
+          }
+        }
+        assertEquals(expectedKeys, actualKeys, "exact stored matching rows in revision " + revision);
+        assertEquals(expectedKeys, prunedKeys, "exact matching rows after pruning in revision " + revision);
+      }
+    }
+  }
+
   /**
    * The parallel chunk-range split must stay a partition whatever it weighs: every chunk falls in
    * exactly one range, so pruning range by range clears exactly the bits one whole-range walk clears.
@@ -2300,8 +2447,13 @@ final class ProjectionBloomChunksTest {
 
   private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup twoColumnRowGroup(final byte[] kinds,
       final String left, final String right) {
+    return twoColumnRowGroup(kinds, 1L, left, right);
+  }
+
+  private static ProjectionIndexColumnSegmentCodec.EncodedRowGroup twoColumnRowGroup(final byte[] kinds,
+      final long recordKey, final String left, final String right) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds.clone());
-    page.appendRow(1L, new long[] {0L, 0L}, new boolean[] {false, false}, new String[] {left, right},
+    page.appendRow(recordKey, new long[] {0L, 0L}, new boolean[] {false, false}, new String[] {left, right},
         new boolean[] {true, true}, new boolean[] {false, false}, new boolean[] {false, false},
         new boolean[] {false, false});
     return ProjectionIndexColumnSegmentCodec.encode(page.serialize());

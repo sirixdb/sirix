@@ -1008,7 +1008,8 @@ public final class ProjectionBloomChunks {
         // Per column, against that column's OWN published mark: one column whose manifest is missing
         // must not stop every other column from reopening its block.
         if (!isStringKind(columnKinds[c])
-            || (priorPhysical[c] >= 0 && sealedChunkCount(priorPhysical[c]) <= sealedNew)) {
+            || (priorPhysical[c] >= 0 && sealedChunkCount(priorPhysical[c]) == sealedNew
+                && openLeafCount(priorPhysical[c]) > 0)) {
           continue;
         }
         final long chunkSlot = chunkSlotKey(c, sealedNew);
