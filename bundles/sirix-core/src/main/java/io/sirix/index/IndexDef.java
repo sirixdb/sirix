@@ -45,7 +45,7 @@ public final class IndexDef implements Materializable {
 
   private static final QNm VALID_TIME_FORMAT_ATTRIBUTE = new QNm("validTimeFormat");
 
-  private static final String VALID_TIME_FORMAT = "4";
+  private static final String VALID_TIME_FORMAT = "5";
 
   private String validTimeFormat = VALID_TIME_FORMAT;
 

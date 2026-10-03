@@ -13,6 +13,7 @@ import org.roaringbitmap.longlong.LongIterator;
 
 import java.util.Iterator;
 import java.util.Map;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
 
 import static java.util.Objects.requireNonNull;
@@ -44,6 +45,22 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class HotOrderedStore implements OrderedStore {
+
+  private static final boolean SCAN_DIAGNOSTICS = Boolean.getBoolean("sirix.validTime.scanDiag");
+  private static final LongAdder INTERVAL_REFS_EMITTED = new LongAdder();
+  private static final LongAdder POSTING_REFS_EMITTED = new LongAdder();
+
+  public static boolean scanDiagnosticsEnabled() {
+    return SCAN_DIAGNOSTICS;
+  }
+
+  public static long intervalRefsEmitted() {
+    return INTERVAL_REFS_EMITTED.sum();
+  }
+
+  public static long postingRefsEmitted() {
+    return POSTING_REFS_EMITTED.sum();
+  }
 
   private final byte store;
   private final @Nullable HOTIndexWriter<ValidTimeKey> writer;
@@ -104,6 +121,13 @@ public final class HotOrderedStore implements OrderedStore {
       }
       final LongIterator longIt = refs.getNodeKeys().getLongIterator();
       while (longIt.hasNext()) {
+        if (SCAN_DIAGNOSTICS) {
+          if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
+            INTERVAL_REFS_EMITTED.increment();
+          } else {
+            POSTING_REFS_EMITTED.increment();
+          }
+        }
         out.accept(longIt.next());
       }
     }

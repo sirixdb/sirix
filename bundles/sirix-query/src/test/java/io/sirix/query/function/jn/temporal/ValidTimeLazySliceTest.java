@@ -13,6 +13,8 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.jdm.Item;
@@ -32,6 +34,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -556,6 +559,118 @@ final class ValidTimeLazySliceTest {
       assertEquals(1, ((Numeric) ((JsonDBObject) sequence.get(Int32.ONE)).get(new QNm("id"))).intValue());
       assertThrows(QueryException.class, () -> sequence.get(new Int32(2)));
       assertThrows(QueryException.class, sequence::size);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"vf,build", "vt,build", "vf,update", "vt,update", "vf,seed", "vt,seed", "vf,insert", "vt,insert"})
+  void emptyFractionsRetainCastErrorsAcrossBuildUpdateSeedAndInsert(final String field, final String route) {
+    final String raw = field.equals("vf") ? "2023-01-01T00:00:00.Z" : "2025-01-01T00:00:00.Z";
+    final String good = "{\"id\":1,\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}";
+    final String bad = "{\"id\":2,\"vf\":\"%s\",\"vt\":\"%s\"}".formatted(
+        field.equals("vf") ? raw : "2023-01-01T00:00:00Z",
+        field.equals("vt") ? raw : "2025-01-01T00:00:00Z");
+    create("[" + good + (route.equals("insert") ? "" : "," +
+        (route.equals("update") ? good.replace("\"id\":1", "\"id\":2") : bad)) + "]");
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      if (!route.equals("build")) {
+        for (final String resource : List.of("indexed", "plain")) {
+          final JsonDBItem document = store.lookup("slice").getDocument(resource);
+          final var session = document.getResourceSession();
+          final JsonNodeTrx writer = session.getNodeTrx().orElseGet(session::beginNodeTrx);
+          assertTrue(writer.moveTo(document.getNodeKey()));
+          if (route.equals("insert")) {
+            writer.insertSubtreeAsLastChild(JsonShredder.createStringReader(bad), JsonNodeTrx.Commit.NO);
+          } else {
+            assertTrue(writer.moveToFirstChild());
+            assertTrue(writer.moveToRightSibling());
+            assertTrue(writer.moveToFirstChild());
+            final String changedField = route.equals("seed") ? (field.equals("vf") ? "vt" : "vf") : field;
+            while (!changedField.equals(writer.getName().getLocalName())) {
+              assertTrue(writer.moveToRightSibling());
+            }
+            writer.setStringValue(route.equals("seed")
+                ? (field.equals("vf") ? "2026-01-01T00:00:00Z" : "2022-01-01T00:00:00Z") : raw);
+          }
+          writer.commit();
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final QNm castError = assertThrows(QueryException.class, () -> new DateTime(raw)).getCode();
+      final String comparison = field.equals("vf") ? "xs:dateTime($x.vf) lt " + POINT
+          : POINT + " lt xs:dateTime($x.vt)";
+      assertEquals(castError, assertThrows(QueryException.class, () -> new Query(chain,
+          "count(for $x in " + source("indexed") + " where " + comparison + " return $x)")
+          .evaluate(context)).getCode());
+      final JsonDBItem document = store.lookup("slice").getDocument("indexed");
+      final var cursor = document.getTrx();
+      assertTrue(cursor.moveTo(document.getNodeKey()));
+      assertTrue(cursor.moveToFirstChild());
+      assertTrue(cursor.moveToRightSibling());
+      final long badKey = cursor.getNodeKey();
+      final IndexDef definition = document.getResourceSession().getRtxIndexController(cursor.getRevisionNumber())
+          .getIndexes().getIndexDefs().stream().filter(IndexDef::isValidTimeIndex).findFirst().orElseThrow();
+      final LongOpenHashSet unverified = new LongOpenHashSet();
+      ValidTimeIntervalIndexFactory.createVerificationStore(cursor.getStorageEngineReader(), definition.getID())
+          .scan(0, 0, 0, unverified::add);
+      assertEquals(LongOpenHashSet.of(badKey), unverified);
+      final JsonDBObject badObject = new JsonDBObject(cursor, document.getCollection());
+      final Sequence badOnly = ValidTimeIntervalIndex.sequence(badObject, Instant.parse("2024-01-01T00:00:00Z"),
+          document.getResourceSession().getResourceConfig().getValidTimeConfig(), field.equals("vf"), field.equals("vt"),
+          new ValidTimeResidual(null, context, () -> new DateTime("2024-01-01T00:00:00Z"), field,
+              field.equals("vf"), true, false, field.equals("vf")));
+      assertEquals(castError, assertThrows(QueryException.class, badOnly::booleanValue).getCode());
+      for (final String resource : List.of("indexed", "plain")) {
+        assertEquals(2, ((Numeric) new Query(chain, "count(" + source(resource) + ")").evaluate(context)).intValue());
+        final String other = field.equals("vf") ? POINT + " lt xs:dateTime($x.vt)" : "xs:dateTime($x.vf) lt " + POINT;
+        assertEquals(List.of(1L, 2L), values(new Query(chain,
+            "for $x in " + source(resource) + " where " + other + " return $x.id").execute(context)));
+        for (final String operator : List.of("lt", "le", "<", "<=")) {
+          for (final boolean mirror : new boolean[] {false, true}) {
+            final String inverse = switch (operator) {
+              case "lt" -> "gt";
+              case "le" -> "ge";
+              case "<" -> ">";
+              default -> ">=";
+            };
+            final String bound = "xs:dateTime($x." + field + ")";
+            final String predicate = mirror
+                ? (field.equals("vf") ? POINT + " " + inverse + " " + bound : bound + " " + inverse + " " + POINT)
+                : (field.equals("vf") ? bound + " " + operator + " " + POINT : POINT + " " + operator + " " + bound);
+            final String folded = "for $x in " + source(resource) + " where " + predicate + " return $x";
+            final String plainSource = "for $x in jn:doc('slice','" + resource + "')[] where ";
+            for (final String expression : List.of(folded, plainSource + predicate + " and " + other + " return $x",
+                plainSource + other + " and " + predicate + " return $x")) {
+              final Sequence rows = new Query(chain, expression).execute(context);
+              assertEquals(1, ((Numeric) ((JsonDBObject) rows.get(Int32.ONE)).get(new QNm("id"))).intValue());
+              assertEquals(castError, assertThrows(QueryException.class, () -> rows.get(new Int32(2))).getCode());
+              assertEquals(castError, assertThrows(QueryException.class, rows::size).getCode());
+              assertEquals(castError, assertThrows(QueryException.class,
+                  () -> new Query(chain, "count(" + expression + ")").evaluate(context)).getCode());
+              try (final Iter iterator = rows.iterate()) {
+                assertEquals(1, ((Numeric) ((JsonDBObject) iterator.next()).get(new QNm("id"))).intValue());
+                assertEquals(castError, assertThrows(QueryException.class, iterator::next).getCode());
+              }
+            }
+          }
+        }
+        final String outside = field.equals("vf") ? "xs:dateTime('2019-01-01T00:00:00Z')"
+            : "xs:dateTime('2030-01-01T00:00:00Z')";
+        final String predicate = field.equals("vf") ? "xs:dateTime($x.vf) le " + outside
+            : outside + " lt xs:dateTime($x.vt)";
+        assertEquals(0, ((Numeric) new Query(chain, "count(for $x in " + source(resource).replace(POINT, outside)
+            + " where " + predicate + " return $x)").evaluate(context)).intValue());
+        assertEquals(castError, assertThrows(QueryException.class, () -> new Query(chain,
+            "count(for $x in jn:doc('slice','" + resource + "')[] where " + predicate + " and "
+                + other.replace(POINT, outside) + " return $x)").evaluate(context)).getCode());
+      }
     }
   }
 

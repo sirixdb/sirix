@@ -120,7 +120,9 @@ maintains, so a budget quotes the same numbers an investigation would:
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
-  listings. Only what a budget captures is listed: a catalog entry nothing reads is one more thing
+  listings, valid-time interval and posting references emitted by ordered-store scans. The valid-time
+  figures guard empty stabs that used to expand whole-array membership and verification postings.
+  Only what a budget captures is listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
@@ -153,7 +155,9 @@ maintains, so a budget quotes the same numbers an investigation would:
 cannot switch one on for itself. The module's `test` block provides the property and the capture
 asserts it (`WorkCounter.requireLive()`), because a switched-off counter reads zero and zero
 satisfies every upper bound. Today that is `sirix.hot.mergeDiag`, provided in both
-`bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`.
+`bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`. Those test blocks also provide
+`sirix.validTime.scanDiag`; `ValidTimeSliceWorkBudgetTest` requires zero interval/posting references
+for empty answers and counts both kinds on nonempty answers through the same gated seam.
 
 **Adding a counter to the engine.** Only when a path a test must guard has none. Keep it off the hot
 path: gate it as `VersioningType` gates its merge counters if it sits on a per-record or per-page
