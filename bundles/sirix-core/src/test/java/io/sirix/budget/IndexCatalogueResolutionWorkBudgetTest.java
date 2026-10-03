@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -63,9 +64,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * definitions. So every fixture is its own oracle: each revision's definitions are read back in the
  * session that wrote them, in a session that committed on top of them, and in a fresh one whose
  * first lookup is its oldest revision. Without the writer's report, revision 3 reads none. And a
- * catalogue committed through another handle on the same database, which no lock refuses, is found
- * because the revision's own file is probed before the session trusts its memory: trusting the
- * memory first reads no definitions at that revision.
+ * catalogue committed through another handle on the same database is read back in the first handle.
+ * The handles must also share catalogue knowledge: a second handle must not list again after the
+ * first established that no catalogue exists, or lose definitions when resolving the next revision
+ * after a catalogue committed through the other handle.
  */
 @Isolated
 final class IndexCatalogueResolutionWorkBudgetTest {
@@ -275,12 +277,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
   }
 
   /**
-   * Nothing makes a session the only writer of its resource: {@code Databases.openDatabase} mints a
-   * database handle per call, each with its own resource sessions, and the shared write lock only
-   * serializes their writers. A commit through a second handle creates a catalogue file this session
-   * never heard of, at the revision this session would commit next. The resolution has to find that
-   * file before it trusts what it remembers; answering from memory alone reads no definitions here,
-   * and the listing it replaced would have found the file.
+   * A catalogue committed through another handle is visible at its exact revision without listing.
    */
   @Test
   void aCatalogueCommittedThroughAnotherSessionIsFoundAtItsRevision() throws Exception {
@@ -303,12 +300,54 @@ final class IndexCatalogueResolutionWorkBudgetTest {
             final JsonResourceSession otherSession = other.beginResourceSession(RESOURCE);
             final JsonNodeTrx trx = otherSession.beginNodeTrx()) {
           createCasIndex(otherSession, trx, 0);
-          trx.commit(); // 3: a catalogue this session's writers never reported
+          trx.commit(); // 3: a catalogue published through the other handle
         }
 
         final WorkReport lookup = CAPTURE.run(() -> assertEquals(1, casDefinitions(session.getRtxIndexController(3)),
             "CAS definitions at the revision another session committed"));
         lookup.assertZero(LISTINGS, "a catalogue found through the revision's own file needed a listing");
+      }
+    }
+  }
+
+  /**
+   * With per-session listing state the second handle lists once instead of zero times. With
+   * per-session serialized state the first handle resolves zero CAS definitions instead of one. Both
+   * defects were restored independently and this fixture failed at the corresponding assertion.
+   */
+  @Test
+  void handlesShareListedAndSerializedCatalogueKnowledge() throws Exception {
+    final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> first = Databases.openJsonDatabase(databasePath);
+        final Database<JsonResourceSession> second = Databases.openJsonDatabase(databasePath)) {
+      first.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = first.beginResourceSession(RESOURCE);
+          final JsonResourceSession other = second.beginResourceSession(RESOURCE)) {
+        final WorkCapture.Captured<JsonNodeTrx> firstWriter = CAPTURE.call(session::beginNodeTrx);
+        try (final JsonNodeTrx trx = firstWriter.result()) {
+          firstWriter.work().assertExactly(LISTINGS, 1, "the first writer establishes that no catalogue exists");
+          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
+              JsonNodeTrx.Commit.NO);
+          trx.commit();
+        }
+        CAPTURE.run(() -> assertEquals(0, casDefinitions(other.getRtxIndexController(1))))
+               .assertZero(LISTINGS, "a second handle forgot the first handle's directory listing");
+
+        try (final JsonNodeTrx trx = other.beginNodeTrx()) {
+          createCasIndex(other, trx, 0);
+          trx.commit(); // 2: the catalogue serialized through the second handle
+        }
+        final int revision = other.getMostRecentRevisionNumber();
+        assertEquals(revision, session.getMostRecentRevisionNumber());
+        final var indexes =
+            other.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+        assertTrue(Files.exists(indexes.resolve(revision + ".xml")), "the committed catalogue exists");
+        assertFalse(Files.exists(indexes.resolve((revision + 1) + ".xml")), "the next revision has no own file");
+        // Use a fresh reader controller to exercise resolution; the writer's next controller is cached.
+        CAPTURE.run(() -> assertEquals(1, casDefinitions(session.getRtxIndexController(revision + 1)),
+            "the first handle sees the catalogue serialized through the second"))
+               .assertZero(LISTINGS, "a second handle forgot the other handle's serialized catalogue");
       }
     }
   }
