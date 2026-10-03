@@ -100,14 +100,14 @@ public final class ProjectionBloomChunks {
   static int dropColumn(final ProjectionIndexHOTStorage storage, final int column, final int physicalRowGroupCount) {
     int dropped = 0;
     final long manifestSlot = ProjectionIndexHOTStorage.bloomBlockSlotKey(column);
-    if (storage.getBlob(manifestSlot) != null) {
+    if (storage.getRawSlot(manifestSlot) != null) {
       storage.tombstoneBlob(manifestSlot);
       dropped++;
     }
     final int chunks = chunkCount(physicalRowGroupCount);
     for (int chunkId = 0; chunkId < chunks; chunkId++) {
       final long chunkSlot = chunkSlotKey(column, chunkId);
-      if (storage.getBlob(chunkSlot) != null) {
+      if (storage.getRawSlot(chunkSlot) != null) {
         storage.tombstoneBlob(chunkSlot);
         dropped++;
       }
@@ -115,7 +115,7 @@ public final class ProjectionBloomChunks {
     final int openFirst = sealedChunkCount(physicalRowGroupCount) * CHUNK_LEAVES + 1;
     for (int rowGroupId = openFirst; rowGroupId <= physicalRowGroupCount; rowGroupId++) {
       final long tailSlot = tailSlotKey(column, rowGroupId);
-      if (storage.getBlob(tailSlot) != null) {
+      if (storage.getRawSlot(tailSlot) != null) {
         storage.tombstoneBlob(tailSlot);
         dropped++;
       }
@@ -876,9 +876,7 @@ public final class ProjectionBloomChunks {
         chunksWritten++;
         if (priorSlices == null) {
           for (int i = 0; i < leafCount; i++) {
-            if (storage.getBlob(tailSlotKey(c, firstLeaf + i)) != null) {
-              storage.tombstoneBlob(tailSlotKey(c, firstLeaf + i));
-            }
+            storage.tombstoneBlob(tailSlotKey(c, firstLeaf + i));
           }
         }
       }
@@ -994,7 +992,7 @@ public final class ProjectionBloomChunks {
         final int priorSealed = sealedChunkCount(parsedPrior.physicalRowGroupCount());
         for (int chunkId = sealedNew; chunkId < priorSealed; chunkId++) {
           final long chunkSlot = chunkSlotKey(c, chunkId);
-          if (storage.getBlob(chunkSlot) != null) {
+          if (storage.getRawSlot(chunkSlot) != null) {
             storage.tombstoneBlob(chunkSlot);
             chunksWritten++;
           }
@@ -1002,7 +1000,7 @@ public final class ProjectionBloomChunks {
         final int firstRemovedTail = Math.max(physicalRowGroupCount + 1, priorSealed * CHUNK_LEAVES + 1);
         for (int rowGroupId = firstRemovedTail; rowGroupId <= parsedPrior.physicalRowGroupCount(); rowGroupId++) {
           final long tailSlot = tailSlotKey(c, rowGroupId);
-          if (storage.getBlob(tailSlot) != null) {
+          if (storage.getRawSlot(tailSlot) != null) {
             storage.tombstoneBlob(tailSlot);
             chunksWritten++;
           }

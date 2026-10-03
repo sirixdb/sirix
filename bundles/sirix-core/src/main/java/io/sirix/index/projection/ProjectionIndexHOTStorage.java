@@ -3845,7 +3845,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return payload;
   }
 
-  /** Writer-side read of one raw HOT slot (no PIXB framing), for the sparse record locator. */
+  /** Writer-side read of one raw HOT slot; {@code null} when absent or tombstoned. */
   byte @Nullable [] getRawSlot(final long slotKey) {
     final byte[] value = readSlotValueForWrite(slotKey);
     return value == null || value.length == 0
