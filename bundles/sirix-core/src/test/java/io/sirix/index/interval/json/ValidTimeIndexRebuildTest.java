@@ -41,19 +41,19 @@ final class ValidTimeIndexRebuildTest {
   Path directory;
 
   @ParameterizedTest
-  @ValueSource(strings = {"", "1", "2", "3", "4"})
+  @ValueSource(strings = {"", "1", "2", "3", "4", "5"})
   void explicitMaintenanceRebuildsObsoleteRootsOnceAndRebindsMaintenance(final String format) throws Exception {
     rebuildAndMaintain(format, false, false);
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"", "1", "2", "3", "4"})
+  @ValueSource(strings = {"", "1", "2", "3", "4", "5"})
   void writerRebuildsObsoleteRootsOnCommitAndRebindsMaintenance(final String format) throws Exception {
     rebuildAndMaintain(format, false, true);
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"", "1", "2", "3", "4"})
+  @ValueSource(strings = {"", "1", "2", "3", "4", "5"})
   void revertingAfterExplicitUpgradeRebuildsRepresentedCatalogue(final String format) throws Exception {
     rebuildAndMaintain(format, true, false);
   }

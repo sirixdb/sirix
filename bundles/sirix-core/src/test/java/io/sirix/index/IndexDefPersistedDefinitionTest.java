@@ -45,7 +45,7 @@ final class IndexDefPersistedDefinitionTest {
     final IndexDef missingFormat = new IndexDef(IndexDef.DbType.JSON);
     missingFormat.init(persisted);
     assertTrue(missingFormat.needsValidTimeRebuild());
-    for (final String obsolete : List.of("1", "2", "3", "4")) {
+    for (final String obsolete : List.of("1", "2", "3", "4", "5")) {
       persisted.deleteAttribute(format);
       persisted.setAttribute(format, new Str(obsolete));
       final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
