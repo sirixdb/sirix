@@ -563,10 +563,8 @@ public final class NodeReferencesSerializer {
       byte[] chunkBytes = null;
       try {
         final byte[] candidate = leaf.getKey(idx);
-        if (candidate != null && (candidate.length == compositeLen || (postingDeltas && candidate.length == deltaLen))
-            && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0
-            && (candidate.length == compositeLen
-                || PostingDeltas.isDelta(HOTKeySerializer.readChunkIdx(candidate, 0, deltaLen) & 0xFFFFFFFFL))) {
+        if (candidate != null
+            && matchesPostingSlot(candidate, prefixBuf, prefixLen, compositeLen, deltaLen, postingDeltas)) {
           composite = candidate;
           // Preserve zero-length vs unreadable instead of letting getValue() collapse both to an
           // absent value. A matched composite slot must carry a canonical chunk payload.
@@ -591,42 +589,58 @@ public final class NodeReferencesSerializer {
       tornRounds = 0;
       if (composite != null && chunkBytes != null && !isTombstone(chunkBytes, 0, chunkBytes.length)) {
         // The copies are validated heap bytes now — safe to hand to the deserializer.
-        final long trailer = HOTKeySerializer.readChunkIdx(composite, 0, compositeLen) & 0xFFFFFFFFL;
-        if (composite.length == deltaLen) {
-          final long suffix = HOTKeySerializer.readChunkIdx(composite, 0, deltaLen) & 0xFFFFFFFFL;
-          // A delta slot follows its base chunk in application order.
-          final long deltaHigh = trailer << 16;
-          final boolean remove = PostingDeltas.isRemove(suffix);
-          if (chunkBytes.length != 2 + Long.BYTES || chunkBytes[0] != PACKED_FORMAT || chunkBytes[1] != 1) {
-            throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
-          }
-          final long nodeKey = deltaHigh | requireChunkBit16(readKeyBE(chunkBytes, 2));
-          if (remove) {
-            if (merged != null) {
-              merged.removeLong(nodeKey);
-            }
-          } else {
-            if (merged == null) {
-              merged = new Roaring64Bitmap();
-            }
-            merged.addLong(nodeKey);
-          }
-        } else {
-          final Roaring64Bitmap chunkBitmap = deserializeChunk(chunkBytes).getNodeKeys();
-          if (merged == null) {
-            merged = new Roaring64Bitmap();
-          }
-          // chunkIdx is UNSIGNED (see ChunkAccumulator#addChunk): mask before widening, exactly as the
-          // reader-side call sites do. Sign-extending here would make the writer's same-transaction
-          // view reconstruct a different node key than the reader for the very same stored chunk.
-          final long high = trailer << 16;
-          final LongIterator bIt = chunkBitmap.getLongIterator();
-          while (bIt.hasNext()) {
-            merged.add(high | bIt.next());
-          }
-        }
+        merged = mergeChunkOrDelta(merged, composite, chunkBytes, compositeLen, deltaLen);
       }
       cursor.advance();
+    }
+    return merged;
+  }
+
+  /** Select only this logical key's base chunks and, when enabled, valid delta suffixes. */
+  private static boolean matchesPostingSlot(final byte[] candidate, final byte[] prefixBuf, final int prefixLen,
+      final int compositeLen, final int deltaLen, final boolean postingDeltas) {
+    return (candidate.length == compositeLen || (postingDeltas && candidate.length == deltaLen))
+        && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0
+        && (candidate.length == compositeLen
+            || PostingDeltas.isDelta(HOTKeySerializer.readChunkIdx(candidate, 0, deltaLen) & 0xFFFFFFFFL));
+  }
+
+  /** Merge one stamp-validated base or delta payload, in the cursor's application order. */
+  private static @Nullable Roaring64Bitmap mergeChunkOrDelta(@Nullable Roaring64Bitmap merged, final byte[] composite,
+      final byte[] chunkBytes, final int compositeLen, final int deltaLen) {
+    final long trailer = HOTKeySerializer.readChunkIdx(composite, 0, compositeLen) & 0xFFFFFFFFL;
+    if (composite.length == deltaLen) {
+      final long suffix = HOTKeySerializer.readChunkIdx(composite, 0, deltaLen) & 0xFFFFFFFFL;
+      // A delta slot follows its base chunk in application order.
+      final long deltaHigh = trailer << 16;
+      final boolean remove = PostingDeltas.isRemove(suffix);
+      if (chunkBytes.length != 2 + Long.BYTES || chunkBytes[0] != PACKED_FORMAT || chunkBytes[1] != 1) {
+        throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
+      }
+      final long nodeKey = deltaHigh | requireChunkBit16(readKeyBE(chunkBytes, 2));
+      if (remove) {
+        if (merged != null) {
+          merged.removeLong(nodeKey);
+        }
+      } else {
+        if (merged == null) {
+          merged = new Roaring64Bitmap();
+        }
+        merged.addLong(nodeKey);
+      }
+    } else {
+      final Roaring64Bitmap chunkBitmap = deserializeChunk(chunkBytes).getNodeKeys();
+      if (merged == null) {
+        merged = new Roaring64Bitmap();
+      }
+      // chunkIdx is UNSIGNED (see ChunkAccumulator#addChunk): mask before widening, exactly as the
+      // reader-side call sites do. Sign-extending here would make the writer's same-transaction
+      // view reconstruct a different node key than the reader for the very same stored chunk.
+      final long high = trailer << 16;
+      final LongIterator bIt = chunkBitmap.getLongIterator();
+      while (bIt.hasNext()) {
+        merged.add(high | bIt.next());
+      }
     }
     return merged;
   }

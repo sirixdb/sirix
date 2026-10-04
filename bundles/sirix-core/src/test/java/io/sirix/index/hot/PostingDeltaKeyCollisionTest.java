@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 import static java.util.Objects.requireNonNull;
@@ -101,37 +102,9 @@ final class PostingDeltaKeyCollisionTest {
             final HOTIndexWriter<CASValue> writer =
                 HOTIndexWriter.create(trx.getStorageEngineWriter(), CASKeySerializer.INSTANCE, IndexType.CAS, 0);
             if (revision == 1) {
-              final HOTBulkIndexLoader<CASValue> loader = writer.createBulkLoader();
-              for (final String value : values) {
-                final CASValue key = key(value);
-                for (int i = 0; i < 400; i++) {
-                  loader.add(key, 2L * i);
-                  expected.add(2L * i);
-                }
-                for (final long nodeKey : boundaries) {
-                  loader.add(key, nodeKey);
-                  expected.add(nodeKey);
-                }
-              }
-              loader.flush();
+              bulkLoadRangePostings(writer, values, boundaries, expected);
             } else {
-              for (final String value : values) {
-                final CASValue key = key(value);
-                for (int i = 0; i < 150; i++) {
-                  if (revision == 2) {
-                    writer.indexNodeKey(key, 1000L + i);
-                  } else {
-                    assertTrue(writer.remove(key, 1000L + i));
-                  }
-                }
-              }
-              for (int i = 0; i < 150; i++) {
-                if (revision == 2) {
-                  expected.add(1000L + i);
-                } else {
-                  expected.remove(1000L + i);
-                }
-              }
+              mutateRangePostings(writer, values, expected, revision == 2);
             }
             final long[] keys = expected.stream().mapToLong(Long::longValue).toArray();
             for (final String value : values) {
@@ -152,6 +125,44 @@ final class PostingDeltaKeyCollisionTest {
         JsonResourceSession session = database.beginResourceSession("resource")) {
       for (int revision = 1; revision <= snapshots.size(); revision++) {
         assertRanges(session, revision, values, snapshots.get(revision - 1));
+      }
+    }
+  }
+
+  private static void bulkLoadRangePostings(final HOTIndexWriter<CASValue> writer, final String[] values,
+      final long[] boundaries, final Set<Long> expected) {
+    final HOTBulkIndexLoader<CASValue> loader = writer.createBulkLoader();
+    for (final String value : values) {
+      final CASValue key = key(value);
+      for (int i = 0; i < 400; i++) {
+        loader.add(key, 2L * i);
+        expected.add(2L * i);
+      }
+      for (final long nodeKey : boundaries) {
+        loader.add(key, nodeKey);
+        expected.add(nodeKey);
+      }
+    }
+    loader.flush();
+  }
+
+  private static void mutateRangePostings(final HOTIndexWriter<CASValue> writer, final String[] values,
+      final Set<Long> expected, final boolean add) {
+    for (final String value : values) {
+      final CASValue key = key(value);
+      for (int i = 0; i < 150; i++) {
+        if (add) {
+          writer.indexNodeKey(key, 1000L + i);
+        } else {
+          assertTrue(writer.remove(key, 1000L + i));
+        }
+      }
+    }
+    for (int i = 0; i < 150; i++) {
+      if (add) {
+        expected.add(1000L + i);
+      } else {
+        expected.remove(1000L + i);
       }
     }
   }
