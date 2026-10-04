@@ -33,6 +33,14 @@ public final class IndexDef implements Materializable {
 
   private static final QNm INCLUDING_TAG = new QNm("including");
 
+  private static final QNm NAME_TAG = new QNm("name");
+
+  private static final QNm NAME_URI_ATTRIBUTE = new QNm("uri");
+
+  private static final QNm NAME_PREFIX_ATTRIBUTE = new QNm("prefix");
+
+  private static final QNm NAME_LOCAL_ATTRIBUTE = new QNm("local");
+
   private static final QNm PATH_TAG = new QNm("path");
 
   private static final QNm UNIQUE_ATTRIBUTE = new QNm("unique");
@@ -299,31 +307,8 @@ public final class IndexDef implements Materializable {
       tmp.closeElement();
     }
 
-    if (!excluded.isEmpty()) {
-      tmp.openElement(EXCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm s : excluded) {
-        buf.append(s).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
-
-    if (!included.isEmpty()) {
-      tmp.openElement(INCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm incl : included) {
-        buf.append(incl).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
+    materializeNames(tmp, EXCLUDING_TAG, excluded);
+    materializeNames(tmp, INCLUDING_TAG, included);
     //
     // if (indexStatistics != null) {
     // tmp.insert(indexStatistics.materialize());
@@ -331,6 +316,37 @@ public final class IndexDef implements Materializable {
 
     tmp.closeElement();
     return tmp.getRoot();
+  }
+
+  /**
+   * Persist each component separately: lexical QNames lose URIs and comma-delimited lists lose names.
+   */
+  private static void materializeNames(final FragmentHelper fragment, final QNm tag, final Set<QNm> names) {
+    if (names.isEmpty()) {
+      return;
+    }
+    fragment.openElement(tag);
+    for (final QNm name : names) {
+      fragment.openElement(NAME_TAG);
+      fragment.attribute(NAME_URI_ATTRIBUTE, new Una(name.getNamespaceURI()));
+      fragment.attribute(NAME_PREFIX_ATTRIBUTE, new Una(name.getPrefix()));
+      fragment.attribute(NAME_LOCAL_ATTRIBUTE, new Una(name.getLocalName()));
+      fragment.closeElement();
+    }
+    fragment.closeElement();
+  }
+
+  private static void readNames(final Node<?> parent, final Set<QNm> names) {
+    try (final Stream<? extends Node<?>> children = parent.getChildren()) {
+      Node<?> child;
+      while ((child = children.next()) != null) {
+        if (NAME_TAG.equals(child.getName())) {
+          names.add(new QNm(child.getAttribute(NAME_URI_ATTRIBUTE).getValue().stringValue(),
+              child.getAttribute(NAME_PREFIX_ATTRIBUTE).getValue().stringValue(),
+              child.getAttribute(NAME_LOCAL_ATTRIBUTE).getValue().stringValue()));
+        }
+      }
+    }
   }
 
   @Override
@@ -409,20 +425,9 @@ public final class IndexDef implements Materializable {
               ? PathParser.Type.JSON
               : PathParser.Type.XML));
         } else if (childName.equals(INCLUDING_TAG)) {
-          for (final String s : value.split(",")) {
-            if (s.length() > 0) {
-              included.add(new QNm(s));
-              // String includeString = s;
-              // String[] tmp = includeString.split("@");
-              // included.put(new QNm(tmp[0]),
-              // Cluster.valueOf(tmp[1]));
-            }
-          }
+          readNames(child, included);
         } else if (childName.equals(EXCLUDING_TAG)) {
-          for (final String s : value.split(",")) {
-            if (s.length() > 0)
-              excluded.add(new QNm(s));
-          }
+          readNames(child, excluded);
         } else if (childName.equals(PROJECTION_FIELDS_TAG)) {
           try (Stream<? extends Node<?>> fieldNodes = child.getChildren()) {
             Node<?> fieldNode;

@@ -65,6 +65,7 @@ import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
+import io.sirix.utils.XmlNameResolver;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
 import org.jspecify.annotations.Nullable;
@@ -318,7 +319,8 @@ final class XmlNodeTrxImpl extends
     final QNm name;
     if (indexController.hasNameIndex() && node instanceof NameNode nameNode) {
       name = switch (kind) {
-        case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION -> nameNode.getName();
+        case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION ->
+          XmlNameResolver.resolveName(nameNode, storageEngineWriter);
         default -> null;
       };
     } else {
@@ -1717,12 +1719,15 @@ final class XmlNodeTrxImpl extends
               ? pathSummaryWriter.getNodeKey()
               : 0);
 
+          final long newPathNodeKey = node2.getPathNodeKey();
           nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node2);
           persistUpdatedRecord(node2);
           nodeHashing.adaptHashedWithUpdate(oldHash);
 
-          // Re-index under the NEW name/path (see the DELETE above).
-          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node2, node2.getPathNodeKey());
+          // Hash propagation rebinds the write singleton to ancestors. The restored read cursor
+          // still addresses the renamed node; node2 may now address its parent.
+          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(),
+              newPathNodeKey);
           if (pendingStructuralChange >= 0) {
             indexController.notifyAfterStructuralChange(pendingStructuralChange);
             pendingStructuralChange = -1L;

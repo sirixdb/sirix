@@ -1,5 +1,6 @@
 package io.sirix.index;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +47,32 @@ final class IndexDefPersistedDefinitionTest {
     final IndexDef reread = reloaded.getIndexDef(definition.getID(), definition.getType());
     assertNotNull(reread, "the persisted catalogue lost definition " + definition.getID());
     return reread;
+  }
+
+  @Test
+  void nameFiltersPreserveNamespacePrefixUnicodeAndCommas() {
+    final QNm xmlName = new QNm("urn:names,with-comma", "p", "chîld");
+    final QNm jsonName = new QNm("field,with-comma");
+    for (final IndexDef definition : List.of(
+        IndexDefs.createSelectiveNameIdxDef(Set.of(xmlName), 0, IndexDef.DbType.XML),
+        IndexDefs.createFilteredNameIdxDef(Set.of(xmlName), 1, IndexDef.DbType.XML),
+        IndexDefs.createSelectiveNameIdxDef(Set.of(jsonName), 0, IndexDef.DbType.JSON),
+        IndexDefs.createFilteredNameIdxDef(Set.of(jsonName), 1, IndexDef.DbType.JSON))) {
+      final IndexDef reloaded = roundTrip(definition);
+      assertTrue(definition.hasSameDefinition(reloaded), "NAME definition must accept its persisted copy");
+      assertNameComponents(definition.getIncluded(), reloaded.getIncluded());
+      assertNameComponents(definition.getExcluded(), reloaded.getExcluded());
+    }
+  }
+
+  private static void assertNameComponents(final Set<QNm> expected, final Set<QNm> actual) {
+    assertEquals(expected, actual);
+    for (final QNm name : expected) {
+      final QNm reloaded = actual.stream().filter(name::equals).findFirst().orElseThrow();
+      assertEquals(name.getNamespaceURI(), reloaded.getNamespaceURI());
+      assertEquals(name.getPrefix(), reloaded.getPrefix());
+      assertEquals(name.getLocalName(), reloaded.getLocalName());
+    }
   }
 
   @Test
