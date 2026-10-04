@@ -260,7 +260,7 @@ public final class BackupManager {
       final long totalBytes = copyTree(source, target, rel -> false,
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
-      // Verification pass: open the restored database and every resource read-only; any
+      // Verification pass: open a read-only transaction on every restored resource; any
       // corruption surfaces here (superblock validation, beacon checksums, revision-slot
       // checksums and the page-checksum chain on the root page read).
       final List<ResourceSummary> resourceSummaries = verifyRestoredDatabase(target, databaseType);

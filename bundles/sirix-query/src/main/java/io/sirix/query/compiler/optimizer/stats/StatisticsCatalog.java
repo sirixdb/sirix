@@ -8,15 +8,22 @@ import java.util.Objects;
 /**
  * Thread-safe in-memory catalog mapping (database, resource, path, revision) → {@link Histogram}.
  *
- * <p>Revision-aware for bitemporal databases: historical revisions are immutable,
- * so their histograms never expire. Only the "latest" revision ({@code revision == -1})
- * entries are subject to TTL expiry and write-triggered invalidation.</p>
+ * <p>
+ * Revision-aware for bitemporal databases: historical revisions are immutable, so their histograms
+ * never expire. Only the "latest" revision ({@code revision == -1}) entries are subject to TTL
+ * expiry and write-triggered invalidation.
+ * </p>
  *
- * <p>Uses a synchronized {@link LinkedHashMap} in access-order mode for
- * true LRU eviction. Entries expire after a configurable TTL (default: 1 hour)
- * for latest-revision entries. Historical revision entries only evict via LRU.</p>
+ * <p>
+ * Uses a synchronized {@link LinkedHashMap} in access-order mode for true LRU eviction. Entries
+ * expire after a configurable TTL (default: 1 hour) for latest-revision entries. Historical entries
+ * also follow the destructive-lifecycle invalidation contract in
+ * {@link #invalidateDatabase(String)}.
+ * </p>
  *
- * <p>Singleton: a single catalog serves all compile chains in the same JVM.</p>
+ * <p>
+ * Singleton: a single catalog serves all compile chains in the same JVM.
+ * </p>
  */
 public final class StatisticsCatalog {
 
@@ -36,13 +43,12 @@ public final class StatisticsCatalog {
   private final Map<CatalogKey, CatalogEntry> entries;
 
   private StatisticsCatalog() {
-    this.entries = Collections.synchronizedMap(
-        new LinkedHashMap<CatalogKey, CatalogEntry>(256, 0.75f, true) {
-          @Override
-          protected boolean removeEldestEntry(Map.Entry<CatalogKey, CatalogEntry> eldest) {
-            return size() > MAX_ENTRIES;
-          }
-        });
+    this.entries = Collections.synchronizedMap(new LinkedHashMap<CatalogKey, CatalogEntry>(256, 0.75f, true) {
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<CatalogKey, CatalogEntry> eldest) {
+        return size() > MAX_ENTRIES;
+      }
+    });
   }
 
   public static StatisticsCatalog getInstance() {
@@ -67,12 +73,11 @@ public final class StatisticsCatalog {
    *
    * @param databaseName the database name
    * @param resourceName the resource name
-   * @param pathString   the JSON path string (e.g., "price")
-   * @param revision     the revision number, or {@link #LATEST_REVISION} for most recent
-   * @param histogram    the histogram to register
+   * @param pathString the JSON path string (e.g., "price")
+   * @param revision the revision number, or {@link #LATEST_REVISION} for most recent
+   * @param histogram the histogram to register
    */
-  public void put(String databaseName, String resourceName, String pathString,
-                  int revision, Histogram histogram) {
+  public void put(String databaseName, String resourceName, String pathString, int revision, Histogram histogram) {
     Objects.requireNonNull(databaseName, "databaseName");
     Objects.requireNonNull(resourceName, "resourceName");
     Objects.requireNonNull(pathString, "pathString");
@@ -84,9 +89,10 @@ public final class StatisticsCatalog {
   /**
    * Look up a histogram for a specific (database, resource, path, revision) tuple.
    *
-   * <p>For historical revisions (revision > 0), entries never expire via TTL
-   * since the underlying data is immutable. Only {@link #LATEST_REVISION}
-   * entries are subject to TTL expiry.</p>
+   * <p>
+   * For historical revisions (revision > 0), entries never expire via TTL since the underlying data
+   * is immutable. Only {@link #LATEST_REVISION} entries are subject to TTL expiry.
+   * </p>
    *
    * @return the histogram, or {@code null} if none registered or expired
    */
@@ -101,8 +107,7 @@ public final class StatisticsCatalog {
         return null;
       }
       // TTL only applies to latest-revision entries (mutable data)
-      if (revision == LATEST_REVISION
-          && System.currentTimeMillis() - entry.createdAtMillis > ttlMillis) {
+      if (revision == LATEST_REVISION && System.currentTimeMillis() - entry.createdAtMillis > ttlMillis) {
         entries.remove(key);
         return null;
       }
@@ -133,9 +138,10 @@ public final class StatisticsCatalog {
     if (databaseName == null || resourceName == null || pathString == null) {
       return null;
     }
-    final CatalogEntry removed = entries.remove(
-        new CatalogKey(databaseName, resourceName, pathString, revision));
-    return removed != null ? removed.histogram : null;
+    final CatalogEntry removed = entries.remove(new CatalogKey(databaseName, resourceName, pathString, revision));
+    return removed != null
+        ? removed.histogram
+        : null;
   }
 
   /**
@@ -146,15 +152,14 @@ public final class StatisticsCatalog {
   }
 
   /**
-   * Remove all latest-revision histograms for a given database and resource.
-   * Historical revision histograms are preserved (immutable data).
+   * Remove all latest-revision histograms for a given database and resource. Historical revision
+   * histograms are preserved (immutable data).
    */
   public void invalidate(String databaseName, String resourceName) {
     synchronized (entries) {
-      entries.keySet().removeIf(key ->
-          key.databaseName.equals(databaseName)
-              && key.resourceName.equals(resourceName)
-              && key.revision == LATEST_REVISION);
+      entries.keySet()
+             .removeIf(key -> key.databaseName.equals(databaseName) && key.resourceName.equals(resourceName)
+                 && key.revision == LATEST_REVISION);
     }
   }
 
@@ -163,20 +168,22 @@ public final class StatisticsCatalog {
    */
   public void invalidateAll(String databaseName, String resourceName) {
     synchronized (entries) {
-      entries.keySet().removeIf(key ->
-          key.databaseName.equals(databaseName)
-              && key.resourceName.equals(resourceName));
+      entries.keySet().removeIf(key -> key.databaseName.equals(databaseName) && key.resourceName.equals(resourceName));
     }
   }
 
   /**
    * Remove ALL histograms (every resource, every revision) for a database.
    *
-   * <p>Must be called when a database is removed or re-created at the same name
-   * ({@code jn:store} replaces the whole database): the new store restarts revision
-   * numbering, so even "immutable" historical-revision entries describe DIFFERENT
-   * data afterwards — serving them would drive the cost model with statistics from
-   * the old store (e.g. a stale selectivity closing the index gate for the new data).
+   * <p>
+   * Must be called when a database is removed or re-created at the same name ({@code jn:store}
+   * replaces the whole database): the new store restarts revision numbering, so even "immutable"
+   * historical-revision entries describe DIFFERENT data afterwards — serving them would drive the
+   * cost model with statistics from the old store (e.g. a stale selectivity closing the index gate
+   * for the new data). Callers must also invalidate aliases they registered for the same physical
+   * database, including aliases whose handles have already closed.
+   *
+   * @param databaseName the logical collection name to invalidate
    */
   public void invalidateDatabase(String databaseName) {
     if (databaseName == null) {
@@ -196,11 +203,12 @@ public final class StatisticsCatalog {
   }
 
   /**
-   * Composite key for the catalog. Historical revisions (revision > 0) produce
-   * distinct cache entries from latest-revision (revision == -1).
+   * Composite key for the catalog. Historical revisions (revision > 0) produce distinct cache entries
+   * from latest-revision (revision == -1).
    */
-  private record CatalogKey(String databaseName, String resourceName,
-                             String pathString, int revision) {}
+  private record CatalogKey(String databaseName, String resourceName, String pathString, int revision) {
+  }
 
-  private record CatalogEntry(Histogram histogram, long createdAtMillis) {}
+  private record CatalogEntry(Histogram histogram, long createdAtMillis) {
+  }
 }
