@@ -46,11 +46,17 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilterRange filter) {
+    if (filter != null && filter.hasPathConstraint() && filter.getPCRs().isEmpty()) {
+      return Collections.emptyIterator();
+    }
     return openHOTIndexWithRangeFilter(storageEngineReader, indexDef, filter);
   }
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilter filter) {
+    if (filter != null && filter.hasPathConstraint() && filter.getPCRs().isEmpty()) {
+      return Collections.emptyIterator();
+    }
     return openHOTIndexWithFilter(storageEngineReader, indexDef, filter);
   }
 

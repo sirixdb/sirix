@@ -23,6 +23,8 @@ public final class PathFilter {
   /** Path class record collector. */
   private final PCRCollector pcrCollector;
 
+  private final boolean hasPathConstraint;
+
   /**
    * Constructor. Initializes the internal state.
    *
@@ -31,8 +33,14 @@ public final class PathFilter {
    */
   public PathFilter(final Set<Path<QNm>> paths, final PCRCollector pcrCollector) {
     this.pcrCollector = requireNonNull(pcrCollector, "The path class record collector must not be null.");
-    pcrFilter = Collections.unmodifiableSet(
-        this.pcrCollector.getPCRsForPaths(requireNonNull(paths, "The paths must not be null.")).getPCRs());
+    requireNonNull(paths, "The paths must not be null.");
+    hasPathConstraint = !paths.isEmpty();
+    pcrFilter = Collections.unmodifiableSet(this.pcrCollector.getPCRsForPaths(paths).getPCRs());
+  }
+
+  /** An empty resolved PCR set matches nothing when path expressions were supplied. */
+  public boolean hasPathConstraint() {
+    return hasPathConstraint;
   }
 
   public Set<Long> getPCRs() {

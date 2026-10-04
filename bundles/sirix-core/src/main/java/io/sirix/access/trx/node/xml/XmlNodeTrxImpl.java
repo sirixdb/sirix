@@ -289,19 +289,35 @@ final class XmlNodeTrxImpl extends
         moveToParent();
       }
       final ImmutableNode currentNode = nodeReadOnlyTrx.getStructuralNode();
-      long pathNodeKey = -1;
-      if (currentNode instanceof ValueNode
-          && currentNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        final long nodeKey = currentNode.getNodeKey();
-        moveToParent();
-        pathNodeKey = getPathNodeKey();
-        moveTo(nodeKey);
-      } else if (currentNode instanceof NameNode nameNode) {
-        pathNodeKey = nameNode.getPathNodeKey();
-      }
+      final long pathNodeKey = currentNode instanceof NameNode nameNode
+          ? nameNode.getPathNodeKey()
+          : currentNode instanceof ValueNode
+              ? parentPathNodeKey(currentNode.getParentKey())
+              : -1;
       notifyPrimitiveIndexChange(type, currentNode, pathNodeKey);
     }
     moveTo(beforeNodeKey);
+  }
+
+  private long valuePathNodeKey() {
+    return isNameNode()
+        ? getPathNodeKey()
+        : parentPathNodeKey(getParentKey());
+  }
+
+  private long parentPathNodeKey(final long parentKey) {
+    if (!buildPathSummary || parentKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      return 0;
+    }
+    if (isElement()) {
+      // Do not fetch another element through the writer's reusable element singleton while the
+      // document cursor still addresses this one. Both insertion positions have a known PCR.
+      return getNodeKey() == parentKey
+          ? getPathNodeKey()
+          : pathSummaryWriter.getParentPathNodeKey(getPathNodeKey());
+    }
+    final ImmutableNameNode parent = storageEngineWriter.getRecord(parentKey, IndexType.DOCUMENT, -1);
+    return parent.getPathNodeKey();
   }
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
@@ -930,7 +946,8 @@ final class XmlNodeTrxImpl extends
       final byte[] processingContent = getBytes(content);
       final QNm targetName = new QNm(target);
       final long pathNodeKey = buildPathSummary
-          ? pathSummaryWriter.getPathNodeKey(targetName, NodeKind.PROCESSING_INSTRUCTION)
+          ? pathSummaryWriter.getPathNodeKey(parentPathNodeKey(pk.parentKey()), targetName,
+              NodeKind.PROCESSING_INSTRUCTION)
           : 0;
       final PINode node = nodeFactory.createPINode(pk.parentKey(), pk.leftSibKey(), pk.rightSibKey(), targetName,
           processingContent, useTextCompression, pathNodeKey, pk.id());
@@ -941,6 +958,7 @@ final class XmlNodeTrxImpl extends
       nodeHashing.adaptHashesWithAdd(nodeKey);
       moveToJustInsertedNode(nodeKey);
 
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
       return this;
     } finally {
       if (lock != null) {
@@ -996,6 +1014,9 @@ final class XmlNodeTrxImpl extends
       final PositionKeys pk = calculatePositionKeys(currentNode, insert);
 
       final byte[] commentValue = getBytes(value);
+      final long pathNodeKey = indexController.hasCASIndex()
+          ? parentPathNodeKey(pk.parentKey())
+          : 0;
       final CommentNode node = nodeFactory.createCommentNode(pk.parentKey(), pk.leftSibKey(), pk.rightSibKey(),
           commentValue, useTextCompression, pk.id());
       final long nodeKey = node.getNodeKey();
@@ -1005,6 +1026,7 @@ final class XmlNodeTrxImpl extends
       nodeHashing.adaptHashesWithAdd(nodeKey);
       moveToJustInsertedNode(nodeKey);
 
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
       return this;
     } finally {
       if (lock != null) {
@@ -1395,6 +1417,7 @@ final class XmlNodeTrxImpl extends
 
       moveToJustInsertedNode(nodeKey);
       nodeHashing.adaptHashesWithAdd();
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
       if (move == Movement.TOPARENT) {
         moveToParent();
       }
@@ -1590,10 +1613,7 @@ final class XmlNodeTrxImpl extends
     }
 
     final long nodeKey = getNodeKey();
-    final long pathNodeKey = moveToParent()
-        ? getPathNodeKey()
-        : -1;
-    moveTo(nodeKey);
+    final long pathNodeKey = valuePathNodeKey();
     if (indexController.hasAnyPrimitiveIndex()) {
       final Str value = indexController.hasCASIndex()
           ? new Str(valueNode.getValue())
@@ -1803,9 +1823,7 @@ final class XmlNodeTrxImpl extends
         }
 
         final long nodeKey = getNodeKey();
-        moveToParent();
-        final long pathNodeKey = getPathNodeKey();
-        moveTo(nodeKey);
+        final long pathNodeKey = valuePathNodeKey();
 
         // Get a TIL-owned copy via prepareRecordForModification (proper COW).
         // This ensures mutations don't leak to read-only transactions that share

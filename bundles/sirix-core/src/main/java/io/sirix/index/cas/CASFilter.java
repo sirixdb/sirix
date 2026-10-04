@@ -47,6 +47,10 @@ public final class CASFilter {
     return pathFilter.getPCRs();
   }
 
+  public boolean hasPathConstraint() {
+    return pathFilter.hasPathConstraint();
+  }
+
   public PCRCollector getPCRCollector() {
     return pathFilter.getPCRCollector();
   }

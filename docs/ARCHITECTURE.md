@@ -852,7 +852,7 @@ Document:                          Path Index (for /users/[]/name):
 
 #### Name Index
 
-**Purpose**: Accelerates queries that search for elements/fields by name regardless of path.
+**Purpose**: Accelerates name lookups regardless of path; see [covered names](../README.md#indexes).
 
 **Key Mapping**: `Serialized name → Set<NodeKey>`; see [NAME key encoding](HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava)
 and [matching semantics and query usage](../README.md#indexes).

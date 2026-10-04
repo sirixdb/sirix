@@ -1021,7 +1021,9 @@ How callers map search modes: CAS uses `get` for EQUAL, `iteratorFrom`/`iterator
 ordered modes when `isByteOrderPreserving(type)` (relaxing a truncating bound to inclusive), and a
 full scan with a filter otherwise (`idx/cas/CASIndex.java:59-140`, `:516-700`); PATH and NAME use
 `get` for a single PCR or name and a filtered full scan otherwise
-(`idx/path/PathIndex.java:24-73`; `idx/name/NameIndex.java:29-81`). HOT posting lists span every
+(`idx/path/PathIndex.java:24-73`; `idx/name/NameIndex.java:29-81`). PATH and CAS first return an empty
+iterator without opening HOT when supplied paths resolve to no PCRs; see the
+[path-filter contract](../README.md#indexes). HOT posting lists span every
 revision's node keys while the path summary describes the query revision, so CAS checks for stale
 PCRs (`idx/cas/CASIndex.java:599-605`).
 

@@ -3109,9 +3109,8 @@ Four index kinds answer path and predicate queries over the document:
 The \textbf{CAS} (content-and-structure) index is the workhorse for value predicates: its key
 \code{CASValue} triples the typed atomic value, its \code{Type}, and the \code{pathNodeKey}, and
 \code{compareTo} orders by path first and value second, making \code{CASFilterRange} a simple
-inclusive/exclusive $[\min,\max]$ walk within a path's run. \emph{Caveat:} the \code{unique}
-flag is declared, materialised, and round-tripped, but no code path enforces it; it is
-metadata only, awaiting a uniqueness-checking consumer.
+inclusive/exclusive $[\min,\max]$ walk within a path's run. Uniqueness semantics are owned by
+\pp{README.md} (Indexes).
 
 The \textbf{NAME} index (an optional inverted list over interned names) must not be confused with
 the always-present \textbf{name dictionary} \code{Names} held in \code{NamePage}, which interns
@@ -7804,7 +7803,7 @@ RECORD\_TO\_REVISIONS & 3 & change-track & node \textrightarrow\ ascending list 
 PATH\_SUMMARY & 4 & structural & the tree of distinct path classes {+} per-path \code{PathStats}\\
 PATH & 5 & secondary & nodes by their path class (declared path index)\\
 CAS & 6 & secondary & content-and-structure: (value, type, path) \textrightarrow\ nodes\\
-NAME & 7 & secondary & object keys / element names \textrightarrow\ nodes\\
+NAME & 7 & secondary & names \textrightarrow\ nodes; coverage: \pp{README.md} (Indexes)\\
 DEWEYID\_TO\_RECORDID & 8 & identity & DeweyID \textrightarrow\ node key, present when \code{useDeweyIDs}; order-preserving range scans\\
 VECTOR & 9 & secondary & HNSW $k$-NN over float embeddings (\S\ref{sec:setoriented} naming hazard; experimental)\\
 PROJECTION & 10 & secondary & declared columnar covering index feeding the SIMD scan (Ch.~\ref{ch:vector})\\
@@ -8062,7 +8061,7 @@ needed in application code.
 \endhead
 jn:create-cas-index(\$doc, \$type?, \$paths?) & build a content-and-structure index (optional value type, optional path set)\\
 jn:create-path-index(\$doc, \$paths?) & build a path index over the given paths (or index-all)\\
-jn:create-name-index(\$doc, \$names?) & build a name index over object keys / element names\\
+jn:create-name-index(\$doc, \$names?) & build a name index; coverage: \pp{README.md} (Indexes)\\
 jn:find-cas-index(\$doc, \$type, \$path) & the index number of a matching CAS index, or $-1$\\
 jn:find-path-index(\$doc, \$path) & the index number of a matching path index\\
 jn:find-name-index(\$doc, \$name) & the index number of a matching name index\\

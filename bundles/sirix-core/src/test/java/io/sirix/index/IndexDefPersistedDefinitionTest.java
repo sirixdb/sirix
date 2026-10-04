@@ -9,12 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
@@ -22,13 +24,13 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@link IndexDef#hasSameDefinition(IndexDef)} is the guard that refuses to re-bind a catalogue
- * slot to a definition with a different meaning. The catalogue persists every path as
- * {@link Path#toString()} and parses it back on load, so the guard MUST accept a definition's own
- * persisted copy — for every spelling the parser accepts, not only the ones whose internal step
- * representation happens to survive {@code parse(toString())}. A relative JSON name such as
- * {@code foo} parses with a CHILD step, prints as {@code ./foo} and re-parses as
- * CHILD_OBJECT_FIELD: {@link Path#equals(Object)} calls those different, the persisted form is
- * identical.
+ * slot to a definition with a different meaning. XML paths preserve their axes and expanded names.
+ * The catalogue persists JSON paths as {@link Path#toString()} and parses it back on load, so the
+ * guard MUST accept a definition's own persisted copy — for every spelling the parser accepts, not
+ * only the ones whose internal step representation happens to survive {@code parse(toString())}. A
+ * relative JSON name such as {@code foo} parses with a CHILD step, prints as {@code ./foo} and
+ * re-parses as CHILD_OBJECT_FIELD: {@link Path#equals(Object)} calls those different, the persisted
+ * form is identical.
  */
 final class IndexDefPersistedDefinitionTest {
 
@@ -119,6 +121,50 @@ final class IndexDefPersistedDefinitionTest {
     assertTrue(xmlCas.hasSameDefinition(roundTrip(xmlCas)));
     final IndexDef xmlPath = IndexDefs.createPathIdxDef(Set.of(xml("/a/b")), 3, IndexDef.DbType.XML);
     assertTrue(xmlPath.hasSameDefinition(roundTrip(xmlPath)));
+  }
+
+  @Test
+  void xmlPathsPreserveExpandedNamesAxesAndWildcards() {
+    final QNm element = new QNm("urn:elements/with,comma&\"", "e", "chîld");
+    final QNm attribute = new QNm("urn:attributes", "a", "flag");
+    final Set<Path<QNm>> paths = Set.of(new Path<QNm>().child(element).attribute(attribute),
+        new Path<QNm>().descendant(element).descendantAttribute(attribute),
+        new Path<QNm>().self().child().parent().descendant().attribute(), new Path<QNm>());
+    for (final IndexDef definition : List.of(IndexDefs.createPathIdxDef(paths, 0, IndexDef.DbType.XML),
+        IndexDefs.createCASIdxDef(false, Type.STR, paths, 0, IndexDef.DbType.XML))) {
+      final IndexDef reloaded = roundTrip(definition);
+      assertEquals(paths, reloaded.getPaths());
+      assertTrue(definition.hasSameDefinition(reloaded));
+      for (final Path<QNm> path : paths) {
+        final Path<QNm> persisted = reloaded.getPaths().stream().filter(path::equals).findFirst().orElseThrow();
+        for (int i = 0; i < path.getLength(); i++) {
+          final QNm name = path.steps().get(i).getValue();
+          if (name != null) {
+            assertNameComponents(Set.of(name), Set.of(persisted.steps().get(i).getValue()));
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void xmlPathDefinitionIdentityIncludesNamespaceUri() {
+    final IndexDef a = IndexDefs.createPathIdxDef(Set.of(new Path<QNm>().child(new QNm("urn:a", "p", "item"))), 0,
+        IndexDef.DbType.XML);
+    final IndexDef b = IndexDefs.createPathIdxDef(Set.of(new Path<QNm>().child(new QNm("urn:b", "p", "item"))), 0,
+        IndexDef.DbType.XML);
+    assertFalse(a.hasSameDefinition(b));
+    assertFalse(roundTrip(a).hasSameDefinition(roundTrip(b)));
+  }
+
+  @Test
+  void printedXmlPathsAreRejectedInsteadOfBecomingAnUnfilteredIndex() {
+    final byte[] catalogue = """
+        <indexes><index id="0" type="PATH" dbType="XML"><path>/root/@flag</path></index></indexes>
+        """.getBytes(StandardCharsets.UTF_8);
+    final Indexes indexes = new Indexes();
+    assertThrows(DocumentException.class,
+        () -> indexes.init(IndexController.deserialize(new ByteArrayInputStream(catalogue)).getFirstChild()));
   }
 
   @Test

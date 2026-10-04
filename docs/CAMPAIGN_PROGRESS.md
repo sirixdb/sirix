@@ -1321,8 +1321,9 @@ run had a profiler attached and telemetry off — its gc.log is not gate evidenc
 ### Two of the three query-suite reds closed (Gradle green)
 - `JsonIntegrationTest.testNesting19`: the new `requireSameDefinition` guard compared a definition with
   its own persisted copy; brackit parses `foo` with a CHILD step, prints `./foo`, re-parses it as
-  CHILD_OBJECT_FIELD → `Path.equals` false. `IndexDef.hasSameDefinition` now compares paths and
-  projection fields in PERSISTED form. `IndexDefPersistedDefinitionTest` (4; 3 red before the fix).
+  CHILD_OBJECT_FIELD → `Path.equals` false. See
+  [`IndexDef.hasSameDefinition`](../bundles/sirix-core/src/main/java/io/sirix/index/IndexDef.java)
+  for persisted-definition comparison. `IndexDefPersistedDefinitionTest` (4; 3 red before the fix).
   Follow-up for the user: bare-name index paths are illegal `Path.matches` patterns (`./foo` throws
   on deeper targets; XML `foo` NPEs in brackit's parser) — reject at definition time or not?
 - `PinnedTrieProjectionSpillColdReopenTest.fourResources…`: the child JVM died on its FIRST page read —
