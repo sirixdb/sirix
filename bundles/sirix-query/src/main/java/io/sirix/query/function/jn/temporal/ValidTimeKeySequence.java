@@ -32,7 +32,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private final int indexId;
   private final boolean exactPoint;
   private @Nullable Evidence evidence;
-  private long @Nullable [] candidates;
+  private volatile long @Nullable [] candidates;
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
       final boolean strictStart, final boolean strictEnd, final @Nullable Predicate<? super JsonDBObject> residual,
@@ -107,6 +107,28 @@ final class ValidTimeKeySequence extends AbstractSequence {
     return count == matches.length
         ? matches
         : Arrays.copyOf(matches, count);
+  }
+
+  @Override
+  public boolean isRepeatable() {
+    // Admission excludes mutable views; the built-in residual captures an immutable comparison point.
+    // An arbitrary caller-supplied predicate may have side effects.
+    return residual == null || residual instanceof ValidTimeResidual;
+  }
+
+  @Override
+  public @Nullable IntNumeric knownSize() {
+    if (!exactPoint || !isRepeatable()) {
+      return null;
+    }
+    final long[] keys = candidates();
+    // Only key-exact matches can supply cardinality without constructing or verifying objects.
+    for (final long key : keys) {
+      if (needsVerification(key)) {
+        return null;
+      }
+    }
+    return new Int64(keys.length);
   }
 
   @Override

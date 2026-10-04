@@ -17,7 +17,6 @@ import io.brackit.query.module.Functions;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.AbstractSequence;
 import io.brackit.query.sequence.BaseIter;
-import io.brackit.query.sequence.FunctionConversionSequence;
 
 /** No Sirix dependency: counting a lazy built-in result versus a trivial UDF wrapper. */
 public final class UdfMaterializationRepro {
@@ -31,6 +30,16 @@ public final class UdfMaterializationRepro {
     @Override
     public Sequence execute(final StaticContext context, final QueryContext queryContext, final Sequence[] args) {
       return new AbstractSequence() {
+        @Override
+        public boolean isRepeatable() {
+          return true;
+        }
+
+        @Override
+        public IntNumeric knownSize() {
+          return new Int32(64);
+        }
+
         @Override
         public IntNumeric size() {
           return new Int32(64);
@@ -84,10 +93,5 @@ public final class UdfMaterializationRepro {
       final Sequence count = new Query(new CompileChain(), namespace + text).evaluate(new BrackitQueryContext());
       System.out.println("count=" + count + " constructed=" + constructed + " query=" + text);
     }
-    constructed = 0;
-    final Sequence lazy = new Keys().execute(null, new BrackitQueryContext(), new Sequence[0]);
-    final Sequence converted = FunctionConversionSequence.asTypedSequence(SequenceType.ITEM_SEQUENCE, lazy, false);
-    final IntNumeric count = converted.size();
-    System.out.println("count=" + count + " constructed=" + constructed + " after item()* return conversion");
   }
 }

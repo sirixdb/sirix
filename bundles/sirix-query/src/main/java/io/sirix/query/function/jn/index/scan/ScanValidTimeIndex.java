@@ -100,7 +100,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
       final String from = ((Str) args[2]).stringValue();
       final String to = ((Str) args[3]).stringValue();
       final int mode = ((IntNumeric) args[4]).intValue();
-      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode);
+      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode, !(args[1] instanceof DateTime));
     }
 
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
@@ -127,13 +127,19 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   public static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx,
       final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
       final int mode) {
+    return comparisonScan(sctx, ctx, document, point, from, to, mode, true);
+  }
+
+  private static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx,
+      final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
+      final int mode, final boolean deferPoint) {
     if (mode < 0 || mode > 127) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
     if (!(document instanceof Array) || ((Array) ValidTimeFilter.currentDocument(document)).len() == 0) {
       return new ItemSequence();
     }
-    return new AbstractSequence() {
+    final var sequence = new AbstractSequence() {
       private @Nullable Sequence selected;
 
       private Sequence selected() {
@@ -195,5 +201,9 @@ public final class ScanValidTimeIndex extends AbstractFunction {
         };
       }
     };
+    // A captured DateTime is already evaluated; expose the selected producer's UDF capabilities.
+    return deferPoint
+        ? sequence
+        : sequence.selected();
   }
 }
