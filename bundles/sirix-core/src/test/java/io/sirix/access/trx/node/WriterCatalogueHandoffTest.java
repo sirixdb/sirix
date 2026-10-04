@@ -29,6 +29,7 @@ import io.sirix.index.path.xml.XmlPCRCollector;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -55,7 +56,7 @@ final class WriterCatalogueHandoffTest {
     ALL, CAS, NAME
   }
 
-  private CountDownLatch releaseHarden;
+  private @Nullable CountDownLatch releaseHarden;
 
   @AfterEach
   void clearHook() {
@@ -67,12 +68,13 @@ final class WriterCatalogueHandoffTest {
 
   @ParameterizedTest
   @EnumSource(Drop.class)
-  void jsonPendingDropsTransferTheCompleteCatalogue(final Drop drop, @TempDir final Path directory)
-      throws Exception {
+  // blockHarden initializes releaseHarden before this test uses it.
+  @SuppressWarnings("NullAway")
+  void jsonPendingDropsTransferTheCompleteCatalogue(final Drop drop, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)),
-        0, IndexDef.DbType.JSON);
+    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0,
+        IndexDef.DbType.JSON);
     final IndexDef sibling = IndexDefs.createCASIdxDef(false, Type.INR, cas.getPaths(), 1, IndexDef.DbType.JSON);
     final IndexDef name = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
     final Set<IndexDef> definitions = Set.of(cas, sibling, name);
@@ -124,8 +126,13 @@ final class WriterCatalogueHandoffTest {
         final JsonResourceSession session = database.beginResourceSession("data")) {
       for (final int revision : new int[] {1, 2, 3}) {
         try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
-          assertJsonLookups(session, reader, revision == 1 ? definitions : retained,
-              revision == 1 ? Set.of() : dropped, valueKey, revision);
+          assertJsonLookups(session, reader, revision == 1
+              ? definitions
+              : retained,
+              revision == 1
+                  ? Set.of()
+                  : dropped,
+              valueKey, revision);
         }
       }
       try (final JsonNodeTrx trx = session.beginNodeTrx()) {
@@ -136,12 +143,13 @@ final class WriterCatalogueHandoffTest {
 
   @ParameterizedTest
   @EnumSource(Drop.class)
-  void xmlPendingDropsTransferTheCompleteCatalogue(final Drop drop, @TempDir final Path directory)
-      throws Exception {
+  // blockHarden initializes releaseHarden before this test uses it.
+  @SuppressWarnings("NullAway")
+  void xmlPendingDropsTransferTheCompleteCatalogue(final Drop drop, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/root/value")), 0,
-        IndexDef.DbType.XML);
+    final IndexDef cas =
+        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/root/value")), 0, IndexDef.DbType.XML);
     final IndexDef sibling = IndexDefs.createCASIdxDef(false, Type.STR, cas.getPaths(), 1, IndexDef.DbType.XML);
     final IndexDef name = IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML);
     final Set<IndexDef> definitions = Set.of(cas, sibling, name);
@@ -189,8 +197,13 @@ final class WriterCatalogueHandoffTest {
         final XmlResourceSession session = database.beginResourceSession("data")) {
       for (final int revision : new int[] {1, 2, 3}) {
         try (final XmlNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
-          assertXmlLookups(session, reader, revision == 1 ? definitions : retained,
-              revision == 1 ? Set.of() : dropped, valueKey, revision);
+          assertXmlLookups(session, reader, revision == 1
+              ? definitions
+              : retained,
+              revision == 1
+                  ? Set.of()
+                  : dropped,
+              valueKey, revision);
         }
       }
       try (final XmlNodeTrx trx = session.beginNodeTrx()) {
@@ -199,6 +212,8 @@ final class WriterCatalogueHandoffTest {
     }
   }
 
+  // The callback runs only after releaseHarden has been initialized below.
+  @SuppressWarnings("NullAway")
   private CountDownLatch blockHarden() {
     final CountDownLatch entered = new CountDownLatch(1);
     releaseHarden = new CountDownLatch(1);
@@ -219,8 +234,8 @@ final class WriterCatalogueHandoffTest {
   private static void assertPendingRevision(final ResourceSession<?, ?> session, final NodeReadOnlyTrx trx) {
     assertEquals(3, trx.getRevisionNumber());
     assertEquals(1, session.getMostRecentRevisionNumber());
-    final Path indexes = session.getResourceConfig().getResource()
-                                .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+    final Path indexes =
+        session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     assertTrue(Files.exists(indexes.resolve("1.xml")));
     assertTrue(Files.notExists(indexes.resolve("2.xml")));
   }
@@ -246,15 +261,17 @@ final class WriterCatalogueHandoffTest {
     assertCatalogue(controller, retained, dropped);
     for (final IndexDef definition : retained) {
       if (definition.isCasIndex()) {
-        final var lookup = controller.openCASIndex(reader.getStorageEngineReader(), definition,
-            controller.createCASFilter(Set.of("/[]/id"), new Int32(value), SearchMode.EQUAL,
-                new JsonPCRCollector(reader)));
+        final var lookup =
+            controller.openCASIndex(reader.getStorageEngineReader(), definition, controller.createCASFilter(
+                Set.of("/[]/id"), new Int32(value), SearchMode.EQUAL, new JsonPCRCollector(reader)));
         assertTrue(lookup.hasNext());
         assertTrue(lookup.next().contains(valueKey));
         assertFalse(lookup.hasNext());
-        assertFalse(controller.openCASIndex(reader.getStorageEngineReader(), definition,
-            controller.createCASFilter(Set.of("/[]/id"), new Int32(value - 1), SearchMode.EQUAL,
-                new JsonPCRCollector(reader))).hasNext());
+        assertFalse(controller
+                              .openCASIndex(reader.getStorageEngineReader(), definition,
+                                  controller.createCASFilter(Set.of("/[]/id"), new Int32(value - 1), SearchMode.EQUAL,
+                                      new JsonPCRCollector(reader)))
+                              .hasNext());
       }
     }
   }
@@ -273,9 +290,12 @@ final class WriterCatalogueHandoffTest {
         assertTrue(lookup.hasNext());
         assertTrue(lookup.next().contains(valueKey));
         assertFalse(lookup.hasNext());
-        assertFalse(controller.openCASIndex(reader.getStorageEngineReader(), definition,
-            controller.createCASFilter(Set.of("/root/value"), new Str(Integer.toString(value - 1)), SearchMode.EQUAL,
-                new XmlPCRCollector(reader))).hasNext());
+        assertFalse(controller
+                              .openCASIndex(reader.getStorageEngineReader(), definition,
+                                  controller.createCASFilter(Set.of("/root/value"),
+                                      new Str(Integer.toString(value - 1)), SearchMode.EQUAL,
+                                      new XmlPCRCollector(reader)))
+                              .hasNext());
       }
     }
   }

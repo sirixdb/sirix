@@ -142,8 +142,10 @@ final class WriterConstructionFailureCleanupTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(
           ResourceConfiguration.newBuilder("data").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
-      database.createResource(
-          ResourceConfiguration.newBuilder("unrelated").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("unrelated")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (final JsonResourceSession session = database.beginResourceSession("data");
           final JsonResourceSession unrelatedSession = database.beginResourceSession("unrelated");
           final JsonNodeTrx unrelatedTrx = unrelatedSession.beginNodeTrx();
@@ -193,7 +195,9 @@ final class WriterConstructionFailureCleanupTest {
         assertNull(ProjectionBulkLoad.active(resourceKey, 1, trx));
         assertSame(unrelated, ProjectionBulkLoad.active(unrelatedKey, 0, unrelatedTrx));
         assertFalse(unrelated.isFinished());
-        final JsonNodeTrx recovered = close ? session.beginNodeTrx() : trx;
+        final JsonNodeTrx recovered = close
+            ? session.beginNodeTrx()
+            : trx;
         try {
           assertTrue(recovered.moveTo(arrayKey));
           final long objectKey = recovered.insertObjectAsFirstChild().getNodeKey();
@@ -201,7 +205,8 @@ final class WriterConstructionFailureCleanupTest {
           try (final var reader = session.beginNodeReadOnlyTrx()) {
             assertTrue(reader.moveTo(objectKey));
             assertTrue(reader.isObject());
-            assertEquals(2, session.getRtxIndexController(reader.getRevisionNumber()).getIndexes().getIndexDefs().size());
+            assertEquals(2,
+                session.getRtxIndexController(reader.getRevisionNumber()).getIndexes().getIndexDefs().size());
           }
           try (final var reader = session.beginNodeReadOnlyTrx(1)) {
             assertTrue(reader.moveTo(arrayKey));

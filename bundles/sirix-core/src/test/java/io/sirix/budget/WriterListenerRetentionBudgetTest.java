@@ -105,12 +105,11 @@ final class WriterListenerRetentionBudgetTest {
   }
 
   @Test
-  void jsonIndexedRevertsRetireListenersAndPreserveCatalogueAndLookups(@TempDir final Path directory)
-      throws Exception {
+  void jsonIndexedRevertsRetireListenersAndPreserveCatalogueAndLookups(@TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)),
-        0, IndexDef.DbType.JSON);
+    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0,
+        IndexDef.DbType.JSON);
     final IndexDef validTime = IndexDefs.createValidTimeIdxDef(
         Set.of(parse("/[]/validFrom", PathParser.Type.JSON), parse("/[]/validTo", PathParser.Type.JSON)), 0,
         IndexDef.DbType.JSON);
@@ -125,8 +124,9 @@ final class WriterListenerRetentionBudgetTest {
                                                    .build());
       try (final JsonResourceSession session = database.beginResourceSession("data")) {
         try (final JsonNodeTrx trx = session.beginNodeTrx()) {
-          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-              "[{\"id\":0,\"validFrom\":\"2024-01-01T00:00:00Z\",\"validTo\":\"2025-01-01T00:00:00Z\"}]"),
+          trx.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader(
+                  "[{\"id\":0,\"validFrom\":\"2024-01-01T00:00:00Z\",\"validTo\":\"2025-01-01T00:00:00Z\"}]"),
               JsonNodeTrx.Commit.NO);
           session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(cas, validTime), trx);
           trx.moveToDocumentRoot();
@@ -161,9 +161,9 @@ final class WriterListenerRetentionBudgetTest {
           final var controller = session.getRtxIndexController(revision);
           assertEquals(2, controller.getIndexes().getIndexDefs().size());
           assertNotNull(controller.getIndexes().getIndexDef(validTime.getID(), validTime.getType()));
-          final var lookup = controller.openCASIndex(reader.getStorageEngineReader(), cas,
-              controller.createCASFilter(Set.of("/[]/id"), new Int32(revision), SearchMode.EQUAL,
-                  new JsonPCRCollector(reader)));
+          final var lookup =
+              controller.openCASIndex(reader.getStorageEngineReader(), cas, controller.createCASFilter(Set.of("/[]/id"),
+                  new Int32(revision), SearchMode.EQUAL, new JsonPCRCollector(reader)));
           assertTrue(lookup.hasNext());
           final var references = lookup.next();
           assertEquals(1, references.getNodeKeys().getLongCardinality());
@@ -175,12 +175,11 @@ final class WriterListenerRetentionBudgetTest {
   }
 
   @Test
-  void xmlIndexedRevertsRetireListenersAndPreserveCatalogueAndLookups(@TempDir final Path directory)
-      throws Exception {
+  void xmlIndexedRevertsRetireListenersAndPreserveCatalogueAndLookups(@TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/root/value")), 0,
-        IndexDef.DbType.XML);
+    final IndexDef cas =
+        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/root/value")), 0, IndexDef.DbType.XML);
     final IndexDef name = IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML);
     final long valueKey;
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {

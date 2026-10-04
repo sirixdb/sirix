@@ -105,7 +105,9 @@ final class WriterCatalogueRecoveryTest {
             trx.close();
           }
           if (recovery != Recovery.CLOSE) {
-            assertJsonRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT ? 1 : 2);
+            assertJsonRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT
+                ? 1
+                : 2);
           }
         }
       }
@@ -169,7 +171,9 @@ final class WriterCatalogueRecoveryTest {
             trx.close();
           }
           if (recovery != Recovery.CLOSE) {
-            assertXmlRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT ? "1" : "2");
+            assertXmlRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT
+                ? "1"
+                : "2");
           }
         }
       }
@@ -232,11 +236,11 @@ final class WriterCatalogueRecoveryTest {
     }
   }
 
-  private static void assertJsonRecovery(final JsonResourceSession session, final JsonNodeTrx trx,
-      final IndexDef cas, final long valueKey, final int oldValue) {
+  private static void assertJsonRecovery(final JsonResourceSession session, final JsonNodeTrx trx, final IndexDef cas,
+      final long valueKey, final int oldValue) {
     assertEquals(1, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().size());
-    assertNotNull(session.getWtxIndexController(trx.getRevisionNumber())
-                         .getIndexes().getIndexDef(cas.getID(), cas.getType()));
+    assertNotNull(
+        session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(cas.getID(), cas.getType()));
     assertTrue(trx.moveTo(valueKey));
     assertEquals(oldValue, trx.getNumberValue().intValue());
     trx.setNumberValue(7);
@@ -244,17 +248,19 @@ final class WriterCatalogueRecoveryTest {
     try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
       assertJsonLookup(session, reader, cas, valueKey, 7);
       final var controller = session.getRtxIndexController(reader.getRevisionNumber());
-      assertFalse(controller.openCASIndex(reader.getStorageEngineReader(), cas,
-          controller.createCASFilter(Set.of("/[]/id"), new Int32(oldValue), SearchMode.EQUAL,
-              new JsonPCRCollector(reader))).hasNext());
+      assertFalse(controller
+                            .openCASIndex(reader.getStorageEngineReader(), cas,
+                                controller.createCASFilter(Set.of("/[]/id"), new Int32(oldValue), SearchMode.EQUAL,
+                                    new JsonPCRCollector(reader)))
+                            .hasNext());
     }
   }
 
-  private static void assertXmlRecovery(final XmlResourceSession session, final XmlNodeTrx trx,
-      final IndexDef cas, final long valueKey, final String oldValue) {
+  private static void assertXmlRecovery(final XmlResourceSession session, final XmlNodeTrx trx, final IndexDef cas,
+      final long valueKey, final String oldValue) {
     assertEquals(1, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().size());
-    assertNotNull(session.getWtxIndexController(trx.getRevisionNumber())
-                         .getIndexes().getIndexDef(cas.getID(), cas.getType()));
+    assertNotNull(
+        session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(cas.getID(), cas.getType()));
     assertTrue(trx.moveTo(valueKey));
     assertEquals(oldValue, trx.getValue());
     trx.setValue("7");
@@ -262,9 +268,11 @@ final class WriterCatalogueRecoveryTest {
     try (final XmlNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
       assertXmlLookup(session, reader, cas, valueKey, "7");
       final var controller = session.getRtxIndexController(reader.getRevisionNumber());
-      assertFalse(controller.openCASIndex(reader.getStorageEngineReader(), cas,
-          controller.createCASFilter(Set.of("/root/value"), new Str(oldValue), SearchMode.EQUAL,
-              new XmlPCRCollector(reader))).hasNext());
+      assertFalse(controller
+                            .openCASIndex(reader.getStorageEngineReader(), cas,
+                                controller.createCASFilter(Set.of("/root/value"), new Str(oldValue), SearchMode.EQUAL,
+                                    new XmlPCRCollector(reader)))
+                            .hasNext());
     }
   }
 
@@ -289,8 +297,9 @@ final class WriterCatalogueRecoveryTest {
     assertEquals(value, reader.getValue());
     final var controller = session.getRtxIndexController(reader.getRevisionNumber());
     assertEquals(1, controller.getIndexes().getIndexDefs().size());
-    final var lookup = controller.openCASIndex(reader.getStorageEngineReader(), cas,
-        controller.createCASFilter(Set.of("/root/value"), new Str(value), SearchMode.EQUAL, new XmlPCRCollector(reader)));
+    final var lookup =
+        controller.openCASIndex(reader.getStorageEngineReader(), cas, controller.createCASFilter(Set.of("/root/value"),
+            new Str(value), SearchMode.EQUAL, new XmlPCRCollector(reader)));
     assertTrue(lookup.hasNext());
     final var references = lookup.next();
     assertEquals(1, references.getNodeKeys().getLongCardinality());
@@ -299,8 +308,8 @@ final class WriterCatalogueRecoveryTest {
   }
 
   private static void assertSkippedCatalogue(final ResourceSession<?, ?> session, final int revision) {
-    final Path indexes = session.getResourceConfig().getResource()
-                                .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+    final Path indexes =
+        session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     assertEquals(revision, session.getMostRecentRevisionNumber());
     assertTrue(Files.exists(indexes.resolve((revision - 1) + ".xml")));
     assertTrue(Files.notExists(indexes.resolve(revision + ".xml")));
