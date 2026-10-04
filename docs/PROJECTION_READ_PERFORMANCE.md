@@ -84,10 +84,14 @@ Read intent controls cache admission:
 - `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
   demands on one leaf, or an accumulated packed-size limit, request complete reconstruction. The
   index-metadata record, which every serving decision and every commit resolves on its own, and a
-  single advertised set-summary column read this way. Sorted-directory seek descents and their
-  first data leaf also use `POINT`; directory headers and in-order cursor advances retain `SCAN`.
+  single advertised set-summary column read this way. A sorted seek's first data chunk uses `POINT`.
+- `SELECTIVE` resolves sorted-directory metadata without admitting it immediately. A reader-confined
+  scope remembers one bounded, detached metadata miss. A successful point seek can admit it only
+  if the data read did not consume the scope's single admission. Failed seeks and scans discard it.
 - `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
-  many slots. Writers and shared-page backends use the ordinary complete loader.
+  many slots. Advancing a point cursor declares scan intent; consuming another row promotes its
+  physical leaf through the guarded loader. Writers and shared-page backends use the ordinary
+  complete loader.
 
 Mini pages hold only bounded packed results and durable side-reference provenance. They use the
 normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on one
@@ -214,13 +218,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.packedDictionaryCounts` | `true` | Count eligible packed dictionary IDs without a dense ID array. |
 | `sirix.projection.longLaneCompositeCounts` | `true` | Count composite keys with exact long identities in a separate primitive loop. |
 | `sirix.projection.dictionaryCountBatches` | `true` | Accumulate plain local-dictionary COUNT groups in reusable per-entry counters before folding the group table. |
-| `sirix.projection.parallelSortedSummaries` | `true` | Permit independent readers for committed sorted summaries. |
-| `sirix.projection.batchSortedSummaries` | `true` | Reuse traversal workspace within each summary window; false restores per-blob readers. |
 | `sirix.projection.sortedSummaryMaxWorkers` | `4` | Worker ceiling, clamped to 1–8 and further limited by CPUs and one worker per 1,024 leaves of the queried key range. |
 | `sirix.projection.sortedLookahead` | `8` | Candidate leaves the sorted bound walk and span scan fetch as one batch, clamped to 1–64; 1 restores one read per step. |
-| `sirix.projection.sortedSpanBounds` | `true` | Enable bounded best-first grouped spans on committed revisions. |
-| `sirix.projection.heapSpanPriority` | `true` | Reuse the candidate permutation as a max-heap for span views with at least 1,024 leaves. |
-| `sirix.projection.denseSpanBounds` | `true` | Index validated dense physical leaf bounds directly; sparse IDs retain binary search. |
 
 The retained-buffer population and summary windows are bounded; decoded column fills also obey the
 existing projection memory budget. Input properties do not weaken revision or integrity checks.
@@ -254,10 +253,9 @@ history, edits, asynchronous flushes, and worker cleanup. `ProjectionSortedMissi
 checks the four range shapes over an optional aggregate field — a range fully containing a leaf
 without a summary declines without the second walk, the two meeting such a leaf at an end still
 walk, one of them still serving, and a range whose leaves all have summaries is served from them
-alone — every shape answering what it answered with the count absent, plus a version-3 header
-parsing with the count unknown, per-commit insert/update/delete maintenance of the count, a
-spilled build, the summary backfill, and the leaf recount staying a build-time cost no maintenance
-write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
+alone — against independent answers, plus rejection of obsolete headers across all four versioning
+types, per-commit insert/update/delete maintenance of the count, a spilled build, summary rebuilding,
+and the leaf recount staying a build-time cost no maintenance write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
 inline/overflow transitions, writer-local state, historical revisions, and per-payload integrity
 while reusing traversal workspace.
 `LongLaneCompositeCountTest` checks 1–64 numeric/temporal keys, conditional global IDs, missing
@@ -315,9 +313,9 @@ compares as the interpreter compares it; any other shape falls back to the gener
 A row whose key cannot be represented exactly (an unrepresentable or non-integral cell, or a whole
 encoded key longer than 4 KiB, record key included) is still stored, under a reserved key that
 sorts after every ordinary key. The directory header counts such rows, and the sorted route
-declines — the generic route then answers — while the count is nonzero. The key bound keeps room for
-at least fifteen keys in every leaf and directory node. The header also records the view's key
-layout. If the configured column kinds no longer produce that layout (for example after a
+declines — the generic route then answers — while the count is nonzero. The key bound limits individual tuple storage; an oversized tuple can use the generic blob side
+page, and oversized directory fences use separate separator records. The header also records the
+view's key layout. If the configured column kinds no longer produce that layout (for example after a
 `sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
 it touches under the reserved key rather than mixing two encodings, so the view declines until
 those rows are rewritten under matching kinds. This has a write cost: in that state, every commit
@@ -350,31 +348,26 @@ range whose own rows all carry a value — including the ranges that leaf serves
 — and that loses more than the walk it saves. As it stands the case costs exactly what it cost
 before the count existed, never more, and the full-key walk can still serve such a range outright.
 
-The directory header counts the view's rows without a value, beside the rows under the reserved
-unencodable key. The count is what makes the per-leaf proof sound, and it is consulted only where
-it is exactly right: while it is zero, a leaf without a summary can only mean a revision whose
-summaries were never built, so no per-leaf test runs at all and every route keeps the decisions it
-had; while it is unknown, a leaf without a summary may mean either, so the full-key walk still
-runs. Only a nonzero count — a view that demonstrably holds such rows — turns a missing summary
-inside the range into a proof. A wrong count could therefore cost a walk or spare one; it can
-never change an answer.
+The version-5 directory header counts rows without an aggregate value, beside the reserved
+unencodable rows. Only a positive count turns a missing summary wholly inside the range into a
+proof that the key walk must also decline. A zero count leaves the ordinary fallback in place.
+Reserved unencodable keys are not well-formed row keys, so the two counts never overlap.
+Non-aggregate layouts use an inapplicable-count sentinel. Earlier directory formats are rejected.
 
-A reserved unencodable key is not a well-formed row key, so it is never also counted as a row
-without an aggregate value; the two header counts never overlap.
+Each inserted or removed key is classified from its own bytes, so the count follows edits without
+extra reads. Initial builds and explicit summary rebuilding count a leaf's missing values only
+when it has no summary: a summarized leaf provably holds none. Non-aggregate layouts need no count.
 
-A view written before the count existed carries a version-3 header, which has no count. It parses
-unchanged, reports the count as unknown and keeps exactly the behaviour it had — both walks
-included — until a rebuild or a `ProjectionSortedGroupScan.buildLeafSummaries` backfill publishes
-an exact count in a version-4 header. A view whose last key field is not an ordered long
-aggregates nothing and can never consult the count, so it keeps none either: its header stays at
-version 3 rather than recording a zero a later release could misread. Maintenance never invents a
-count: a commit sees only the rows it touches, never the rest of the view. Per commit, each
-inserted or removed key is classified from its own bytes, so the count follows inserts, updates
-and deletes without reading anything extra; the initial build, including its spilling external
-sort and merge, and the backfill walk a leaf's keys for the count only when that leaf gets no
-summary, since a summarized leaf provably holds none. A view that aggregates nothing summarizes no
-leaf at all and no route of it ever reads the total, so neither pass walks a single leaf's keys
-for one.
+Data chunks target 384 encoded bytes and have a 512-byte inline limit, except a single oversized
+tuple. Eligible numeric keys and covering payloads use byte-addressable dictionary and delta
+columns; other shapes use prefix rows. The smaller representation wins. Directory nodes use
+bounded prefix rows, with individual separator references when two full fences cannot fit.
+The old whole-leaf overflow layout is not a supported sorted-view format.
+
+Bounds hold extrema for sixteen chunk IDs plus an exact single-group proof mask. A proven chunk's
+group key comes from its directory fence, letting reads synthesize its summary without fetching
+another record. Replacing or deleting the summary clears the proof before publication. Missing
+proofs use ordinary summaries; malformed proof bits and earlier bounds formats are rejected.
 
 Memory and maintenance cost:
 
@@ -401,7 +394,9 @@ Memory and maintenance cost:
   built inside the open transaction, is found with one ordered scan. The commit's removals and
   insertions are applied as one sorted batch: each touched leaf is rewritten, and its group summary
   re-encoded, once; each touched bounds chunk is copied and published once. A leaf that overflows
-  splits into balanced leaves, and only directory nodes whose entries change are rewritten.
+  is repacked into bounded local chunks; small chunks may merge with their right neighbor. Only
+  directory nodes whose entries change are rewritten, with an edit-local node cache avoiding
+  repeated decoding. Unaffected chunk IDs and bytes remain stable.
 
 ## Sorted span candidate priority
 
@@ -417,10 +412,10 @@ N-entry bounds array covers the complete dense range. Such views can use `leafId
 views keep binary search, and missing IDs still raise. Neither change allocates another candidate
 array or changes stored formats, revision visibility, write granularity or memory ceilings.
 
-`ProjectionSortedSpanScanTest` exercises both switches in all four combinations against independent
+`ProjectionSortedSpanScanTest` exercises the adaptive heap and dense-bound routes against independent
 row folds, including large cross-leaf groups, deletions, inserted splits, reordered histories, signed
 division and different K values under every versioning strategy. An unselective tied view checks
-that both priority algorithms retain the existing bounded fallback.
+that candidate priority retains the existing bounded fallback.
 
 ## Overlapping committed directory loading
 

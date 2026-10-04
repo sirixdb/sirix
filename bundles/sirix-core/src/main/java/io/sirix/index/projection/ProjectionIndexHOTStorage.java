@@ -7,6 +7,7 @@ import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
@@ -1039,6 +1040,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // resolved ref between removal and the owner-slot update.
       boolean sideReferenceRemoved = false;
       try {
+        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
         removeSegmentPage(slotKey, BLOB_SEGMENT_ID); // no-op unless the prior segment was referenced
         sideReferenceRemoved = true;
         writeSlotValue(slotKey, value);
@@ -2679,6 +2681,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // so this is a cheap no-op.
       boolean sideReferenceRemoved = false;
       try {
+        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
         removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
         sideReferenceRemoved = true;
         writeSlotValue(slotKey, TOMBSTONE);
@@ -4374,7 +4377,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
     }
     if (inline) {
-      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob);
+      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob, verifiedPrior != null);
     } else {
       final byte[] marker = new byte[BLOB_MARKER_BYTES];
       RowGroupDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
@@ -4383,6 +4386,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       RowGroupDescriptor.putLongLE(marker, 9, hash);
       boolean ownerMarkerWritten = false;
       try {
+        if (verifiedPrior != null) {
+          ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
+        }
         writeSlotValue(slotKey, marker);
         ownerMarkerWritten = true;
         putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
@@ -4396,7 +4402,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private void writeInlineBlobPayload(final long slotKey, final byte[] payload, final long hash,
-      final boolean priorWasReferencedBlob) {
+      final boolean priorWasReferencedBlob, final boolean replacing) {
     final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
     RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
     value[4] = BLOB_VERSION;
@@ -4405,6 +4411,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
     boolean ownerMarkerWritten = false;
     try {
+      if (replacing) {
+        ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
+      }
       writeSlotValue(slotKey, value);
       ownerMarkerWritten = true;
       // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
@@ -4571,6 +4580,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return failure;
   }
 
+  /** A multi-record sorted edit must not publish a partially updated directory or summary. */
+  void failSortedMutation(final Throwable failure) {
+    poisonMutation(failure);
+  }
+
   /** Preserve the authoritative corruption/failure if transaction poisoning itself also fails. */
   private void poisonMutation(final Throwable failure) {
     try {
@@ -4621,7 +4635,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] keyBuf = KEY_BUFFER.get();
       if (!coalesce) {
         for (int i = 0; i < count; i++) {
-          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN);
+          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN, null);
         }
         return out;
       }
@@ -4727,14 +4741,45 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
       final HOTReadIntent intent) {
+    return readBlob(reader, indexNumber, slotKey, intent, null);
+  }
+
+  /** Detached metadata may share the data seek's single admission, never a scan's. */
+  static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
+      final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(intent, "intent");
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent);
+      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent, scope);
     }
+  }
+
+  /**
+   * A cursor that already copied a blob is now a scan. Retain its complete native leaf through the
+   * ordinary guarded loader without rereading the overflow payload or decoding the logical chunk.
+   */
+  static void promoteBlobLeafForScan(final StorageEngineReader reader, final int indexNumber, final long slotKey) {
+    Objects.requireNonNull(reader, "reader");
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      throw new IllegalStateException("missing projection root while promoting blob slot " + slotKey);
+    }
+    final byte[] keyBuf = KEY_BUFFER.get();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          throw new IllegalStateException("missing projection leaf while promoting blob slot " + slotKey);
+        }
+        if (trieReader.validateCurrentLeaf()) {
+          return;
+        }
+      }
+    }
+    throw HOTTrieReader.stampRetriesExhausted("promoteBlobLeafForScan(slot " + slotKey + ")");
   }
 
   /** The index-metadata record, which every serving decision and every commit resolves. */
@@ -4750,11 +4795,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private static byte @Nullable [] readBlob(final StorageEngineReader reader, final HOTTrieReader trieReader,
-      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent) {
+      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent,
+      final @Nullable ReadScope scope) {
     final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
     final HOTLeafEntry entry =
-        trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, BLOB_SIDE_REFERENCE_NEEDED);
+        trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, BLOB_SIDE_REFERENCE_NEEDED, scope);
     if (entry == null || entry.value().length == 0) {
       return null;
     }

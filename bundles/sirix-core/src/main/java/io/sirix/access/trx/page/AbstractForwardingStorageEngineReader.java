@@ -5,6 +5,7 @@ import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
@@ -20,6 +21,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -228,7 +230,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public io.sirix.page.ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+  public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
     return delegate().getValidTimeIndexPage(revisionRoot);
   }
 
@@ -257,6 +259,12 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
     return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
   }
 
   @Override

@@ -3,6 +3,11 @@
  */
 package io.sirix.cache;
 
+import io.sirix.api.StorageEngineReader;
+import io.sirix.exception.SirixIOException;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.interfaces.Page;
+import java.util.List;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.HOTMiniPage;
 import io.sirix.page.PageReference;
@@ -99,7 +104,14 @@ public final class HOTMiniPageCache {
    */
   public boolean admit(final PageReference key, final long expectedGeneration, final int revision, final byte[] slotKey,
       final long sideReferenceKey, final @Nullable HOTLeafEntry entry) {
-    if (pages == null || !HOTMiniPage.canCache(slotKey, entry)) {
+    return admit(key, expectedGeneration, revision, slotKey, sideReferenceKey, entry, null);
+  }
+
+  /** Share at most one admission between a point seek's data and metadata records. */
+  public boolean admit(final PageReference key, final long expectedGeneration, final int revision, final byte[] slotKey,
+      final long sideReferenceKey, final @Nullable HOTLeafEntry entry, final @Nullable ReadScope scope) {
+    if (pages == null || (scope != null && (scope.admitted || scope.finished))
+        || !HOTMiniPage.canCache(slotKey, entry)) {
       return false;
     }
     Objects.requireNonNull(key);
@@ -118,6 +130,9 @@ public final class HOTMiniPageCache {
         }
         final HOTMiniPage next = HOTMiniPage.append(previous, key.getKey(), revision, slotKey, sideReferenceKey, entry);
         if (next == null) {
+          if (previous != null && scope != null) {
+            scope.admitted = true;
+          }
           return previous != null;
         }
         if (next != previous) {
@@ -130,6 +145,9 @@ public final class HOTMiniPageCache {
                                                             .setDatabaseId(key.getDatabaseId())
                                                             .setResourceId(key.getResourceId());
           pages.put(ownedKey, next);
+          if (scope != null) {
+            scope.admitted = true;
+          }
         }
         return false;
       } finally {
@@ -147,12 +165,17 @@ public final class HOTMiniPageCache {
    * attempt keeps serving the old subset without repeatedly attempting the same promotion.
    */
   public boolean claimPointPromotion(final PageReference key, final long expectedGeneration, final byte[] slotKey) {
+    return claimPointPromotion(key, expectedGeneration, slotKey, null);
+  }
+
+  public boolean claimPointPromotion(final PageReference key, final long expectedGeneration, final byte[] slotKey,
+      final @Nullable ReadScope scope) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(slotKey);
     if (key.getKey() < 0 || key.getLogKey() >= 0) {
       throw new IllegalArgumentException("Point promotion requires a canonical durable reference");
     }
-    if (pages == null) {
+    if (pages == null || (scope != null && (scope.admitted || scope.finished))) {
       return false;
     }
     final AdmissionStripe stripe = stripeFor(key);
@@ -169,9 +192,107 @@ public final class HOTMiniPageCache {
             || !previous.requestPointPromotion()) {
           return false;
         }
+        if (scope != null) {
+          scope.admitted = true;
+        }
         return true;
       } finally {
         previous.releaseGuard();
+      }
+    }
+  }
+
+  /**
+   * One ambiguous seek may grow at most one mini entry. Its data slot has priority. Remember only the
+   * first metadata miss, detached and bounded to one cacheable record; publish it only after a
+   * successful point seek that did not admit data. A scan, failed seek or abandoned open publishes
+   * nothing. This reader-confined object owns no guard, native page or unbounded collection.
+   */
+  public static final class ReadScope {
+    private @Nullable HOTMiniPageCache cache;
+    private @Nullable PageReference pageKey;
+    private byte @Nullable [] slotKey;
+    private @Nullable HOTLeafEntry entry;
+    private long generation;
+    private long sideReferenceKey;
+    private int revision;
+    private boolean admitted;
+    private boolean finished;
+    private @Nullable StorageEngineReader promotionReader;
+
+    public void rememberMetadata(final HOTMiniPageCache owner, final PageReference key, final long expectedGeneration,
+        final int revisionNumber, final byte[] slot, final long sideKey, final @Nullable HOTLeafEntry value) {
+      rememberMetadata(owner, key, expectedGeneration, revisionNumber, slot, sideKey, value, null, null);
+    }
+
+    /** A metadata miss may promote only after this scope finishes as a successful POINT seek. */
+    public void rememberMetadata(final HOTMiniPageCache owner, final PageReference key, final long expectedGeneration,
+        final int revisionNumber, final byte[] slot, final long sideKey, final @Nullable HOTLeafEntry value,
+        final @Nullable StorageEngineReader reader, final @Nullable PageReference chainReference) {
+      if (finished || cache != null || owner.pages == null || !HOTMiniPage.fitsEmpty(slot, value)) {
+        return;
+      }
+      // A caller can reuse its key buffer or mutate detached values before finishing the scope.
+      slotKey = slot.clone();
+      pageKey = new PageReference().setKey(key.getKey())
+                                   .setDatabaseId(key.getDatabaseId())
+                                   .setResourceId(key.getResourceId());
+      if (reader != null && chainReference != null) {
+        // The caller may reuse its reference or fragment list before finishing. Copy only durable
+        // routing/checksum data; never retain a swizzled page without its guard.
+        pageKey.setPageFragments(List.copyOf(chainReference.getPageFragments()));
+        if (chainReference.hasHash()) {
+          pageKey.setHash(chainReference.getHashAsLong());
+        }
+        promotionReader = reader;
+      }
+      if (value != null) {
+        final PageReference source = value.sideReference();
+        PageReference side = null;
+        if (source != null) {
+          side = new PageReference().setKey(source.getKey())
+                                    .setDatabaseId(source.getDatabaseId())
+                                    .setResourceId(source.getResourceId());
+          if (source.hasHash()) {
+            side.setHash(source.getHashAsLong());
+          }
+        }
+        entry = new HOTLeafEntry(value.value().clone(), side);
+      }
+      generation = expectedGeneration;
+      revision = revisionNumber;
+      sideReferenceKey = sideKey;
+      cache = owner;
+    }
+
+    /** Call once after a successful POINT seek, or with false to abandon a scan/failed lookup. */
+    public void finish(final boolean point) {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      try {
+        if (point && !admitted && cache != null) {
+          if (promotionReader != null && cache.claimPointPromotion(Objects.requireNonNull(pageKey), generation,
+              Objects.requireNonNull(slotKey), null)) {
+            final Page page = promotionReader.loadHOTPageAndGuard(pageKey);
+            if (!(page instanceof HOTLeafPage leaf)) {
+              throw new SirixIOException("Point metadata promotion did not load a HOT leaf");
+            }
+            leaf.releaseGuard();
+            return;
+          }
+          // The normal generation fence, immutable identity, guards and byte budget all apply.
+          // A full mini cap simply leaves metadata uncached; it never forces another data merge.
+          cache.admit(Objects.requireNonNull(pageKey), generation, revision, Objects.requireNonNull(slotKey),
+              sideReferenceKey, entry);
+        }
+      } finally {
+        cache = null;
+        pageKey = null;
+        slotKey = null;
+        entry = null;
+        promotionReader = null;
       }
     }
   }

@@ -30,6 +30,7 @@ final class ProjectionSortedSpanScan {
   private final int[] leafIds;
   private final long[] leafMinimums;
   private final long[] leafMaximums;
+  private final boolean[] singleGroups;
   private final long[] upper;
   private final int[] starts;
   private final int[] ends;
@@ -86,6 +87,7 @@ final class ProjectionSortedSpanScan {
     leafIds = new int[count];
     leafMinimums = new long[count];
     leafMaximums = new long[count];
+    singleGroups = new boolean[count];
     upper = new long[count];
     starts = new int[count];
     ends = new int[count];
@@ -151,8 +153,7 @@ final class ProjectionSortedSpanScan {
     scan.buildUpperBounds();
     // Reuse the candidate permutation; ordering is by logical-leaf upper bound, not physical ID.
     final int[] order = bounds.order();
-    final boolean heap =
-        count >= CACHE_SIZE * 8 && !"false".equals(System.getProperty("sirix.projection.heapSpanPriority"));
+    final boolean heap = count >= CACHE_SIZE * 8;
     if (heap) {
       for (int parent = (order.length >>> 1) - 1; parent >= 0; parent--) {
         siftDown(order, scan.upper, parent, order.length);
@@ -178,8 +179,7 @@ final class ProjectionSortedSpanScan {
     // necessarily cover that complete range, independently of their current document order.
     final int[] boundIds = bounds.leafIds();
     final boolean denseBounds =
-        boundIds.length > 0 && boundIds[0] == 1 && boundIds[boundIds.length - 1] == boundIds.length
-            && !"false".equals(System.getProperty("sirix.projection.denseSpanBounds"));
+        boundIds.length > 0 && boundIds[0] == 1 && boundIds[boundIds.length - 1] == boundIds.length;
     ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves(from, upperExclusive);
     int at = 0;
     while (cursor.id() != 0) {
@@ -206,6 +206,7 @@ final class ProjectionSortedSpanScan {
       }
       leafMinimums[at] = bounds.minimums()[physical];
       leafMaximums[at] = bounds.maximums()[physical];
+      singleGroups[at] = bounds.singleGroups()[physical];
       upper[at] = spanUpper(leafMinimums[at], leafMaximums[at], divisor);
       offsets[at + 1] = offsets[at] + group;
       at++;
@@ -271,7 +272,7 @@ final class ProjectionSortedSpanScan {
       }
       pendingFrom++;
       pendingCount--;
-      if (ordinal < ends[ordinal]) {
+      if (singleGroups[ordinal] || ordinal < ends[ordinal]) {
         // The next leaf starts with the same group: this entire leaf belongs to that group.
         if (!completeRun(starts[ordinal])) {
           return null;
@@ -344,13 +345,15 @@ final class ProjectionSortedSpanScan {
     final int budgetLeft = readBudget - reads;
     for (int p = 0; p < pendingCount; p++) {
       final int ordinal = pending[p];
-      if (ordinal < ends[ordinal]) {
+      if (singleGroups[ordinal] || ordinal < ends[ordinal]) {
         final int start = starts[ordinal];
         if ((completed[start >>> 6] & 1L << start) != 0) {
           continue;
         }
-        stage(ends[start], budgetLeft);
-        if (start > 0) {
+        if (!singleGroups[ends[start]]) {
+          stage(ends[start], budgetLeft);
+        }
+        if (start > 0 && !singleGroups[start - 1]) {
           stage(start - 1, budgetLeft);
         }
       } else {
@@ -433,19 +436,28 @@ final class ProjectionSortedSpanScan {
       return true;
     }
     final int end = ends[start];
-    final ProjectionSortedLeaf last = read(end);
-    if (last == null) {
-      return false;
+    long min;
+    long max;
+    if (singleGroups[end]) {
+      min = leafMinimums[end];
+      max = leafMaximums[end];
+    } else {
+      final ProjectionSortedLeaf last = read(end);
+      if (last == null) {
+        return false;
+      }
+      // The run's group is necessarily the first entry in its final leaf.
+      last.copyPayloadTo(0, payload, 0);
+      min = ProjectionIndexRowGroupCodec.getLongLE(payload, 0);
+      max = ProjectionIndexRowGroupCodec.getLongLE(payload, Long.BYTES);
     }
-    // The run's group is necessarily the first entry in its final leaf.
-    last.copyPayloadTo(0, payload, 0);
-    long min = ProjectionIndexRowGroupCodec.getLongLE(payload, 0);
-    long max = ProjectionIndexRowGroupCodec.getLongLE(payload, Long.BYTES);
     for (int i = start; i < end; i++) {
       min = Math.min(min, leafMinimums[i]);
       max = Math.max(max, leafMaximums[i]);
     }
-    if (start > 0) {
+    // The preceding range starts with another group. If it is proven single-group, it
+    // cannot contribute to this run; otherwise its final summary row must still be examined.
+    if (start > 0 && !singleGroups[start - 1]) {
       final ProjectionSortedLeaf before = read(start - 1);
       if (before == null) {
         return false;

@@ -677,28 +677,38 @@ These persisted projection structures were added after the previous release:
   are still written as version 0.
 - **`projectionSort` element** of the projection `IndexDef`: the ordered sort-column list, one
   `keyColumn column="N"` child per key column. Column numbers index the declared projection fields.
-- **Sorted-view slots**, only when `projectionSort` is declared: leaves at `2^46 + leafId`, the
-  directory header at `2^46 + 2^32` followed by its nodes, group summaries at `2^46 + 2^33 + leafId`,
-  and leaf-bounds chunks (16 leaves each, stored inline) from `2^46 + 3·2^32`. The directory header
-  records the key-field layout, the number of rows held under the reserved unencodable key and, at
-  header version 4, the number of rows whose aggregated last key field has no value. That count is
-  written only for a view whose last key field is an ordered long, the only shape that consults it.
-  A version-3 header carries no such count and still parses; the view then reports the count as
-  unknown and keeps its previous behaviour until a rebuild or a leaf-summary backfill publishes a
-  version-4 header.
+- **Sorted-view slots**, only when `projectionSort` is declared: data chunks at `2^46 + leafId`,
+  the directory header at `2^46 + 2^32` followed by its nodes, group summaries at
+  `2^46 + 2^33 + leafId`, and leaf-bounds records (16 chunks each) from `2^46 + 3·2^32`.
+  Each data chunk and summary is packed to a 384-byte target with a 512-byte inline cap.
+  An individual oversized tuple remains a single generic referenced blob. The overflow-page
+  sorted-leaf layout is no longer written or supported as a separate layout.
+- **Encoded sorted data**: `PSL1` scheme 2 stores an ordered dictionary of leading key fields,
+  byte-width unsigned deltas for the trailing long and record id, and up to four covering
+  payload words. Scheme 1 stores prefix-compressed rows for other key/payload shapes and
+  directory/summary entries. Both schemes support direct row access without block decompression.
+- **Sorted directory header version 5** is the only supported version. It records the key layout,
+  chunk count/high-water ids, unencodable-row count and exact missing-aggregate count (or `-1`
+  for a layout that does not aggregate its last field). Bounded nodes store child ids and fences;
+  when two fences cannot fit inline, stable separator records from `2^46 + 4·2^32` ensure
+  tree fanout. Only an individual oversized separator spills to a generic referenced blob.
+- **Sorted bounds version 2** is the only supported version. A 272-byte record covers 16 chunk
+  ids, with valid-extrema bits and exact single-group proof bits. A proven chunk can use the
+  directory's group key plus the bounds' extrema without fetching a separate summary.
+  Replacing/removing a summary clears its proof before publication; ordinary maintenance
+  republishes the proof after writing consistent data, summary and bounds.
 - **Column-major slot layout** (PIXM version 1), created only by a fresh bulk build with
   `-Dsirix.projection.columnMajorSlots=true`: descriptor and segment slots move to
   `2^41 | slotKind << 25 | rowGroupId`.
 
-The additions are backward-readable but not forward-readable. This code reads projection indexes
-written by the previous release: version-0 metadata and set-summary chunks still parse, missing
-flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, a version-3 sorted
-directory header still parses with its missing-aggregate count reported as unknown, and a definition
-without `projectionSort` has no sorted view.
+The nonsorted additions below retain their existing readers: version-0 metadata and set-summary chunks still parse, missing
+flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, and a definition
+without `projectionSort` has no sorted view. Sorted views require the encoded chunk layout:
+older directory and bounds versions are rejected, with no migration or compatibility mode.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
 that names a value-summary capability on a dictionary string column, version-1 set-summary chunks,
-and version-4 sorted directory headers, as corrupt: queries decline the index and maintenance fails
+and version-5 sorted directory headers, as corrupt: queries decline the index and maintenance fails
 the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the remaining
 slots and the `projectionSort` element, so its maintenance would leave them stale even in an index
 it does not reject. When downgrading, drop the projection index and rebuild it with the previous

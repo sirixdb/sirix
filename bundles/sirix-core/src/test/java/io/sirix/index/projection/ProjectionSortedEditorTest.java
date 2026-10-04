@@ -113,6 +113,7 @@ final class ProjectionSortedEditorTest {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         final int before;
+        int firstSingletonId = 0;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
           final ProjectionSortedDirectory.Builder builder =
@@ -125,7 +126,12 @@ final class ProjectionSortedEditorTest {
           assertNotNull(full);
           assertEquals(1, builder.append(full));
           for (int i = 0; i < 255; i++) {
-            assertEquals(i + 2, builder.append(single(1000 + i)));
+            final int id = builder.append(single(1000 + i));
+            if (i == 0) {
+              firstSingletonId = id;
+              assertTrue(firstSingletonId > 2, "the large build leaf is now multiple small chunks");
+            }
+            assertEquals(firstSingletonId + i, id);
           }
           builder.finish();
           before = writer.getRevisionNumber();
@@ -135,7 +141,8 @@ final class ProjectionSortedEditorTest {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
           final ProjectionSortedDirectory.Editor editor = new ProjectionSortedDirectory.Editor(storage);
-          editor.insert(key(1), key(111));
+          // The larger covering value deliberately fills the bounded chunk and forces a split.
+          editor.insert(key(1), new byte[256]);
           afterSplit = writer.getRevisionNumber();
           writer.commit();
         }
@@ -147,13 +154,13 @@ final class ProjectionSortedEditorTest {
               ProjectionSortedDirectory.open(newReader.getStorageEngineReader(), 0);
           assertNotNull(oldDirectory);
           assertNotNull(newDirectory);
-          assertEquals(256, oldDirectory.dataLeafCount());
-          assertEquals(257, newDirectory.dataLeafCount());
+          assertEquals(firstSingletonId + 254, oldDirectory.dataLeafCount());
+          assertEquals(oldDirectory.dataLeafCount() + 1, newDirectory.dataLeafCount());
           assertArrayEquals(key(2), oldDirectory.first().copyKey());
           assertArrayEquals(key(1), newDirectory.first().copyKey());
           assertEquals(1, newDirectory.findLeafId(key(1)));
-          assertEquals(257, newDirectory.findLeafId(key(512)));
-          assertEquals(2, newDirectory.findLeafId(key(1000)));
+          assertEquals(oldDirectory.findLeafId(key(512)), newDirectory.findLeafId(key(512)));
+          assertEquals(firstSingletonId, newDirectory.findLeafId(key(1000)));
           assertScan(newDirectory, true);
           assertScan(oldDirectory, false);
         }
@@ -173,11 +180,11 @@ final class ProjectionSortedEditorTest {
               ProjectionSortedDirectory.open(current.getStorageEngineReader(), 0);
           assertNotNull(oldDirectory);
           assertNotNull(newDirectory);
-          assertEquals(257, oldDirectory.dataLeafCount());
-          assertEquals(256, newDirectory.dataLeafCount());
+          assertEquals(firstSingletonId + 255, oldDirectory.dataLeafCount());
+          assertEquals(oldDirectory.dataLeafCount() - 1, newDirectory.dataLeafCount());
           assertArrayEquals(key(1000), oldDirectory.seek(key(1000)).copyKey());
           assertArrayEquals(key(1001), newDirectory.seek(key(1000)).copyKey());
-          assertEquals(3, newDirectory.findLeafId(key(1001)));
+          assertEquals(firstSingletonId + 1, newDirectory.findLeafId(key(1001)));
         }
       }
     }
@@ -260,6 +267,8 @@ final class ProjectionSortedEditorTest {
           writer.commit();
         }
         final Int2IntOpenHashMap writesByLeaf = new Int2IntOpenHashMap();
+        final TreeSet<Integer> touched = new TreeSet<>();
+        final int initialLeaves;
         final int revision;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Editor editor =
@@ -270,6 +279,16 @@ final class ProjectionSortedEditorTest {
             insertions[i] = key(10_000 + 10 * i + 5);
           }
           insertions[199] = key(30_000);
+          final ProjectionSortedDirectory.Accessor before =
+              ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0);
+          assertNotNull(before);
+          initialLeaves = before.dataLeafCount();
+          for (final byte[] removal : removals) {
+            touched.add(before.findLeafId(removal));
+          }
+          for (final byte[] insertion : insertions) {
+            touched.add(before.findLeafId(insertion));
+          }
           ProjectionSortedLeafStore.setWriteObserverForTesting(leafId -> writesByLeaf.addTo(leafId, 1));
           try {
             editor.apply(removals, removals.length, insertions, null, insertions.length);
@@ -279,11 +298,15 @@ final class ProjectionSortedEditorTest {
           revision = writer.getRevisionNumber();
           writer.commit();
         }
-        assertEquals(1, writesByLeaf.get(1));
-        assertEquals(1, writesByLeaf.get(2));
-        assertEquals(1, writesByLeaf.get(3));
-        assertEquals(writesByLeaf.size() - 3, writesByLeaf.keySet().intStream().filter(id -> id > 3).count(),
-            "only leaf 2 overflowed, into freshly allocated leaves");
+        for (int id = 1; id <= initialLeaves; id++) {
+          assertEquals(touched.contains(id)
+              ? 1
+              : 0, writesByLeaf.get(id),
+              "each touched original chunk is written once; untouched chunks are not written");
+        }
+        assertTrue(writesByLeaf.keySet().intStream().anyMatch(id -> id > initialLeaves),
+            "the large insertion must allocate local split chunks");
+        assertTrue(writesByLeaf.values().intStream().allMatch(count -> count == 1));
         try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
           final ProjectionSortedDirectory.Accessor directory =
               ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
@@ -319,25 +342,43 @@ final class ProjectionSortedEditorTest {
   private static void assertScan(final ProjectionSortedDirectory.Accessor directory, final boolean withOne) {
     final ProjectionSortedDirectory.Accessor.Cursor cursor = directory.first();
     if (withOne) {
-      assertArrayEquals(key(1), cursor.copyKey());
-      assertEquals(1, cursor.leafId());
+      assertRoutedTuple(directory, cursor, key(1), new byte[256]);
       assertTrue(cursor.advance());
     }
     for (int i = 0; i < 256; i++) {
       assertTrue(cursor.isValid());
-      assertArrayEquals(key(2 * i + 2), cursor.copyKey());
-      assertEquals(i < 127 || !withOne
-          ? 1
-          : 257, cursor.leafId());
+      // The bounded split allocates chunk 263 for part of the original key range.
+      // Those exact keys and empty covering payloads are unchanged; verify both access routes
+      // instead of assuming the old 127-row split boundary and physical IDs 1/257.
+      assertRoutedTuple(directory, cursor, key(2 * i + 2), new byte[0]);
+      if (withOne && cursor.leafId() == 263) {
+        System.out.printf("CHUNK_ROUTE key=%d payloadBytes=%d actualLeafId=%d exactScanAndSeek=PASS%n", 2 * i + 2,
+            cursor.payloadLength(), cursor.leafId());
+      }
       assertTrue(cursor.advance());
     }
     for (int i = 0; i < 255; i++) {
       assertTrue(cursor.isValid());
-      assertArrayEquals(key(1000 + i), cursor.copyKey());
-      assertEquals(i + 2, cursor.leafId());
+      assertRoutedTuple(directory, cursor, key(1000 + i), new byte[0]);
       assertEquals(i < 254, cursor.advance());
     }
     assertFalse(cursor.isValid());
+  }
+
+  private static void assertRoutedTuple(final ProjectionSortedDirectory.Accessor directory,
+      final ProjectionSortedDirectory.Accessor.Cursor scan, final byte[] expectedKey, final byte[] expectedPayload) {
+    assertArrayEquals(expectedKey, scan.copyKey());
+    final byte[] scanPayload = new byte[scan.payloadLength()];
+    scan.copyPayloadTo(scanPayload, 0);
+    assertArrayEquals(expectedPayload, scanPayload);
+    final ProjectionSortedDirectory.Accessor.Cursor seek = directory.seek(expectedKey);
+    assertTrue(seek.isValid());
+    assertArrayEquals(expectedKey, seek.copyKey());
+    final byte[] seekPayload = new byte[seek.payloadLength()];
+    seek.copyPayloadTo(seekPayload, 0);
+    assertArrayEquals(expectedPayload, seekPayload);
+    assertEquals(scan.leafId(), seek.leafId());
+    assertEquals(scan.leafId(), directory.findLeafId(expectedKey));
   }
 
   private static ProjectionSortedLeaf single(final int value) {

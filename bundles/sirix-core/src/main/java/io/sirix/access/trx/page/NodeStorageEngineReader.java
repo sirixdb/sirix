@@ -40,6 +40,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
@@ -4429,6 +4430,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent, null);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
     assertNotClosed();
     requireNonNull(reference);
     requireNonNull(key);
@@ -4482,11 +4489,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       throw new SirixIOException("Projection point route at key " + reference.getKey() + " is not a HOT page");
     }
-    return readVersionedHOTProjectionEntry(reference, canonicalKey, key, sideReferenceKey, intent);
+    return readVersionedHOTProjectionEntry(reference, canonicalKey, key, sideReferenceKey, intent, scope);
   }
 
   private @Nullable HOTLeafEntry readVersionedHOTProjectionEntry(final PageReference reference,
-      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey, final HOTReadIntent intent) {
+      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey, final HOTReadIntent intent,
+      final @Nullable ReadScope scope) {
     final HOTMiniPageCache miniPages = resourceBufferManager.getHOTMiniPageCache();
     final long generation = miniPages.generation(canonicalKey);
     final HOTMiniPage mini = miniPages.getAndGuard(canonicalKey);
@@ -4503,15 +4511,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         mini.releaseGuard();
       }
     }
-    if (promotionCandidate && miniPages.claimPointPromotion(canonicalKey, generation, key)) {
+    if (intent == HOTReadIntent.POINT && promotionCandidate
+        && miniPages.claimPointPromotion(canonicalKey, generation, key, scope)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
     }
     final HOTLeafEntry result = readHOTProjectionFragmentEntry(reference, canonicalKey, key, sideReferenceKey);
     if (reference.getPage() instanceof HOTIndirectPage) {
       return null; // Let the trie continue descent; never admit an indirect route as a leaf subset.
     }
-    if (miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result)) {
+    if (intent == HOTReadIntent.POINT
+        && miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, scope)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+    }
+    if (intent == HOTReadIntent.SELECTIVE && scope != null) {
+      scope.rememberMetadata(miniPages, canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, this,
+          reference);
     }
     return result;
   }

@@ -39,7 +39,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class ProjectionSortedGroupSummaryTest {
-  private static final String PROPERTY = "sirix.projection.sortedGroupSummaries";
 
   @TempDir
   Path directory;
@@ -231,7 +230,7 @@ final class ProjectionSortedGroupSummaryTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void overflowSummariesSurviveSplitsAndExtremaEditsAcrossAsyncFlushes(final VersioningType versioning) {
+  void chunkSummariesStayInlineAcrossExtremaEditsAndAsyncFlushes(final VersioningType versioning) {
     final Path path = directory.resolve("async-summaries");
     final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
     for (int row = 0; row < keys.length; row++) {
@@ -293,7 +292,7 @@ final class ProjectionSortedGroupSummaryTest {
               ? 1_270_128
               : 1_270_000, maximum.getFirst().max());
           assertTrue(ProjectionIndexHOTStorage.collectBlobLocators(reader, 0, ProjectionSortedGroupSummary.slot(1), 1)
-                                              .offset(0) != Constants.NULL_ID_LONG);
+                                              .offset(0) == Constants.NULL_ID_LONG);
         }
       }
     }
@@ -440,12 +439,13 @@ final class ProjectionSortedGroupSummaryTest {
   }
 
   @Test
-  void splittingThenDeletingAnEntireGroupKeepsEachRevisionExact() {
+  void chunkedGroupEditsAndDeletionKeepEachRevisionExact() {
     final Path path = directory.resolve("split");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final int initialLeaves;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
               new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
@@ -455,6 +455,8 @@ final class ProjectionSortedGroupSummaryTest {
           }
           builder.append(leaf(keys));
           builder.finish();
+          initialLeaves = ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0).dataLeafCount();
+          assertTrue(initialLeaves > 1, "the initial large range must be split into small records");
           writer.commit();
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
@@ -480,7 +482,10 @@ final class ProjectionSortedGroupSummaryTest {
             assertNotNull(accessor);
             assertEquals(revision == 3
                 ? 0
-                : revision, accessor.dataLeafCount());
+                : initialLeaves + (revision == 2
+                    ? 1
+                    : 0),
+                accessor.dataLeafCount());
             assertEquals(revision == 3
                 ? List.of()
                 : List.of(new Group("a", revision == 1
@@ -533,17 +538,9 @@ final class ProjectionSortedGroupSummaryTest {
     if (minOnly) {
       assertEquals(summarized, ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, 10));
     }
-    final String prior = System.getProperty(PROPERTY);
-    System.setProperty(PROPERTY, "false");
-    try {
-      assertEquals(ProjectionSortedGroupScan.topK(reader, 0, 10, order, 1, minOnly), summarized);
-    } finally {
-      if (prior == null) {
-        System.clearProperty(PROPERTY);
-      } else {
-        System.setProperty(PROPERTY, prior);
-      }
-    }
+    assertEquals(
+        ProjectionSortedGroupScan.topKFromKeys(accessor, ProjectionSortedDirectory.NO_BOUND, 10, order, 1, minOnly),
+        summarized);
   }
 
   @Test

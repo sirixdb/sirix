@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
 
@@ -122,6 +123,11 @@ final class ProjectionSortedLeafStore {
    */
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber, final int leafId,
       final HOTReadIntent intent) {
+    return read(reader, indexNumber, leafId, intent, null);
+  }
+
+  static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber, final int leafId,
+      final HOTReadIntent intent, final @Nullable ReadScope scope) {
     if (reader == null) {
       throw new NullPointerException("storage reader is required");
     }
@@ -129,7 +135,7 @@ final class ProjectionSortedLeafStore {
     if (observer != null) {
       observer.accept(leafId);
     }
-    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId), intent);
+    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId), intent, scope);
     return bytes == null
         ? null
         : ProjectionSortedLeaf.open(bytes);
@@ -147,6 +153,11 @@ final class ProjectionSortedLeafStore {
     return bytes == null
         ? null
         : ProjectionSortedLeaf.open(bytes);
+  }
+
+  /** Promote the native leaf without copying or decoding the detached logical chunk. */
+  static void promoteForScan(final StorageEngineReader reader, final int indexNumber, final int leafId) {
+    ProjectionIndexHOTStorage.promoteBlobLeafForScan(reader, indexNumber, slot(leafId));
   }
 
   static void remove(final ProjectionIndexHOTStorage storage, final int leafId) {

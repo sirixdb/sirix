@@ -216,17 +216,9 @@ final class ProjectionSortedPrefixRangeTest {
    */
   private static @Nullable List<Group> inOrder(final StorageEngineReader reader, final byte[] prefix, final int limit,
       final Order order, final long divisor, final boolean minOnly) {
-    final String previous = System.getProperty("sirix.projection.sortedGroupSummaries");
-    System.setProperty("sirix.projection.sortedGroupSummaries", "false");
-    try {
-      return ProjectionSortedGroupScan.topK(reader, 0, prefix, limit, order, divisor, minOnly, null);
-    } finally {
-      if (previous == null) {
-        System.clearProperty("sirix.projection.sortedGroupSummaries");
-      } else {
-        System.setProperty("sirix.projection.sortedGroupSummaries", previous);
-      }
-    }
+    final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(reader, 0);
+    assertNotNull(directory);
+    return ProjectionSortedGroupScan.topKFromKeys(directory, prefix, limit, order, divisor, minOnly);
   }
 
   /** Independent fold; null when a tie falls within or at the cut, as every route then declines. */
