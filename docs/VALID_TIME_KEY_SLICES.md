@@ -89,7 +89,11 @@ strict slices reuse the closed set for rounded/clamped rescue. Plain-FLWOR cover
 cardinalities and compressed bitmap intersection without expanding references. Document-order
 admission stops at the first live guard chunk; exceptional-bound admission stops at the first
 intersection with the array's membership. Exceptional intervals in other cohorts do not prevent
-key-only counts over exact array members.
+key-only counts over exact array members. The read index controller retains up to 256 cohort admission
+results, scoped to database, resource, immutable revision, definition identity, array key and length.
+Controller eviction and session closure release these proofs. Writer-backed readers decline admission
+and retain the exact comparison fallback. Repeated queries reuse successful or declined admission without decoding whole
+membership and verification postings; point conversion and endpoint selection remain per evaluation.
 
 ## Verification plan
 
@@ -128,7 +132,14 @@ for reference enumeration. Repeated demand reuses candidates and posting evidenc
 posting reads. Selective positive-stab budgets place an exact match first and last among 31 or 127 expired
 inexact rows, exercising packed and bitmap postings, plus nested candidates outside the root cohort. Count performs zero object/timestamp
 reads; exists and first demand construct one object, with work bounded by the three candidates.
-Opt-in 100,000-row versions exercise both placements in the dedicated Test phase. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
+Opt-in 100,000-row versions exercise both placements in the dedicated Test phase. Multi-chunk plain
+FLWOR budgets put expired inexact nested records beside exact outer records with one match, first
+and last. Their first admission proves nonzero validation work; repeated count/exists/first queries
+decode only the two candidate evidence chunks. Packed and bitmap fixtures retain explicit reference
+enumeration and cardinality controls. Separate executable checks cover warmed proofs across resource
+and cohort boundaries, changed points, writer mutations, reordered arrays, dropped/rebuilt definitions,
+reverts and reopened historical revisions. The two 100,000-row cohort variants are also opt-in.
+A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
 The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the

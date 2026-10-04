@@ -53,13 +53,10 @@ public final class ValidTimeIntervalIndex {
       return null;
     }
     final var reader = document.getTrx().getStorageEngineReader();
-    final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(reader, definition.getID());
-    final HotOrderedStore unverified =
-        ValidTimeIntervalIndexFactory.createVerificationStore(reader, definition.getID());
-    if (ValidTimeIntervalIndexFactory.createOrderStore(reader, definition.getID())
-                                     .hasReferences(document.getNodeKey(), 0)
-        || (unverified.hasReferences(0, 0) && members.intersects(document.getNodeKey(), 0, unverified, 0, 0))
-        || members.cardinality(document.getNodeKey(), 0) != array.len()) {
+    final JsonIndexController controller =
+        (JsonIndexController) document.getResourceSession()
+                                      .getRtxIndexController(document.getTrx().getRevisionNumber());
+    if (!controller.isExactValidTimeArray(reader, definition, document.getNodeKey(), array.len())) {
       return null;
     }
     if (!(point.get() instanceof DateTime dateTime) || dateTime.getTimezone() == null) {
