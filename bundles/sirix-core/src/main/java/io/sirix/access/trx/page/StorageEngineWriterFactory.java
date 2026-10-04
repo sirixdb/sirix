@@ -186,6 +186,7 @@ public final class StorageEngineWriterFactory {
   }
 
 
+  @SuppressWarnings("ReferenceEquality")
   private static void closeAfterConstructionFailure(final @Nullable AutoCloseable owner, final Throwable failure) {
     if (owner == null) {
       return;
@@ -193,6 +194,7 @@ public final class StorageEngineWriterFactory {
     try {
       owner.close();
     } catch (final Throwable cleanupFailure) {
+      // Self-suppression is defined by identity, even if a Throwable overrides equals().
       if (cleanupFailure != failure) {
         try {
           failure.addSuppressed(cleanupFailure);

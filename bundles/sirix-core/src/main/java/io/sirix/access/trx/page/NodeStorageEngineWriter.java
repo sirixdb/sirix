@@ -868,6 +868,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * failure modes it exercises — a leaked permit, a lost cause, retained payloads, or a rollback that
    * never returns — are not reachable through the public API by any other means.
    */
+  @Nullable
   static volatile BiConsumer<NodeStorageEngineWriter, String> asyncFlushFaultHook;
 
   /** Raise the injected fault for {@code site}, if a test armed one. */

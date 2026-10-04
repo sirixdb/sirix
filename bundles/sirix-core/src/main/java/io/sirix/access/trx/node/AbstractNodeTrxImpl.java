@@ -437,6 +437,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
   private volatile boolean asyncCommitTerminalFailure;
 
+  @Nullable
   static volatile Consumer<String> asyncCommitTestHook;
 
   private static void notifyAsyncCommitTestHook(final String stage) {
@@ -937,7 +938,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    *        by the background hardening thread), and the successor is based on the pending uber page
    *        instead of {@code lastCommittedUberPage}.
    */
-  private void reInstantiate(final int trxID, final int revNumber, final UberPage pendingBaseUberPage) {
+  @SuppressWarnings("ReferenceEquality")
+  private void reInstantiate(final int trxID, final int revNumber, final @Nullable UberPage pendingBaseUberPage) {
     final boolean timing = LOGGER.isDebugEnabled();
     final long r0 = timing
         ? System.nanoTime()
@@ -946,6 +948,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
 
+    // Closing the predecessor clears its controller. Keep its exact abort owners reachable until
+    // successor rebinding succeeds, without copying the snapshot on every commit.
     final ChangeListener[] retiringListeners = indexController.getChangeListenerSnapshot();
     try {
       // Reset page transaction to new uber page.
@@ -998,10 +1002,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         try {
           listener.transactionAborted();
         } catch (final Throwable cleanupFailure) {
+          // Self-suppression is defined by identity, even if a Throwable overrides equals().
           if (cleanupFailure != failure) {
             try {
               failure.addSuppressed(cleanupFailure);
             } catch (final Throwable ignored) {
+              // Suppression is diagnostic; allocation failure must remain the primary cause.
             }
           }
         }
@@ -1018,6 +1024,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   protected abstract NF reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter);
 
+  // NullAway cannot correlate the non-null saved snapshot with the flag selecting it.
+  @SuppressWarnings("NullAway")
   private void reInstantiateIndexes(final boolean preserveCurrentDefinitions) {
     // Get a new path summary instance.
     if (buildPathSummary) {
@@ -1036,6 +1044,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     indexController =
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     if (preserveCurrentDefinitions) {
+      // A pending predecessor may not have persisted its drops yet. Replace the entire restored
+      // catalogue, including empty membership, before creating successor listeners.
       indexController.getIndexes().replaceWith(indexDefs);
     }
     indexController.clearChangeListeners();

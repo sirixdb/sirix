@@ -122,6 +122,14 @@ public final class Indexes implements Materializable {
     dirty = false;
   }
 
+  /**
+   * Adopt complete successor catalogue membership, including drops, without marking a new mutation.
+   * The predecessor owns persistence of this state. Matching membership leaves the existing
+   * copy-on-write backing array intact.
+   *
+   * @param definitions the predecessor's authoritative definitions
+   * @throws NullPointerException if {@code definitions} or an added definition is null
+   */
   public void replaceWith(final Set<IndexDef> definitions) {
     requireNonNull(definitions);
     indexes.retainAll(definitions);

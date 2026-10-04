@@ -56,6 +56,22 @@ definitions remain available, while listener retention follows active writer
 lifetimes, including the bounded pending writer of a pipelined commit. The existing
 catalogue cache size and persisted formats are unchanged.
 
+The controller belongs to the prepared revision root, which can differ from the
+represented revision after a revert. Factory construction restores its catalogue
+from the latest persisted snapshot at or below `lastStoredRevision` through the
+session's memoized resolver. An absent snapshot inherits; an explicitly persisted
+empty catalogue prevents older definitions from returning. Restoration discards
+uncommitted definitions on reused controllers.
+
+On successful successor handoff, the predecessor's complete live catalogue replaces
+that restored catalogue, including an empty set or partial drops. This is necessary
+while a pipelined predecessor has not yet published its catalogue. Listener rebinding
+then derives maintenance and capability flags from exactly those definitions.
+The handoff retains the existing listener snapshot locally until rebinding succeeds;
+failure aborts those exact owners independently, while successful intermediate
+epochs preserve active projection builds. The handoff uses the existing listener
+array and definition-set snapshot.
+
 The factory owns the reader, transaction intent log and backend until construction
 succeeds. A construction failure closes all three independently and preserves the
 original exception, attaching cleanup failures only as suppressed diagnostics.
@@ -92,17 +108,8 @@ also part of the work-budget block in `docs/VERIFICATION.md`.
 The original workload, full-suite and latency evidence below belongs to submitted
 `7557433ac1f786645e11759fb1b13403d02ff5ec`; it is not evidence for the review fixes.
 
-The factory now obtains its controller from the prepared revision root. A revert
-can read revision 1 while preparing revision 11, so the represented revision cannot
-identify the controller that owns catalogue persistence and listener retirement.
-This prepared-revision identity is retained by the catalogue correction below;
-persisted formats remain unchanged.
-
-The shared synchronous/pipelined successor handoff retains the controller's existing
-listener snapshot locally until rebinding succeeds. If any handoff operation fails,
-it aborts those exact listeners independently, preserving the construction failure.
-Successful intermediate epochs keep the same projection owner; the handoff adds no
-array copy, new collection, or per-commit allocation.
+Prepared-revision controller ownership and projection-owner handoff follow the
+[lifetime rules](#lifetime-rules).
 
 The listener guard additionally performs sixteen indexed reverts after ten commits
 in both JSON and XML. It retains the existing two-listener bound, checks zero roots
@@ -124,22 +131,17 @@ Results, source hashes, all attempt logs and mutation reports are recorded in
 and `mutations/`. The final command used the supplied memory gate, private Maven
 repository, two workers and 512 MiB–2 GiB test heaps. Its task-owned
 `/var/tmp/sirix-bitemporal/writer-retention-review-*` stores were deleted. The outer pipeline owns
-full-suite, all-work-budget, formatting and original-workload revalidation. The normal
-successful commit behavior and allocation count are unchanged; this review phase
-makes no new latency claim.
+full-suite, all-work-budget, formatting and original-workload revalidation. These
+ownership checks make no new latency claim.
 
 ## Inherited catalogue recovery follow-up
 
 Round 1's controller-identity correction still reset definitions before loading only
 `lastStoredRevision.xml`. An unchanged intermediate commit intentionally omits that
 file, so reverting, rolling back after successor failure, or reopening could leave
-the next writer without index maintenance listeners. The factory now restores
-through the session's existing catalogue resolver, choosing the greatest persisted
-snapshot at or below `lastStoredRevision`. Missing snapshots inherit; persisted
-empty catalogues remain authoritative. The same restore boundary resets reused
-catalogues to discard uncommitted definitions. Fresh controller initialization uses
-the shared loader without an extra reset. The resolver, its memoization, formats,
-prepared-revision controller identity and exact projection abort-owner handoff are
+the next writer without index maintenance listeners. Persisted restoration now
+follows the [lifetime rules](#lifetime-rules); fresh controller initialization uses
+the shared loader without an extra reset. The resolver and its memoization are
 unchanged.
 
 `WriterCatalogueRecoveryTest` persists indexed revision 1, triggers a count-based
@@ -173,6 +175,23 @@ budgets were not changed.
 The outer pipeline owns broader suites, all work budgets, latest-head SH1 workload
 and latency verification, and formatting. Previous submitted-head evidence remains
 retained and does not validate this catalogue correction.
+
+## Pending catalogue handoff guards
+
+`WriterCatalogueHandoffTest` holds a count-based `KEEP_OPEN_ASYNC_COMMIT` publication
+at the existing `before-harden` hook with latches. Its JSON/XML cases drop all
+definitions, one CAS definition while retaining a sibling, or NAME while retaining
+CAS. They check the pending successor, live and reopened catalogues, capability
+flags, document values and maintained CAS lookups across successor mutation and an
+explicit commit. The successful handoff uses the [lifetime rules](#lifetime-rules).
+
+The guards reproduced catalogue resurrection on
+`12275306172915bcb5e66a5fbffd4a18e0eae770` before repair. Baseline and fixed commands,
+source hashes and results are retained in `build/writer-retention/r4/baseline.json`,
+`fixed.json` and their result/log directories. The fixed run also included the
+existing recovery, construction, retention, catalogue-budget and projection-lineage
+guards. This focused evidence does not replace final-head original-workload,
+full-suite, all-work-budget or SH1 latency verification by the outer pipeline.
 
 ## Separate XML NAME bulk-builder follow-up
 

@@ -45,6 +45,16 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    */
   void recordSerializedIndexCatalogueRevision(int revision);
 
+  /**
+   * Replace a catalogue with persisted definitions in effect at {@code revision}, discarding any
+   * uncommitted definitions. An absent snapshot inherits the preceding persisted catalogue; an
+   * explicitly empty snapshot stops that inheritance.
+   *
+   * @param revision the greatest revision allowed for the persisted snapshot
+   * @param indexes the catalogue to restore
+   * @throws IllegalArgumentException if {@code revision} is negative
+   * @throws NullPointerException if {@code indexes} is null
+   */
   void restoreIndexCatalogue(int revision, Indexes indexes);
 
   Path getCommitFile();

@@ -363,8 +363,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * {@link #NO_INDEX_CATALOGUE}.
    *
    * <p>
-   * A write transaction asks for the revision it is about to create, whose file cannot exist yet, and
-   * it asks once per commit, because every commit re-instantiates the writer. Answering that from the
+   * Writer creation resolves its prospective revision's controller and restores the catalogue at its
+   * durable base revision; every commit re-instantiates the writer. Answering each lookup from the
    * directory costs one {@code readdir} over every catalogue ever written, and a commit with
    * definitions writes one: O(revisions) per commit, O(revisions²) over a commit-per-operation load
    * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
