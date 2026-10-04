@@ -305,13 +305,20 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isPrecedingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
-          && node.kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
+          final long otherNodeKey;
+          if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
+            node.moveRtx();
+            otherNodeKey = node.rtx.getParentKey();
+            moveRtx();
+          } else {
+            otherNodeKey = node.nodeKey;
+          }
           for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
-            if (axis.nextLong() == node.nodeKey) {
+            if (axis.nextLong() == otherNodeKey) {
               return true;
             }
           }
@@ -325,13 +332,26 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isFollowingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
-          && node.kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
+          final long otherNodeKey;
+          if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
+            node.moveRtx();
+            otherNodeKey = node.rtx.getParentKey();
+            moveRtx();
+            while (rtx.moveToParent()) {
+              if (rtx.getNodeKey() == otherNodeKey) {
+                return true;
+              }
+            }
+            moveRtx();
+          } else {
+            otherNodeKey = node.nodeKey;
+          }
           for (final Axis axis = new PrecedingAxis(rtx); axis.hasNext();) {
-            if (axis.nextLong() == node.nodeKey) {
+            if (axis.nextLong() == otherNodeKey) {
               return true;
             }
           }

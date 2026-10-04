@@ -79,7 +79,7 @@ class XmlDBNodeComparisonTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void attributesAndNamespacesAreExcludedFromSiblingAndOrderingAxes(final boolean storeDeweyIds) {
+  void attributesAndNamespacesAreExcludedAsAxisResultsAndSiblings(final boolean storeDeweyIds) {
     try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
       final XmlDBCollection collection = store.create("collection", new DocumentParser("<seed/>"));
       assertNotNull(collection.add("tree", new DocumentParser("<r xmlns:p='urn:p' id='r' other='x'><a/><b/></r>")));
@@ -102,10 +102,56 @@ class XmlDBNodeComparisonTest {
             assertFalse(nonStructural.isFollowingSiblingOf(node));
             assertFalse(node.isFollowingSiblingOf(nonStructural));
             assertFalse(nonStructural.isPrecedingOf(node));
-            assertFalse(node.isPrecedingOf(nonStructural));
             assertFalse(nonStructural.isFollowingOf(node));
-            assertFalse(node.isFollowingOf(nonStructural));
           }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false, true", "false, false", "true, true", "true, false"})
+  void attributesAndNamespacesCanBeOrderingContexts(final boolean storeDeweyIds, final boolean sharedCursor) {
+    final String[] documents = {"<r><a/><b id='x'/></r>", "<r><a id='x'/><b/></r>",
+        "<r><a/><b xmlns:p='urn:p'/></r>", "<r><a xmlns:p='urn:p'/><b/></r>",
+        "<r><a id='x'><d/></a><b/></r>", "<r><a xmlns:p='urn:p'><d/></a><b/></r>"};
+    try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
+      final XmlDBCollection collection = store.create("collection", new DocumentParser("<seed/>"));
+      for (int index = 0; index < documents.length; index++) {
+        final String resource = "tree" + index;
+        assertNotNull(collection.add(resource, new DocumentParser(documents[index])));
+        try (final XmlResourceSession session = collection.getDatabase().beginResourceSession(resource);
+            final XmlNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
+            final XmlNodeReadOnlyTrx otherTrx = session.beginNodeReadOnlyTrx()) {
+          assertEquals(storeDeweyIds, session.getResourceConfig().areDeweyIDsStored);
+          final XmlDBNode root = new XmlDBNode(trx, collection).getFirstChild();
+          final XmlDBNode a = root.getFirstChild();
+          final XmlDBNode b = a.getNextSibling();
+          final boolean preceding = index == 0 || index == 2;
+          final XmlDBNode owner = preceding ? b : a;
+          final XmlDBNode result = index < 4 ? (preceding ? a : b) : a.getFirstChild();
+          final XmlDBNode sharedContext;
+          if (index == 0 || index == 1 || index == 4) {
+            sharedContext = owner.getAttribute(new QNm("id"));
+          } else {
+            assertTrue(owner.getTrx().moveToNamespace(0));
+            sharedContext = new XmlDBNode(trx, collection);
+          }
+          assertNotNull(sharedContext);
+          final XmlDBNode context;
+          if (sharedCursor) {
+            context = sharedContext;
+            assertSame(trx, context.getTrx());
+          } else {
+            assertTrue(otherTrx.moveTo(sharedContext.getNodeKey()));
+            context = new XmlDBNode(otherTrx, collection);
+          }
+          assertEquals(preceding, result.isPrecedingOf(context), documents[index]);
+          assertEquals(!preceding, result.isFollowingOf(context), documents[index]);
+          assertFalse(context.isPrecedingOf(result), documents[index]);
+          assertFalse(context.isFollowingOf(result), documents[index]);
+          assertFalse(owner.isPrecedingOf(context), documents[index]);
+          assertFalse(owner.isFollowingOf(context), documents[index]);
         }
       }
     }
