@@ -5,6 +5,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.node.NodeKind;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -23,7 +24,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ConstructedXmlNamespaceTest {
   private static final String ITEMS = "<item xmlns='urn:a' xmlns:p='urn:attr' p:flag='a' flag='plain'>a</item>"
@@ -83,6 +86,161 @@ final class ConstructedXmlNamespaceTest {
       }
       assertEquals(expectedNames, names(versioning, "reparsed", "resource1"), serialized);
       assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void collidingNamespacePrefixKeepsItsBindingOnRoundTrip(final VersioningType versioning) {
+    run(versioning, "xml:store('collision-scope',(),<Aa:item xmlns:Aa='BB'/>)");
+    try (final var store = store(versioning)) {
+      final var element = store.lookup("collision-scope").getDocument("resource1").getFirstChild();
+      final var scope = element.getScope();
+      final var trx = element.getTrx();
+      final long cursor = trx.getNodeKey();
+      assertEquals("BB", scope.resolvePrefix("Aa"));
+      assertNull(scope.resolvePrefix("BB"));
+      assertEquals(cursor, trx.getNodeKey());
+    }
+    final String serialized = run(versioning, "xml:doc('collision-scope','resource1')");
+    try (final var store = store(versioning)) {
+      store.create("collision-round-trip", "resource1", new DocumentParser(serialized));
+    }
+    final List<String> expected = List.of("ELEMENT|BB|item|Aa");
+    assertEquals(expected, names(versioning, "collision-scope", "resource1"));
+    assertEquals(expected, names(versioning, "collision-round-trip", "resource1"), serialized);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void collidingLocalNamesAndLexicalPrefixesMatchExactly(final VersioningType versioning) {
+    run(versioning, "xml:store('reported-name-collision',(),<root><Aa/><BB/></root>)");
+    assertEquals("BB", run(versioning, "xml:doc('reported-name-collision','resource1')/root/BB/local-name()"));
+    run(versioning, "xml:store('collision-names',(),<root xmlns:Aa='urn:a' xmlns:BB='urn:b'"
+        + " Aa:flag='a' BB:flag='b' Aa='local-a' BB='local-b'>"
+        + "<Aa:item/><BB:item/><Aa>local-a</Aa><BB>local-b</BB></root>)");
+    final String document = "xml:doc('collision-names','resource1')";
+    assertEquals("local-b", run(versioning, document + "/root/BB/string()"));
+    assertEquals("local-b", run(versioning, document + "//BB/string()"));
+    assertEquals("local-b", run(versioning, document + "/root/@BB/string()"));
+    try (final var store = store(versioning)) {
+      final var root = store.lookup("collision-names").getDocument("resource1").getFirstChild();
+      final var trx = root.getTrx();
+      final DescendantAxis axis = new DescendantAxis(trx);
+      while (axis.hasNext()) {
+        axis.nextLong();
+        final var name = trx.getName();
+        if (name == null) {
+          continue;
+        }
+        assertTrue(new XmlNameFilter(trx, name).filter());
+        if (name.getLocalName().equals("item")) {
+          assertTrue(new XmlNameFilter(trx, name.getPrefix() + ":item").filter());
+          assertFalse(new XmlNameFilter(trx, (name.getPrefix().equals("Aa") ? "BB" : "Aa") + ":item").filter());
+        } else {
+          assertTrue(new XmlNameFilter(trx, name.getLocalName()).filter());
+          assertFalse(new XmlNameFilter(trx, name.getLocalName().equals("Aa") ? "BB" : "Aa").filter());
+        }
+      }
+      trx.moveTo(root.getNodeKey());
+      final int attributes = trx.getAttributeCount();
+      for (int i = 0; i < attributes; i++) {
+        trx.moveToAttribute(i);
+        final var name = trx.getName();
+        assertTrue(new XmlNameFilter(trx, name).filter());
+        if (!name.getPrefix().isEmpty()) {
+          assertTrue(new XmlNameFilter(trx, name.getPrefix() + ":flag").filter());
+          assertFalse(new XmlNameFilter(trx, (name.getPrefix().equals("Aa") ? "BB" : "Aa") + ":flag").filter());
+        } else {
+          assertTrue(new XmlNameFilter(trx, name.getLocalName()).filter());
+          assertFalse(new XmlNameFilter(trx, name.getLocalName().equals("Aa") ? "BB" : "Aa").filter());
+        }
+        trx.moveTo(root.getNodeKey());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void partialAttributeWildcardsSelectAndDeleteOnlyMatchingAttributes(final VersioningType versioning) {
+    run(versioning, "xml:store('partial-attributes',(),<root xmlns:p='urn:a' p:flag='a' flag='plain' other='x'/>)");
+    final String root = "xml:doc('partial-attributes','resource1')/root";
+    final String declarations = "declare namespace a='urn:a'; ";
+    assertEquals("1 2 3 0 a plain", run(versioning, declarations + "(count(" + root + "/@a:*),count("
+        + root + "/@*:flag),count(" + root + "/@*),count(" + root + "/@*:missing),"
+        + root + "/@a:*/string()," + root + "/@flag/string())"));
+    run(versioning, declarations + "delete nodes " + root + "/@a:*");
+    assertEquals("2 1 0 plain x", run(versioning, declarations + "(count(" + root + "/@*),count("
+        + root + "/@*:flag),count(" + root + "/@a:*)," + root + "/@flag/string()," + root + "/@other/string())"));
+    assertEquals(List.of("ELEMENT||root|", "ATTRIBUTE||flag|", "ATTRIBUTE||other|"),
+        names(versioning, "partial-attributes", "resource1"));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void spatialNodeTestsKeepWildcardTypeAndDocumentConstraints(final VersioningType versioning) {
+    run(versioning, "xml:store('node-tests',(),<root xmlns:p='urn:a'>"
+        + "<p:item p:flag='a' flag='plain' other='x'/><item/><p:other/></root>)");
+    final String declarations = "declare namespace a='urn:a'; ";
+    final String document = "xml:doc('node-tests','resource1')";
+    final String root = document + "/root";
+    final String item = root + "/a:item";
+    for (final String axis : List.of("child", "descendant", "descendant-or-self")) {
+      final String path = root + "/" + axis + "::";
+      final String expected = axis.equals("descendant-or-self") ? "2 2 0 1 4" : "2 2 0 1 3";
+      assertEquals(expected, run(versioning, declarations + "(count(" + path + "a:*),count(" + path
+          + "*:item),count(" + path + "element(a:item,xs:string)),count(" + path
+          + "element(a:item,xs:untyped)),count(" + path + "element()))"), axis);
+    }
+    for (final String axis : List.of("parent", "ancestor", "ancestor-or-self")) {
+      final String path = item + "/" + axis + "::";
+      assertEquals("0 1", run(versioning, declarations + "(count(" + path
+          + "element(root,xs:string)),count(" + path + "element(root,xs:untyped)))"), axis);
+    }
+    final String documentPath = document + "/ancestor-or-self::";
+    assertEquals("0 1 0", run(versioning, declarations + "(count(" + documentPath
+        + "document-node(element(other))),count(" + documentPath + "document-node(element(root))),count("
+        + documentPath + "document-node(element(root,xs:string))))"));
+    for (final String axis : List.of("following", "following-sibling", "preceding", "preceding-sibling")) {
+      final String start = axis.startsWith("preceding") ? root + "/a:other" : item;
+      final String path = start + "/" + axis + "::";
+      final String expected = axis.startsWith("preceding") ? "1 2 0 1" : "1 1 0 1";
+      assertEquals(expected, run(versioning, declarations + "(count(" + path + "a:*),count(" + path
+          + "*:item),count(" + path + "element(*,xs:string)),count(" + path
+          + "element(item,xs:untyped)))"), axis);
+    }
+    assertEquals("0 1 0 3", run(versioning, declarations + "(count(" + item
+        + "/attribute::attribute(a:flag,xs:string)),count(" + item
+        + "/attribute::attribute(a:flag,xs:untypedAtomic)),count(" + item
+        + "/attribute::attribute(*,xs:string)),count(" + item + "/attribute::attribute(*,xs:untypedAtomic)))"));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void temporalNodeTestsKeepWildcardTypeAndDocumentConstraints(final VersioningType versioning) {
+    run(versioning, "xml:store('temporal-tests',(),<root xmlns:p='urn:a' p:flag='a'>"
+        + "<p:item>one</p:item></root>)");
+    run(versioning, "declare namespace a='urn:a'; replace value of node"
+        + " xml:doc('temporal-tests','resource1')/root/a:item/text() with 'two'");
+    final String declarations = "declare namespace a='urn:a'; declare namespace b='urn:b'; ";
+    for (final String axis : List.of("first", "last", "next", "previous", "past", "past-or-self", "future",
+        "future-or-self", "all-times")) {
+      final boolean backwards = axis.equals("first") || axis.equals("previous") || axis.startsWith("past");
+      final String document = "xml:doc('temporal-tests','resource1'," + (backwards ? "2" : "1") + ")";
+      final String elementPath = document + "/root/a:item/" + axis + "::";
+      final String attributePath = document + "/root/@a:flag/" + axis + "::";
+      final String documentPath = document + "/" + axis + "::";
+      final int count = axis.endsWith("or-self") || axis.equals("all-times") ? 2 : 1;
+      final String expected = count + " 0 " + count + " 0 0 " + count + " 0 " + count + " 0 " + count
+          + " 0 " + count + " 0";
+      assertEquals(expected, run(versioning, declarations + "(count(" + elementPath + "a:*),count("
+          + elementPath + "b:*),count(" + elementPath + "*:item),count(" + elementPath + "*:other),count("
+          + elementPath + "element(a:item,xs:string)),count(" + elementPath + "element(a:item,xs:untyped)),count("
+          + attributePath + "attribute(a:flag,xs:string)),count(" + attributePath
+          + "attribute(a:flag,xs:untypedAtomic)),count(" + attributePath + "attribute(*,xs:string)),count("
+          + attributePath + "attribute()),count(" + documentPath + "document-node(element(other))),count("
+          + documentPath + "document-node(element(root))),count(" + documentPath
+          + "document-node(element(root,xs:string))))"), axis);
     }
   }
 

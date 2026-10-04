@@ -99,16 +99,19 @@ public final class SirixScope implements Scope {
     if ("xml".equals(prefix)) {
       return XMLConstants.XML_NS_URI;
     }
-    final int prefixVocID = (prefix == null || prefix.isEmpty())
-        ? -1
-        : rtx.keyForName(prefix);
+    final String resolvedPrefix = prefix == null
+        ? ""
+        : prefix;
     final long currentNodeKey = rtx.getNodeKey();
     try {
       rtx.moveTo(nodeKey);
       while (rtx.isElement()) {
         for (int i = 0, namespaces = rtx.getNamespaceCount(); i < namespaces; i++) {
           rtx.moveToNamespace(i);
-          if (rtx.getPrefixKey() == prefixVocID) {
+          final int prefixKey = rtx.getPrefixKey();
+          if (prefixKey == -1
+              ? resolvedPrefix.isEmpty()
+              : resolvedPrefix.equals(rtx.nameForKey(prefixKey))) {
             return rtx.getValue();
           }
           rtx.moveToParent();
@@ -120,7 +123,7 @@ public final class SirixScope implements Scope {
     } finally {
       rtx.moveTo(currentNodeKey);
     }
-    return prefixVocID == -1
+    return resolvedPrefix.isEmpty()
         ? ""
         : null;
   }

@@ -34,16 +34,16 @@ import static java.util.Objects.requireNonNull;
  * 
  * @see PathNameFilter
  *      <p>
- *      Match qname of ELEMENT or ATTRIBUTE by key.
+ *      Match qname of ELEMENT or ATTRIBUTE.
  *      </p>
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /** Key of local name to test. */
-  private final int mLocalNameKey;
+  /** Local name to test. */
+  private final String mLocalName;
 
-  /** Key of prefix to test for a lexical name without a namespace context. */
-  private final int mPrefixKey;
+  /** Prefix to test for a lexical name without a namespace context. */
+  private final String mPrefix;
 
   /** Namespace URI for an expanded-name test, or null for a lexical name test. */
   private final @Nullable String mNamespaceURI;
@@ -57,11 +57,11 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
     requireNonNull(name);
-    mPrefixKey = -1;
+    mPrefix = "";
     mNamespaceURI = name.getNamespaceURI() == null
         ? ""
         : name.getNamespaceURI();
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
+    mLocalName = name.getLocalName();
   }
 
   /**
@@ -76,22 +76,24 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
     mNamespaceURI = null;
     final int index = name.indexOf(":");
     if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
+      mPrefix = name.substring(0, index);
     } else {
-      mPrefixKey = -1;
+      mPrefix = "";
     }
 
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
+    mLocalName = name.substring(index + 1);
   }
 
   @Override
   public boolean filter() {
     final XmlNodeReadOnlyTrx trx = getTrx();
-    if (!trx.isNameNode() || trx.getLocalNameKey() != mLocalNameKey) {
+    if (!trx.isNameNode() || !mLocalName.equals(trx.nameForKey(trx.getLocalNameKey()))) {
       return false;
     }
     if (mNamespaceURI == null) {
-      return trx.getPrefixKey() == mPrefixKey;
+      return trx.getPrefixKey() == -1
+          ? mPrefix.isEmpty()
+          : mPrefix.equals(trx.nameForKey(trx.getPrefixKey()));
     }
     // Elements use -1 for an absent URI; attributes store the empty URI in the dictionary.
     return trx.getURIKey() == -1
