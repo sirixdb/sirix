@@ -48,7 +48,10 @@ final class BindingDependencyWorkTest {
     for (int i = 1; i <= aliases; i++) {
       text.append("let $a").append(i).append(" := $a").append(i - 1).append(" + $a").append(i - 1).append(' ');
     }
-    text.append("return ($a").append(aliases).append(", xs:integer($a").append(aliases)
+    text.append("return ($a")
+        .append(aliases)
+        .append(", xs:integer($a")
+        .append(aliases)
         .append(") gt 0 and $seed eq 1)");
     final Query query = new Query(chain, text.toString());
     assertTrue(proofReads[0] > 0, "the proof reaches the counted external input");

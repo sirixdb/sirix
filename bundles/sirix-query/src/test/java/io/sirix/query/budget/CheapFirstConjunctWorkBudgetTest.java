@@ -19,7 +19,6 @@ import io.sirix.query.json.JsonDBCollection;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
-import io.sirix.query.json.JsonDBObject;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;

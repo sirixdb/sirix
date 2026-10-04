@@ -215,18 +215,28 @@ final class OpaqueConjunctTest {
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-        context.bind(new QNm("input"), shape.equals("scalar") ? increasing(reads)
+        context.bind(new QNm("input"), shape.equals("scalar")
+            ? increasing(reads)
             : object("value", increasing(reads), reads));
-        final String value = shape.equals("scalar") ? "$c" : shape.equals("alias") ? "$b.value" : "$c.value";
+        final String value = shape.equals("scalar")
+            ? "$c"
+            : shape.equals("alias")
+                ? "$b.value"
+                : "$c.value";
         final String predicate = "xs:integer(" + value + ") gt 0 and " + value + " eq 2";
-        final String body = shape.equals("alias") ? "let $b := $c return " + predicate
-            : shape.equals("local-shadow") ? "let $input := 0 return " + predicate : predicate;
-        final String text = "declare variable $input external; declare variable $c := 0; "
-            + (shape.equals("inline") ? "let $f := function($c) { " + body + " } return $f($input)"
-                : "declare function local:f($c) { " + body + " }; local:f($input)");
+        final String body = shape.equals("alias")
+            ? "let $b := $c return " + predicate
+            : shape.equals("local-shadow")
+                ? "let $input := 0 return " + predicate
+                : predicate;
+        final String text = "declare variable $input external; declare variable $c := 0; " + (shape.equals("inline")
+            ? "let $f := function($c) { " + body + " } return $f($input)"
+            : "declare function local:f($c) { " + body + " }; local:f($input)");
         assertEquals("true", serialize(chain, context, text));
         assertEquals(2, reads.scalar);
-        assertEquals(shape.equals("scalar") ? 0 : 2, reads.fields);
+        assertEquals(shape.equals("scalar")
+            ? 0
+            : 2, reads.fields);
         assertEquals(0, reads.inspections);
       }
     });
@@ -291,13 +301,13 @@ final class OpaqueConjunctTest {
           final String doc = "jn:doc('data','rows')";
           final String predicate = "xs:integer($r.value) gt 0 and $r.value eq 2";
           final String text = switch (shape) {
-            case "fresh" -> "for $r in " + doc + " where if ($keep eq 1) then (" + predicate
-                + ") else false() return true()";
+            case "fresh" ->
+              "for $r in " + doc + " where if ($keep eq 1) then (" + predicate + ") else false() return true()";
             case "direct" -> "xs:integer(" + doc + ".value) gt 0 and " + doc + ".value eq 2";
             case "nested" -> "(for $r in " + doc + " return xs:integer($r.value) gt 0) and " + doc + ".value eq 2";
             case "default" -> "declare variable $c := " + doc + ".value; xs:integer($c) gt 0 and $c eq 2";
-            case "nested-default" -> "declare variable $c := (for $r in " + doc
-                + " return $r.value); xs:integer($c) gt 0 and $c eq 2";
+            case "nested-default" ->
+              "declare variable $c := (for $r in " + doc + " return $r.value); xs:integer($c) gt 0 and $c eq 2";
             case "alias" -> "let $c := " + doc + ".value return xs:integer($c) gt 0 and $c eq 2";
             case "literal" -> "for $r in [{\"child\":" + doc + "}][] where xs:integer($r.child.value) gt 0"
                 + " and $r.child.value eq 2 return true()";
@@ -307,8 +317,9 @@ final class OpaqueConjunctTest {
                 + ") else false() return $p";
             default -> throw new IllegalArgumentException(shape);
           };
-          assertEquals(shape.startsWith("composed") ? "1" : "true",
-              serialize(chain, context, "declare variable $keep external;" + text));
+          assertEquals(shape.startsWith("composed")
+              ? "1"
+              : "true", serialize(chain, context, "declare variable $keep external;" + text));
           assertEquals(2, reads.scalar);
         }
       }
@@ -337,7 +348,9 @@ final class OpaqueConjunctTest {
         final String text = "for $a in " + source + (shape.equals("native-join")
             ? " for $n in (1,1) where $a.id eq $n and (if ($n gt 0) then (" + test + ") else false()) return $a"
             : shape.endsWith("return")
-                ? (shape.contains("selected") ? " where $a.id eq 1" : "") + " return ($a, " + test + ")"
+                ? (shape.contains("selected")
+                    ? " where $a.id eq 1"
+                    : "") + " return ($a, " + test + ")"
                 : " for $n in 1 to 2 where if ($n gt 0) then (" + test + ") else false() return $a");
         try (final Iter result = new Query(chain, text).execute(context).iterate()) {
           final Object first = assertInstanceOf(Object.class, result.next());

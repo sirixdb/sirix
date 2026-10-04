@@ -4,7 +4,6 @@ import io.brackit.query.Query;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.QNm;
-import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
