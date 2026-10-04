@@ -186,20 +186,28 @@ verification posting belongs to a registered interval.
 
 ## Brackit dependency
 
-Full laziness through user functions, including SH1's `local:slice` in Q6/Q11, depends on the
-separate Brackit UDF materialization fix. In the tested `1.0-alpha10-SNAPSHOT`,
-`io.brackit.query.function.FunctionExpr.evaluate:109` calls `ExprUtil.materialize` after
-return-type conversion. `FunctionConversionSequence` also iterates when counting even an
-`item()*` result; the enclosing expression adds a flattening wrapper. Direct index calls avoid
-these UDF wrappers. Predicate folding still saves timestamp reads within the function body,
-but this change alone cannot provide demand-only object construction across its return boundary.
+The consumed `1.0-alpha10-SNAPSHOT` supports lazy UDF returns through `Sequence.isRepeatable()`
+and `Sequence.knownSize()`. Sirix opts immutable valid-time key sequences into that protocol,
+including folded `local:slice` bodies in Q6/Q11. For exact candidates, the known cardinality comes
+from index keys without constructing objects or reading timestamps. Inexact candidates report an
+unknown cardinality; arbitrary caller-supplied predicates do not opt into repeatability. Mutable
+views still use the existing fallback.
 
-`ValidTimeSliceWorkBudgetTest.userFunctionCountDoesNotMaterializeTheSlice` is disabled explicitly
-until Sirix consumes the corrected Brackit snapshot. Re-enable it when that dependency lands.
-The active direct-call and direct-FLWOR budgets keep their zero-read bounds. The standalone
-[UdfMaterializationRepro.java](bench/validtime-slice/io/sirix/query/bench/validtime/UdfMaterializationRepro.java) needs only Brackit:
-`count(probe:keys())` constructs zero items; the trivial UDF wrapper constructs all 64. It also
-checks return conversion separately, so fixing only the explicit materialization is insufficient.
+The five-argument scan overload returns its selected producer directly when the point is already a
+captured `DateTime`. Expression-supplied points retain their deferred wrapper so empty sources and
+point-evaluation errors keep their existing semantics.
+
+Brackit preserves return-type validation and normalizes empty/singleton UDF results to their
+existing scalar representation. That normalization may construct a singleton object, and unknown
+cardinalities require bounded lookahead. Exact multi-item `item()*` returns need no lookahead:
+count constructs zero objects, and the first requested item constructs one.
+
+`ValidTimeSliceWorkBudgetTest.userFunctionCountDoesNotMaterializeTheSlice` is enabled and guards
+two- and 64-row counts, first-item demand, independent readers after early close, and constrained
+return-type errors. Direct-call and direct-FLWOR zero-read bounds remain unchanged. The standalone
+[UdfMaterializationRepro.java](bench/validtime-slice/io/sirix/query/bench/validtime/UdfMaterializationRepro.java)
+needs only Brackit and implements the same producer protocol: both the direct count and the trivial
+UDF wrapper construct zero items. Unmarked producers retain Brackit's conservative eager behavior.
 
 ## Timing reproduction
 

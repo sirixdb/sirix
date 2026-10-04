@@ -1,6 +1,8 @@
 package io.sirix.query.budget;
 
 import io.brackit.query.Query;
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Numeric;
@@ -31,7 +33,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import io.sirix.io.StorageType;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -44,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -70,13 +72,13 @@ final class ValidTimeSliceWorkBudgetTest {
 
   @Test
   void noObjectReadsUntilDemandAndCountDoesNotReadTimestampFields() {
-    assertSliceBudget(false);
+    assertSliceBudget(64, false);
   }
 
-  @Test
-  @Disabled("Awaiting Brackit UDF materialization fix; see docs/VALID_TIME_KEY_SLICES.md#brackit-dependency")
-  void userFunctionCountDoesNotMaterializeTheSlice() {
-    assertSliceBudget(true);
+  @ParameterizedTest
+  @ValueSource(ints = {2, 64})
+  void userFunctionCountDoesNotMaterializeTheSlice(final int count) {
+    assertSliceBudget(count, true);
   }
 
   @Test
@@ -862,8 +864,7 @@ final class ValidTimeSliceWorkBudgetTest {
     }
   }
 
-  private void assertSliceBudget(final boolean includeUserFunction) {
-    final int count = 64;
+  private void assertSliceBudget(final int count, final boolean includeUserFunction) {
     final StringBuilder json = new StringBuilder("[");
     for (int i = 0; i < count; i++) {
       if (i != 0) {
@@ -953,17 +954,50 @@ final class ValidTimeSliceWorkBudgetTest {
         if (!includeUserFunction) {
           return;
         }
-        final String wrapped = """
+        final String declaration = """
             declare function local:slice($p as xs:dateTime) {
               for $x in jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z'),$p)
               where $p lt xs:dateTime($x.vt) return $x
             };
-            count(local:slice(xs:dateTime('2024-01-01T00:00:00Z')))
             """;
+        final String call = "local:slice(xs:dateTime('2024-01-01T00:00:00Z'))";
         clearInvocations(cursor);
-        assertEquals(count, ((Numeric) new Query(observedChain, wrapped).evaluate(observedContext)).intValue());
+        assertEquals(count,
+            ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(observedContext))
+                .intValue());
         verify(cursor, never()).getFirstChildKey();
         verify(cursor, never()).getValue();
+        final String indexWrapped = """
+            declare function local:index-slice($d) {
+              jn:scan-valid-time-index($d,xs:dateTime('2024-01-01T00:00:00Z'),'vf','vt',2)
+            };
+            count(local:index-slice(jn:doc('budget','rows')))
+            """;
+        assertEquals(count, ((Numeric) new Query(observedChain, indexWrapped).evaluate(observedContext)).intValue());
+        verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        final Sequence wrapped = new Query(observedChain, declaration + call).execute(observedContext);
+        final long firstKey;
+        try (var iterator = wrapped.iterate()) {
+          verify(cursor, never()).getFirstChildKey();
+          firstKey = ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey();
+          verify(cursor, times(1)).getFirstChildKey();
+        }
+        // Closing one reader must not consume the UDF result for another reader or a later count.
+        try (var iterator = wrapped.iterate()) {
+          assertEquals(firstKey, ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey());
+          verify(cursor, times(2)).getFirstChildKey();
+        }
+        assertEquals(count, wrapped.size().intValue());
+        verify(cursor, times(2)).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        final String typed = declaration + """
+            declare function local:typed($p as xs:dateTime) as xs:string* { local:slice($p) };
+            count(local:typed(xs:dateTime('2024-01-01T00:00:00Z')))
+            """;
+        assertEquals(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
+            assertThrows(QueryException.class, () -> new Query(observedChain, typed).evaluate(observedContext))
+                .getCode());
       }
     }
   }
