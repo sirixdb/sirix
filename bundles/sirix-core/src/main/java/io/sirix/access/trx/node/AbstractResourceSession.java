@@ -1,5 +1,7 @@
 package io.sirix.access.trx.node;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.utils.ObjectPool;
 import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.DatabaseConfiguration;
@@ -130,12 +132,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()} (cold-process
    * simulation in tests) drops everything.
    */
-  // FULLY QUALIFIED deliberately, and it must stay that way: io.sirix.cache.Cache is imported in
-  // this file, so a single-type-import of Caffeine's Cache does not compile ("a type with the same
-  // simple name is already defined"). A review flagged this as a CLAUDE.md violation; it is the one
-  // place the rule cannot be followed without renaming one of the two types.
-  private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
-      com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
+  private static final Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
+      Caffeine.newBuilder().maximumSize(100_000).build();
 
   /** Shared empty result for history-timestamp queries on resources without user revisions. */
   private static final long[] EMPTY_LONG_ARRAY = new long[0];
@@ -217,17 +215,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final AtomicReference<ObjectPool<StorageEngineReader>> pool;
 
   /**
-   * The greatest revision a catalogue file existed for when this session last listed
+   * The greatest revision a catalogue file existed for when any session of this resource last listed
    * {@code indexes/}: {@link #INDEX_CATALOGUE_NOT_LISTED} until it has, {@link #NO_INDEX_CATALOGUE}
    * when the directory held none. See {@link #resolveIndexCatalogueRevision}.
    */
-  private volatile int listedIndexCatalogueRevision = INDEX_CATALOGUE_NOT_LISTED;
+  private final AtomicInteger listedIndexCatalogueRevision;
 
   /**
-   * The greatest revision a writer of this session serialized a catalogue file for, or
+   * The greatest revision a writer of this resource serialized a catalogue file for, or
    * {@link #NO_INDEX_CATALOGUE} while none has.
    */
-  private final AtomicInteger serializedIndexCatalogueRevision = new AtomicInteger(NO_INDEX_CATALOGUE);
+  private final AtomicInteger serializedIndexCatalogueRevision;
 
   /**
    * Determines if session was closed.
@@ -255,6 +253,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * The user interacting with SirixDB.
    */
   final User user;
+
+  /** The database-owned session that owns storage and the shared committed-revision state. */
+  private final @Nullable AbstractResourceSession<R, W> sharedSession;
+
+  /** Number of handle sessions using this database-owned session; guarded by its monitor. */
+  private int userSessionCount;
 
   /**
    * A factory that creates new {@link StorageEngineWriter} instances.
@@ -303,6 +307,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
+    sharedSession = null;
+    pendingRevisionRoot = new AtomicReference<>();
+    listedIndexCatalogueRevision = new AtomicInteger(INDEX_CATALOGUE_NOT_LISTED);
+    serializedIndexCatalogueRevision = new AtomicInteger(NO_INDEX_CATALOGUE);
     pool = new AtomicReference<>();
 
     // Use GLOBAL epoch tracker (shared across all databases/resources)
@@ -317,6 +325,75 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // This follows PostgreSQL bgwriter pattern - background threads run continuously
 
     isClosed = false;
+  }
+
+  /**
+   * Create a user session with its own transactions and reader pool over the database's shared
+   * storage, write/commit locks and published revision. No storage is reopened or revision read.
+   */
+  protected AbstractResourceSession(final AbstractResourceSession<R, W> sharedSession,
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    sharedSession.assertNotClosed();
+    this.sharedSession = sharedSession;
+    this.resourceStore = requireNonNull(resourceStore);
+    this.user = requireNonNull(user);
+    resourceConfig = sharedSession.resourceConfig;
+    bufferManager = sharedSession.bufferManager;
+    storage = sharedSession.storage;
+    storageEngineWriterFactory = sharedSession.storageEngineWriterFactory;
+    writeLock = sharedSession.writeLock;
+    commitLock = sharedSession.commitLock;
+    lastCommittedUberPage = sharedSession.lastCommittedUberPage;
+    pendingRevisionRoot = sharedSession.pendingRevisionRoot;
+    listedIndexCatalogueRevision = sharedSession.listedIndexCatalogueRevision;
+    serializedIndexCatalogueRevision = sharedSession.serializedIndexCatalogueRevision;
+    revisionEpochTracker = sharedSession.revisionEpochTracker;
+    trxIDCounter = sharedSession.trxIDCounter;
+    nodeTrxMap = new ConcurrentHashMap<>();
+    storageEngineReaderMap = new ConcurrentHashMap<>();
+    storageEngineWriterMap = new ConcurrentHashMap<>();
+    sharedTrxMap = new ConcurrentHashMap<>();
+    pool = new AtomicReference<>();
+    if (sharedSession.pool.get() != null) {
+      createStorageEnginePool();
+    }
+  }
+
+  public final synchronized ResourceSession<R, W> openUserSession(
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    assertNotClosed();
+    requireNonNull(resourceStore);
+    requireNonNull(user);
+    userSessionCount++;
+    try {
+      return createUserSession(resourceStore, user);
+    } catch (final RuntimeException | Error e) {
+      userSessionCount--;
+      throw e;
+    }
+  }
+
+  protected ResourceSession<R, W> createUserSession(
+      final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore,
+      final User user) {
+    throw new UnsupportedOperationException("This resource session does not support user sessions");
+  }
+
+  public final void releaseUserSession() {
+    if (sharedSession == null) {
+      throw new IllegalStateException("Only a user session can release its shared session");
+    }
+    synchronized (sharedSession) {
+      if (sharedSession.userSessionCount <= 0) {
+        throw new IllegalStateException("No user session is registered");
+      }
+      if (sharedSession.userSessionCount == 1) {
+        sharedSession.close();
+      }
+      sharedSession.userSessionCount--;
+    }
   }
 
   // REMOVED: ClockSweeper management moved to BufferManager (global lifecycle)
@@ -370,42 +447,36 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
    * directory is consulted last:
    * <ol>
-   * <li>the requested revision's own file, one {@code stat}: a reader of a revision that committed
-   * definitions, and the one file at or below the request that a writer outside this session can have
-   * added (see below);</li>
-   * <li>what this session knows. Once it has listed the directory, the greatest catalogue revision is
-   * the greater of that listing's and of what its own writers serialized since, and a request at or
-   * above it resolves to it without further file-system access. This also answers every writer of a
-   * resource that has no catalogue at all;</li>
+   * <li>the requested revision's own file, one {@code stat}: an exact answer for a revision that
+   * committed definitions;</li>
+   * <li>what this resource's sessions know. Once one has listed the directory, the greatest catalogue
+   * revision is the greater of that listing's and of what their writers serialized since, and a
+   * request at or above it resolves to it without further file-system access. This also answers every
+   * writer of a resource that has no catalogue at all;</li>
    * <li>the previous revision's file: the first writer of a session, one more {@code stat};</li>
-   * <li>one directory listing, which establishes (2) for the rest of the session.</li>
+   * <li>one directory listing, which establishes (2) for all sessions sharing this resource.</li>
    * </ol>
    * Each step returns what the listing would return. (1) is the greatest revision the request admits,
    * and (3) the greatest one left once (1) has missed. (2) holds because every catalogue file this
-   * session's writers create is reported through {@link #recordSerializedIndexCatalogueRevision(int)}
-   * as soon as it is durable, and nothing removes one under an open session
-   * ({@code Databases.removeResource} refuses while a session is registered; a restore only fills an
-   * empty directory).
+   * resource's writers create is reported through
+   * {@link #recordSerializedIndexCatalogueRevision(int)} as soon as it is durable, and nothing
+   * removes one under an open session ({@code Database.removeResource} refuses while a session is
+   * registered; a restore only fills an empty directory).
    *
    * <p>
-   * Nothing makes this session the only writer of the resource, though:
-   * {@code Databases.openDatabase} mints a database handle per call, each with its own resource
-   * sessions, the write lock is shared across those sessions ({@code WriteLocksRegistry}) and only
-   * serializes their writers, and the database's {@code .lock} file is declared but never created or
-   * checked, so a second process is not refused either. Such a writer commits the revision this
-   * session would commit next, and that commit creates exactly that revision's catalogue file. (1)
-   * runs before (2) so that file is found whenever it exists: for every request at or below the
-   * session's most recent revision plus one, which is every request a transaction of this session
-   * makes, the answer is the greatest catalogue at or below it as it stands when the file is probed,
-   * foreign commits included. (What a foreign writer commits beyond that lies outside this session's
-   * view altogether: {@code lastCommittedUberPage}, which bounds the revisions this session reads and
-   * bases its next writer on, is advanced by its own writers only.)
+   * {@code Databases} holds an operating-system lock on the database's persistent {@code .lock} file
+   * until the last handle closes, refusing another process's open. Handles at the same canonical path
+   * share one database backend. Their user sessions share storage, the committed uber-page, catalogue
+   * knowledge and the resource's {@code WriteLocksRegistry} semaphore. Every writer therefore
+   * publishes into the same view and records into the same catalogue state. The own-file probe stays
+   * first: it is the exact answer when present, including for an old revision whose catalogue
+   * predates this resource's current state.
    */
   private int resolveIndexCatalogueRevision(final Path indexesDir, final int revision) {
     if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
       return revision;
     }
-    final int listed = listedIndexCatalogueRevision;
+    final int listed = listedIndexCatalogueRevision.get();
     if (listed != INDEX_CATALOGUE_NOT_LISTED) {
       final int newest = Math.max(listed, serializedIndexCatalogueRevision.get());
       if (newest <= revision) {
@@ -453,7 +524,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // A catalogue serialized while this listing ran may be missing from it, but its writer reports
     // it and the resolution takes the greater of the two, so publishing the listing's own maximum
     // loses nothing.
-    listedIndexCatalogueRevision = newest;
+    listedIndexCatalogueRevision.set(newest);
     return atOrBelowRevision;
   }
 
@@ -537,19 +608,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
-  private volatile PendingRevisionRoot pendingRevisionRoot;
+  private final AtomicReference<PendingRevisionRoot> pendingRevisionRoot;
 
   private record PendingRevisionRoot(int revision, RevisionRootPage rootPage) {
   }
 
   @Override
   public void putPendingRevisionRoot(final int revision, final RevisionRootPage rootPage) {
-    pendingRevisionRoot = new PendingRevisionRoot(revision, rootPage);
+    pendingRevisionRoot.set(new PendingRevisionRoot(revision, rootPage));
   }
 
   @Override
   public RevisionRootPage getPendingRevisionRoot(final int revision) {
-    final PendingRevisionRoot pending = pendingRevisionRoot;
+    final PendingRevisionRoot pending = pendingRevisionRoot.get();
     return pending != null && pending.revision() == revision
         ? pending.rootPage()
         : null;
@@ -557,9 +628,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void clearPendingRevisionRoot(final int revision) {
-    final PendingRevisionRoot pending = pendingRevisionRoot;
+    final PendingRevisionRoot pending = pendingRevisionRoot.get();
     if (pending != null && pending.revision() == revision) {
-      pendingRevisionRoot = null;
+      pendingRevisionRoot.compareAndSet(pending, null);
     }
   }
 
@@ -1142,13 +1213,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       storageEngineReaderMap.clear();
       storageEngineWriterMap.clear();
-      resourceStore.closeResourceSession(resourceConfig.getResource());
-
-      storage.close();
-
       if (pool.get() != null) {
         pool.get().close();
       }
+      if (sharedSession == null) {
+        storage.close();
+      }
+      resourceStore.closeResourceSession(resourceConfig.getResource());
       isClosed = true;
     }
   }

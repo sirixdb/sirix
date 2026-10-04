@@ -41,14 +41,11 @@ public final class LocalJsonDatabaseFactory implements LocalDatabaseFactory<Json
   private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
 
   private final WriteLocksRegistry writeLocksRegistry;
-  private final PathBasedPool<Database<?>> databaseSessions;
   private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
   public LocalJsonDatabaseFactory(final WriteLocksRegistry writeLocksRegistry,
-      final PathBasedPool<Database<?>> databaseSessions,
       final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
     this.writeLocksRegistry = writeLocksRegistry;
-    this.databaseSessions = databaseSessions;
     this.resourceSessions = resourceSessions;
   }
 
@@ -66,8 +63,7 @@ public final class LocalJsonDatabaseFactory implements LocalDatabaseFactory<Json
     final AtomicReference<ResourceStore<JsonResourceSession>> resourceStoreRef = new AtomicReference<>();
 
     final ResourceSessionFactory<JsonResourceSession> resourceSessionFactory =
-        (final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
-            final Path resourceFile) -> {
+        (final ResourceConfiguration resourceConfig, final BufferManager bufferManager, final Path resourceFile) -> {
 
           // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
           // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
@@ -79,15 +75,14 @@ public final class LocalJsonDatabaseFactory implements LocalDatabaseFactory<Json
           final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());
           final StorageEngineWriterFactory storageEngineWriterFactory = new StorageEngineWriterFactory(databaseType);
 
-          return new JsonResourceSessionImpl(resourceStoreRef.get(), resourceConfig, bufferManager,
-              storage, uberPage, writeLock, user, databaseName, storageEngineWriterFactory);
+          return new JsonResourceSessionImpl(resourceStoreRef.get(), resourceConfig, bufferManager, storage, uberPage,
+              writeLock, user, databaseName, storageEngineWriterFactory);
         };
 
     final ResourceStore<JsonResourceSession> resourceStore =
         new ResourceStoreImpl<>(resourceSessions, resourceSessionFactory);
     resourceStoreRef.set(resourceStore);
 
-    return new LocalDatabase<>(transactionManager, configuration, databaseSessions, resourceStore,
-        writeLocksRegistry, resourceSessions);
+    return new LocalDatabase<>(transactionManager, configuration, resourceStore, writeLocksRegistry, resourceSessions);
   }
 }

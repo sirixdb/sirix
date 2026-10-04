@@ -143,6 +143,12 @@ class JsonSessionDBStore(
         return dbStore.drop(name)
     }
 
+    override fun drop(name: String, databasePath: Path) {
+        Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
+
+        return dbStore.drop(name, databasePath)
+    }
+
     override fun makeDir(path: String) {
         Auth.checkIfAuthorized(user, path, AuthRole.CREATE, authz)
 

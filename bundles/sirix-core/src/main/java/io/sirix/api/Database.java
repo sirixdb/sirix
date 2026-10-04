@@ -83,7 +83,7 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * Open or reuse a resource session to work with a resource stored in this database.
    *
    * <p>
-   * Repeated calls for the same resource on this database return the existing open session. An
+   * Repeated calls for the same resource on this handle return the existing open session. An
    * operation borrowing that shared session owns only the transactions it starts, not the session's
    * lifetime. See {@link ResourceSession#close()} for the effects of closing the session.
    *
@@ -102,7 +102,9 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
   Database<T> removeResource(String resourceName);
 
   /**
-   * Closing the database for further access.
+   * Close this handle and its resource sessions. Other handles at the same canonical database path
+   * retain their sessions and committed view. The last handle closes the shared database and releases
+   * the operating-system ownership lock; the persistent lock file remains in place.
    *
    * @throws SirixException if anything happens within sirix.
    */

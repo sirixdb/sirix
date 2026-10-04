@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -12,56 +13,40 @@ import java.util.Map;
 /**
  * Configuration for the SirixDB MCP server.
  *
- * <p>Security defaults follow the principle of least privilege:
- * read-only by default. All databases at the configured path are accessible
- * unless restricted via {@code allowDatabases} or {@code denyDatabases}.
+ * <p>
+ * Security defaults follow the principle of least privilege: read-only by default. All databases at
+ * the configured path are accessible unless restricted via {@code allowDatabases} or
+ * {@code denyDatabases}.
  */
-public record McpServerConfig(
-    String name,
-    String version,
-    String transport,
-    String databasePath,
-    boolean readOnly,
-    List<String> allowDatabases,
-    List<String> denyDatabases,
-    Map<String, List<String>> allowResources,
-    int maxResultSize,
-    int maxStringValueLength,
-    boolean sanitizeOutput,
-    boolean confirmDestructive,
-    boolean auditLog,
-    String auditLogPath
-) {
+public record McpServerConfig(String name, String version, String transport, String databasePath, boolean readOnly,
+    List<String> allowDatabases, List<String> denyDatabases, Map<String, List<String>> allowResources,
+    int maxResultSize, int maxStringValueLength, boolean sanitizeOutput, boolean confirmDestructive, boolean auditLog,
+    @Nullable String auditLogPath) {
 
-  private static final JsonMapper MAPPER = JsonMapper.builder()
-      .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-      .build();
+  private static final JsonMapper MAPPER =
+      JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
   /** Secure defaults. */
   public static McpServerConfig defaults(Path databasePath) {
-    return new McpServerConfig(
-        "sirixdb-mcp",
-        "1.0.0",
-        "stdio",
-        databasePath.toAbsolutePath().toString(),
-        true,   // read-only by default
+    // Read-only by default.
+    return new McpServerConfig("sirixdb-mcp", "1.0.0", "stdio", databasePath.toAbsolutePath().toString(), true,
         List.of(), // no allow list = all databases accessible (use denyDatabases to restrict)
         List.of(), // no deny list
-        Map.of(),  // no resource-level restrictions
-        100,       // max results
-        4096,      // max string value length
-        true,      // sanitize output
-        true,      // confirm destructive operations
-        true,      // audit logging on
-        null       // audit log to stderr by default
+        Map.of(), // no resource-level restrictions
+        100, // max results
+        4096, // max string value length
+        true, // sanitize output
+        true, // confirm destructive operations
+        true, // audit logging on
+        null // audit log to stderr by default
     );
   }
 
   /** Returns a copy with the readOnly flag changed. */
   public McpServerConfig withReadOnly(boolean readOnly) {
-    return new McpServerConfig(name, version, transport, databasePath, readOnly,
-        allowDatabases, denyDatabases, allowResources, maxResultSize,
-        maxStringValueLength, sanitizeOutput, confirmDestructive, auditLog, auditLogPath);
+    return new McpServerConfig(name, version, transport, databasePath, readOnly, allowDatabases, denyDatabases,
+        allowResources, maxResultSize, maxStringValueLength, sanitizeOutput, confirmDestructive, auditLog,
+        auditLogPath);
   }
 
   public static McpServerConfig load(Path configFile) throws IOException {

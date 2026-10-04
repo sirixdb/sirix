@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.query.StoreDatabasePaths.resolveForCreate;
 
 /**
  * Database storage.
@@ -83,6 +84,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Mapping sirix databases to collections.
    */
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
+
+  private record CollectionPath(String name, Path path) {
+  }
+
+  private final Set<CollectionPath> collectionPaths;
 
   /**
    * Tracks resource sessions that have been used for write operations. These sessions may have open
@@ -403,6 +409,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private BasicJsonDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
+    collectionPaths = ConcurrentHashMap.newKeySet();
     sessionsWithWriteTrx = Collections.synchronizedSet(new HashSet<>());
     storageType = builder.storageType;
     location = builder.location;
@@ -452,24 +459,21 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection lookup(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        // First, check if we already have a database open for this path
-        // by comparing database names (not object identity)
-        final Optional<Database<JsonResourceSession>> existingDb =
-            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
-
-        if (existingDb.isPresent()) {
-          // Reuse existing database and its collection
-          return collections.get(existingDb.get());
+        for (final var collection : collections.values()) {
+          final var database = collection.getDatabase();
+          if (collection.getName().equals(name) && database.isOpen() && databases.contains(database)
+              && database.getDatabaseConfig().getDatabaseFile().equals(dbPath)) {
+            return collection;
+          }
         }
 
-        // No existing database found, open a new one
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
         final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
-        collections.put(database, collection);
+        addDatabase(collection, database);
         return collection;
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
@@ -480,7 +484,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (Databases.createJsonDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -490,7 +494,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       databases.add(database);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -668,10 +672,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
       final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
@@ -698,7 +702,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var resourceOptions = createResource(options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
 
       if (loader == null) {
         // Even without initial data, persist the valid-time interval index definition so the
@@ -807,10 +811,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -835,7 +839,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         }
       }
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -853,8 +857,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database) {
+    requireNonNull(jsonDBCollection);
+    requireNonNull(database);
+    final var collectionPath =
+        new CollectionPath(jsonDBCollection.getName(), database.getDatabaseConfig().getDatabaseFile());
+    discardClosedDatabases();
     databases.add(database);
     collections.put(database, jsonDBCollection);
+    collectionPaths.add(collectionPath);
     return this;
   }
 
@@ -863,6 +873,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
     databases.remove(database);
     collections.remove(database);
     return this;
+  }
+
+  private void discardClosedDatabases() {
+    databases.removeIf(database -> !database.isOpen());
+    collections.keySet().removeIf(database -> !database.isOpen());
   }
 
   @Override
@@ -877,17 +892,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       // Resolve the options ONCE for all resources of this call.
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
@@ -927,10 +942,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -953,7 +968,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       ParallelJsonShredder.shred(database, resourceNames, partitions,
           name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -964,30 +979,55 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  private Path databasePath(final String name) {
+    return databasePath(location.resolve(name));
+  }
+
+  private Path databasePath(final Path dbPath) {
+    requireNonNull(dbPath);
+    try {
+      return Files.exists(dbPath)
+          ? dbPath.toRealPath()
+          : dbPath;
+    } catch (final IOException e) {
+      throw new DocumentException(e);
+    }
+  }
+
   @Override
   public void drop(final String name) {
-    final Path dbPath = location.resolve(name);
+    drop(name, location.resolve(name));
+  }
+
+  @Override
+  public void drop(final String name, final Path databasePath) {
+    requireNonNull(name);
+    final Path dbPath = databasePath(databasePath);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (!removeIfExisting(dbConfig)) {
+    if (!removeIfExisting(name, dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
     }
   }
 
-  private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
+  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
-        final Predicate<Database<JsonResourceSession>> databasePredicate =
-            currDatabase -> currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+        final var statisticsCatalog = StatisticsCatalog.getInstance();
+        statisticsCatalog.invalidateDatabase(name);
+        collectionPaths.removeIf(collectionPath -> {
+          if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
+            statisticsCatalog.invalidateDatabase(collectionPath.name());
+            return true;
+          }
+          return false;
+        });
+
+        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
         Databases.removeDatabase(dbConfig.getDatabaseFile());
-        // The database is gone (and is usually re-created right after with NEW data and
-        // restarted revision numbering): every cached histogram for it — including
-        // "immutable" historical-revision entries — now describes the OLD store. Serving
-        // them would feed the cost model stale statistics (e.g. a stale selectivity
-        // closing the index gate for freshly stored data).
-        StatisticsCatalog.getInstance().invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }
@@ -1061,6 +1101,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
+    } finally {
+      discardClosedDatabases();
     }
   }
 }

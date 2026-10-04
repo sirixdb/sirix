@@ -16,7 +16,8 @@ import java.util.Set;
 /**
  * Decorator around {@link JsonDBStore} that enforces MCP access control on all store operations.
  *
- * <p>This prevents query injection via {@code jn:store()}, {@code jn:doc()},
+ * <p>
+ * This prevents query injection via {@code jn:store()}, {@code jn:doc()},
  * {@code jn:drop-database()} etc. Same pattern as the REST API's {@code JsonSessionDBStore}.
  */
 public final class GuardedJsonDBStore implements JsonDBStore {
@@ -158,6 +159,13 @@ public final class GuardedJsonDBStore implements JsonDBStore {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(name);
     delegate.drop(name);
+  }
+
+  @Override
+  public void drop(String name, Path databasePath) {
+    accessControl.checkWriteAccess();
+    accessControl.checkDatabaseAccess(name);
+    delegate.drop(name, databasePath);
   }
 
   // --- MakeDir: check write access ---

@@ -5,10 +5,8 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.JsonStore;
 import io.brackit.query.jdm.json.Object;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.io.StorageType;
 
 import java.nio.file.Path;
 import java.util.Set;
@@ -74,6 +72,16 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   @Override
   void drop(String name);
+
+  /**
+   * Drop a collection's bound database while retaining its logical name. Authorization decorators
+   * must check {@code name} and forward both arguments; they must not derive the authorization name
+   * from {@code databasePath} or resolve a new target from {@code name}.
+   *
+   * @param name the logical collection name used for authorization and statistics invalidation
+   * @param databasePath the physical database path bound to the collection
+   */
+  void drop(String name, Path databasePath);
 
   @Override
   void makeDir(String path);

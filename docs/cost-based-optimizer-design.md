@@ -67,7 +67,7 @@ This is exactly what happens when you use a GPS navigator: it considers multiple
 SirixDB is a **bitemporal database**: it stores every revision of your data immutably. This creates unique optimization challenges:
 
 - **Time-travel queries** (`jn:doc('db','res',5)`) target a specific historical revision. The data distribution at revision 5 may be completely different from revision 50.
-- **Immutable revisions** mean statistics collected for revision 5 are **forever valid** — the data can never change. This is a major advantage over traditional databases where statistics go stale.
+- **Immutable revisions** allow statistics reuse across commits; see the StatisticsCatalog section for histogram lifetime.
 - **Multiple index types** (CAS, PATH, NAME) serve different query patterns, and the optimizer must pick the right one — or decide that no index helps.
 
 ### Implementation References
@@ -606,15 +606,13 @@ For query "WHERE status = 'active'":
 
 MCVs are subtracted from bucket counts during histogram construction, so the bucket counts only represent the non-MCV distribution. This prevents double-counting when estimating range queries.
 
-### StatisticsCatalog (`StatisticsCatalog.java`, 188 lines)
+### StatisticsCatalog (`StatisticsCatalog.java`)
 
 A singleton LRU cache that maps `(database, resource, field, revision)` to histograms.
 
 **Revision-awareness** — unique to SirixDB's bitemporal architecture:
-- **Historical revisions** (revision > 0): The data at revision 5 is immutable — it can never change. So a histogram collected for revision 5 is **forever valid**. No TTL, no invalidation needed.
+- **Historical revisions** (revision > 0): No TTL expiry; destructive lifecycle changes follow the [StatisticsCatalog.invalidateDatabase() contract](../bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/stats/StatisticsCatalog.java).
 - **Latest revision** (revision = -1): The "current" data changes with writes. These histograms have a 1-hour TTL and are invalidated after commits.
-
-This is a significant optimization: in a database with 1000 revisions, only the latest revision's histograms ever go stale.
 
 ### Automatic Collection
 

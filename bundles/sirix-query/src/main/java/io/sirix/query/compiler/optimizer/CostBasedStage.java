@@ -31,17 +31,22 @@ import java.util.Set;
 /**
  * Cost-based optimization stage that annotates AST nodes with index preference hints.
  *
- * <p>For each path access that has an available index, this stage compares
- * the estimated cost of a sequential scan vs an index scan using real
- * cardinality statistics from PathSummary. If the index scan is cheaper,
- * it annotates the AST node with {@code costBased.preferIndex=true} and
- * the index metadata.</p>
+ * <p>
+ * For each path access that has an available index, this stage compares the estimated cost of a
+ * sequential scan vs an index scan using real cardinality statistics from PathSummary. If the index
+ * scan is cheaper, it annotates the AST node with {@code costBased.preferIndex=true} and the index
+ * metadata.
+ * </p>
  *
- * <p>This runs before the existing IndexMatching stage, providing cost-aware
- * guidance for index selection. When no cost data is available, the stage
- * is a no-op and IndexMatching falls back to its existing heuristic behavior.</p>
+ * <p>
+ * This runs before the existing IndexMatching stage, providing cost-aware guidance for index
+ * selection. When no cost data is available, the stage is a no-op and IndexMatching falls back to
+ * its existing heuristic behavior.
+ * </p>
  *
- * <p>Phase 1 of the cost-based query optimizer plan (Weiner et al. adaptation).</p>
+ * <p>
+ * Phase 1 of the cost-based query optimizer plan (Weiner et al. adaptation).
+ * </p>
  */
 public final class CostBasedStage implements Stage {
 
@@ -54,9 +59,9 @@ public final class CostBasedStage implements Stage {
   private SirixStatisticsProvider statsProvider;
 
   /**
-   * Tracks which fields have already been collected in this optimization pass
-   * to avoid re-collecting the same field multiple times.
-   * Key format: "databaseName/resourceName/fieldPath". Cleared in {@link #rewrite}.
+   * Tracks which fields have already been collected in this optimization pass to avoid re-collecting
+   * the same field multiple times. Key format: "databaseName/resourceName/fieldPath". Cleared in
+   * {@link #rewrite}.
    */
   private final Set<String> pendingCollections = new HashSet<>(8);
 
@@ -64,9 +69,8 @@ public final class CostBasedStage implements Stage {
   private HistogramCollector histogramCollector;
 
   /**
-   * Tracks variable bindings for resolving VariableRef nodes.
-   * Maps the variable's binding key (AST child(0) value) to its binding expression (child(1)).
-   * Cleared between queries via rewrite().
+   * Tracks variable bindings for resolving VariableRef nodes. Maps the variable's binding key (AST
+   * child(0) value) to its binding expression (child(1)). Cleared between queries via rewrite().
    */
   private final Map<Object, AST> variableBindings = new HashMap<>(8);
 
@@ -138,8 +142,8 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Recursively walk the AST and annotate ForBind nodes that access
-   * JSON paths with cost-based index preference hints.
+   * Recursively walk the AST and annotate ForBind nodes that access JSON paths with cost-based index
+   * preference hints.
    */
   private void annotateSubtree(AST node) {
     if (node == null) {
@@ -187,19 +191,20 @@ public final class CostBasedStage implements Stage {
 
     // Look up histogram from the catalog for data-driven selectivity estimation.
     // Uses the leaf field name as the key — matches HistogramCollector's convention.
-    final QNm tail = path.getLength() > 0 ? path.tail() : null;
-    final String leafField = tail != null ? tail.getLocalName() : null;
+    final QNm tail = path.getLength() > 0
+        ? path.tail()
+        : null;
+    final String leafField = tail != null
+        ? tail.getLocalName()
+        : null;
     if (leafField != null) {
       // Revision-aware lookup: try the exact revision first, then fall back to
-      // LATEST_REVISION. Historical revisions are immutable (never stale), while
-      // latest revision entries are subject to TTL and write invalidation.
+      // LATEST_REVISION. StatisticsCatalog owns retention and invalidation rules.
       // If the queried revision equals the most recent, it shares the LATEST entry.
-      Histogram histogram = StatisticsCatalog.getInstance()
-          .get(databaseName, resourceName, leafField, revision);
+      Histogram histogram = StatisticsCatalog.getInstance().get(databaseName, resourceName, leafField, revision);
       if (histogram == null && revision != StatisticsCatalog.LATEST_REVISION) {
         // Fall back to LATEST_REVISION entry (covers revision == mostRecent case)
-        histogram = StatisticsCatalog.getInstance()
-            .get(databaseName, resourceName, leafField);
+        histogram = StatisticsCatalog.getInstance().get(databaseName, resourceName, leafField);
       }
       selectivityEstimator.setHistogram(histogram); // null clears previous
 
@@ -213,10 +218,8 @@ public final class CostBasedStage implements Stage {
     }
 
     // Get statistics
-    final long pathCardinality = statsProvider.getPathCardinality(
-        path, databaseName, resourceName, revision);
-    final long totalNodeCount = statsProvider.getTotalNodeCount(
-        databaseName, resourceName, revision);
+    final long pathCardinality = statsProvider.getPathCardinality(path, databaseName, resourceName, revision);
+    final long totalNodeCount = statsProvider.getTotalNodeCount(databaseName, resourceName, revision);
 
     if (pathCardinality <= 0 || totalNodeCount <= 0) {
       return; // no stats available — don't annotate
@@ -228,8 +231,7 @@ public final class CostBasedStage implements Stage {
     bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
 
     // Check if an index exists
-    final IndexInfo indexInfo = statsProvider.getIndexInfo(
-        path, databaseName, resourceName, revision);
+    final IndexInfo indexInfo = statsProvider.getIndexInfo(path, databaseName, resourceName, revision);
 
     if (!indexInfo.exists()) {
       return; // no index — cardinality annotated above, nothing more to do
@@ -264,10 +266,12 @@ public final class CostBasedStage implements Stage {
   /**
    * Estimate the selectivity of predicates associated with this binding.
    *
-   * <p>Searches for predicates in two places:
+   * <p>
+   * Searches for predicates in two places:
    * <ol>
-   *   <li>FilterExpr in the binding expression itself (e.g., {@code jn:doc(...)[].item[?$$.price gt X]})</li>
-   *   <li>Sibling Selection nodes in the parent pipeline</li>
+   * <li>FilterExpr in the binding expression itself (e.g.,
+   * {@code jn:doc(...)[].item[?$$.price gt X]})</li>
+   * <li>Sibling Selection nodes in the parent pipeline</li>
    * </ol>
    *
    * @return selectivity in (0, 1], or 1.0 if no predicate found
@@ -294,8 +298,8 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Search for a filter predicate in the expression subtree.
-   * Returns the predicate AST node (child(1) of FilterExpr), or null.
+   * Search for a filter predicate in the expression subtree. Returns the predicate AST node (child(1)
+   * of FilterExpr), or null.
    */
   private static AST findFilterPredicate(AST expr, int maxDepth) {
     if (expr == null || maxDepth <= 0) {
@@ -314,11 +318,13 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Extract a Path and document context from a deref expression chain.
-   * Walks from outer deref inward until reaching a jn:doc() call.
+   * Extract a Path and document context from a deref expression chain. Walks from outer deref inward
+   * until reaching a jn:doc() call.
    *
-   * <p>Since we walk outside-in but PathSummary stores paths root-to-leaf,
-   * we collect steps into a list and reverse them before building the Path.</p>
+   * <p>
+   * Since we walk outside-in but PathSummary stores paths root-to-leaf, we collect steps into a list
+   * and reverse them before building the Path.
+   * </p>
    */
   private PathAndDocument extractPathAndDocument(AST expr) {
     // Collect path steps outside-in (will be reversed for root-to-leaf order)
@@ -417,16 +423,16 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Schedule deferred histogram collection for a field on cache miss.
-   * Registers the field for collection after the current optimization pass
-   * completes, avoiding deadlocks from opening resource sessions during
-   * an active write transaction.
+   * Schedule deferred histogram collection for a field on cache miss. Registers the field for
+   * collection after the current optimization pass completes, avoiding deadlocks from opening
+   * resource sessions during an active write transaction.
    *
-   * <p>The collected histogram will be available for the next query
-   * against this field. The current query uses default selectivity estimates.</p>
+   * <p>
+   * The collected histogram will be available for the next query against this field. The current
+   * query uses default selectivity estimates.
+   * </p>
    */
-  private void triggerAsyncHistogramCollection(String databaseName, String resourceName,
-                                                String fieldPath) {
+  private void triggerAsyncHistogramCollection(String databaseName, String resourceName, String fieldPath) {
     final String key = databaseName + "/" + resourceName + "/" + fieldPath;
     if (!pendingCollections.add(key)) {
       return; // already scheduled in this optimization pass
@@ -437,13 +443,13 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Collect histograms for all fields that had cache misses during the
-   * last optimization pass. Call this after the query has been compiled
-   * and any write transactions are closed.
+   * Collect histograms for all fields that had cache misses during the last optimization pass. Call
+   * this after the query has been compiled and any write transactions are closed.
    *
-   * <p>This is safe to call from a read-only context. Each collected
-   * histogram is registered in the {@link StatisticsCatalog} for
-   * subsequent queries.</p>
+   * <p>
+   * This is safe to call from a read-only context. Each collected histogram is registered in the
+   * {@link StatisticsCatalog} for subsequent queries.
+   * </p>
    */
   public void collectPendingHistograms() {
     if (pendingCollections.isEmpty()) {
@@ -454,10 +460,10 @@ public final class CostBasedStage implements Stage {
     }
     for (final String key : pendingCollections) {
       final String[] parts = key.split("/", 3);
-      if (parts.length < 3) continue;
+      if (parts.length < 3)
+        continue;
       try {
-        final boolean collected = histogramCollector.collectAndRegister(
-            parts[0], parts[1], parts[2]);
+        final boolean collected = histogramCollector.collectAndRegister(parts[0], parts[1], parts[2]);
         if (collected) {
           LOG.debug("Deferred histogram collection succeeded for {}", key);
         }
@@ -468,10 +474,13 @@ public final class CostBasedStage implements Stage {
     pendingCollections.clear();
   }
 
-  private enum StepKind { OBJECT_FIELD, ARRAY }
+  private enum StepKind {
+    OBJECT_FIELD, ARRAY
+  }
 
-  private record PathStep(StepKind kind, String name) {}
+  private record PathStep(StepKind kind, String name) {
+  }
 
-  private record PathAndDocument(Path<QNm> path, String databaseName,
-                                 String resourceName, int revision) {}
+  private record PathAndDocument(Path<QNm> path, String databaseName, String resourceName, int revision) {
+  }
 }

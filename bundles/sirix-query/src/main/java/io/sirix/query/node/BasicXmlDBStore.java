@@ -25,7 +25,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -35,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.query.StoreDatabasePaths.resolveForCreate;
 
 /**
  * Database storage.
@@ -79,9 +79,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final boolean buildPathSummary;
 
   /**
-   * Determines if per-path value statistics (count, sum, min, max, HLL) should be
-   * maintained on PathSummary nodes for this store's resources. Requires
-   * {@link #buildPathSummary} to be {@code true}.
+   * Determines if per-path value statistics (count, sum, min, max, HLL) should be maintained on
+   * PathSummary nodes for this store's resources. Requires {@link #buildPathSummary} to be
+   * {@code true}.
    */
   private final boolean buildPathStatistics;
 
@@ -107,8 +107,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final int numberOfNodesBeforeAutoCommit;
 
   /**
-   * Whether the record-to-revisions index should be maintained on insert.
-   * Off by default only matters for write-heavy, single-revision workloads.
+   * Whether the record-to-revisions index should be maintained on insert. Off by default only matters
+   * for write-heavy, single-revision workloads.
    */
   private final boolean storeNodeHistory;
 
@@ -155,12 +155,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
         System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
-     * Determines if per-path value statistics should be maintained. Opt-in (default
-     * {@code false}); requires {@link #buildPathSummary} to be {@code true}.
+     * Determines if per-path value statistics should be maintained. Opt-in (default {@code false});
+     * requires {@link #buildPathSummary} to be {@code true}.
      */
-    private boolean buildPathStatistics =
-        System.getProperty("buildPathStatistics") != null
-            && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+    private boolean buildPathStatistics = System.getProperty("buildPathStatistics") != null
+        && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
 
     /**
      * Determines if DeweyIDs should be generated for resources.
@@ -190,11 +189,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
         : 262_144 << 2;
 
     /**
-     * Whether to maintain the per-insert record-to-revisions index.
-     * Overridable via {@code -DstoreNodeHistory=false}.
+     * Whether to maintain the per-insert record-to-revisions index. Overridable via
+     * {@code -DstoreNodeHistory=false}.
      */
-    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
-        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+    private boolean storeNodeHistory =
+        System.getProperty("storeNodeHistory") == null || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
 
     /**
      * Toggle the record-to-revisions index.
@@ -263,10 +262,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
 
     /**
-     * Set whether per-path value statistics should be maintained on PathSummary nodes.
-     * Enables the aggregate short-circuit for {@code sum / avg / min / max / count}
-     * queries at the cost of some write-path overhead. Requires
-     * {@link #buildPathSummary(boolean)} to be {@code true}.
+     * Set whether per-path value statistics should be maintained on PathSummary nodes. Enables the
+     * aggregate short-circuit for {@code sum / avg / min / max / count} queries at the cost of some
+     * write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
      *
      * @param buildPathStatistics {@code true} to enable per-path statistics
      * @return this builder instance
@@ -336,20 +334,17 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection lookup(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        // First, check if we already have a database open for this path
-        // by comparing database names (not object identity)
-        final Optional<Database<XmlResourceSession>> existingDb =
-            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
-
-        if (existingDb.isPresent()) {
-          // Reuse existing database and its collection
-          return collections.get(existingDb.get());
+        for (final var collection : collections.values()) {
+          final var database = collection.getDatabase();
+          if (collection.getName().equals(name) && database.isOpen()
+              && database.getDatabaseConfig().getDatabaseFile().equals(dbPath)) {
+            return collection;
+          }
         }
 
-        // No existing database found, open a new one
         final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
         final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
@@ -364,7 +359,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -405,10 +400,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   private XmlDBCollection createCollection(final String collName, final String optResName,
       final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
-    final Path dbPath = location.resolve(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      Databases.removeDatabase(dbPath);
+      removeIfExisting(dbConf);
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
@@ -443,10 +438,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
     if (parsers != null) {
-      final Path dbPath = location.resolve(collName);
+      final Path dbPath = resolveForCreate(location.resolve(collName));
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
-        Databases.removeDatabase(dbPath);
+        removeIfExisting(dbConf);
         Databases.createXmlDatabase(dbConf);
         final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
         databases.add(database);
@@ -488,9 +483,20 @@ public final class BasicXmlDBStore implements XmlDBStore {
     return null;
   }
 
+  private Path databasePath(final String name) {
+    final Path dbPath = location.resolve(name);
+    try {
+      return Files.exists(dbPath)
+          ? dbPath.toRealPath()
+          : dbPath;
+    } catch (final IOException e) {
+      throw new DocumentException(e);
+    }
+  }
+
   @Override
   public void drop(final String name) {
-    final Path dbPath = location.resolve(name);
+    final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (!removeIfExisting(dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
@@ -500,8 +506,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
-        final Predicate<Database<XmlResourceSession>> databasePredicate =
-            currDatabase -> currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+        final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
