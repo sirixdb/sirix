@@ -387,7 +387,7 @@ final class JsonBulkInsertDiffRegressionTest {
           }
           insertSkipped(wtx, position, "[100,101,102]");
           wtx.commit();
-          assertReplayableInserts(readDiff(session, 1, 2), 13, 3);
+          assertInsertedTopology(session, readDiff(session, 1, 2), 13, 3);
           assertTrue(wtx.moveTo(14));
           wtx.setNumberValue(1000);
           wtx.commit();
@@ -420,7 +420,7 @@ final class JsonBulkInsertDiffRegressionTest {
           assertTrue(wtx.moveTo(14));
           assertEquals(15, wtx.getLeftSiblingKey(), "an older insert depends on a later-created sibling");
           wtx.commit();
-          assertReplayableInserts(readDiff(session, 1, 2), 13, 3);
+          assertInsertedTopology(session, readDiff(session, 1, 2), 13, 3);
           assertTrue(wtx.moveTo(14));
           wtx.setNumberValue(1000);
           wtx.commit();
@@ -430,20 +430,17 @@ final class JsonBulkInsertDiffRegressionTest {
     }
   }
 
-  private static void assertReplayableInserts(final JsonObject diff, final long previousMaxNodeKey,
-      final int insertCount) {
-    final Set<Long> available = new HashSet<>();
-    for (long nodeKey = 0; nodeKey <= previousMaxNodeKey; nodeKey++) {
-      available.add(nodeKey);
+  private static void assertInsertedTopology(final JsonResourceSession session, final JsonObject diff,
+      final long previousMaxNodeKey, final int insertCount) throws Exception {
+    final Set<InsertTuple> expected = new HashSet<>();
+    try (final var source = session.beginNodeReadOnlyTrx(diff.get("new-revision").getAsInt())) {
+      for (int index = 1; index <= insertCount; index++) {
+        assertTrue(source.moveTo(previousMaxNodeKey + index));
+        expected.add(tuple(source));
+      }
     }
-    final var operations = diff.getAsJsonArray("diffs");
-    assertEquals(insertCount, operations.size());
-    for (final var operation : operations) {
-      final JsonObject insert = operation.getAsJsonObject().getAsJsonObject("insert");
-      assertTrue(available.contains(insert.get("insertPositionNodeKey").getAsLong()),
-          "the insertion anchor must already exist when the operation is replayed");
-      assertTrue(available.add(insert.get("nodeKey").getAsLong()));
-    }
+    assertEquals(insertCount, diff.getAsJsonArray("diffs").size());
+    assertEquals(expected, insertedTuples(diff));
   }
 
   @ParameterizedTest

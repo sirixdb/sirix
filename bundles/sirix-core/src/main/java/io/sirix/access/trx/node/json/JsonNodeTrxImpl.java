@@ -596,7 +596,8 @@ final class JsonNodeTrxImpl extends
         }
 
         checkAccessAndCommit();
-        if (resourceSession.getResourceConfig().storeDiffs() && beforeBulkInsertionRevisionNumber < 0) {
+        final boolean storeDiffs = resourceSession.getResourceConfig().storeDiffs();
+        if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
           beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
         }
         nodeHashing.setBulkInsert(true);
@@ -613,7 +614,7 @@ final class JsonNodeTrxImpl extends
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
-        final long siblingBoundary = skipRootJsonToken == SkipRootToken.YES
+        final long siblingBoundary = storeDiffs && skipRootJsonToken == SkipRootToken.YES
             ? switch (insertionPosition) {
               case AS_FIRST_CHILD -> getFirstChildKey();
               case AS_LAST_CHILD -> getLastChildKey();
@@ -636,22 +637,24 @@ final class JsonNodeTrxImpl extends
           }
         }
 
-        if (skipRootJsonToken == SkipRootToken.YES) {
-          // A skipped input root has no single inserted subtree representing all its children.
-          // Record only the new sibling roots, stopping at the pre-existing neighbor.
-          final long insertedRoot = getNodeKey();
-          final boolean walkLeft =
-              insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
-          if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
-            do {
-              adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-            } while ((walkLeft
-                ? moveToLeftSibling()
-                : moveToRightSibling()) && getNodeKey() != siblingBoundary);
-            moveTo(insertedRoot);
+        if (storeDiffs) {
+          if (skipRootJsonToken == SkipRootToken.YES) {
+            // A skipped input root has no single inserted subtree representing all its children.
+            // Record only the new sibling roots, stopping at the pre-existing neighbor.
+            final long insertedRoot = getNodeKey();
+            final boolean walkLeft = insertionPosition == InsertPosition.AS_LAST_CHILD
+                || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+            if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
+              do {
+                adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+              } while ((walkLeft
+                  ? moveToLeftSibling()
+                  : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+              moveTo(insertedRoot);
+            }
+          } else {
+            adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
           }
-        } else {
-          adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
         }
 
         // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation

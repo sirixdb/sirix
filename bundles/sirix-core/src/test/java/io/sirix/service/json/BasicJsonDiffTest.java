@@ -3,14 +3,18 @@ package io.sirix.service.json;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.json.serialize.JsonSerializer;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 
 import java.io.IOException;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -29,6 +33,67 @@ public final class BasicJsonDiffTest {
   @After
   public void tearDown() {
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  public void filteredDiffPreservesConsecutivePrependAnchors() throws IOException {
+    for (final boolean fallback : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), JsonNodeTrx.Commit.NO);
+        writer.commit();
+        for (int value = 1; value <= 2; value++) {
+          assertTrue(writer.moveTo(1));
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + value + "]"), JsonNodeTrx.Commit.NO,
+              JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
+        }
+        writer.commit();
+        if (fallback) {
+          Files.delete(session.getResourceConfig()
+                              .getResource()
+                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                              .resolve("diffFromRev1toRev2.json"));
+        }
+        database.createResource(ResourceConfiguration.newBuilder("reconstructed").useDeweyIDs(true).build());
+        try (final var source = session.beginNodeReadOnlyTrx(2);
+            final var destinationSession = database.beginResourceSession("reconstructed");
+            final var destination = destinationSession.beginNodeTrx()) {
+          assertTrue(source.moveTo(1));
+          final var operations = source.getUpdateOperationsInSubtreeOfNode(source.getDeweyID(), Long.MAX_VALUE);
+          assertEquals(2, operations.size());
+          destination.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), JsonNodeTrx.Commit.NO);
+          final var keys = new Long2LongOpenHashMap();
+          keys.defaultReturnValue(-1);
+          keys.put(1, 1);
+          keys.put(2, 2);
+          for (final JsonObject operation : operations) {
+            final JsonObject insert = operation.getAsJsonObject("insert");
+            assertEquals("number", insert.get("type").getAsString());
+            assertTrue(destination.moveTo(keys.get(insert.get("insertPositionNodeKey").getAsLong())));
+            switch (insert.get("insertPosition").getAsString()) {
+              case "asFirstChild" -> destination.insertNumberValueAsFirstChild(insert.get("data").getAsInt());
+              case "asRightSibling" -> destination.insertNumberValueAsRightSibling(insert.get("data").getAsInt());
+              default -> throw new AssertionError(insert);
+            }
+            keys.put(insert.get("nodeKey").getAsLong(), destination.getNodeKey());
+          }
+          destination.commit();
+          final StringWriter result = new StringWriter();
+          JsonSerializer.newBuilder(destinationSession, result).build().call();
+          assertEquals("[2,1,0]", result.toString());
+          final JsonObject first = operations.get(0).getAsJsonObject("insert");
+          final JsonObject second = operations.get(1).getAsJsonObject("insert");
+          assertEquals(4, first.get("nodeKey").getAsLong());
+          assertEquals(1, first.get("insertPositionNodeKey").getAsLong());
+          assertEquals("asFirstChild", first.get("insertPosition").getAsString());
+          assertEquals(3, second.get("nodeKey").getAsLong());
+          assertEquals(4, second.get("insertPositionNodeKey").getAsLong());
+          assertEquals("asRightSibling", second.get("insertPosition").getAsString());
+        }
+      }
+    }
   }
 
   @Test
@@ -173,12 +238,16 @@ public final class BasicJsonDiffTest {
       assertEquals(5, diff.get("new-revision").getAsInt());
       final var operations = diff.getAsJsonArray("diffs");
       assertEquals(3, operations.size());
-      final long[] insertedRoots = {4, 6};
+      final long[] insertedRoots = {6, 4};
       for (int index = 0; index < insertedRoots.length; index++) {
         final JsonObject insert = operations.get(index).getAsJsonObject().getAsJsonObject("insert");
         assertEquals(insertedRoots[index], insert.get("nodeKey").getAsLong());
-        assertEquals(1, insert.get("insertPositionNodeKey").getAsLong());
-        assertEquals("asFirstChild", insert.get("insertPosition").getAsString());
+        assertEquals(index == 0
+            ? 1
+            : 6, insert.get("insertPositionNodeKey").getAsLong());
+        assertEquals(index == 0
+            ? "asFirstChild"
+            : "asRightSibling", insert.get("insertPosition").getAsString());
         assertEquals("jsonFragment", insert.get("type").getAsString());
         assertEquals(JsonParser.parseString("{\"data\":\"data\"}"),
             JsonParser.parseString(insert.get("data").getAsString()));

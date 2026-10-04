@@ -18,7 +18,6 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.longs.LongSets;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
@@ -26,7 +25,6 @@ import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiConsumer;
@@ -245,9 +243,6 @@ public final class JsonDiffSerializer {
         }
       }
 
-      if (oldRevisionNumber < newRevisionNumber) {
-        orderInserts(jsonDiffs, oldRtx, newRtx);
-      }
       json.add("diffs", JsonDiffSidecar.coalesceDeletes(jsonDiffs, oldRtx, newRtx));
       final var observer = arrayPositionCacheObserver;
       if (observer != null) {
@@ -257,88 +252,6 @@ public final class JsonDiffSerializer {
     }
 
     return finish(json, includeIntegrityMetadata);
-  }
-
-  private static void orderInserts(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision,
-      final JsonNodeReadOnlyTrx newRevision) {
-    int insertCount = 0;
-    long previousKey = -1;
-    boolean ordered = true;
-    boolean hasRetainedKeys = false;
-    final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
-    for (final var operation : diffs) {
-      final JsonObject object = operation.getAsJsonObject();
-      if (object.has("insert")) {
-        final JsonObject insert = object.getAsJsonObject("insert");
-        final long nodeKey = insert.get("nodeKey").getAsLong();
-        hasRetainedKeys |= nodeKey <= previousMaxNodeKey;
-        ordered &= nodeKey > previousKey && insert.get("insertPositionNodeKey").getAsLong() < nodeKey;
-        previousKey = nodeKey;
-        insertCount++;
-      }
-    }
-    if (insertCount < 2 || (ordered && !hasRetainedKeys)) {
-      return;
-    }
-    final LongSet retainedKeys = hasRetainedKeys
-        ? JsonDiffSidecar.retainedNodeKeys(diffs, previousRevision)
-        : LongSets.EMPTY_SET;
-    if (ordered && retainedKeys.isEmpty()) {
-      return;
-    }
-    final var inserts = new ArrayList<JsonObject>(insertCount);
-    final var rightSiblings = new Long2ObjectOpenHashMap<JsonObject>(insertCount);
-    for (final var operation : diffs) {
-      final JsonObject object = operation.getAsJsonObject();
-      if (object.has("insert")) {
-        final JsonObject insert = object.getAsJsonObject("insert");
-        if (!retainedKeys.contains(insert.get("nodeKey").getAsLong())) {
-          inserts.add(object);
-        }
-        if ("asRightSibling".equals(insert.get("insertPosition").getAsString())) {
-          rightSiblings.put(insert.get("insertPositionNodeKey").getAsLong(), insert);
-        }
-      }
-    }
-    inserts.sort(Comparator.comparingLong(operation -> operation.getAsJsonObject("insert").get("nodeKey").getAsLong()));
-    if (!retainedKeys.isEmpty()) {
-      final var moves = new ArrayList<JsonObject>(retainedKeys.size());
-      for (final var operation : diffs) {
-        final JsonObject object = operation.getAsJsonObject();
-        if (object.has("insert")) {
-          final long nodeKey = object.getAsJsonObject("insert").get("nodeKey").getAsLong();
-          if (retainedKeys.contains(nodeKey)) {
-            moves.add(object);
-          }
-        }
-      }
-      orderMoves(moves, newRevision);
-      inserts.addAll(moves);
-    }
-    for (int index = inserts.size() - 1; index >= 0; index--) {
-      final JsonObject insert = inserts.get(index).getAsJsonObject("insert");
-      final long nodeKey = insert.get("nodeKey").getAsLong();
-      final long anchor = insert.get("insertPositionNodeKey").getAsLong();
-      final String position = insert.get("insertPosition").getAsString();
-      final JsonObject rightSibling = rightSiblings.remove(nodeKey);
-      if (rightSibling != null) {
-        rightSibling.addProperty("insertPositionNodeKey", anchor);
-        rightSibling.addProperty("insertPosition", position);
-      }
-      if ("asRightSibling".equals(position)) {
-        if (rightSibling == null) {
-          rightSiblings.remove(anchor);
-        } else {
-          rightSiblings.put(anchor, rightSibling);
-        }
-      }
-    }
-    int insertIndex = 0;
-    for (int index = 0; index < diffs.size(); index++) {
-      if (diffs.get(index).getAsJsonObject().has("insert")) {
-        diffs.set(index, inserts.get(insertIndex++));
-      }
-    }
   }
 
   public static void orderMoves(final List<JsonObject> operations, final JsonNodeReadOnlyTrx newRevision) {
