@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.service.InsertPosition;
+import io.sirix.settings.VersioningType;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonResourceCopy;
@@ -47,6 +48,40 @@ final class JsonBulkInsertDiffRegressionTest {
   @AfterEach
   void cleanUp() {
     JsonTestHelper.deleteEverything();
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      for (final boolean recompute : new boolean[] {false, true}) {
+        JsonTestHelper.deleteEverything();
+        final var configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+            .storageType(StorageType.FILE_CHANNEL)
+            .versioningApproach(versioning)
+            .useDeweyIDs(deweyIDs)
+            .build();
+        try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(
+            JsonTestHelper.PATHS.PATH1.getFile(), configuration);
+            final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+          seed(session, "[0]");
+          try (final var wtx = session.beginNodeTrx()) {
+            assertTrue(wtx.moveTo(1));
+            insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"x\":1},{}]");
+            assertTrue(wtx.moveTo(5));
+            wtx.moveSubtreeToFirstChild(4);
+            assertTrue(wtx.moveTo(3));
+            wtx.remove();
+            wtx.commit();
+            assertEquals("[0,{\"x\":1}]", serialize(session, 2));
+          }
+          if (recompute) {
+            Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+          }
+          assertCopiedRevisions(session, deweyIDs);
+        }
+      }
+    }
   }
 
   @ParameterizedTest
