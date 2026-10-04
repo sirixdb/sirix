@@ -130,7 +130,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     if (mode < 0 || mode > 127) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
-    if (!(document instanceof Array array) || array.len() == 0) {
+    if (!(document instanceof Array) || ((Array) ValidTimeFilter.currentDocument(document)).len() == 0) {
       return new ItemSequence();
     }
     return new AbstractSequence() {

@@ -92,8 +92,14 @@ intersection with the array's membership. Exceptional intervals in other cohorts
 key-only counts over exact array members. The read index controller retains up to 256 cohort admission
 results, scoped to database, resource, immutable revision, definition identity, array key and length.
 Controller eviction or collection of the owning session releases these proofs; entries retain no
-readers or transactions. Writer-backed readers decline admission and retain the exact comparison
-fallback. Repeated queries reuse successful or declined admission without decoding whole membership
+readers or transactions. Every key-only factory declines writers and intent-log-backed serving
+cursors before discovering indexes, including read-only wrappers over mutable readers. Historical
+immutable readers remain eligible while their resource has an active writer. Mutable calls use the
+exact current-document fallback, which refreshes held whole-array/object and object-field views.
+Mutable positional slices refresh their members and cursor anchors while retaining their original
+window. Direct scans and primitive-key requests also decline positional and object-field array
+views: whole-storage-array postings cannot prove those views' membership. Key requests collect and
+sort exact fallback matches, retaining the strict end mode. Repeated immutable queries reuse successful or declined admission without decoding whole membership
 and verification postings; point conversion and endpoint selection remain per evaluation.
 
 ## Verification plan
@@ -143,6 +149,12 @@ decode only the two candidate evidence chunks. Packed and bitmap fixtures retain
 enumeration and cardinality controls. Separate executable checks cover warmed proofs across resource
 and cohort boundaries, changed points, writer mutations, reordered arrays, dropped/rebuilt definitions,
 reverts and reopened historical revisions. The two 100,000-row cohort variants are also opt-in.
+`ValidTimeMutableSliceTest` reproduces both pending-edit wrong-result directions through real writers,
+read-only cursor wrappers and intent-log reader facades. It checks direct count, exists, positional
+demand, iteration and sorted keys, every strict/inclusive endpoint mode, structural edits, held
+views, warmed slice members/anchors, immutable windows, object-field views, deferred empty points,
+cast errors and historical readers with an active writer. Edited test transactions roll back before
+closing.
 A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 

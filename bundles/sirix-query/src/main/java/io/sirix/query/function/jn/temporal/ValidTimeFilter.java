@@ -12,6 +12,10 @@ import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.json.JsonDBObject;
+import io.sirix.query.json.JsonObjectValueDBArray;
+import io.sirix.query.json.JsonObjectKeyDBArray;
 
 import org.jspecify.annotations.Nullable;
 
@@ -33,7 +37,7 @@ public final class ValidTimeFilter {
   public static Sequence comparisonScanSequence(final @Nullable JsonDBItem document, final Supplier<Sequence> point,
       final String from, final String to, final int mode, final StaticContext context,
       final QueryContext queryContext) {
-    if (!(document instanceof Array array) || array.len() == 0) {
+    if (!(document instanceof Array) || ((Array) currentDocument(document)).len() == 0) {
       return new ItemSequence();
     }
     final ValidTimeResidual lower = new ValidTimeResidual(context, queryContext, point, from, true, (mode & 1) != 0,
@@ -49,7 +53,7 @@ public final class ValidTimeFilter {
     return new LazySequence() {
       @Override
       public Iter iterate() {
-        final Iter input = array.iterate();
+        final Iter input = ((Array) currentDocument(document)).iterate();
         return new BaseIter() {
           @Override
           public @Nullable Item next() {
@@ -77,6 +81,11 @@ public final class ValidTimeFilter {
    */
   public static Sequence linearScanSequence(final JsonDBItem document, final Instant validTime,
       final ValidTimeConfig validTimeConfig) {
+    return linearScanSequence(document, validTime, validTimeConfig, false, false);
+  }
+
+  static Sequence linearScanSequence(final JsonDBItem document, final Instant validTime,
+      final ValidTimeConfig validTimeConfig, final boolean strictStart, final boolean strictEnd) {
     return new LazySequence() {
       @Override
       public Iter iterate() {
@@ -88,10 +97,11 @@ public final class ValidTimeFilter {
           public @Nullable Item next() {
             if (!initialized) {
               initialized = true;
-              if (isValidAt(document)) {
-                return document;
+              final JsonDBItem current = currentDocument(document);
+              if (isValidAt(current)) {
+                return current;
               }
-              if (document instanceof Array array) {
+              if (current instanceof Array array) {
                 childIter = array.iterate();
               }
             }
@@ -120,8 +130,28 @@ public final class ValidTimeFilter {
           return false;
         }
         return ValidTimeIndexScan.isValidAtTime(obj, validTime, validTimeConfig.getNormalizedValidFromPath(),
-            validTimeConfig.getNormalizedValidToPath());
+            validTimeConfig.getNormalizedValidToPath(), strictStart, strictEnd);
       }
+    };
+  }
+
+  /** Rebind whole mutable views whose cached members or fields may precede a writer edit. */
+  public static JsonDBItem currentDocument(final JsonDBItem document) {
+    if (!(document instanceof JsonDBArray || document instanceof JsonDBObject
+        || document instanceof JsonObjectValueDBArray || document instanceof JsonObjectKeyDBArray)
+        || !ValidTimeIntervalIndex.isMutable(document)) {
+      return document;
+    }
+    final var reader = document.getTrx();
+    if (!reader.moveTo(document.getNodeKey())) {
+      throw new IllegalStateException("Valid-time source is no longer readable: " + document.getNodeKey());
+    }
+    return switch (document) {
+      case JsonDBArray array -> new JsonDBArray(reader, array.getCollection());
+      case JsonDBObject object -> new JsonDBObject(reader, object.getCollection());
+      case JsonObjectValueDBArray values -> new JsonObjectValueDBArray(reader, values.getCollection());
+      case JsonObjectKeyDBArray keys -> new JsonObjectKeyDBArray(reader, keys.getCollection());
+      default -> document;
     };
   }
 }

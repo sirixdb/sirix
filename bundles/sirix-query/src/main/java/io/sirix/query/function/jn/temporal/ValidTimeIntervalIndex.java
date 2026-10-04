@@ -4,6 +4,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.index.IndexDef;
 import io.sirix.index.interval.IntervalDomain;
@@ -11,9 +12,12 @@ import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.AbstractJsonDBArray;
+import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.function.DateTimeToInstant;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -36,6 +40,9 @@ public final class ValidTimeIntervalIndex {
     Objects.requireNonNull(document);
     Objects.requireNonNull(instant);
     Objects.requireNonNull(config);
+    if (!isIndexView(document) || isMutable(document)) {
+      return null;
+    }
     final IndexDef definition = findValidTimeIndex(document);
     if (definition == null) {
       return null;
@@ -45,7 +52,7 @@ public final class ValidTimeIntervalIndex {
 
   public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Supplier<Sequence> point,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd) {
-    if (!(document instanceof Array array) || array.len() == 0) {
+    if (!(document instanceof Array array) || !isIndexView(document) || isMutable(document) || array.len() == 0) {
       return null;
     }
     final IndexDef definition = findValidTimeIndex(document);
@@ -70,12 +77,33 @@ public final class ValidTimeIntervalIndex {
   }
 
   public static long[] keys(final JsonDBItem document, final Instant instant, final boolean strictEnd) {
-    final Sequence sequence = sequence(document, instant,
-        document.getResourceSession().getResourceConfig().getValidTimeConfig(), false, strictEnd, null);
-    if (sequence == null) {
-      throw new IllegalStateException("No valid-time index at revision " + document.getTrx().getRevisionNumber());
+    Objects.requireNonNull(document);
+    final ValidTimeConfig config =
+        Objects.requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig());
+    final Sequence sequence = sequence(document, instant, config, false, strictEnd, null);
+    if (sequence != null) {
+      return ((ValidTimeKeySequence) sequence).matchingKeys();
     }
-    return ((ValidTimeKeySequence) sequence).matchingKeys();
+    final LongArrayList keys = new LongArrayList();
+    try (final var iterator =
+        ValidTimeFilter.linearScanSequence(document, instant, config, false, strictEnd).iterate()) {
+      for (var item = iterator.next(); item != null; item = iterator.next()) {
+        keys.add(((JsonDBItem) item).getNodeKey());
+      }
+    }
+    final long[] sorted = keys.toLongArray();
+    Arrays.sort(sorted);
+    return sorted;
+  }
+
+  static boolean isMutable(final JsonDBItem document) {
+    final var reader = document.getTrx().getStorageEngineReader();
+    return reader instanceof StorageEngineWriter || reader.hasTrxIntentLog();
+  }
+
+  private static boolean isIndexView(final JsonDBItem document) {
+    // Persisted membership describes a whole storage array, not a positional or object-field view.
+    return !(document instanceof AbstractJsonDBArray<?>) || document instanceof JsonDBArray;
   }
 
   static Evidence readEvidence(final JsonDBItem document, final int indexId, final LongOpenHashSet closed) {
