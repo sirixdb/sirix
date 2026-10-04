@@ -668,7 +668,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
@@ -807,7 +807,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -877,7 +877,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -927,7 +927,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = databasePath(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
+      removeIfExisting(collName, dbConf);
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -976,26 +976,32 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public void drop(final String name) {
     final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (!removeIfExisting(dbConfig)) {
+    if (!removeIfExisting(name, dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
     }
   }
 
-  private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
+  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
+        final var statisticsCatalog = StatisticsCatalog.getInstance();
+        statisticsCatalog.invalidateDatabase(name);
+        for (final var collection : collections.values()) {
+          final var database = collection.getDatabase();
+          final Path collectionPath = database.isOpen()
+              ? database.getDatabaseConfig().getDatabaseFile()
+              : databasePath(collection.getName());
+          if (collectionPath.equals(dbConfig.getDatabaseFile())) {
+            statisticsCatalog.invalidateDatabase(collection.getName());
+          }
+        }
+
         final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
             || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
         Databases.removeDatabase(dbConfig.getDatabaseFile());
-        // The database is gone (and is usually re-created right after with NEW data and
-        // restarted revision numbering): every cached histogram for it — including
-        // "immutable" historical-revision entries — now describes the OLD store. Serving
-        // them would feed the cost model stale statistics (e.g. a stale selectivity
-        // closing the index gate for freshly stored data).
-        StatisticsCatalog.getInstance().invalidateDatabase(dbConfig.getDatabaseFile().getFileName().toString());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }
