@@ -11,17 +11,9 @@ import static java.util.Objects.requireNonNull;
 public final class XmlNameResolver {
   private XmlNameResolver() {}
 
-  /**
-   * Returns the cached name or reconstructs it from the revision-local name dictionary. Decoded
-   * records use {@link NodeKind#EMPTY_QNM} as an absent-cache sentinel.
-   */
   public static QNm resolveName(final ImmutableNameNode node, final StorageEngineReader reader) {
     requireNonNull(node);
     requireNonNull(reader);
-    final QNm cachedName = node.getName();
-    if (cachedName != null && cachedName != NodeKind.EMPTY_QNM) {
-      return cachedName;
-    }
     final NodeKind kind = node.getKind();
     final int uriKey = node.getURIKey();
     final int prefixKey = node.getPrefixKey();

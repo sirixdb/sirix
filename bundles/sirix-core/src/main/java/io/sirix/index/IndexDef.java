@@ -15,8 +15,10 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -328,12 +330,21 @@ public final class IndexDef implements Materializable {
     fragment.openElement(tag);
     for (final QNm name : names) {
       fragment.openElement(NAME_TAG);
-      fragment.attribute(NAME_URI_ATTRIBUTE, new Una(name.getNamespaceURI()));
-      fragment.attribute(NAME_PREFIX_ATTRIBUTE, new Una(name.getPrefix()));
-      fragment.attribute(NAME_LOCAL_ATTRIBUTE, new Una(name.getLocalName()));
+      fragment.attribute(NAME_URI_ATTRIBUTE, new Una(encodeNameComponent(name.getNamespaceURI())));
+      fragment.attribute(NAME_PREFIX_ATTRIBUTE, new Una(encodeNameComponent(name.getPrefix())));
+      fragment.attribute(NAME_LOCAL_ATTRIBUTE, new Una(encodeNameComponent(name.getLocalName())));
       fragment.closeElement();
     }
     fragment.closeElement();
+  }
+
+  private static String encodeNameComponent(final String value) {
+    return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String readNameComponent(final Node<?> name, final QNm attribute) {
+    return new String(Base64.getDecoder().decode(name.getAttribute(attribute).getValue().stringValue()),
+        StandardCharsets.UTF_8);
   }
 
   private static void readNames(final Node<?> parent, final Set<QNm> names) {
@@ -341,9 +352,8 @@ public final class IndexDef implements Materializable {
       Node<?> child;
       while ((child = children.next()) != null) {
         if (NAME_TAG.equals(child.getName())) {
-          names.add(new QNm(child.getAttribute(NAME_URI_ATTRIBUTE).getValue().stringValue(),
-              child.getAttribute(NAME_PREFIX_ATTRIBUTE).getValue().stringValue(),
-              child.getAttribute(NAME_LOCAL_ATTRIBUTE).getValue().stringValue()));
+          names.add(new QNm(readNameComponent(child, NAME_URI_ATTRIBUTE),
+              readNameComponent(child, NAME_PREFIX_ATTRIBUTE), readNameComponent(child, NAME_LOCAL_ATTRIBUTE)));
         }
       }
     }

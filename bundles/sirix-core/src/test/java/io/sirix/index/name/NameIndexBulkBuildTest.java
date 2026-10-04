@@ -235,6 +235,140 @@ final class NameIndexBulkBuildTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void xmlRenameAfterUncommittedBuildUsesAddressedName(final VersioningType versioning) {
+    final Path path = directory.resolve("xml-uncommitted-rename");
+    final QNm renamed = new QNm("renamed");
+    final List<QNm> names = List.of(ROOT, CHILD, renamed);
+    final Set<IndexDef> definitions = definitions(IndexDef.DbType.XML, ROOT);
+    Databases.createXmlDatabase(new DatabaseConfiguration(path));
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
+      database.createResource(configuration(versioning));
+      try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+          final XmlNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertElementAsFirstChild(ROOT);
+        final long rootKey = trx.getNodeKey();
+        trx.insertElementAsFirstChild(CHILD);
+        final long childKey = trx.getNodeKey();
+        final var controller = session.getWtxIndexController(trx.getRevisionNumber());
+        controller.createIndexes(definitions, trx);
+        assertTrue(trx.moveTo(rootKey));
+        trx.setName(renamed);
+        final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+        expected.put(ROOT, new TreeSet<>());
+        expected.put(CHILD, new TreeSet<>(Set.of(childKey)));
+        expected.put(renamed, new TreeSet<>(Set.of(rootKey)));
+        lookups(controller, trx.getStorageEngineReader(), definitions, names, expected);
+        trx.commit();
+        try (final var reader = session.beginNodeReadOnlyTrx()) {
+          lookups(session.getRtxIndexController(reader.getRevisionNumber()), reader.getStorageEngineReader(),
+              definitions, names, expected);
+        }
+        assertTrue(trx.moveTo(rootKey));
+        trx.remove();
+        expected.put(CHILD, new TreeSet<>());
+        expected.put(renamed, new TreeSet<>());
+        lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(), definitions,
+            names, expected);
+        trx.commit();
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void xmlNamespaceMutationsKeepNamePostings(final VersioningType versioning) {
+    for (final NamespaceMutation mutation : NamespaceMutation.values()) {
+      final Path path = directory.resolve("xml-namespace-" + mutation);
+      final QNm target = new QNm("target");
+      final QNm container = new QNm("container");
+      final QNm namespace = new QNm("urn:p", "p", "");
+      final List<QNm> names = List.of(ROOT, CHILD, target, container);
+      final Set<IndexDef> definitions = definitions(IndexDef.DbType.XML, CHILD);
+      Databases.createXmlDatabase(new DatabaseConfiguration(path));
+      try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
+        database.createResource(configuration(versioning));
+        try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+            final XmlNodeTrx trx = session.beginNodeTrx()) {
+          trx.insertElementAsFirstChild(ROOT);
+          final long rootKey = trx.getNodeKey();
+          trx.insertNamespace(namespace);
+          final long namespaceKey = trx.getNodeKey();
+          assertTrue(trx.moveTo(rootKey));
+          trx.insertElementAsFirstChild(CHILD);
+          final long childKey = trx.getNodeKey();
+          trx.insertNamespace(namespace);
+          assertTrue(trx.moveTo(childKey));
+          trx.insertElementAsRightSibling(container);
+          final long containerKey = trx.getNodeKey();
+          trx.insertElementAsFirstChild(target);
+          final long targetKey = trx.getNodeKey();
+          final var controller = session.getWtxIndexController(trx.getRevisionNumber());
+          controller.createIndexes(definitions, trx);
+          final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+          expected.put(ROOT, new TreeSet<>(Set.of(rootKey)));
+          expected.put(CHILD, new TreeSet<>(Set.of(childKey)));
+          expected.put(target, new TreeSet<>(Set.of(targetKey)));
+          expected.put(container, new TreeSet<>(Set.of(containerKey)));
+          switch (mutation) {
+            case REMOVE_ROOT -> {
+              assertTrue(trx.moveTo(rootKey));
+              trx.remove();
+              for (final TreeSet<Long> keys : expected.values()) {
+                keys.clear();
+              }
+            }
+            case REMOVE_NAMESPACE -> {
+              assertTrue(trx.moveTo(namespaceKey));
+              trx.remove();
+              assertTrue(trx.moveTo(rootKey));
+              assertEquals(0, trx.getNamespaceCount());
+            }
+            case RENAME_NAMESPACE -> {
+              assertTrue(trx.moveTo(namespaceKey));
+              trx.setName(new QNm("urn:q", "q", ""));
+              assertEquals("urn:q", trx.getName().getNamespaceURI());
+              assertEquals("q", trx.getName().getPrefix());
+            }
+            case MOVE_FIRST_CHILD, MOVE_LEFT_SIBLING, MOVE_RIGHT_SIBLING -> {
+              assertTrue(trx.moveTo(targetKey));
+              if (mutation == NamespaceMutation.MOVE_FIRST_CHILD) {
+                trx.moveSubtreeToFirstChild(childKey);
+              } else if (mutation == NamespaceMutation.MOVE_LEFT_SIBLING) {
+                trx.moveSubtreeToLeftSibling(childKey);
+              } else {
+                trx.moveSubtreeToRightSibling(childKey);
+              }
+              assertTrue(trx.moveTo(childKey));
+              assertEquals(mutation == NamespaceMutation.MOVE_FIRST_CHILD ? targetKey : containerKey,
+                  trx.getParentKey());
+              assertEquals(1, trx.getNamespaceCount());
+            }
+          }
+          lookups(controller, trx.getStorageEngineReader(), definitions, names, expected);
+          final TreeSet<Long> allExpected = new TreeSet<>();
+          for (final TreeSet<Long> keys : expected.values()) {
+            allExpected.addAll(keys);
+          }
+          final IndexDef allNames = definitions.stream().filter(definition -> definition.getIncluded().isEmpty()
+              && definition.getExcluded().isEmpty()).findFirst().orElseThrow();
+          assertEquals(allExpected, collect(controller.openNameIndex(trx.getStorageEngineReader(), allNames,
+              new NameFilter(Set.of(), Set.of()))));
+          trx.commit();
+          try (final var reader = session.beginNodeReadOnlyTrx()) {
+            lookups(session.getRtxIndexController(reader.getRevisionNumber()), reader.getStorageEngineReader(),
+                definitions, names, expected);
+          }
+        }
+      } finally {
+        Databases.removeDatabase(path);
+      }
+    }
+  }
+
   private static ResourceConfiguration configuration(final VersioningType versioning) {
     return ResourceConfiguration.newBuilder(RESOURCE)
                                 .storageType(StorageType.FILE_CHANNEL)
@@ -281,5 +415,9 @@ final class NameIndexBulkBuildTest {
 
   private enum BuildMode {
     INCREMENTAL, UNCOMMITTED, COMMITTED
+  }
+
+  private enum NamespaceMutation {
+    REMOVE_ROOT, REMOVE_NAMESPACE, RENAME_NAMESPACE, MOVE_FIRST_CHILD, MOVE_LEFT_SIBLING, MOVE_RIGHT_SIBLING
   }
 }

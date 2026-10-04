@@ -319,7 +319,7 @@ final class XmlNodeTrxImpl extends
     final QNm name;
     if (indexController.hasNameIndex() && node instanceof NameNode nameNode) {
       name = switch (kind) {
-        case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION ->
+        case ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION ->
           XmlNameResolver.resolveName(nameNode, storageEngineWriter);
         default -> null;
       };
