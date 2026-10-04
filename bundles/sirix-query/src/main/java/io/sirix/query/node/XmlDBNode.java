@@ -228,7 +228,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
-        retVal = deweyID.isAncestorOrSelfOf(node.deweyID);
+        retVal = deweyID.isAncestorOf(node.deweyID);
       } else {
         if (isSelfOf(other)) {
           retVal = true;

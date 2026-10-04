@@ -3,6 +3,7 @@ package io.sirix.query.node;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.io.StorageType;
 import org.junit.jupiter.api.io.TempDir;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,7 +65,7 @@ class XmlDBNodeComparisonTest {
             assertEquals(descendant, nodes[first].isDescendantOf(other), pair);
             assertEquals(first == second || descendant, nodes[first].isDescendantOrSelfOf(other), pair);
             assertEquals(ancestor, nodes[first].isAncestorOf(other), pair);
-            assertEquals(first == second || ancestor, nodes[first].isAncestorOrSelfOf(other), pair);
+            assertEquals(ancestor || (first == second && !storeDeweyIds), nodes[first].isAncestorOrSelfOf(other), pair);
             assertEquals(sibling, nodes[first].isSiblingOf(other), pair);
             assertEquals(sibling && first < second, nodes[first].isPrecedingSiblingOf(other), pair);
             assertEquals(sibling && first > second, nodes[first].isFollowingSiblingOf(other), pair);
@@ -155,6 +157,59 @@ class XmlDBNodeComparisonTest {
         }
       }
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void rootsInDifferentResourcesAreNotAncestorOrSelf(final boolean storeDeweyIds) {
+    try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
+      final XmlDBCollection collection = store.create("collection", new DocumentParser("<r/>"));
+      assertNotNull(collection.add("second", new DocumentParser("<r/>")));
+      try (final XmlResourceSession firstSession = collection.getDatabase().beginResourceSession("resource1");
+          final XmlResourceSession secondSession = collection.getDatabase().beginResourceSession("second");
+          final XmlNodeReadOnlyTrx firstTrx = firstSession.beginNodeReadOnlyTrx();
+          final XmlNodeReadOnlyTrx secondTrx = secondSession.beginNodeReadOnlyTrx()) {
+        assertEquals(storeDeweyIds, firstSession.getResourceConfig().areDeweyIDsStored);
+        assertEquals(storeDeweyIds, secondSession.getResourceConfig().areDeweyIDsStored);
+        assertNotEquals(firstSession.getResourceConfig().getID(), secondSession.getResourceConfig().getID());
+        assertDistinctRootsAreNotAncestorOrSelf(new XmlDBNode(firstTrx, collection).getFirstChild(),
+            new XmlDBNode(secondTrx, collection).getFirstChild());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void unchangedRootsInDifferentRevisionsAreNotAncestorOrSelf(final boolean storeDeweyIds) {
+    try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
+      final XmlDBCollection collection = store.create("collection", new DocumentParser("<r/>"));
+      try (final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1")) {
+        assertEquals(storeDeweyIds, session.getResourceConfig().areDeweyIDsStored);
+        try (final XmlNodeTrx writer = session.beginNodeTrx()) {
+          writer.commit();
+        }
+        assertEquals(2, session.getMostRecentRevisionNumber());
+        try (final XmlNodeReadOnlyTrx firstTrx = session.beginNodeReadOnlyTrx(1);
+            final XmlNodeReadOnlyTrx secondTrx = session.beginNodeReadOnlyTrx(2)) {
+          assertNotEquals(firstTrx.getRevisionNumber(), secondTrx.getRevisionNumber());
+          assertDistinctRootsAreNotAncestorOrSelf(new XmlDBNode(firstTrx, collection).getFirstChild(),
+              new XmlDBNode(secondTrx, collection).getFirstChild());
+        }
+      }
+    }
+  }
+
+  private static void assertDistinctRootsAreNotAncestorOrSelf(final XmlDBNode first, final XmlDBNode second) {
+    assertNotNull(first);
+    assertNotNull(second);
+    assertEquals(new QNm("r"), first.getName());
+    assertEquals(new QNm("r"), second.getName());
+    assertEquals(first.getNodeKey(), second.getNodeKey());
+    assertEquals(first.getDeweyID(), second.getDeweyID());
+    assertFalse(first.isSelfOf(second));
+    assertFalse(second.isSelfOf(first));
+    assertFalse(first.isAncestorOrSelfOf(second));
+    assertFalse(second.isAncestorOrSelfOf(first));
   }
 
   private BasicXmlDBStore configuredStore(final boolean storeDeweyIds) {
