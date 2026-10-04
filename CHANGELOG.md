@@ -96,6 +96,10 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **CAS and VALIDTIME posting chunks** now use append-only deltas and referenced folded payloads.
+  The authoritative key layout, marker encoding, integrity checks, and format replacement policy
+  are in [On-disk format](docs/DISK_FORMAT.md#cas-and-validtime-posting-chunks).
+
 - **A commit no longer lists the index-catalogue directory.** Every commit re-instantiates the
   writer, which asks for the catalogue of the revision it is about to create; that file cannot
   exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file
@@ -192,18 +196,9 @@ All notable changes to SirixDB are documented in this file.
   is now discharged through that same complete-frontier splice: the parent's subtree is split
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
-  a side reference the dropped entry owned has no home in either half, so the split refuses before
-  publication rather than orphaning a segment page and the load stops. Only a projection index can
-  reach that — side references are attached to a HOT leaf by `ProjectionIndexHOTStorage` alone, so
-  path, CAS, name and valid-time leaves never carry one — every entry to that route can, not just the
-  declined fold. What the two entries did before differs, and neither committed anything wrong: a
-  fold declined at the leaf's own parent already failed closed without publishing, because the
-  cascade reached the same refusal and the transaction was marked rollback-only, so the load stopped
-  at that insert exactly as it stops now; a cascade the trie-condition pre-check now declines instead
-  completed the insert and published a half that broke the condition latently, so the load stopped
-  only later. For that second entry a projection index with a dropped side reference now stops at the
-  insert rather than later. Carrying the dropped entry's reference onto the key's fresh leaf is a
-  separate task. Further into the same load, splitting a full node published a half that broke the
+  side-reference ownership and refusal behavior are specified in
+  [HOT index specification §4.5.2](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path).
+  Further into the same load, splitting a full node published a half that broke the
   trie condition (I11) against its own child: a half keeps only the bits that still vary within it, so
   a child that sat safely below the node's most significant bit can sit above the half's. Only the
   half the new key joins was checked and lies on the key's route, so the other went out unseen,

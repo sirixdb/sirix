@@ -184,7 +184,7 @@ final class HOTStraddlingLeafSpliceTest {
 
     /** Register {@code nodeKey} in one store of the interval from the first day to {@code toDay}. */
     private void register(final byte store, final int toDay, final long nodeKey) {
-      writer.indexNodeKey(key(store, toDay), nodeKey);
+      InlinePostingFixture.insert(writer, key(store, toDay), nodeKey);
       registrations.add(new Registration(store, toDay, nodeKey));
     }
   }
@@ -206,8 +206,8 @@ final class HOTStraddlingLeafSpliceTest {
         final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
             ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
         for (int record = 0; record < records; record++) {
-          writer.indexNodeKey(key(ValidTimeKey.STORE_LOWER, HORIZON_DAYS), recordKey(record));
-          writer.indexNodeKey(key(ValidTimeKey.STORE_UPPER, HORIZON_DAYS), recordKey(record));
+          InlinePostingFixture.insert(writer, key(ValidTimeKey.STORE_LOWER, HORIZON_DAYS), recordKey(record));
+          InlinePostingFixture.insert(writer, key(ValidTimeKey.STORE_UPPER, HORIZON_DAYS), recordKey(record));
         }
         scenario = new Scenario(writer);
         steps.accept(scenario);

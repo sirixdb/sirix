@@ -6,6 +6,7 @@ package io.sirix.budget;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.settings.VersioningType;
 
@@ -50,6 +51,18 @@ public final class EngineWorkCounters {
 
   /** The HOT leaf counters. Gated: the module's {@code test} block must provide the property. */
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);
+
+  /** Append-only posting changes, excluding operations folded directly into the base. */
+  public static final WorkCounter POSTING_DELTA_WRITES =
+      WorkCounter.gated("hot.postingDeltaWrites", "one single-posting delta slot written",
+          HOTIndexWriter::postingDeltaWrites, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /** A bounded set of changes materialized into one base posting chunk. */
+  public static final WorkCounter POSTING_DELTA_FOLDS =
+      WorkCounter.gated("hot.postingDeltaFolds", "one posting chunk folded in memory and replaced",
+          HOTIndexWriter::postingDeltaFolds, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  public static final List<WorkCounter> HOT_POSTINGS = List.of(POSTING_DELTA_WRITES, POSTING_DELTA_FOLDS);
 
   // ===== Batched page reads (FILE_CHANNEL) ==================================
 

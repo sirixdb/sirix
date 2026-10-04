@@ -59,10 +59,10 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexReader<K extends Comparable<? super K>> extends AbstractHOTIndexReader<K> {
 
   /**
-   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
-   * {@code MAX_STRING_VALUE_BYTES = 246}), rounded to 512 for headroom. The logical key is written
-   * first; point lookup may append the four-byte zero chunk trailer into the spare capacity and pass
-   * its explicit valid length to the canonical HOT lower-bound seek.
+   * Thread-local buffer for key serialization. Covers {@link CASKeySerializer#maxSerializedLength}
+   * plus the chunk trailer; longer NAME keys grow the buffer. Point lookup may append the zero chunk
+   * trailer into the spare capacity and pass its explicit valid length to the canonical HOT
+   * lower-bound seek.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
@@ -156,8 +156,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    *
    * <p>
    * Inclusivity is enforced by the cursor itself, on each group's logical key bytes — see
-   * {@link ChunkAggregatingIterator}. Callers must NOT post-filter positionally: index keys are not
-   * prefix-free, so the composite byte window is wider than the logical range.
+   * {@link ChunkAggregatingIterator}. The group boundary comes from the serializer, so a chunk
+   * trailer or delta suffix cannot make an excluded logical key appear in the range.
    *
    * @param fromKey start key
    * @param toKey end key
@@ -197,6 +197,11 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     requireNonNull(toKey);
     final byte[] toPrefix = serializeKeyToArray(toKey);
     return new ChunkAggregatingIterator(null, true, toPrefix, inclusive);
+  }
+
+  @Override
+  protected int logicalKeyLength(final byte[] composite) {
+    return keySerializer.logicalKeyLength(composite, 0, composite.length);
   }
 
   @Override

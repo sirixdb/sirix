@@ -224,6 +224,7 @@ final class FileChannelWriterEmptyPipelineTest {
   void cachedRawLengthReachesStorageProfileWithoutReserialization(@TempDir final Path tempDir) throws IOException {
     try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
       profile.when(StorageProfile::isEnabled).thenReturn(true);
+      profile.when(() -> StorageProfile.pageKind(any())).thenCallRealMethod();
 
       assertPreSerializedKeyValueLeafBypassesThePagePersister(emptyPipelineConfig(tempDir), tempDir, 513);
 
@@ -235,6 +236,7 @@ final class FileChannelWriterEmptyPipelineTest {
   void unknownRawLengthUsesIdentityFallbackOnlyForAnEmptyPipeline(@TempDir final Path tempDir) throws IOException {
     try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
       profile.when(StorageProfile::isEnabled).thenReturn(true);
+      profile.when(() -> StorageProfile.pageKind(any())).thenCallRealMethod();
 
       assertPreSerializedKeyValueLeafBypassesThePagePersister(emptyPipelineConfig(tempDir), tempDir,
           KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH);
@@ -253,6 +255,7 @@ final class FileChannelWriterEmptyPipelineTest {
     config.resourcePath = tempDir;
     try (MockedStatic<StorageProfile> profile = mockStatic(StorageProfile.class)) {
       profile.when(StorageProfile::isEnabled).thenReturn(true);
+      profile.when(() -> StorageProfile.pageKind(any())).thenCallRealMethod();
 
       assertPreSerializedKeyValueLeafBypassesThePagePersister(config, tempDir,
           KeyValueLeafPage.UNKNOWN_BYTE_HANDLER_INPUT_LENGTH);

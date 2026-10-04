@@ -112,6 +112,15 @@ public interface HOTKeySerializer<K> {
   K deserialize(byte[] bytes, int offset, int length);
 
   /**
+   * Logical prefix length of a stored posting key. Ordinary base keys end in a four-byte chunk index.
+   * Serializers used with posting deltas must identify the logical boundary independently of the
+   * optional suffix, either by fixed width or by self-delimiting framing.
+   */
+  default int logicalKeyLength(final byte[] key, final int offset, final int length) {
+    return length - CHUNK_IDX_BYTES;
+  }
+
+  /**
    * Compares two serialized keys lexicographically (unsigned byte comparison).
    *
    * <p>

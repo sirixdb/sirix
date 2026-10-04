@@ -2095,3 +2095,6 @@ reason. The HOT fragment-merge and requested-slot counters in `VersioningType` s
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
 rules for adding or changing a budget are in `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.
+
+Posting-delta diagnostics are specified in
+[HOT index specification §6.2](HOT_INDEX_SPECIFICATION.md#62-diagnostics-off-by-default-no-effect-on-results).
