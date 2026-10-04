@@ -20,6 +20,7 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
@@ -285,13 +286,21 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
 
   /**
-   * Remove all registered change listeners. A write-side controller may be cached and reused across
-   * write transactions; its listeners capture a specific transaction's storage engine and path
-   * summary, so a new transaction must clear the previous (now-closed) transaction's listeners before
-   * rebinding its own — otherwise {@link #notifyChange} could fire a listener against a closed
-   * transaction ("Transaction is already closed!").
+   * Remove transaction-bound listeners and serving handles when their writer retires or listeners are
+   * rebound. Cached catalogue definitions remain available; retaining a retired writer's listeners
+   * would keep its storage engine and path summary alive. This does not abort maintenance state
+   * spanning intermediate commits; see {@link #notifyTransactionAbort()}.
    */
   void clearChangeListeners();
+
+  /**
+   * Return the current listener snapshot without copying it. Callers must not modify its elements.
+   * Clearing or rebinding the controller leaves an acquired snapshot valid, so a failed successor
+   * handoff can still abort the retiring listeners; retaining it also retains their owners.
+   *
+   * @return the read-only listener snapshot
+   */
+  ChangeListener[] getChangeListenerSnapshot();
 
   /**
    * Apply any change-listener maintenance deferred to commit time (currently the incremental

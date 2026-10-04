@@ -30,6 +30,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -329,12 +330,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  protected void initializeIndexController(final int revision, AbstractIndexController<?, ?> controller) {
-    // Deserialize index definitions.
-    // For write transactions, the revision number is the NEW revision being created,
-    // but index definitions are stored at the LAST COMMITTED revision (and only for
-    // revisions where definitions exist — resources without secondary indexes have NO
-    // files here at all).
+  protected void initializeIndexController(final int revision, final AbstractIndexController<?, ?> controller) {
+    loadIndexCatalogue(revision, controller.getIndexes());
+    controller.refreshIndexCapabilities();
+  }
+
+  @Override
+  public void restoreIndexCatalogue(final int revision, final Indexes indexes) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    requireNonNull(indexes).reset();
+    loadIndexCatalogue(revision, indexes);
+  }
+
+  private void loadIndexCatalogue(final int revision, final Indexes indexes) {
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, revision);
@@ -343,8 +351,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
 
     try (final InputStream in = new FileInputStream(indexesDir.resolve(catalogueRevision + ".xml").toFile())) {
-      controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      controller.refreshIndexCapabilities();
+      indexes.init(IndexController.deserialize(in).getFirstChild());
     } catch (IOException | DocumentException | SirixException e) {
       throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }
@@ -356,8 +363,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * {@link #NO_INDEX_CATALOGUE}.
    *
    * <p>
-   * A write transaction asks for the revision it is about to create, whose file cannot exist yet, and
-   * it asks once per commit, because every commit re-instantiates the writer. Answering that from the
+   * Writer creation resolves its prospective revision's controller and restores the catalogue at its
+   * durable base revision; every commit re-instantiates the writer. Answering each lookup from the
    * directory costs one {@code readdir} over every catalogue ever written, and a commit with
    * definitions writes one: O(revisions) per commit, O(revisions²) over a commit-per-operation load
    * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the

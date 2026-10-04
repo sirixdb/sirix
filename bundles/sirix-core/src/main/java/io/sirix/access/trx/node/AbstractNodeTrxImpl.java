@@ -16,6 +16,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
@@ -436,6 +437,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
   private volatile boolean asyncCommitTerminalFailure;
 
+  @Nullable
   static volatile Consumer<String> asyncCommitTestHook;
 
   private static void notifyAsyncCommitTestHook(final String stage) {
@@ -936,7 +938,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    *        by the background hardening thread), and the successor is based on the pending uber page
    *        instead of {@code lastCommittedUberPage}.
    */
-  private void reInstantiate(final int trxID, final int revNumber, final UberPage pendingBaseUberPage) {
+  @SuppressWarnings("ReferenceEquality")
+  private void reInstantiate(final int trxID, final int revNumber, final @Nullable UberPage pendingBaseUberPage) {
     final boolean timing = LOGGER.isDebugEnabled();
     final long r0 = timing
         ? System.nanoTime()
@@ -945,50 +948,71 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
 
-    // Reset page transaction to new uber page.
-    if (pendingBaseUberPage == null) {
-      resourceSession.closeNodePageWriteTransaction(getId());
-    } else {
-      resourceSession.detachNodePageWriteTransaction(getId());
-    }
+    // Closing the predecessor clears its controller. Keep its exact abort owners reachable until
+    // successor rebinding succeeds, without copying the snapshot on every commit.
+    final ChangeListener[] retiringListeners = indexController.getChangeListenerSnapshot();
+    try {
+      // Reset page transaction to new uber page.
+      if (pendingBaseUberPage == null) {
+        resourceSession.closeNodePageWriteTransaction(getId());
+      } else {
+        resourceSession.detachNodePageWriteTransaction(getId());
+      }
 
-    final long r1 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r1 = timing
+          ? System.nanoTime()
+          : 0;
 
-    storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
-        InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
-    nodeReadOnlyTrx.setPageReadTransaction(null);
-    nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
-    resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
+      storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
+          InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
+      nodeReadOnlyTrx.setPageReadTransaction(null);
+      nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+      resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    final long r2 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r2 = timing
+          ? System.nanoTime()
+          : 0;
 
-    nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
+      nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
-    final boolean isBulkInsert = nodeHashing.isBulkInsert();
-    nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
-    nodeHashing.setBulkInsert(isBulkInsert);
+      final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
+      nodeHashing.setBulkInsert(isBulkInsert);
 
-    updateOperationsUnordered.clear();
-    updateOperationsOrdered.clear();
+      updateOperationsUnordered.clear();
+      updateOperationsOrdered.clear();
 
-    reInstantiateIndexes(true);
+      reInstantiateIndexes(true);
 
-    // Re-read the current node from the new page transaction.
-    // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
-    // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
-    nodeReadOnlyTrx.moveTo(currentNodeKey);
+      // Re-read the current node from the new page transaction.
+      // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
+      // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
+      nodeReadOnlyTrx.moveTo(currentNodeKey);
 
-    final long r3 = timing
-        ? System.nanoTime()
-        : 0;
+      final long r3 = timing
+          ? System.nanoTime()
+          : 0;
 
-    if (timing) {
-      LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms", ms(r1 - r0), ms(r2 - r1),
-          ms(r3 - r2), ms(r3 - r0));
+      if (timing) {
+        LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms", ms(r1 - r0), ms(r2 - r1),
+            ms(r3 - r2), ms(r3 - r0));
+      }
+    } catch (final RuntimeException | Error failure) {
+      for (final ChangeListener listener : retiringListeners) {
+        try {
+          listener.transactionAborted();
+        } catch (final Throwable cleanupFailure) {
+          // Self-suppression is defined by identity, even if a Throwable overrides equals().
+          if (cleanupFailure != failure) {
+            try {
+              failure.addSuppressed(cleanupFailure);
+            } catch (final Throwable ignored) {
+              // Suppression is diagnostic; allocation failure must remain the primary cause.
+            }
+          }
+        }
+      }
+      throw failure;
     }
   }
 
@@ -1000,6 +1024,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   protected abstract NF reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter);
 
+  // NullAway cannot correlate the non-null saved snapshot with the flag selecting it.
+  @SuppressWarnings("NullAway")
   private void reInstantiateIndexes(final boolean preserveCurrentDefinitions) {
     // Get a new path summary instance.
     if (buildPathSummary) {
@@ -1017,6 +1043,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         : null;
     indexController =
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    if (preserveCurrentDefinitions) {
+      // A pending predecessor may not have persisted its drops yet. Replace the entire restored
+      // catalogue, including empty membership, before creating successor listeners.
+      indexController.getIndexes().replaceWith(indexDefs);
+    }
     indexController.clearChangeListeners();
     indexController.createIndexListeners(preserveCurrentDefinitions
         ? indexDefs
@@ -1050,15 +1081,20 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Close current page transaction.
       final int trxID = getId();
-      final int revision = getRevisionNumber();
-      final int revNumber = storageEngineWriter.getUberPage().isBootstrap()
-          ? 0
-          : revision - 1;
-
-      final UberPage uberPage = storageEngineWriter.rollback();
-
-      // Remember successfully committed uber page in resource session.
-      resourceSession.setLastCommittedUberPage(uberPage);
+      final int revNumber;
+      if (storageEngineWriter.isClosed()) {
+        // A durable commit closed its predecessor before successor construction failed. There
+        // is no live writer to abort: recover from the session's already-published durable root.
+        // Entering rollback() on that closed predecessor would dereference its cleared caches.
+        revNumber = resourceSession.getMostRecentRevisionNumber();
+      } else {
+        final int revision = getRevisionNumber();
+        revNumber = storageEngineWriter.getUberPage().isBootstrap()
+            ? 0
+            : revision - 1;
+        final UberPage uberPage = storageEngineWriter.rollback();
+        resourceSession.setLastCommittedUberPage(uberPage);
+      }
 
       resourceSession.closeNodePageWriteTransaction(getId());
       nodeReadOnlyTrx.setPageReadTransaction(null);
@@ -1082,6 +1118,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       reInstantiateIndexes(false);
 
       rollbackOnlyCause = null;
+      state = State.RUNNING;
 
       // Discard update-operation tuples recorded before the rollback: their node keys belong to the
       // aborted revision and must not leak into the next commit's diff (a later commit would

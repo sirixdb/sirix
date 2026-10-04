@@ -164,7 +164,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write before the
    * subsequent flush threshold check.
    */
-  private BytesOut<?> bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+  private BytesOut<?> bufferBytes;
 
   /**
    * Page writer to serialize.
@@ -868,6 +868,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * failure modes it exercises — a leaked permit, a lost cause, retained payloads, or a rollback that
    * never returns — are not reachable through the public API by any other means.
    */
+  @Nullable
   static volatile BiConsumer<NodeStorageEngineWriter, String> asyncFlushFaultHook;
 
   /** Raise the injected fault for {@code site}, if a test armed one. */
@@ -1039,6 +1040,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.insertFsstEnabled =
         storageEngineReader.getResourceSession()
                            .getResourceConfig().stringCompressionType == StringCompressionType.FSST;
+    injectAsyncFlushFault("constructor-before-local-caches");
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
@@ -1067,6 +1069,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.leakDetectorState = new LeakDetectorState(storageEngineReader.getTrxId(), System.identityHashCode(this),
         System.identityHashCode(log), log);
     LEAK_CLEANER.register(this, leakDetectorState);
+    // Acquire native scratch only after every fallible heap initialization has completed.
+    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
   }
 
   @Override
@@ -4764,6 +4768,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     Throwable teardownFailure = null;
+    // Controllers cache revision catalogues, but their listeners belong to this writer alone.
+    // Retire all listener roots after fencing async work, even if a later teardown owner fails.
+    try {
+      indexController.clearChangeListeners();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
     int unboundTrxId = Constants.NULL_ID_INT;
     if (!isBoundToNodeTrx) {
       try {
