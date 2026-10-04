@@ -53,11 +53,9 @@ public final class IngestArrayPositionProbe {
   }
 
   /** Captures the actual pending tuples, including stale tuples that serialization must skip. */
-  public static List<DiffTuple> pendingDiffs(final JsonNodeTrx trx, final boolean ordered) {
+  public static List<DiffTuple> pendingDiffs(final JsonNodeTrx trx) {
     try {
-      final Field field = AbstractNodeTrxImpl.class.getDeclaredField(ordered
-          ? "updateOperationsOrdered"
-          : "updateOperationsUnordered");
+      final Field field = AbstractNodeTrxImpl.class.getDeclaredField("updateOperationsUnordered");
       field.setAccessible(true);
       final Map<?, ?> operations = (Map<?, ?>) field.get(trx);
       final List<DiffTuple> diffs = new ArrayList<>(operations.size());

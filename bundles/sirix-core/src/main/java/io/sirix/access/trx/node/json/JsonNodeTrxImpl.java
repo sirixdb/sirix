@@ -92,10 +92,10 @@ import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JacksonJsonShredder;
 import io.sirix.service.json.shredder.JsonItemShredder;
+import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
@@ -113,7 +113,6 @@ import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Predicate;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -159,9 +158,9 @@ final class JsonNodeTrxImpl extends
   private final boolean ingestArrayPositionsConfigured;
 
   /**
-   * Whether the revision currently being written will emit an update-diff sidecar, which is the only
-   * reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
-   * capturing for it would fill a map nothing reads.
+   * Whether the configuration and write revision permit collecting ingest ordinals. The bootstrap
+   * write revision is excluded; later epochs may collect hints even when a bulk baseline or revert
+   * suppresses sidecar publication. Serialization and writer replacement release those hints.
    */
   private boolean captureIngestArrayPositions;
 
@@ -212,7 +211,9 @@ final class JsonNodeTrxImpl extends
   /**
    * The revision number before bulk-inserting nodes.
    */
-  private int beforeBulkInsertionRevisionNumber;
+  private int beforeBulkInsertionRevisionNumber = -1;
+
+  private boolean suppressUpdateDiffs;
 
   /**
    * Insert not allowed exception because of absance of parent in array.
@@ -558,51 +559,19 @@ final class JsonNodeTrxImpl extends
         assertRunning();
 
         final InputShape inputShape = inputValidator.validate();
-        var skipRootJsonToken = doSkipRootToken;
-        final var nodeKind = getKind();
-
-        // $CASES-OMITTED$
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            // play
-            // the OBJECT/ARRAY role under fusion, so admit them as valid first/last-child
-            // anchor points alongside their non-fused counterparts.
-            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
-                && nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
-              throw new IllegalStateException(
-                  "Current node must either be the document root, an array or an object key.");
-            }
-            if (inputShape.isObject()) {
-              if (nodeKind == NodeKind.OBJECT || nodeKind == NodeKind.OBJECT_NAMED_OBJECT) {
-                skipRootJsonToken = SkipRootToken.YES;
-              }
-            } else if (inputShape.isArray()) {
-              if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT
-                  && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
-                throw new IllegalStateException("Current node in storage must be an array node.");
-              }
-            }
-          }
-          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-            if (checkParentNode == CheckParentNode.YES) {
-              final NodeKind parentKind = getParentKind();
-              if (parentKind != NodeKind.ARRAY && parentKind != NodeKind.OBJECT_NAMED_ARRAY) {
-                throw new IllegalStateException("Current parent node must be an array node.");
-              }
-            }
-          }
-          default -> throw new UnsupportedOperationException();
-        }
+        final SkipRootToken skipRootJsonToken =
+            validateSubtreePosition(insertionPosition, checkParentNode, doSkipRootToken, inputShape);
 
         checkAccessAndCommit();
-        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
+        final boolean storeDiffs = resourceSession.getResourceConfig().storeDiffs();
+        if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
+          beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+        }
         nodeHashing.setBulkInsert(true);
         // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
         // - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
         // upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
-        // Revision-producing intermediate commits reInstantiate the hashing helper without its
-        // autoCommit flag, so imports spanning those logical commits still need the repair mode.
         // - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
         // repair over the imported subtree at the end. Correct for ANY import size; costs a
         // full subtree walk after the import (opt-in for exactly that reason).
@@ -612,6 +581,14 @@ final class JsonNodeTrxImpl extends
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
+        final long siblingBoundary = storeDiffs && skipRootJsonToken == SkipRootToken.YES
+            ? switch (insertionPosition) {
+              case AS_FIRST_CHILD -> getFirstChildKey();
+              case AS_LAST_CHILD -> getLastChildKey();
+              case AS_LEFT_SIBLING -> getLeftSiblingKey();
+              case AS_RIGHT_SIBLING -> getRightSiblingKey();
+            }
+            : Fixed.NULL_NODE_KEY.getStandardProperty();
 
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
 
@@ -627,7 +604,9 @@ final class JsonNodeTrxImpl extends
           }
         }
 
-        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+        if (storeDiffs) {
+          collectBulkInsertDiffs(insertionPosition, skipRootJsonToken, nodeKey, siblingBoundary);
+        }
 
         // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
         // during the shred, or one postorder repair at the end (always for non-auto-committing
@@ -651,6 +630,63 @@ final class JsonNodeTrxImpl extends
       }
     });
     return this;
+  }
+
+  private SkipRootToken validateSubtreePosition(final InsertPosition insertionPosition,
+      final CheckParentNode checkParentNode, final SkipRootToken skipRootToken, final InputShape inputShape) {
+    final NodeKind nodeKind = getKind();
+    return switch (insertionPosition) {
+      case AS_FIRST_CHILD, AS_LAST_CHILD -> validateSubtreeChildPosition(nodeKind, skipRootToken, inputShape);
+      case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
+        if (checkParentNode == CheckParentNode.YES) {
+          final NodeKind parentKind = getParentKind();
+          if (parentKind != NodeKind.ARRAY && parentKind != NodeKind.OBJECT_NAMED_ARRAY) {
+            throw new IllegalStateException("Current parent node must be an array node.");
+          }
+        }
+        yield skipRootToken;
+      }
+      default -> throw new UnsupportedOperationException();
+    };
+  }
+
+  private static SkipRootToken validateSubtreeChildPosition(final NodeKind nodeKind, final SkipRootToken skipRootToken,
+      final InputShape inputShape) {
+    if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
+        && nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
+      throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+    }
+    if (inputShape.isObject()) {
+      if (nodeKind == NodeKind.OBJECT || nodeKind == NodeKind.OBJECT_NAMED_OBJECT) {
+        return SkipRootToken.YES;
+      }
+    } else if (inputShape.isArray()) {
+      if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
+        throw new IllegalStateException("Current node in storage must be an array node.");
+      }
+    }
+    return skipRootToken;
+  }
+
+  private void collectBulkInsertDiffs(final InsertPosition insertionPosition, final SkipRootToken skipRootToken,
+      final long nodeKey, final long siblingBoundary) {
+    if (skipRootToken == SkipRootToken.YES) {
+      // A skipped input root has no single inserted subtree representing all its children.
+      // Record only the new sibling roots, stopping at the pre-existing neighbor.
+      final long insertedRoot = getNodeKey();
+      final boolean walkLeft =
+          insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+      if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
+        do {
+          adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+        } while ((walkLeft
+            ? moveToLeftSibling()
+            : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+        moveTo(insertedRoot);
+      }
+    } else {
+      adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+    }
   }
 
   /**
@@ -1048,67 +1084,54 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey) {
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
+  private void adaptUpdateOperationsForInsert(final SirixDeweyID id, final long newNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
+    final DiffTuple pending = updateOperationsUnordered.get(newNodeKey);
+    if (pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+      return;
+    }
+    updateOperationsUnordered.put(newNodeKey, new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
         ? null
-        : new DiffDepth(id.getLevel(), 0));
-    if (id == null) {
-      updateOperationsUnordered.put(newNodeKey, diffTuple);
-    } else {
-      updateOperationsOrdered.put(id, diffTuple);
+        : new DiffDepth(id.getLevel(), 0)));
+  }
+
+  private void adaptUpdateOperationsForReplace(final SirixDeweyID id, final long oldNodeKey, final long newNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
+    updateOperationsUnordered.remove(-oldNodeKey);
+    if (!wasPresentInDiffBase(oldNodeKey)) {
+      adaptUpdateOperationsForInsert(id, newNodeKey);
+      return;
+    }
+    updateOperationsUnordered.put(newNodeKey,
+        new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, id == null
+            ? null
+            : new DiffDepth(id.getLevel(), id.getLevel())));
+  }
+
+  private boolean wasPresentInDiffBase(final long nodeKey) {
+    final int revision = diffStartingRevision(getRevisionNumber());
+    if (revision == 0 || nodeKey > storageEngineWriter.loadRevRoot(revision).getMaxNodeKeyInDocumentIndex()) {
+      return false;
+    }
+    awaitPendingAsyncCommit();
+    try (final var previousRevision = resourceSession.beginNodeReadOnlyTrx(revision)) {
+      return previousRevision.moveTo(nodeKey);
     }
   }
 
-  private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
-    // The fused-replace path (remove + insertObjectRecordAs* + REPLACEDNEW) leaves a stray
-    // DELETED tuple for {@code oldNodeKey} from the inner remove(). The REPLACE diff already
-    // captures the old → new transition; downstream replay ({@link
-    // io.sirix.service.json.shredder.JsonResourceCopy#executeReplace}) only needs the REPLACE
-    // entry, otherwise it would receive a no-op DELETE on the just-replaced node and surface
-    // it as a phantom delete in the diff JSON.
-    if (id == null) {
-      updateOperationsUnordered.values()
-                               .removeIf(
-                                   t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
-      updateOperationsUnordered.put(newNodeKey,
-          new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, null));
-    } else {
-      updateOperationsOrdered.values()
-                             .removeIf(
-                                 t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
-      updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey,
-          new DiffDepth(id.getLevel(), id.getLevel())));
-    }
-  }
-
-  /**
-   * Record a subtree move in the update-operations maps as DELETED at the old position + INSERTED at
-   * the new one — the same representation a remove+copy produces, which diff consumers (replay,
-   * change feeds) already understand. Without these tuples a move-only transaction wrote an empty
-   * diff for a revision whose tree order changed (#1074).
-   *
-   * @param oldDeweyID the moved node's DeweyID before the move ({@code null} without DeweyIDs)
-   * @param newDeweyID the moved node's DeweyID after the move ({@code null} without DeweyIDs)
-   * @param nodeKey the moved node's key (unchanged by the move)
-   */
   private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
       final long nodeKey) {
-    final var deleteTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
-        ? null
-        : new DiffDepth(0, oldDeweyID.getLevel()));
-    final var insertTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, nodeKey, 0, newDeweyID == null
-        ? null
-        : new DiffDepth(newDeweyID.getLevel(), 0));
-    if (oldDeweyID != null && newDeweyID != null) {
-      updateOperationsOrdered.put(oldDeweyID, deleteTuple);
-      updateOperationsOrdered.put(newDeweyID, insertTuple);
-    } else {
-      // The unordered map is keyed by node key purely for uniqueness (consumers iterate
-      // values()); a move needs TWO tuples for one node key, so the DELETED entry is keyed by
-      // the negated key to avoid colliding with the INSERTED entry. Real node keys are > 0.
-      updateOperationsUnordered.put(-nodeKey, deleteTuple);
-      updateOperationsUnordered.put(nodeKey, insertTuple);
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
     }
+    updateOperationsUnordered.put(-nodeKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
+        ? null
+        : new DiffDepth(0, oldDeweyID.getLevel())));
+    adaptUpdateOperationsForInsert(newDeweyID, nodeKey);
   }
 
   /**
@@ -2201,24 +2224,15 @@ final class JsonNodeTrxImpl extends
       // for sdb:item-history, indexes, and temporal axes — without this, {@code replace json
       // value} on a fused field would mint a new physical node and break "track a single
       // field's history" workflows).
-      if (kind == NodeKind.OBJECT_NAMED_STRING && value instanceof StringValue sv) {
-        setStringValue(sv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof NumberValue nv) {
-        setNumberValue(nv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof BooleanValue bv) {
-        setBooleanValue(bv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_NULL && value instanceof NullValue) {
+      if (updateObjectRecordValue(kind, value)) {
         return this;
       }
 
       final String keyName = getName().getLocalName();
-      final long oldValueNodeKey = nodeKey; // fused record IS the value holder
+      final DiffTuple pending = updateOperationsUnordered.get(nodeKey);
+      final long oldValueNodeKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
+          ? pending.getOldNodeKey()
+          : nodeKey;
       final boolean hasLeft = hasLeftSibling();
       final long anchorKey = hasLeft
           ? getLeftSiblingKey()
@@ -2250,6 +2264,25 @@ final class JsonNodeTrxImpl extends
         lock.unlock();
       }
     }
+  }
+
+  private boolean updateObjectRecordValue(final NodeKind kind, final ObjectRecordValue<?> value) {
+    if (kind == NodeKind.OBJECT_NAMED_STRING && value instanceof StringValue sv) {
+      setStringValue(sv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof NumberValue nv) {
+      setNumberValue(nv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof BooleanValue bv) {
+      setBooleanValue(bv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_NULL && value instanceof NullValue) {
+      return true;
+    }
+    return false;
   }
 
   @Override
@@ -3091,7 +3124,9 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Adapts pointers for move operations. JSON-specific: no text node merging.
+   * Adapts pointers for move operations. Both parents' first- and last-child links must agree with
+   * the sibling chain, including when detaching an only child or attaching to an empty parent;
+   * last-child appends rely on these cached endpoints. JSON-specific: no text node merging.
    *
    * @param fromNode root {@link StructNode} of the subtree to be moved
    * @param toNode the {@link StructNode} which is the anchor of the new subtree
@@ -3302,27 +3337,13 @@ final class JsonNodeTrxImpl extends
         // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
-        // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
-        // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
-        // longer resolve in the new revision, and a stale tuple makes the commit-time diff
-        // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
-        // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
-        // DELETED tuple of the root subsumes all descendant operations.
-        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs()
-            ? new LongOpenHashSet()
-            : null;
-
-        // Remove subtree.
         for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
           final long currentNodeKey = axis.nextLong();
-
-          if (removedDescendantKeys != null) {
-            removedDescendantKeys.add(currentNodeKey);
-          } else {
-            final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
-            if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
-              updateOperationsUnordered.remove(currentNodeKey);
-            }
+          final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
+          if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+            final long originalKey = staleTuple.getOldNodeKey();
+            updateOperationsUnordered.put(-originalKey,
+                new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
           }
 
           // Remove name.
@@ -3350,12 +3371,6 @@ final class JsonNodeTrxImpl extends
           if (storeNodeHistory) {
             nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
           }
-        }
-
-        if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
-          updateOperationsOrdered.values()
-                                 .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
-                                     && removedDescendantKeys.contains(tuple.getNewNodeKey()));
         }
 
         if (node.getKind().playsObjectKeyRole()) {
@@ -3404,19 +3419,18 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForRemove(SirixDeweyID id, final long oldNodeKey) {
-    moveToNext();
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, oldNodeKey, id == null
-        ? null
-        : new DiffDepth(0, id.getLevel()));
-    if (id == null) {
-      updateOperationsUnordered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == oldNodeKey);
-      updateOperationsUnordered.put(oldNodeKey, diffTuple);
-    } else {
-      updateOperationsOrdered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == oldNodeKey);
-      updateOperationsOrdered.put(id, diffTuple);
+  private void adaptUpdateOperationsForRemove(final SirixDeweyID id, final long oldNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
     }
-    moveTo(oldNodeKey);
+    final DiffTuple pending = updateOperationsUnordered.remove(oldNodeKey);
+    final long originalKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
+        ? pending.getOldNodeKey()
+        : oldNodeKey;
+    updateOperationsUnordered.remove(-oldNodeKey);
+    updateOperationsUnordered.put(-originalKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, id == null
+        ? null
+        : new DiffDepth(0, id.getLevel())));
   }
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
@@ -3814,29 +3828,13 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
-        ? null
-        : new DiffDepth(id.getLevel(), id.getLevel()));
-    if (id == null && updateOperationsUnordered.get(nodeKey) == null) {
-      updateOperationsUnordered.put(nodeKey, diffTuple);
-    } else if (id != null && hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
-      updateOperationsOrdered.put(id, diffTuple);
+  private void adaptUpdateOperationsForUpdate(final SirixDeweyID id, final long nodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs() || updateOperationsUnordered.containsKey(nodeKey)) {
+      return;
     }
-  }
-
-  private boolean hasNoUpdatingNodeWithGivenNodeKey(long nodeKey) {
-    return updateOperationsOrdered.values()
-                                  .stream()
-                                  .filter(filterInsertedOrDeletedTuplesWithNodeKey(nodeKey))
-                                  .findAny()
-                                  .isEmpty();
-  }
-
-  private Predicate<DiffTuple> filterInsertedOrDeletedTuplesWithNodeKey(long nodeKey) {
-    return currDiffTuple -> (currDiffTuple.getNewNodeKey() == nodeKey
-        && currDiffTuple.getDiff() == DiffFactory.DiffType.INSERTED)
-        || (currDiffTuple.getOldNodeKey() == nodeKey && currDiffTuple.getDiff() == DiffFactory.DiffType.DELETED);
+    updateOperationsUnordered.put(nodeKey, new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
+        ? null
+        : new DiffDepth(id.getLevel(), id.getLevel())));
   }
 
   @Override
@@ -4316,22 +4314,20 @@ final class JsonNodeTrxImpl extends
       serializeUpdateDiffsWithIngestPositions(revisionNumber);
     } finally {
       ingestArrayPositions = null;
+      if (!nodeHashing.isBulkInsert()) {
+        beforeBulkInsertionRevisionNumber = -1;
+        suppressUpdateDiffs = false;
+        updateOperationsUnordered.clear();
+      }
     }
   }
 
   private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
-    if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
-      // Determine the old revision number for the diff:
-      // - After bulk insert with auto-commit, use the pre-bulk-insert revision
-      // - Otherwise, use the previous revision
-      final int oldRevisionNumber = beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
-          ? beforeBulkInsertionRevisionNumber
-          : revisionNumber - 1;
+    final int oldRevisionNumber = diffStartingRevision(revisionNumber);
+    if (!nodeHashing.isBulkInsert() && !suppressUpdateDiffs && oldRevisionNumber > 0) {
 
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
-          oldRevisionNumber, revisionNumber, storeDeweyIDs()
-              ? updateOperationsOrdered.values()
-              : updateOperationsUnordered.values());
+          oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
       final var jsonDiff = ingestArrayPositions == null
           ? diffSerializer.serializeSidecar()
           : diffSerializer.serializeSidecar(ingestArrayPositions);
@@ -4362,19 +4358,33 @@ final class JsonNodeTrxImpl extends
         }
         throw new UncheckedIOException(e);
       }
-
-      // Reset beforeBulkInsertionRevisionNumber after writing the diff file
-      // so that subsequent commits use the normal previous revision
-      if (beforeBulkInsertionRevisionNumber != 0) {
-        beforeBulkInsertionRevisionNumber = 0;
-      }
-
-      if (storeDeweyIDs()) {
-        updateOperationsOrdered.clear();
-      } else {
-        updateOperationsUnordered.clear();
-      }
     }
+  }
+
+  private int diffStartingRevision(final int revisionNumber) {
+    return beforeBulkInsertionRevisionNumber < 0
+        ? revisionNumber - 1
+        : beforeBulkInsertionRevisionNumber;
+  }
+
+  @Override
+  public synchronized JsonNodeTrx rollback() {
+    runLocked(() -> {
+      super.rollback();
+      beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = false;
+    });
+    return this;
+  }
+
+  @Override
+  public JsonNodeTrx revertTo(final int revision) {
+    runLocked(() -> {
+      super.revertTo(revision);
+      beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
+    });
+    return this;
   }
 
   @Override
@@ -4401,6 +4411,45 @@ final class JsonNodeTrxImpl extends
   private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
       final StorageEngineWriter storageEngineWriter) {
     storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
+  }
+
+  @Override
+  public JsonNodeTrx copyNodeWithKey(final JsonNodeReadOnlyTrx rtx, final InsertPosition position) {
+    requireNonNull(rtx);
+    requireNonNull(position);
+    final long key = rtx.getNodeKey();
+    if (key <= 0 || position == InsertPosition.AS_LAST_CHILD) {
+      throw new IllegalArgumentException("Invalid node copy key or position: " + key + ", " + position);
+    }
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      checkAccessAndCommit();
+      final long anchor = getNodeKey();
+      if (key <= getMaxNodeKey() && moveTo(key)) {
+        moveTo(anchor);
+        throw new IllegalStateException("JSON revision copy already allocated node " + key);
+      }
+      final var revisionRoot = storageEngineWriter.getActualRevisionRootPage();
+      final long maxNodeKey = revisionRoot.getMaxNodeKeyInDocumentIndex();
+      beginCompoundOperation();
+      try {
+        revisionRoot.setMaxNodeKeyInDocumentIndex(key - 1);
+        JsonResourceCopy.processNode(this, rtx, position);
+        if (getNodeKey() != key) {
+          throw new IllegalStateException("JSON revision copy allocated " + getNodeKey() + " instead of " + key);
+        }
+        return this;
+      } finally {
+        revisionRoot.setMaxNodeKeyInDocumentIndex(Math.max(maxNodeKey, revisionRoot.getMaxNodeKeyInDocumentIndex()));
+        endCompoundOperation();
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override

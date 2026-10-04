@@ -67,9 +67,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     this.autoCommit = value;
   }
 
+  public boolean isAutoCommit() {
+    return autoCommit;
+  }
+
   /**
-   * Adapting the structure with a hash for all ancestors only with insert.
-   * Uses the current cursor position as the start node.
+   * Adapting the structure with a hash for all ancestors only with insert. Uses the current cursor
+   * position as the start node.
    *
    * @throws SirixIOException if an I/O error occurs
    */
@@ -78,8 +82,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   /**
-   * Adapting the structure with a hash for all ancestors only with insert.
-   * Accepts the start node key directly, avoiding a moveTo to position the cursor.
+   * Adapting the structure with a hash for all ancestors only with insert. Accepts the start node key
+   * directly, avoiding a moveTo to position the cursor.
    *
    * @param startNodeKey the node key to start hashing from
    * @throws SirixIOException if an I/O error occurs
@@ -145,13 +149,15 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void postorderAdd() {
     // start with hash to add
-    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final Node startNode =
+        storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     final long startNodeKey = startNode.getNodeKey();
     // long for adapting the hash of the parent
     long hashCodeForParent;
     // adapting the parent if the current node is no structural one.
     if (!(startNode instanceof StructNode)) {
-      final Node node = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node node =
+          storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(node.computeHash(bytes));
       persistNode(node);
       nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey());
@@ -159,7 +165,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // Cursor to root
     StructNode cursorToRoot;
     do {
-      cursorToRoot = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      cursorToRoot =
+          storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
       hashCodeForParent = cursorToRoot.computeHash(bytes);
       // Caring about attributes and namespaces if node is an element.
       if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
@@ -214,14 +221,15 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * Adapt the rolling hash of all ancestors after an in-place value UPDATE.
    *
-   * <p>CHAINS PER LEVEL, exactly like rollingAdd/rollingRemove: each ancestor's delta is its own
-   * CHILD's (old, new) hash pair, so the change scales by PRIME per level (parent by PRIME·Δ,
-   * grandparent by PRIME²·Δ, …). The previous code applied the LEAF's (oldHash, newHash) pair to
-   * every ancestor — under-propagating at higher levels — so update-adapted ancestor hashes did
-   * not equal what an equivalent remove+insert or a fresh recompute produces, weakening the
-   * "equal hash ⇒ equal subtree" invariant the hashed diff relies on. (Pre-release, V0: stored
-   * hashes are recomputed by this same convention on the next write of each node; the test
-   * corpus's expected hashes were updated to the corrected values.)
+   * <p>
+   * CHAINS PER LEVEL, exactly like rollingAdd/rollingRemove: each ancestor's delta is its own CHILD's
+   * (old, new) hash pair, so the change scales by PRIME per level (parent by PRIME·Δ, grandparent by
+   * PRIME²·Δ, …). The previous code applied the LEAF's (oldHash, newHash) pair to every ancestor —
+   * under-propagating at higher levels — so update-adapted ancestor hashes did not equal what an
+   * equivalent remove+insert or a fresh recompute produces, weakening the "equal hash ⇒ equal
+   * subtree" invariant the hashed diff relies on. (Pre-release, V0: stored hashes are recomputed by
+   * this same convention on the next write of each node; the test corpus's expected hashes were
+   * updated to the corrected values.)
    */
   private void rollingUpdate(final long oldHash) {
     long currentKey = nodeReadOnlyTrx.getNodeKey();
@@ -255,7 +263,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * Adapting the structure with a rolling hash for all ancestors only with remove.
    */
   private void rollingRemove() {
-    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final Node startNode =
+        storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     final long startNodeKey = startNode.getNodeKey();
     // Capture all needed values from startNode before any subsequent prepareRecordForModification
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
@@ -392,10 +401,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   private static boolean isValueNode(final NodeKind kind) {
-    return kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
-        || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.NULL_VALUE
-        || kind == NodeKind.ATTRIBUTE || kind == NodeKind.TEXT || kind == NodeKind.COMMENT
-        || kind == NodeKind.PROCESSING_INSTRUCTION;
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NUMBER_VALUE
+        || kind == NodeKind.NULL_VALUE || kind == NodeKind.ATTRIBUTE || kind == NodeKind.TEXT
+        || kind == NodeKind.COMMENT || kind == NodeKind.PROCESSING_INSTRUCTION;
   }
 
   /**
@@ -454,7 +462,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
             : startNode.getHash(); // Already includes own data hash from child processing
-        Node node = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        Node node =
+            storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
         persistNode(node);
 

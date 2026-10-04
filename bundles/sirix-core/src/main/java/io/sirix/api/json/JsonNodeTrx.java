@@ -6,6 +6,7 @@ import io.brackit.query.jdm.Item;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.NodeTrx;
 import io.sirix.exception.SirixException;
+import io.sirix.service.InsertPosition;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   enum Commit {
@@ -58,6 +59,20 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   JsonNodeTrx copySubtreeAsRightSibling(JsonNodeReadOnlyTrx rtx);
+
+  /**
+   * Copy the current source node with its original key for revision replay. Children are copied
+   * separately; the destination's allocation frontier never decreases.
+   *
+   * @param rtx the transaction positioned on the source node
+   * @param position the insertion position relative to this transaction's cursor
+   * @return this transaction, positioned on the copied node
+   * @throws NullPointerException if either argument is {@code null}
+   * @throws IllegalArgumentException if the source key is not positive or the position is
+   *         {@link InsertPosition#AS_LAST_CHILD}
+   * @throws IllegalStateException if the destination already contains the source key
+   */
+  JsonNodeTrx copyNodeWithKey(JsonNodeReadOnlyTrx rtx, InsertPosition position);
 
   JsonNodeTrx insertObjectAsFirstChild();
 

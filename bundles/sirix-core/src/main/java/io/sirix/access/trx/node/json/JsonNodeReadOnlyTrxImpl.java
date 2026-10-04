@@ -117,8 +117,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     } catch (final IOException | RuntimeException e) {
       // Sidecars are durable per-resource state; one written before the integrity envelope (or
       // damaged since) must not brick this API. The sidecar is only a CACHE of the diff, so
-      // recompute it from the two revisions — the same fallback the REST diff handler applies
-      // when it meets an invalid sidecar.
+      // recompute identity-preserving update operations from the two committed revisions.
       jsonObject = recomputeUpdateOperations(revisionNumber);
     }
     jsonObject.getAsJsonArray("diffs").forEach(serializeJsonFragmentIfNeeded(diffTuples));
@@ -129,7 +128,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
   private JsonObject recomputeUpdateOperations(final int revisionNumber) {
     final Path resourcePath = resourceSession.getResourceConfig().getResource();
     final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
-    final String diff = new BasicJsonDiff(databaseName).generateDiff((JsonResourceSession) resourceSession,
+    final String diff = new BasicJsonDiff(databaseName).generateDiffForReplay((JsonResourceSession) resourceSession,
         revisionNumber - 1, revisionNumber);
     return JsonParser.parseString(diff).getAsJsonObject();
   }

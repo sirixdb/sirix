@@ -329,7 +329,7 @@ jn:diff('mydb','myresource', 1, 5)
 jn:diff('mydb','myresource', 1, 5, $nodeKey, 3)
 ```
 
-For adjacent revisions, `jn:diff` reads directly from stored change tracking files. For non-adjacent revisions it computes the diff. With hashes enabled, changed revisions of a node can also be found by comparing `sdb:hash` across `jn:all-times`.
+See the [JSON revision-diff sidecar contract](docs/DISK_FORMAT.md#json-revision-diff-sidecars) for stored change tracking and fallback behavior. With hashes enabled, changed revisions of a node can also be found by comparing `sdb:hash` across `jn:all-times`.
 
 ### Bitemporal Queries
 

@@ -4202,9 +4202,9 @@ descended, so deep structure below an unchanged node costs nothing (with \code{H
 to a full node-by-node walk). This is a \emph{vertical} prune; the lock-step walk still enumerates
 \emph{siblings} child by child, so a wide unchanged fan-out is scanned even when little of it changed,
 which the measured cost shape of \S\ref{sec:diffbench} makes precise and is one reason the stored-diff
-short-circuit exists. For \emph{adjacent} revisions the engine additionally short-circuits to a per-commit
-diff file precomputed at write time (default-on \code{storeDiffs}), reading the stored delta rather than
-recomputing it. Change
+short-circuit exists. Stored change tracking and cache-miss behavior follow the
+\href{DISK_FORMAT.md\#json-revision-diff-sidecars}{JSON revision-diff sidecar contract}.
+Change
 tracking and diffing are thus complementary: the former is the cheap lookup for history and temporal
 navigation, the latter the means to compute or export the precise edit script between two \emph{arbitrary}
 revisions.
@@ -4269,9 +4269,10 @@ path summary, the field \code{path} with array positions resolved to concrete in
 \code{asRightSibling}) plus a \code{type}/\allowbreak\code{data} payload: a scalar value, or a
 \code{jsonFragment} (the serialised subtree); fused \code{OBJECT\_NAMED\_*} records are emitted as a
 \code{jsonFragment} so a diff exposes the same external shape as a legacy key{+}value pair. This is the
-format \textbf{stored at commit} (default-on \code{storeDiffs}), returned by \code{jn:diff} and the REST
-\code{/diff} endpoint, and merged client-side by the GUI (Ch.~\ref{ch:gui}), so ``what changed'' is
-itself a versioned, queryable JSON document, not merely an in-memory computation.
+user-facing format returned by \code{jn:diff} and the REST \code{/diff} endpoint, and merged
+client-side by the GUI (Ch.~\ref{ch:gui}). Internal sidecar details belong to the contract linked
+above, so ``what changed'' is itself a versioned, queryable JSON document, not merely an
+in-memory computation.
 
 \dcap{A concrete edit script: \texttt{jn:diff('db','store', 5, 6)}}
 \begin{diagramS}
@@ -5558,7 +5559,7 @@ node layer (commitInternal):
                                                       ├─ serialise the index catalogue
                                                       └─ clear the intent log, free off-heap pages
   4  publish the new RevisionRootPage as the resource's latest revision
-  5  if storeDiffs: serialise the per-commit JSON change file
+  5  apply JSON update-diff publication policy (docs/JSON_UPDATE_DIFFS.md)
   6  re-instantiate for the next revision, or mark COMMITTED   (per AfterCommitState)
   7  post-commit hooks
 \end{diagram}
@@ -6826,8 +6827,8 @@ linear cost of the changed subtrees layered on the fixed breadth scan.
 The honest conclusion refines the claim rather than simply confirming it: a hash-guided diff is
 $O(\text{siblings enumerated along the changed levels} + \text{changed region})$. It eliminates the
 document-sized term \emph{below} unchanged nodes but not the fan-out \emph{beside} them --- which is
-exactly why the default keeps a precomputed per-commit delta (\code{storeDiffs}) for the common
-adjacent-revision case and reserves this recompute path for arbitrary revision pairs.
+why stored change tracking matters. Whether a request can use that cache follows the contract
+linked in \S\ref{sec:diff}.
 
 \section{Large documents: the measured crossover (vs PostgreSQL and DuckDB)}
 \label{sec:crossover}
@@ -7035,8 +7036,8 @@ Commit & $O(D)$ & write the $D$ dirty intent-log pages and maintain affected ind
 Time-travel open by revision \# & $O(1)$ & index the revision array and read its RevisionRootPage (Ch.~\ref{ch:rest})\\
 Time-travel open by instant & $O(\log R_{\text{tot}})$ & binary search over the $R_{\text{tot}}$ commit timestamps (Property~\ref{prop:histcost})\\
 Reconstruct a leaf at revision $r$ & $O(R)$ & merge at most $R$ page fragments back to the last full dump (sliding snapshot, Ch.~\ref{ch:versioning})\\
-Diff, adjacent revisions & $O(\delta)$ & read the stored per-commit delta (default-on \code{storeDiffs}) (\S\ref{sec:diff})\\
-Diff, arbitrary revisions & $O(\delta)$ / $O(N)$ & hash-pruned lock-step descent; degrades to $O(N)$ only under \code{HashType.NONE} (\S\ref{sec:diff})\\
+Diff, sidecar cache hit & $O(\delta)$ & cache eligibility follows the contract linked in \S\ref{sec:diff}\\
+Diff, recomputed revisions & see \S\ref{sec:diffbench} & hash-pruned lock-step descent; measured bounds include changed-level fan-out\\
 Secondary index point/range scan & $O(L+k)$ & HOT descent in key-byte length $L$ plus $k$ matches returned (Ch.~\ref{ch:hot}, Ch.~\ref{ch:pathsummary})\\
 Path-summary lookup & $O(p)$ & descend the summary trie one node per path segment (\S\ref{sec:pathsummary})\\
 DeweyID order comparison & $O(\min\text{ divisions})$ & lexicographic over tier-encoded divisions; siblings differ in the last (\S\ref{sec:deweyids})\\
@@ -7406,9 +7407,8 @@ and the acceleration is there once a workload declares it needs it.
 one by one, so diffing a revision of a million-element array enumerates the whole array even if one element
 changed. A \emph{horizontal} prune is conceivable: a Merkle structure over runs of child hashes (or the
 existing change-tracking index, which already records the changed subtree-roots per revision) could skip
-unchanged sibling ranges. SirixDB does not do this in the general walk; it instead sidesteps the cost for
-the overwhelmingly common adjacent-revision case by reading the precomputed per-commit delta
-(\code{storeDiffs}), and reserves the breadth-scanning recompute for arbitrary revision pairs. The honest
+unchanged sibling ranges. SirixDB does not do this in the general walk; stored change tracking
+follows the contract linked in \S\ref{sec:diff}. The honest
 answer is ``yes in principle, and partly available through the change index, but not in the lock-step walk
 today,'' and the breadth measurement is precisely what would justify building it.
 
@@ -7550,10 +7550,8 @@ First, the \code{CHANGED\_NODES} index records, per revision, the changed subtre
 child-hash-run summary (a small Merkle structure over contiguous child hashes) would let the lock-step walk
 binary-search to the first differing child rather than scan to it. The cost is that summary's maintenance on
 every child insert or delete --- write-time bookkeeping traded for read-time diff speed, the same trade the
-path summary and the change indexes already make. For the common \emph{adjacent}-revision diff the question
-is moot, since the stored per-commit delta (\code{storeDiffs}) already sidesteps the walk; the horizontal
-prune earns its keep only for frequent \emph{arbitrary}-pair diffs over wide arrays, a narrower need that
-keeps it future work.
+path summary and the change indexes already make. Cache eligibility follows the contract linked
+in \S\ref{sec:diff}; horizontal pruning remains future work for requests that require recomputation.
 
 \subsection*{The dense-field history scan}
 
@@ -7836,7 +7834,7 @@ maxNumberOfRevisionsToRestore the reconstruction window R for the snapshot strat
 hashKind                      ROLLING (default) · POSTORDER · NONE
 useDeweyIDs                   store DeweyID labels                            (default off)
 buildPathSummary              maintain the path summary                       (default on)
-storeDiffs                    write the per-commit JSON change file           (default on)
+storeDiffs                    enable JSON revision-diff sidecars              (default on)
 storeNodeHistory              maintain the RECORD_TO_REVISIONS change index   (default on)
 secondary PATH/CAS/NAME       canonical HOT storage (not configurable)
 byteHandlerPipeline           a compression / encryption handler chain        (default identity)

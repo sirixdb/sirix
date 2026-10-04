@@ -22,6 +22,7 @@
 package io.sirix.diff;
 
 import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -51,7 +52,7 @@ public final class DiffTuple implements Serializable {
   private final long oldNodeKey;
 
   /** {@link DiffDepth} instance. */
-  private final DiffDepth depth;
+  private final @Nullable DiffDepth depth;
 
   /** Key of index in a Map (used for move-detection). */
   private int index;
@@ -62,10 +63,10 @@ public final class DiffTuple implements Serializable {
    * @param diff {@link DiffFactory.DiffType} which specifies the kind of diff between two nodes
    * @param newNodeKey node key of node in new revision
    * @param oldNodeKey node key of node in old revision
-   * @param depth current {@link DiffDepth} instance
+   * @param depth current {@link DiffDepth} instance, or {@code null} when depth is unavailable
    */
   public DiffTuple(final DiffFactory.DiffType diff, final long newNodeKey, final long oldNodeKey,
-      final DiffDepth depth) {
+      final @Nullable DiffDepth depth) {
     checkArgument(newNodeKey >= 0);
     checkArgument(oldNodeKey >= 0);
 
@@ -126,19 +127,19 @@ public final class DiffTuple implements Serializable {
   /**
    * Get depth.
    *
-   * @return the depth
+   * @return the depth, or {@code null} when depth is unavailable
    */
-  public DiffDepth getDepth() {
+  public @Nullable DiffDepth getDepth() {
     return depth;
   }
 
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("diff", diff)
-                      .add("new nodeKey", newNodeKey)
-                      .add("old nodeKey", oldNodeKey)
-                      .toString();
+                         .add("diff", diff)
+                         .add("new nodeKey", newNodeKey)
+                         .add("old nodeKey", oldNodeKey)
+                         .toString();
   }
 
   /**

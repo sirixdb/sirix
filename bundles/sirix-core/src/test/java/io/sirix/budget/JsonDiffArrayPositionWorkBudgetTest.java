@@ -154,7 +154,7 @@ final class JsonDiffArrayPositionWorkBudgetTest {
       wtx.insertNumberValueAsRightSibling(128);
       final var hints = IngestArrayPositionProbe.snapshot(wtx);
       assertEquals(128, hints.size());
-      final var diffs = IngestArrayPositionProbe.pendingDiffs(wtx, false);
+      final var diffs = IngestArrayPositionProbe.pendingDiffs(wtx);
       final ArrayPositionCacheProbe allocation = new ArrayPositionCacheProbe();
       final var commit = WorkCapture.of().with(allocation).call(wtx::commit);
       commit.work()

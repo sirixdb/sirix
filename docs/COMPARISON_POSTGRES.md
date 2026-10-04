@@ -928,9 +928,8 @@ Raw logs: `/tmp/wave5-b/sirix-full.log`, `/tmp/wave5-b/sirix-lean.log`,
    with stable node keys (directly usable as a patch); the PostgreSQL query only compares
    top-level fields — a change inside `items[7].qty` would report "items changed" without
    localization. Equivalent functionality in PostgreSQL means fetching both versions and
-   diffing application-side. (With `storeDiffs(true)` — the default — sirix additionally
-   persists per-commit diff files at write time; the REST layer serves those without any
-   tree traversal.)
+   diffing application-side. Stored change tracking and cache-miss behavior follow the
+   [JSON revision-diff sidecar contract](DISK_FORMAT.md#json-revision-diff-sidecars).
 6. **W5 excludes PostgreSQL's WAL** (`pg_total_relation_size` only). SirixDB has no
    separate WAL — its data files *are* the entire on-disk story, so the asymmetry favors
    PostgreSQL slightly. PostgreSQL's number is after `CHECKPOINT`; the history table is

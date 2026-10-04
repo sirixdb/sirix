@@ -1,5 +1,6 @@
 package io.sirix.access.node.json;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -200,15 +202,28 @@ public class JsonNodeTrxUpdateTest {
                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                   .resolve("diffFromRev1toRev2.json");
 
-      // Fusion shifts the inserted-subtree's interior nodeKey by one (primitive-valued fields
-      // collapse two records to one), so we need a variant golden file for the fused shredder.
+      // The fixture describes the fused sidecar's metadata and complete operations. Sidecars
+      // preserve the operation set; replay schedules placements independently of map iteration order.
       final String golden = "diffFromRev1toRev2-fused.json";
       final var actual = JsonParser.parseString(Files.readString(diffPath)).getAsJsonObject();
       JsonDiffIntegrity.validate(actual);
       actual.remove(JsonDiffIntegrity.FORMAT_VERSION_FIELD);
       actual.remove(JsonDiffIntegrity.OPERATION_COUNT_FIELD);
       actual.remove(JsonDiffIntegrity.OPERATIONS_DIGEST_FIELD);
-      assertEquals(Files.readString(JSON.resolve(golden)), actual.toString());
+      final var expected = JsonParser.parseString(Files.readString(JSON.resolve(golden))).getAsJsonObject();
+      final var expectedOperations = expected.remove("diffs").getAsJsonArray();
+      final var actualOperations = actual.remove("diffs").getAsJsonArray();
+      assertEquals(expected, actual);
+      assertEquals(expectedOperations.size(), actualOperations.size());
+      final var expectedOperationSet = new HashSet<JsonElement>(expectedOperations.size());
+      final var actualOperationSet = new HashSet<JsonElement>(actualOperations.size());
+      for (final var operation : expectedOperations) {
+        expectedOperationSet.add(operation);
+      }
+      for (final var operation : actualOperations) {
+        actualOperationSet.add(operation);
+      }
+      assertEquals(expectedOperationSet, actualOperationSet);
     }
   }
 

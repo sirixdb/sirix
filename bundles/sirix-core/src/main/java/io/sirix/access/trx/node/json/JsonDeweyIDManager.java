@@ -15,12 +15,9 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
 
   private final InternalJsonNodeTrx nodeTrx;
 
-  private final StorageEngineWriter storageEngineWriter;
-
   JsonDeweyIDManager(InternalJsonNodeTrx nodeTrx) {
     super(nodeTrx);
     this.nodeTrx = nodeTrx;
-    this.storageEngineWriter = nodeTrx.getStorageEngineWriter();
   }
 
   /**
@@ -41,6 +38,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
    * @throws SirixException if anything went wrong
    */
   void computeNewDeweyIDs() {
+    final StorageEngineWriter storageEngineWriter = nodeTrx.getStorageEngineWriter();
     SirixDeweyID id;
     final long nodeKey = nodeTrx.getNodeKey();
 
@@ -71,7 +69,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
 
     final StructNode root = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
-    persistUpdatedRecord(root);
+    persistUpdatedRecord(storageEngineWriter, root);
 
     if (root.hasFirstChild()) {
       nodeTrx.moveTo(root.getFirstChildKey());
@@ -97,7 +95,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
         final Node node =
             storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
-        persistUpdatedRecord(node);
+        persistUpdatedRecord(storageEngineWriter, node);
 
         previousNodeKey = node.getNodeKey();
       }
@@ -106,7 +104,7 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
     nodeTrx.moveTo(nodeKey);
   }
 
-  private void persistUpdatedRecord(final DataRecord record) {
+  private void persistUpdatedRecord(final StorageEngineWriter storageEngineWriter, final DataRecord record) {
     if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
       return;
     }
