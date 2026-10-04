@@ -23,9 +23,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.StringReader;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -39,6 +41,49 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class StoreHandleLifecycleTest {
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void jsonRepeatedCloseAndReopenRetainsOnePathAssociation(final boolean closeCollection) throws Exception {
+    final Path databasePath = directory.resolve("orders");
+    final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+    try (store) {
+      store.create("orders", "resource1", "[\"value\"]").close();
+      assertEquals(0, storeEntryCount(store, "collections"));
+      assertEquals(0, storeEntryCount(store, "databases"));
+      assertEquals(1, storeEntryCount(store, "collectionPaths"));
+      for (int i = 0; i < 100; i++) {
+        final JsonDBCollection reopened = requireNonNull(store.lookup("orders"));
+        assertSame(reopened, store.lookup("orders"));
+        assertEquals("value", jsonValue(reopened));
+        assertEquals(1, storeEntryCount(store, "collections"));
+        assertEquals(1, storeEntryCount(store, "databases"));
+        assertEquals(1, storeEntryCount(store, "collectionPaths"));
+        if (closeCollection) {
+          reopened.close();
+          assertEquals(0, storeEntryCount(store, "collections"));
+          assertEquals(0, storeEntryCount(store, "databases"));
+        } else {
+          reopened.getDatabase().close();
+        }
+        assertFalse(reopened.getDatabase().isOpen());
+        assertEquals(1, storeEntryCount(store, "collectionPaths"));
+      }
+      requireNonNull(store.lookup("orders")).close();
+      assertEquals(0, storeEntryCount(store, "collections"));
+      assertEquals(0, storeEntryCount(store, "databases"));
+      store.drop("orders");
+      assertEquals(0, storeEntryCount(store, "collectionPaths"));
+      store.create("orders", "resource1", "[\"replacement\"]").close();
+      assertEquals(1, storeEntryCount(store, "collectionPaths"));
+      assertEquals("replacement", jsonValue(requireNonNull(store.lookup("orders"))));
+    } finally {
+      Databases.removeDatabase(databasePath);
+    }
+    assertEquals(0, storeEntryCount(store, "collections"));
+    assertEquals(0, storeEntryCount(store, "databases"));
+    assertEquals(1, storeEntryCount(store, "collectionPaths"));
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
@@ -385,6 +430,16 @@ final class StoreHandleLifecycleTest {
       Databases.removeDatabase(plainDatabasePath);
       Databases.removeDatabase(targetDatabasePath);
     }
+  }
+
+  private static int storeEntryCount(final BasicJsonDBStore store, final String fieldName)
+      throws ReflectiveOperationException {
+    final Field field = BasicJsonDBStore.class.getDeclaredField(fieldName);
+    field.setAccessible(true);
+    final Object entries = requireNonNull(field.get(store));
+    return entries instanceof Map<?, ?> map
+        ? map.size()
+        : ((Set<?>) entries).size();
   }
 
   private static String jsonValue(final JsonDBCollection collection) {

@@ -85,6 +85,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
    */
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
 
+  private record CollectionPath(String name, Path path) {
+  }
+
+  private final Set<CollectionPath> collectionPaths;
+
   /**
    * Tracks resource sessions that have been used for write operations. These sessions may have open
    * write transactions that need to be closed.
@@ -404,6 +409,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private BasicJsonDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
+    collectionPaths = ConcurrentHashMap.newKeySet();
     sessionsWithWriteTrx = Collections.synchronizedSet(new HashSet<>());
     storageType = builder.storageType;
     location = builder.location;
@@ -467,7 +473,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
         final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
-        collections.put(database, collection);
+        addDatabase(collection, database);
         return collection;
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
@@ -488,7 +494,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       databases.add(database);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -696,7 +702,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var resourceOptions = createResource(options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
 
       if (loader == null) {
         // Even without initial data, persist the valid-time interval index definition so the
@@ -833,7 +839,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         }
       }
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -851,15 +857,27 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database) {
+    requireNonNull(jsonDBCollection);
+    requireNonNull(database);
+    final var collectionPath =
+        new CollectionPath(jsonDBCollection.getName(), database.getDatabaseConfig().getDatabaseFile());
+    discardClosedDatabases();
     databases.add(database);
     collections.put(database, jsonDBCollection);
+    collectionPaths.add(collectionPath);
     return this;
   }
 
   @Override
   public JsonDBStore removeDatabase(final Database<JsonResourceSession> database) {
     databases.remove(database);
+    collections.remove(database);
     return this;
+  }
+
+  private void discardClosedDatabases() {
+    databases.removeIf(database -> !database.isOpen());
+    collections.keySet().removeIf(database -> !database.isOpen());
   }
 
   @Override
@@ -884,7 +902,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // Resolve the options ONCE for all resources of this call.
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       int i = database.listResources().size() + 1;
       try (jsonStrings) {
         Str string;
@@ -950,7 +968,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       ParallelJsonShredder.shred(database, resourceNames, partitions,
           name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
-      collections.put(database, collection);
+      addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -986,23 +1004,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
       try {
         final var statisticsCatalog = StatisticsCatalog.getInstance();
         statisticsCatalog.invalidateDatabase(name);
-        for (final var collection : collections.values()) {
-          final var database = collection.getDatabase();
-          final Path collectionPath = database.isOpen()
-              ? database.getDatabaseConfig().getDatabaseFile()
-              : databasePath(collection.getName());
-          if (collectionPath.equals(dbConfig.getDatabaseFile())) {
-            statisticsCatalog.invalidateDatabase(collection.getName());
+        collectionPaths.removeIf(collectionPath -> {
+          if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
+            statisticsCatalog.invalidateDatabase(collectionPath.name());
+            return true;
           }
-        }
+          return false;
+        });
 
-        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> {
-          if (currDatabase.isOpen()) {
-            return currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
-          }
-          final var collection = collections.get(currDatabase);
-          return collection != null && databasePath(collection.getName()).equals(dbConfig.getDatabaseFile());
-        };
+        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
@@ -1080,6 +1091,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
+    } finally {
+      discardClosedDatabases();
     }
   }
 }
