@@ -92,6 +92,7 @@ import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JacksonJsonShredder;
 import io.sirix.service.json.shredder.JsonItemShredder;
+import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -4383,6 +4384,45 @@ final class JsonNodeTrxImpl extends
   private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
       final StorageEngineWriter storageEngineWriter) {
     storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
+  }
+
+  @Override
+  public JsonNodeTrx copyNodeWithKey(final JsonNodeReadOnlyTrx rtx, final InsertPosition position) {
+    requireNonNull(rtx);
+    requireNonNull(position);
+    final long key = rtx.getNodeKey();
+    if (key <= 0 || position == InsertPosition.AS_LAST_CHILD) {
+      throw new IllegalArgumentException("Invalid node copy key or position: " + key + ", " + position);
+    }
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      checkAccessAndCommit();
+      final long anchor = getNodeKey();
+      if (key <= getMaxNodeKey() && moveTo(key)) {
+        moveTo(anchor);
+        throw new IllegalStateException("JSON revision copy already allocated node " + key);
+      }
+      final var revisionRoot = storageEngineWriter.getActualRevisionRootPage();
+      final long maxNodeKey = revisionRoot.getMaxNodeKeyInDocumentIndex();
+      beginCompoundOperation();
+      try {
+        revisionRoot.setMaxNodeKeyInDocumentIndex(key - 1);
+        JsonResourceCopy.processNode(this, rtx, position);
+        if (getNodeKey() != key) {
+          throw new IllegalStateException("JSON revision copy allocated " + getNodeKey() + " instead of " + key);
+        }
+        return this;
+      } finally {
+        revisionRoot.setMaxNodeKeyInDocumentIndex(Math.max(maxNodeKey, revisionRoot.getMaxNodeKeyInDocumentIndex()));
+        endCompoundOperation();
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
   }
 
   @Override

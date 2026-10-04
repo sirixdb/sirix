@@ -1,7 +1,6 @@
 package io.sirix.service.json;
 
 import java.util.Set;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -93,10 +92,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   private void invokeDiff(final JsonResourceSession session, final int oldRevisionNumber,
       final int newRevisionNumber, final long startNodeKey, final long maxDepth) {
     DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(session, newRevisionNumber, oldRevisionNumber,
-        session.getResourceConfig().hashType == HashType.NONE
-            ? DiffFactory.DiffOptimized.NO
-            : DiffFactory.DiffOptimized.HASHED,
-        Set.of(this)).skipSubtrees(true)
+        DiffFactory.DiffOptimized.NO, Set.of(this)).skipSubtrees(true)
                               .newStartKey(startNodeKey)
                               .oldStartKey(startNodeKey)
                               .oldMaxDepth(maxDepth));
@@ -182,6 +178,9 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   @Override
   public void diffListener(final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
       final DiffDepth depth) {
+    if (diffType == DiffFactory.DiffType.SAME || diffType == DiffFactory.DiffType.REPLACEDOLD) {
+      return;
+    }
     if (diffType == DiffFactory.DiffType.INSERTED && !insertedKeys.add(newNodeKey)) {
       return;
     }

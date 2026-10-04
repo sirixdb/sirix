@@ -205,6 +205,7 @@ public final class JsonResourceCopy implements Callable<Void> {
     insert();
 
     if (copyAllRevisionsUpToMostRecent) {
+      preserveAllocationFrontier(rtx);
       wtx.commit();
 
       for (var revision = rtx.getRevisionNumber() + 1; revision <= rtx.getResourceSession()
@@ -350,6 +351,10 @@ public final class JsonResourceCopy implements Callable<Void> {
         }
       }
     }
+    preserveAllocationFrontier(source);
+  }
+
+  private void preserveAllocationFrontier(final JsonNodeReadOnlyTrx source) {
     final long unusedKeys = source.getMaxNodeKey() - wtx.getMaxNodeKey();
     if (unusedKeys > 0) {
       wtx.getStorageEngineWriter().getActualRevisionRootPage().reserveKeyRangeInDocumentIndex(unusedKeys);
@@ -416,17 +421,10 @@ public final class JsonResourceCopy implements Callable<Void> {
       } else {
         position = InsertPosition.AS_FIRST_CHILD;
       }
-      final long unusedKeys = key - wtx.getMaxNodeKey() - 1;
-      if (unusedKeys < 0) {
+      if (key <= wtx.getMaxNodeKey()) {
         throw new IllegalStateException("JSON revision copy already allocated node " + key);
       }
-      if (unusedKeys > 0) {
-        wtx.getStorageEngineWriter().getActualRevisionRootPage().reserveKeyRangeInDocumentIndex(unusedKeys);
-      }
-      processNode(source, position);
-      if (wtx.getNodeKey() != key) {
-        throw new IllegalStateException("JSON revision copy allocated " + wtx.getNodeKey() + " instead of " + key);
-      }
+      wtx.copyNodeWithKey(source, position);
       if (fragment.advance()) {
         fragments.add(fragment);
       }
@@ -533,7 +531,11 @@ public final class JsonResourceCopy implements Callable<Void> {
       // OBJECT_NAMED_* records carry the value inline (primitive leaves) or own a real subtree
       // (structural). Children of OBJECT_NAMED_OBJECT are inner fields and MUST be inserted
       // normally — the previous skip-on-parent-OBJECT_KEY guard is no longer needed.
-      processNode(rtx, insertPosition);
+      if (copyAllRevisionsUpToMostRecent) {
+        wtx.copyNodeWithKey(rtx, insertPosition);
+      } else {
+        processNode(wtx, rtx, insertPosition);
+      }
       rtx.moveTo(key);
 
       isFirst = false;
@@ -552,7 +554,8 @@ public final class JsonResourceCopy implements Callable<Void> {
    *
    * @param rtx Sirix {@link JsonNodeReadOnlyTrx}
    */
-  public void processNode(final JsonNodeReadOnlyTrx rtx, final InsertPosition insertPosition) {
+  public static void processNode(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx,
+      final InsertPosition insertPosition) {
     switch (rtx.getKind()) {
       case JSON_DOCUMENT:
         break;

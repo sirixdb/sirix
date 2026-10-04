@@ -6,6 +6,7 @@ import io.brackit.query.jdm.Item;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.NodeTrx;
 import io.sirix.exception.SirixException;
+import io.sirix.service.InsertPosition;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   enum Commit {
@@ -58,6 +59,8 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   JsonNodeTrx copySubtreeAsRightSibling(JsonNodeReadOnlyTrx rtx);
+
+  JsonNodeTrx copyNodeWithKey(JsonNodeReadOnlyTrx rtx, InsertPosition position);
 
   JsonNodeTrx insertObjectAsFirstChild();
 

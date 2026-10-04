@@ -246,18 +246,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       // Nodes deleted in old rev at the end of the tree.
       if (oldRtx.getKind() != documentNode()) {
         rootKey = oldRootKey;
-        // First time it might be DiffType.INSERTED where the cursor doesn't move.
-        if (diff == DiffType.INSERTED) {
+        if (moveCursor(oldRtx, Revision.OLD, Move.FOLLOWING)) {
           emitDeleteDiff();
-        }
-        boolean moved = true;
-        if (diffKind == DiffOptimized.HASHED && diff == DiffType.SAMEHASH) {
-          moved = moveToFollowingNode(oldRtx, Revision.OLD);
-          if (moved) {
-            emitDeleteDiff();
-          }
-        }
-        if (moved) {
           if (skipSubtrees) {
             while (moveToFollowingNode(oldRtx, Revision.OLD)) {
               emitDeleteDiff();

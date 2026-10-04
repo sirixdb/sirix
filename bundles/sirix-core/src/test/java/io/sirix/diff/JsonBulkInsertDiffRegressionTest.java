@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.StringWriter;
@@ -38,6 +39,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class JsonBulkInsertDiffRegressionTest {
@@ -537,38 +539,332 @@ final class JsonBulkInsertDiffRegressionTest {
     }
   }
 
+  @ParameterizedTest
+  @CsvSource({"reordered,false", "reordered,true", "removed,false", "removed,true", "replaced,false",
+      "replaced,true", "reparented,false", "reparented,true", "replaced_root,false", "replaced_root,true",
+      "empty,false", "empty,true", "empty_repeat,false", "empty_repeat,true"})
+  void initialRevisionCopyPreservesEditedAllocationIdentity(final String scenario, final boolean recompute)
+      throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final String initial = switch (scenario) {
+          case "reordered" -> "[0,1,2]";
+          case "removed" -> "[0,1,2,3]";
+          case "replaced" -> "{\"a\":\"old\",\"b\":1}";
+          case "reparented" -> "[{\"x\":0},{}]";
+          case "replaced_root" -> "[0,1]";
+          case "empty", "empty_repeat" -> "[0]";
+          default -> throw new AssertionError(scenario);
+        };
+        final List<String> expected = new ArrayList<>();
+        try (final var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(initial), JsonNodeTrx.Commit.NO);
+          switch (scenario) {
+            case "reordered" -> {
+              assertTrue(wtx.moveTo(4));
+              wtx.moveSubtreeToRightSibling(2);
+              assertChildLinks(wtx, 1, 3, 4, 2);
+              expected.add("[1,2,0]");
+            }
+            case "removed" -> {
+              assertTrue(wtx.moveTo(3));
+              wtx.remove();
+              assertTrue(wtx.moveTo(5));
+              wtx.remove();
+              assertChildLinks(wtx, 1, 2, 4);
+              assertEquals(5, wtx.getMaxNodeKey());
+              expected.add("[0,2]");
+            }
+            case "replaced" -> {
+              assertTrue(wtx.moveTo(2));
+              wtx.replaceObjectRecordValue(new NumberValue(7));
+              assertEquals(4, wtx.getNodeKey());
+              assertTrue(wtx.moveTo(1));
+              wtx.insertObjectRecordAsLastChild("discard", new NumberValue(0));
+              assertEquals(5, wtx.getNodeKey());
+              wtx.remove();
+              assertChildLinks(wtx, 1, 4, 3);
+              expected.add("{\"a\":7,\"b\":1}");
+            }
+            case "reparented" -> {
+              assertTrue(wtx.moveTo(4));
+              wtx.moveSubtreeToFirstChild(3);
+              assertTrue(wtx.moveTo(2));
+              wtx.remove();
+              assertChildLinks(wtx, 1, 4);
+              assertChildLinks(wtx, 4, 3);
+              expected.add("[{\"x\":0}]");
+            }
+            case "replaced_root" -> {
+              assertTrue(wtx.moveTo(1));
+              wtx.remove();
+              wtx.moveToDocumentRoot();
+              wtx.insertArrayAsFirstChild();
+              assertEquals(4, wtx.getNodeKey());
+              wtx.insertNumberValueAsFirstChild(42);
+              wtx.insertNumberValueAsRightSibling(0);
+              assertEquals(6, wtx.getNodeKey());
+              wtx.remove();
+              assertChildLinks(wtx, 0, 4);
+              assertChildLinks(wtx, 4, 5);
+              expected.add("[42]");
+            }
+            case "empty", "empty_repeat" -> {
+              assertTrue(wtx.moveTo(1));
+              wtx.remove();
+              assertChildLinks(wtx, 0);
+              assertEquals(2, wtx.getMaxNodeKey());
+              expected.add("");
+            }
+            default -> throw new AssertionError(scenario);
+          }
+          wtx.commit();
+          try (final var files = Files.list(diffDirectory(session))) {
+            assertFalse(files.findAny().isPresent(), "edited first commit must not emit sidecars");
+          }
+          if (scenario.equals("empty") || scenario.equals("empty_repeat")) {
+            if (scenario.equals("empty_repeat")) {
+              wtx.moveToDocumentRoot();
+              wtx.insertArrayAsFirstChild();
+              assertEquals(3, wtx.getNodeKey());
+              wtx.remove();
+              assertChildLinks(wtx, 0);
+              assertEquals(3, wtx.getMaxNodeKey());
+              wtx.commit();
+              expected.add("");
+            }
+            wtx.moveToDocumentRoot();
+            wtx.insertArrayAsFirstChild();
+            final long arrayKey = scenario.equals("empty_repeat") ? 4 : 3;
+            assertEquals(arrayKey, wtx.getNodeKey());
+            wtx.commit();
+            expected.add("[]");
+            assertTrue(wtx.moveTo(arrayKey));
+            wtx.insertNumberValueAsFirstChild(40);
+            assertEquals(arrayKey + 1, wtx.getNodeKey());
+            wtx.commit();
+            expected.add("[40]");
+            wtx.setNumberValue(41);
+            wtx.commit();
+            expected.add("[41]");
+          } else {
+            final long updatedKey = switch (scenario) {
+              case "reordered" -> 2;
+              case "removed", "replaced" -> 4;
+              case "reparented" -> 3;
+              case "replaced_root" -> 5;
+              default -> throw new AssertionError(scenario);
+            };
+            assertTrue(wtx.moveTo(updatedKey));
+            wtx.setNumberValue(100);
+            wtx.commit();
+            expected.add(switch (scenario) {
+              case "reordered" -> "[1,2,100]";
+              case "removed" -> "[0,100]";
+              case "replaced" -> "{\"a\":100,\"b\":1}";
+              case "reparented" -> "[{\"x\":100}]";
+              case "replaced_root" -> "[100]";
+              default -> throw new AssertionError(scenario);
+            });
+            final long deletedKey = switch (scenario) {
+              case "reordered" -> 4;
+              case "removed" -> 2;
+              case "replaced", "reparented" -> 3;
+              case "replaced_root" -> 5;
+              default -> throw new AssertionError(scenario);
+            };
+            assertTrue(wtx.moveTo(deletedKey));
+            wtx.remove();
+            wtx.commit();
+            expected.add(switch (scenario) {
+              case "reordered" -> "[1,100]";
+              case "removed" -> "[100]";
+              case "replaced_root" -> "[]";
+              case "replaced" -> "{\"a\":100}";
+              case "reparented" -> "[{}]";
+              default -> throw new AssertionError(scenario);
+            });
+            final long parent = scenario.equals("reparented") || scenario.equals("replaced_root") ? 4 : 1;
+            assertTrue(wtx.moveTo(parent));
+            if (scenario.equals("replaced") || scenario.equals("reparented")) {
+              wtx.insertObjectRecordAsFirstChild("new", new NumberValue(9));
+            } else {
+              wtx.insertNumberValueAsFirstChild(9);
+            }
+            final long insertedKey = wtx.getNodeKey();
+            assertEquals(switch (scenario) {
+              case "reordered", "reparented" -> 5;
+              case "removed", "replaced" -> 6;
+              case "replaced_root" -> 7;
+              default -> throw new AssertionError(scenario);
+            }, insertedKey);
+            wtx.commit();
+            expected.add(switch (scenario) {
+              case "reordered" -> "[9,1,100]";
+              case "removed" -> "[9,100]";
+              case "replaced" -> "{\"new\":9,\"a\":100}";
+              case "reparented" -> "[{\"new\":9}]";
+              case "replaced_root" -> "[9]";
+              default -> throw new AssertionError(scenario);
+            });
+            if (scenario.equals("reordered") || scenario.equals("removed") || scenario.equals("replaced")) {
+              assertTrue(wtx.moveTo(updatedKey));
+              wtx.moveSubtreeToRightSibling(insertedKey);
+              wtx.commit();
+              expected.add(switch (scenario) {
+                case "reordered" -> "[1,100,9]";
+                case "removed" -> "[100,9]";
+                case "replaced" -> "{\"a\":100,\"new\":9}";
+                default -> throw new AssertionError(scenario);
+              });
+            }
+          }
+        }
+        for (int revision = 1; revision <= expected.size(); revision++) {
+          assertEquals(expected.get(revision - 1), serialize(session, revision));
+        }
+        for (int revision = 2; revision <= expected.size(); revision++) {
+          assertEquals(revision, readDiff(session, revision - 1, revision).get("new-revision").getAsInt());
+          if (recompute) {
+            final JsonObject diff = JsonParser.parseString(new BasicJsonDiff(database.getName()).generateDiff(session,
+                revision - 1, revision, 0, 0, false)).getAsJsonObject();
+            if (revision == 2 && scenario.equals("empty_repeat")) {
+              assertEquals(0, diff.getAsJsonArray("diffs").size());
+            }
+            if (revision == 3 && (scenario.equals("reparented") || scenario.equals("replaced_root"))) {
+              assertEquals(Set.of(scenario.equals("reparented") ? 3L : 5L), operationKeys(diff, "delete"));
+            }
+            if (revision == 5 && (scenario.equals("reordered") || scenario.equals("removed"))) {
+              assertFalse(operationKeys(diff, "insert").isEmpty(), "a reorder must emit retained placements");
+            }
+            Files.delete(diffDirectory(session).resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json"));
+          }
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = InsertPosition.class, names = {"AS_FIRST_CHILD", "AS_LEFT_SIBLING", "AS_RIGHT_SIBLING"})
+  void singleSnapshotCopyKeepsAllocatingDestinationKeys(final InsertPosition position) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var sourceDatabase =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var source = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var destinationDatabase =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+          final var destination = destinationDatabase.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        try (final var wtx = source.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0,1,2]"), JsonNodeTrx.Commit.NO);
+          assertTrue(wtx.moveTo(4));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+        }
+        seed(destination, "[9,8]");
+        try (final var rtx = source.beginNodeReadOnlyTrx(1);
+            final var wtx = destination.beginNodeTrx()) {
+          assertTrue(rtx.moveTo(1));
+          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD ? 1 : 2));
+          new JsonResourceCopy.Builder(wtx, rtx, position).commitAfterwards().build().call();
+          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING ? "[9,[1,2,0],8]" : "[[1,2,0],9,8]",
+              serialize(destination, 2));
+          assertChildLinks(wtx, 4, 5, 6, 7);
+          assertTrue(wtx.moveTo(1));
+          wtx.insertNumberValueAsLastChild(42);
+          assertEquals(8, wtx.getNodeKey());
+          wtx.commit();
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = InsertPosition.class, names = {"AS_FIRST_CHILD", "AS_LEFT_SIBLING", "AS_RIGHT_SIBLING"})
+  void explicitCopyKeyRejectsCollisionsAndKeepsTheAllocationFrontier(final InsertPosition position) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var sourceDatabase =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var source = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var destinationDatabase =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+          final var destination = destinationDatabase.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        seed(source, "[0,1,2]");
+        seed(destination, "[9,8]");
+        try (final var rtx = source.beginNodeReadOnlyTrx(1);
+            final var wtx = destination.beginNodeTrx()) {
+          assertTrue(rtx.moveTo(4));
+          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD ? 1 : 2));
+          wtx.copyNodeWithKey(rtx, position);
+          assertEquals(4, wtx.getNodeKey());
+          assertEquals(4, wtx.getMaxNodeKey());
+          assertTrue(wtx.moveTo(3));
+          assertThrows(IllegalStateException.class, () -> wtx.copyNodeWithKey(rtx, position));
+          assertEquals(3, wtx.getNodeKey());
+          assertEquals(4, wtx.getMaxNodeKey());
+          wtx.insertNumberValueAsRightSibling(42);
+          assertEquals(5, wtx.getNodeKey());
+          wtx.commit();
+          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING ? "[9,2,8,42]" : "[2,9,8,42]",
+              serialize(destination, 2));
+        }
+      }
+    }
+  }
+
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (final var database =
         JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
         final var destination = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = source.beginNodeReadOnlyTrx(1);
         final var wtx = destination.beginNodeTrx()) {
+      wtx.addPreCommitHook(trx -> {
+        if (wtx.getRevisionNumber() == 1) {
+          assertCopiedStructure(rtx, wtx);
+        }
+      });
       new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
                                                                           .build()
                                                                           .call();
+      assertFalse(Files.exists(diffDirectory(destination).resolve("diffFromRev0toRev1.json")));
       assertEquals(source.getMostRecentRevisionNumber(), destination.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
         assertEquals(serialize(source, revision), serialize(destination, revision));
         try (final var sourceRevision = source.beginNodeReadOnlyTrx(revision);
             final var copiedRevision = destination.beginNodeReadOnlyTrx(revision)) {
-          assertEquals(sourceRevision.getMaxNodeKey(), copiedRevision.getMaxNodeKey(),
-              "a retained move must not allocate new destination keys");
-          final var sourceNodes = new DescendantAxis(sourceRevision, IncludeSelf.YES);
-          final var copiedNodes = new DescendantAxis(copiedRevision, IncludeSelf.YES);
-          while (sourceNodes.hasNext()) {
-            assertTrue(copiedNodes.hasNext());
-            assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
-            assertEquals(sourceRevision.getKind(), copiedRevision.getKind());
-            assertEquals(sourceRevision.getParentKey(), copiedRevision.getParentKey());
-            assertEquals(sourceRevision.getFirstChildKey(), copiedRevision.getFirstChildKey());
-            assertEquals(sourceRevision.getLastChildKey(), copiedRevision.getLastChildKey());
-            assertEquals(sourceRevision.getLeftSiblingKey(), copiedRevision.getLeftSiblingKey());
-            assertEquals(sourceRevision.getRightSiblingKey(), copiedRevision.getRightSiblingKey());
-          }
-          assertFalse(copiedNodes.hasNext());
+          assertCopiedStructure(sourceRevision, copiedRevision);
         }
       }
     }
+  }
+
+  private static void assertCopiedStructure(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx copy) {
+    final long sourceKey = source.getNodeKey();
+    final long copiedKey = copy.getNodeKey();
+    source.moveToDocumentRoot();
+    copy.moveToDocumentRoot();
+    assertEquals(source.getMaxNodeKey(), copy.getMaxNodeKey(), "copy must preserve the source allocation frontier");
+    final var sourceNodes = new DescendantAxis(source, IncludeSelf.YES);
+    final var copiedNodes = new DescendantAxis(copy, IncludeSelf.YES);
+    while (sourceNodes.hasNext()) {
+      assertTrue(copiedNodes.hasNext());
+      assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
+      assertEquals(source.getKind(), copy.getKind());
+      assertEquals(source.getParentKey(), copy.getParentKey());
+      assertEquals(source.getFirstChildKey(), copy.getFirstChildKey());
+      assertEquals(source.getLastChildKey(), copy.getLastChildKey());
+      assertEquals(source.getLeftSiblingKey(), copy.getLeftSiblingKey());
+      assertEquals(source.getRightSiblingKey(), copy.getRightSiblingKey());
+      assertEquals(source.getChildCount(), copy.getChildCount());
+    }
+    assertFalse(copiedNodes.hasNext());
+    assertTrue(source.moveTo(sourceKey));
+    assertTrue(copy.moveTo(copiedKey));
   }
 
   @Test
