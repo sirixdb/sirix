@@ -79,7 +79,7 @@ final class ValidTimeMutableSliceTest {
       assertResults(fixture, scan(fixture, document), expected);
       assertResults(fixture, scan(fixture, object), expected);
       assertKeys(document, expected, false);
-      assertNull(ValidTimeIntervalIndex.sequence(document, INSTANT, config(fixture), false, false, null));
+      assertNull(ValidTimeIntervalIndex.sequence(document, INSTANT, config(fixture), false, false));
       final AtomicInteger evaluations = new AtomicInteger();
       assertNull(ValidTimeIntervalIndex.comparisonSequence(document, () -> {
         evaluations.incrementAndGet();
@@ -89,8 +89,7 @@ final class ValidTimeMutableSliceTest {
       assertResults(fixture, scan(fixture, fixture.historical()), addMatch
           ? List.of()
           : List.of(1L));
-      assertNotNull(
-          ValidTimeIntervalIndex.sequence(fixture.historical(), INSTANT, config(fixture), false, false, null));
+      assertNotNull(ValidTimeIntervalIndex.sequence(fixture.historical(), INSTANT, config(fixture), false, false));
     }
   }
 
@@ -183,7 +182,7 @@ final class ValidTimeMutableSliceTest {
       assertResults(fixture, scan(fixture, slice), List.of(2L, 3L));
       assertResults(fixture, comparisons(fixture, slice, 2), List.of(2L, 3L));
       assertKeys(slice, List.of(2L, 3L), true);
-      assertNull(ValidTimeIntervalIndex.sequence(slice, INSTANT, config(fixture), false, true, null));
+      assertNull(ValidTimeIntervalIndex.sequence(slice, INSTANT, config(fixture), false, true));
     }
   }
 
@@ -194,7 +193,7 @@ final class ValidTimeMutableSliceTest {
       final Object historical = (Object) fixture.historical();
       final JsonDBItem historicalValues = (JsonDBItem) historical.values();
       assertResults(fixture, scan(fixture, historicalValues), List.of(1L, 2L));
-      assertNull(ValidTimeIntervalIndex.sequence(historicalValues, INSTANT, config(fixture), false, false, null));
+      assertNull(ValidTimeIntervalIndex.sequence(historicalValues, INSTANT, config(fixture), false, false));
       final JsonDBItem historicalNames = (JsonDBItem) historical.names();
       assertResults(fixture, scan(fixture, historicalNames), List.of());
       final JsonDBObject owner = new JsonDBObject(cursor(fixture, representation), fixture.collection());

@@ -54,18 +54,16 @@ A companion HOT tree stores revisioned postings for:
 
 The physical roots and key encoding are specified in
 [HOT index specification §2.3.4](HOT_INDEX_SPECIFICATION.md#234-validtime-idxintervalvalidtimekeyserializerjava).
-The order guard is conservative: rebuilding can reestablish orderedness after subsequent edits
-restore it.
+The order guard is conservative: creating a fresh index can reestablish orderedness after
+subsequent edits restore it.
 
-`IndexDef.needsValidTimeRebuild()` identifies obsolete catalog definitions, including formats whose
-evidence predates the empty-fraction lexical check or container-move membership repair. Opening a resource never
-upgrades an obsolete valid-time catalog or adds a revision. Readers omit obsolete indexes from
-discovery and use the ordinary exact query fallback, including historical reads, optimizer discovery and VIEW-authorized REST reads.
-The explicit maintenance contract is documented on
-[`JsonResourceSession.rebuildValidTimeIndexes()`](../bundles/sirix-core/src/main/java/io/sirix/api/json/JsonResourceSession.java).
-No old index-layout reader is retained. Writer rebinding resolves the represented revision's
-catalogue before listener creation and rebuilds obsolete definitions when reverting to an old
-revision, so unchanged records and subsequent mutations maintain the current representation.
+`IndexDef.hasUnsupportedValidTimeFormat()` identifies incompatible catalog definitions. Readers
+omit these indexes from discovery and use the ordinary exact query fallback, including historical
+reads, optimizer discovery and VIEW-authorized REST reads. Reads do not change catalog bytes or add
+revisions. Writer creation, listener binding and index creation reject incompatible definitions;
+there is no migration API or automatic upgrade path. Create a fresh current-format database for
+this representation. Writer rebinding resolves the represented revision's catalogue before listener
+creation; reverting to an incompatible catalogue is rejected.
 
 Every record carrying postings is registered in the interval tree, so a stab is the only candidate
 source. Every duplicate-bound record is registered over
@@ -76,11 +74,15 @@ also returns them: there a rounded endpoint such as `.000500Z` shares the point'
 the half-open stab can skip the record and the strict-start tie removal can drop it, while a clamped start bound
 can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
 so it already returns a superset. Closed and strict stabs outside every interval read no candidate
-object at all. Membership filters nested objects entirely from index postings. Exceptional residuals
-run after the original closed predicate and only as each candidate is demanded. Iteration and
-positional access can stop before a later malformed cast; counting evaluates all candidates that
-need verification. Exact candidates require no field reads. A strict integer tie must not suppress
-an original cast error. Candidate membership and verification use the existing compressed HOT
+object at all. Membership filters nested objects entirely from index postings. Retained built-in
+temporal residuals run for every candidate after the original closed predicate and only as each
+candidate is demanded. Iteration and positional access can stop before a later malformed cast; counting evaluates all candidates that
+need verification. Exact candidates require no field reads when no residual remains. A retained
+temporal residual always filters exact candidates as well, and disables key-only known cardinality. Folded bitemporal
+comparisons use the key-only sequence when the comparison matches the indexed bounds and all
+selected candidates are exact; otherwise they retain the built-in comparison and reuse the selected
+keys and evidence. Caller-supplied arbitrary predicates are not supported. A strict integer tie
+must not suppress an original cast error. Candidate membership and verification use the existing compressed HOT
 posting chunks and `NodeReferences.contains`, once per candidate chunk. Only matching candidate keys
 are retained; unrelated posting references are never enumerated or copied into query collections.
 
@@ -194,8 +196,8 @@ verification posting belongs to a registered interval.
 The consumed `1.0-alpha10-SNAPSHOT` supports lazy UDF returns through `Sequence.isRepeatable()`
 and `Sequence.knownSize()`. Sirix opts immutable valid-time key sequences into that protocol,
 including folded `local:slice` bodies in Q6/Q11. For exact candidates, the known cardinality comes
-from index keys without constructing objects or reading timestamps. Inexact candidates report an
-unknown cardinality; arbitrary caller-supplied predicates do not opt into repeatability. Mutable
+from index keys without constructing objects or reading timestamps. Inexact candidates and sequences
+retaining a built-in temporal residual report an unknown cardinality. Mutable
 views still use the existing fallback.
 
 The five-argument scan overload returns its selected producer directly when the point is already a

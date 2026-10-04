@@ -182,7 +182,7 @@ public final class ValidTimeIndexEndToEndTest {
 
             // (a) The interval-index FAST PATH must be taken (a VALIDTIME index exists + is usable).
             final JsonDBItem doc = collection.getDocument(RESOURCE);
-            final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false, null);
+            final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false);
             assertNotNull(fast, "Interval-index fast path must be taken at t=" + t
                 + " (the index was created via jn:create-valid-time-index)");
             fastPathTaken++;
@@ -270,7 +270,7 @@ public final class ValidTimeIndexEndToEndTest {
         for (final Instant t : List.of(uFrom, Instant.parse("2021-06-01T12:00:00Z"),
             Instant.parse("2019-01-01T00:00:00Z"))) {
           final Set<Integer> brute = bruteForce(records, t);
-          final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false, null);
+          final Sequence fast = ValidTimeIntervalIndex.sequence(doc, t, validTimeConfig, false, false);
           assertNotNull(fast, "interval-index fast path must be taken alongside a CAS index at t=" + t);
           assertEquals(brute, idsOfSequence(fast), "interval index must be correct at t=" + t);
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must be correct at t=" + t);

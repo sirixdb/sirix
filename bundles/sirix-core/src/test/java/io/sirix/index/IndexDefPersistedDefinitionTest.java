@@ -36,24 +36,24 @@ import org.junit.jupiter.api.Test;
 final class IndexDefPersistedDefinitionTest {
 
   @Test
-  void validTimeCatalogMarksObsoleteFormatsForRebuild() {
+  void validTimeCatalogRejectsUnsupportedFormats() {
     final IndexDef definition =
         IndexDefs.createValidTimeIdxDef(Set.of(json("/[]/vf"), json("/[]/vt")), 0, IndexDef.DbType.JSON);
     assertTrue(definition.hasSameDefinition(roundTrip(definition)));
-    assertFalse(roundTrip(definition).needsValidTimeRebuild());
+    assertFalse(roundTrip(definition).hasUnsupportedValidTimeFormat());
     final Node<?> persisted = definition.materialize();
     final QNm format = new QNm("validTimeFormat");
     assertTrue(persisted.deleteAttribute(format));
     final IndexDef missingFormat = new IndexDef(IndexDef.DbType.JSON);
     missingFormat.init(persisted);
-    assertTrue(missingFormat.needsValidTimeRebuild());
+    assertTrue(missingFormat.hasUnsupportedValidTimeFormat());
     for (final String obsolete : List.of("1", "2", "3", "4", "5")) {
       persisted.deleteAttribute(format);
       persisted.setAttribute(format, new Str(obsolete));
       final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
       oldFormat.init(persisted);
-      assertTrue(oldFormat.needsValidTimeRebuild());
-      assertTrue(roundTrip(oldFormat).needsValidTimeRebuild());
+      assertTrue(oldFormat.hasUnsupportedValidTimeFormat());
+      assertTrue(roundTrip(oldFormat).hasUnsupportedValidTimeFormat());
       assertFalse(definition.hasSameDefinition(oldFormat));
     }
   }

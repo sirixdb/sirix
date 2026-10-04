@@ -538,6 +538,59 @@ final class ValidTimeLazySliceTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"vf", "vt"})
+  void exactCandidatesStillApplyTheRetainedTemporalResidual(final String field) {
+    create("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      final JsonDBItem document = store.lookup("slice").getDocument("indexed");
+      final var config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
+      final Instant instant = Instant.parse("2024-01-01T00:00:00Z");
+      assertEquals(1,
+          Objects.requireNonNull(ValidTimeIntervalIndex.sequence(document, instant, config, false, false))
+                 .size()
+                 .intValue());
+      final boolean start = field.equals("vf");
+      final DateTime rejectedPoint = new DateTime(start
+          ? "2022-01-01T00:00:00Z"
+          : "2026-01-01T00:00:00Z");
+      for (final boolean strict : new boolean[] {false, true}) {
+        for (final boolean general : new boolean[] {false, true}) {
+          for (final boolean fieldOnLeft : new boolean[] {false, true}) {
+            final ValidTimeResidual residual =
+                new ValidTimeResidual(null, context, () -> rejectedPoint, field, start, strict, general, fieldOnLeft);
+            final ValidTimeKeySequence rejected = Objects.requireNonNull(ValidTimeIntervalIndex.sequence(document,
+                instant, config, start && strict, !start && strict, residual));
+            assertTrue(rejected.isRepeatable());
+            assertNull(rejected.knownSize());
+            assertEquals(0, rejected.size().intValue());
+            assertEquals(0, rejected.matchingKeys().length);
+            assertNull(rejected.get(Int32.ONE));
+            assertFalse(rejected.booleanValue());
+            try (final Iter iterator = rejected.iterate()) {
+              assertNull(iterator.next());
+            }
+            final DateTime acceptedPoint = new DateTime("2024-01-01T00:00:00Z");
+            final ValidTimeKeySequence accepted = Objects.requireNonNull(ValidTimeIntervalIndex.sequence(document,
+                instant, config, start && strict, !start && strict,
+                new ValidTimeResidual(null, context, () -> acceptedPoint, field, start, strict, general, fieldOnLeft)));
+            assertEquals(1, accepted.size().intValue());
+            assertNotNull(accepted.get(Int32.ONE));
+            try (final Iter iterator = accepted.iterate()) {
+              assertNotNull(iterator.next());
+              assertNull(iterator.next());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"vf", "vt"})
   void residualErrorsWaitForTheRequestedCandidate(final String field) {
     create("""
         [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},

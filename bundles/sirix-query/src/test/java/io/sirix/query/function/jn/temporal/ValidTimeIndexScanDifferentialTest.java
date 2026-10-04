@@ -204,7 +204,7 @@ public final class ValidTimeIndexScanDifferentialTest {
     try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
       final JsonDBItem plainDoc = collection.getDocument(PLAIN_RESOURCE);
-      assertNull(ValidTimeIntervalIndex.sequence(plainDoc, testTimes.get(0), validTimeConfig, false, false, null),
+      assertNull(ValidTimeIntervalIndex.sequence(plainDoc, testTimes.get(0), validTimeConfig, false, false),
           "Plain resource must have no interval index (linear-scan fallback)");
     }
 

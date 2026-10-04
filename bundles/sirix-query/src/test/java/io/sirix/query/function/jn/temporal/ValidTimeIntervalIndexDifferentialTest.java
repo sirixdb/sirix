@@ -217,8 +217,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
             // (1) DIRECT interval-index path — assert it is taken, then compare its result set.
             final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-            final Sequence indexScan =
-                ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
+            final Sequence indexScan = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false);
             assertNotNull(indexScan,
                 "Interval-index path must be taken on the indexed resource (a VALIDTIME index exists) at t=" + t);
             indexPathTakenCount++;
@@ -262,8 +261,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
         for (final Instant t : reopenSampleTimes(records)) {
           final Set<Integer> brute = bruteForce(records, t);
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final Sequence indexScan =
-              ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
+          final Sequence indexScan = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false);
           assertNotNull(indexScan, "Persisted interval index must be usable after reopen at t=" + t);
           assertEquals(brute, idsOfSequence(indexScan),
               "Persisted interval-index result must equal brute force after reopen at t=" + t);
@@ -327,8 +325,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
         for (final Instant t : incTimes) {
           final Set<Integer> brute = bruteForce(mutated, t);
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final Sequence indexScan =
-              ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
+          final Sequence indexScan = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false);
           assertNotNull(indexScan, "Interval index must be usable after incremental maintenance at t=" + t);
           assertEquals(brute, idsOfSequence(indexScan),
               "Interval-index result must equal brute force AFTER incremental insert+delete at t=" + t);
@@ -408,7 +405,7 @@ public final class ValidTimeIntervalIndexDifferentialTest {
 
           // Path 1: the interval index directly (assert it is actually taken).
           final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-          final Sequence idx = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false, null);
+          final Sequence idx = ValidTimeIntervalIndex.sequence(indexedDoc, t, validTimeConfig, false, false);
           assertNotNull(idx, "interval index must be usable at t=" + t);
           assertEquals(want, idsOfSequence(idx), "interval-index path at t=" + t);
 

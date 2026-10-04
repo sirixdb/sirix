@@ -535,7 +535,7 @@ final class ValidTimeSliceWorkBudgetTest {
       for (int mode = 0; mode < 4; mode++) {
         for (int demand = 0; demand < 3; demand++) {
           final Sequence rows = Objects.requireNonNull(
-              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null));
+              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0));
           clearInvocations(cursor);
           final int request = demand;
           final WorkReport work = INDEX_WORK.run(() -> {
@@ -573,7 +573,7 @@ final class ValidTimeSliceWorkBudgetTest {
       positive.assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, count - 1L,
           "the same posting counter must observe unrelated references when explicitly enumerated");
       final Sequence inexact = Objects.requireNonNull(
-          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false, null));
+          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false));
       final WorkReport verification = INDEX_WORK.run(() -> assertNotNull(inexact.get(Int32.ONE)));
       verification.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count - 1L,
           "a positive control must still reach the inexact intervals");
@@ -693,7 +693,7 @@ final class ValidTimeSliceWorkBudgetTest {
         final boolean strictStart = (mode & 1) != 0;
         final boolean strictEnd = (mode & 2) != 0;
         final var setup = INDEX_WORK.call(() -> Objects.requireNonNull(
-            ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd, null)));
+            ValidTimeIntervalIndex.sequence(observed, point, config, strictStart, strictEnd)));
         final Sequence outside = setup.result();
         assertNotNull(outside);
         assertZeroIndexWork(setup.work(), count, point, mode, "before-demand");
@@ -727,7 +727,7 @@ final class ValidTimeSliceWorkBudgetTest {
       for (int mode = 0; mode < 4; mode++) {
         clearInvocations(cursor);
         final Sequence inside =
-            ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null);
+            ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0);
         assertNotNull(inside);
         final WorkReport positive = INDEX_WORK.run(() -> {
           if (count == 64) {
@@ -886,7 +886,7 @@ final class ValidTimeSliceWorkBudgetTest {
           mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
       doReturn(cursor).when(observed).getTrx();
       final Sequence sequence = ValidTimeIntervalIndex.sequence(observed, Instant.parse("2024-01-01T00:00:00Z"),
-          document.getResourceSession().getResourceConfig().getValidTimeConfig(), false, true, null);
+          document.getResourceSession().getResourceConfig().getValidTimeConfig(), false, true);
       assertNotNull(sequence);
       try (var iterator = sequence.iterate()) {
         verify(cursor, never()).moveTo(anyLong());

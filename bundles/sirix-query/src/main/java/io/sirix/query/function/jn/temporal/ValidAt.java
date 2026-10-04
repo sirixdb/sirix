@@ -89,7 +89,7 @@ public final class ValidAt extends AbstractFunction {
     // Exact interval keys avoid object reads; exceptional bounds retain demand-time verification
     // against the same predicate as the fallback scan.
     final Sequence intervalSequence =
-        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false);
     if (intervalSequence != null) {
       return intervalSequence;
     }

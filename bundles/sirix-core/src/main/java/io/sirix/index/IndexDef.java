@@ -707,7 +707,7 @@ public final class IndexDef implements Materializable {
     return contentType;
   }
 
-  public boolean needsValidTimeRebuild() {
+  public boolean hasUnsupportedValidTimeFormat() {
     return isValidTimeIndex() && !VALID_TIME_FORMAT.equals(validTimeFormat);
   }
 

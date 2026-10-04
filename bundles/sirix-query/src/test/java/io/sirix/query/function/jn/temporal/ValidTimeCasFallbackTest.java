@@ -39,7 +39,6 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -90,7 +89,7 @@ final class ValidTimeCasFallbackTest {
           assertEquals(0, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME));
           final var document = requireNonNull(collection.getDocument("rows", revision));
           assertNull(ValidTimeIntervalIndex.sequence(document, INSTANT,
-              requireNonNull(session.getResourceConfig().getValidTimeConfig()), false, false, null));
+              requireNonNull(session.getResourceConfig().getValidTimeConfig()), false, false));
         }
         assertComparisons(chain, context, firstSource, endpoint, castError);
         final String outsidePoint = "xs:dateTime('2022-01-01T00:00:00Z')";
@@ -120,35 +119,6 @@ final class ValidTimeCasFallbackTest {
         assertArrayEquals(firstCatalogue, Files.readAllBytes(resource.catalogues().resolve("1.xml")));
         assertArrayEquals(secondCatalogue, Files.readAllBytes(resource.catalogues().resolve("2.xml")));
         assertFalse(Files.exists(resource.catalogues().resolve("3.xml")));
-      }
-    }
-
-    Databases.clearGlobalCaches();
-    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
-        var context = SirixQueryContext.createWithJsonStore(store);
-        var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final var collection = requireNonNull(store.lookup("coverage"));
-      final var historical = requireNonNull(collection.getDocument("rows", 1));
-      final var session = historical.getResourceSession();
-      session.rebuildValidTimeIndexes();
-      assertEquals(3, session.getMostRecentRevisionNumber());
-      session.rebuildValidTimeIndexes();
-      assertEquals(3, session.getMostRecentRevisionNumber());
-      assertArrayEquals(firstCatalogue, Files.readAllBytes(resource.catalogues().resolve("1.xml")));
-      assertArrayEquals(secondCatalogue, Files.readAllBytes(resource.catalogues().resolve("2.xml")));
-      assertNull(ValidTimeIntervalIndex.sequence(historical, INSTANT,
-          requireNonNull(session.getResourceConfig().getValidTimeConfig()), false, false, null));
-      final var latest = requireNonNull(collection.getDocument("rows"));
-      final Sequence indexed = requireNonNull(ValidTimeIntervalIndex.sequence(latest, INSTANT,
-          requireNonNull(session.getResourceConfig().getValidTimeConfig()), false, false, null));
-      assertInstanceOf(ValidTimeKeySequence.class, indexed);
-      assertEquals(2, indexed.size().longValue());
-      assertEquals(List.of(1L, 2L), ids(indexed));
-      for (final String source : List.of(sources.getFirst(),
-          "jn:open-bitemporal('coverage','rows'," + "xs:dateTime('2099-01-01T00:00:00Z')," + POINT + ")",
-          "jn:valid-at('coverage','rows'," + POINT + ")")) {
-        assertClosed(chain, context, source);
-        assertComparisons(chain, context, source, endpoint, castError);
       }
     }
   }

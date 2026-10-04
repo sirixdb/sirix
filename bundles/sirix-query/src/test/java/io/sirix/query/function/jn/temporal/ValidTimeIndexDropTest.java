@@ -126,8 +126,7 @@ public final class ValidTimeIndexDropTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
         final Instant t = UNIVERSAL;
-        assertNotNull(
-            ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null),
+        assertNotNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false),
             "interval index must be usable before the drop");
         assertTrue(optimizedContainsScanFunction(store, flwor(t)), "optimizer must rewrite before the drop");
       }
@@ -165,8 +164,9 @@ public final class ValidTimeIndexDropTest {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
 
         // The interval-index fast path must NO LONGER be taken (index gone).
-        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, validTimeConfig, false,
-            false, null), "interval-index fast path must NOT apply after the drop");
+        assertNull(
+            ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, validTimeConfig, false, false),
+            "interval-index fast path must NOT apply after the drop");
 
         for (final Instant t : sampleTimes) {
           final Set<Integer> brute = bruteForce(records, t);
@@ -230,7 +230,7 @@ public final class ValidTimeIndexDropTest {
         // open the document at the pre-drop revision and verify the interval index is usable there.
         final JsonDBItem preDropDoc = collection.getDocument(RES, preDropRevision);
         for (final Instant t : List.of(UNIVERSAL, records.get(0).validFrom(), records.get(0).validTo())) {
-          final Sequence fast = ValidTimeIntervalIndex.sequence(preDropDoc, t, validTimeConfig, false, false, null);
+          final Sequence fast = ValidTimeIntervalIndex.sequence(preDropDoc, t, validTimeConfig, false, false);
           assertNotNull(fast, "time-travel: interval index must still be usable at the pre-drop revision at t=" + t);
           // The pre-drop revision's data does NOT include the post-drop-inserted record.
           final Set<Integer> brutePreDrop = bruteForceExcluding(records, t, newId);
@@ -298,7 +298,7 @@ public final class ValidTimeIndexDropTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final ValidTimeConfig vtc = new ValidTimeConfig(VALID_FROM, VALID_TO);
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
-        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, vtc, false, false, null),
+        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), UNIVERSAL, vtc, false, false),
             "interval-index fast path must be gone after the drop");
         for (final Instant t : List.of(UNIVERSAL, records.get(0).validFrom(), records.get(0).validTo())) {
           assertEquals(bruteForce(records, t), idsFromValidAt(chain, ctx, t),

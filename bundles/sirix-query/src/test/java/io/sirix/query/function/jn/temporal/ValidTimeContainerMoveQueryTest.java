@@ -226,7 +226,7 @@ final class ValidTimeContainerMoveQueryTest {
                "only the moved candidates' compressed membership and verification chunks may be read");
     assertArrayEquals(expected, ValidTimeIntervalIndex.keys(document, INSTANT, true));
     final Sequence sequence = requireNonNull(ValidTimeIntervalIndex.sequence(document, INSTANT,
-        requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig()), false, false, null));
+        requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig()), false, false));
     assertInstanceOf(ValidTimeKeySequence.class, sequence);
     final List<Long> expectedIds = new ArrayList<>();
     for (final long key : expected) {

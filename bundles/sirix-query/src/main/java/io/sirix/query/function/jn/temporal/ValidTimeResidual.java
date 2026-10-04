@@ -14,11 +14,10 @@ import io.brackit.query.jdm.json.Object;
 
 import org.jspecify.annotations.Nullable;
 
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /** The original dateTime comparison, retained for intervals the index cannot prove exactly. */
-final class ValidTimeResidual implements Predicate<Item> {
+final class ValidTimeResidual {
   private final @Nullable StaticContext context;
   private final QueryContext queryContext;
   private final Supplier<Sequence> point;
@@ -44,8 +43,7 @@ final class ValidTimeResidual implements Predicate<Item> {
     this.fieldOnLeft = fieldOnLeft;
   }
 
-  @Override
-  public boolean test(final Item object) {
+  boolean test(final Item object) {
     final Bool result;
     if (general && fieldOnLeft) {
       final Item bound = bound(object);

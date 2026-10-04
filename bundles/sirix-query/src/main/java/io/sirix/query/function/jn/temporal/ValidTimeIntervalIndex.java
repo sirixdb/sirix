@@ -14,7 +14,6 @@ import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.AbstractJsonDBArray;
 import io.sirix.query.json.JsonDBArray;
-import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.function.DateTimeToInstant;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -23,7 +22,6 @@ import org.jspecify.annotations.Nullable;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public final class ValidTimeIntervalIndex {
@@ -35,8 +33,13 @@ public final class ValidTimeIntervalIndex {
   private ValidTimeIntervalIndex() {}
 
   public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
+      final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd) {
+    return sequence(document, instant, config, strictStart, strictEnd, null);
+  }
+
+  static @Nullable ValidTimeKeySequence sequence(final JsonDBItem document, final Instant instant,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd,
-      final @Nullable Predicate<? super JsonDBObject> residual) {
+      final @Nullable ValidTimeResidual residual) {
     Objects.requireNonNull(document);
     Objects.requireNonNull(instant);
     Objects.requireNonNull(config);
@@ -80,7 +83,7 @@ public final class ValidTimeIntervalIndex {
     Objects.requireNonNull(document);
     final ValidTimeConfig config =
         Objects.requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig());
-    final Sequence sequence = sequence(document, instant, config, false, strictEnd, null);
+    final Sequence sequence = sequence(document, instant, config, false, strictEnd);
     if (sequence != null) {
       return ((ValidTimeKeySequence) sequence).matchingKeys();
     }

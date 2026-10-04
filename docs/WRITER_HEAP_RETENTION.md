@@ -62,7 +62,7 @@ from the latest persisted snapshot at or below `representRevision` through the
 session's memoized resolver. An absent snapshot inherits; an explicitly persisted
 empty catalogue stops inheritance within that revision's history. Restoration
 discards uncommitted definitions on reused controllers. `revertTo(r)` restores revision `r`'s
-catalogue, subject to the obsolete VALIDTIME replacement described in
+catalogue; incompatible VALIDTIME formats are rejected as described in
 [Valid-time key slices](VALID_TIME_KEY_SLICES.md#index-representation); it leaves the intervening
 revisions and their catalogues readable.
 

@@ -12,7 +12,6 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
@@ -38,7 +37,6 @@ import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.path.PathParser;
 
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -77,7 +75,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       final int length) {
     requireNonNull(reader);
     requireNonNull(definition);
-    if (!definition.isValidTimeIndex() || definition.needsValidTimeRebuild() || arrayKey < 0 || length <= 0) {
+    if (!definition.isValidTimeIndex() || definition.hasUnsupportedValidTimeFormat() || arrayKey < 0 || length <= 0) {
       return false;
     }
     if (reader instanceof StorageEngineWriter || reader.hasTrxIntentLog()) {
@@ -134,39 +132,6 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Create index listeners for upcoming changes.
     createIndexListeners(indexDefs, nodeWriteTrx);
 
-    return this;
-  }
-
-  @Override
-  @SuppressWarnings("ReferenceEquality") // Identity marks whether the caller's set has been copied.
-  public JsonIndexController createIndexListeners(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
-    Set<IndexDef> current = indexDefs;
-    for (final IndexDef definition : indexDefs) {
-      if (!definition.needsValidTimeRebuild()) {
-        continue;
-      }
-      if (current == indexDefs) {
-        current = new LinkedHashSet<>(indexDefs);
-      }
-      final var writer = nodeWriteTrx.getStorageEngineWriter();
-      final var page = writer.getValidTimeIndexPage(writer.getActualRevisionRootPage());
-      int id = page.nextUnallocatedIndex(definition.getID() + 1);
-      while (indexes.getIndexDef(id, IndexType.VALIDTIME) != null) {
-        id = page.nextUnallocatedIndex(id + 1);
-      }
-      final IndexDef replacement = IndexDefs.createValidTimeIdxDef(definition.getPaths(), id, IndexDef.DbType.JSON);
-      validateNewIndexDefinitions(Set.of(replacement), nodeWriteTrx);
-      try {
-        IndexBuilder.build(nodeWriteTrx, createIndexBuilders(Set.of(replacement), nodeWriteTrx));
-      } catch (final RuntimeException | Error failure) {
-        writer.markTransactionRollbackOnly(failure);
-        throw failure;
-      }
-      indexes.removeIndex(definition);
-      current.remove(definition);
-      current.add(replacement);
-    }
-    super.createIndexListeners(current, nodeWriteTrx);
     return this;
   }
 
@@ -337,6 +302,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   @Override
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.hasUnsupportedValidTimeFormat()) {
+        throw new UnsupportedOperationException("Unsupported VALIDTIME format for index " + indexDef.getID());
+      }
       if (indexDef.isValidTimeIndex()
           && nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
         throw new IllegalStateException(

@@ -20,7 +20,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.function.Predicate;
+import java.util.Objects;
 
 final class ValidTimeKeySequence extends AbstractSequence {
   private final JsonDBItem document;
@@ -28,14 +28,14 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private final ValidTimeConfig config;
   private final boolean strictStart;
   private final boolean strictEnd;
-  private final @Nullable Predicate<? super JsonDBObject> residual;
+  private final @Nullable ValidTimeResidual residual;
   private final int indexId;
   private final boolean exactPoint;
   private @Nullable Evidence evidence;
   private volatile long @Nullable [] candidates;
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
-      final boolean strictStart, final boolean strictEnd, final @Nullable Predicate<? super JsonDBObject> residual,
+      final boolean strictStart, final boolean strictEnd, final @Nullable ValidTimeResidual residual,
       final int indexId) {
     this.document = document;
     this.instant = instant;
@@ -45,6 +45,14 @@ final class ValidTimeKeySequence extends AbstractSequence {
     this.residual = residual;
     this.indexId = indexId;
     exactPoint = new IntervalDomain().isExact(instant);
+  }
+
+  ValidTimeKeySequence withResidual(final ValidTimeResidual comparison) {
+    final ValidTimeKeySequence verified = new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd,
+        Objects.requireNonNull(comparison), indexId);
+    verified.evidence = evidence;
+    verified.candidates = candidates;
+    return verified;
   }
 
   private long[] candidates() {
@@ -63,7 +71,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   @SuppressWarnings("NullAway") // Only called for nonempty candidates, after evidence is loaded.
   private boolean needsVerification(final long key) {
-    return !exactPoint || evidence.unverified().contains(key);
+    return residual != null || !exactPoint || evidence.unverified().contains(key);
   }
 
   private boolean matches(final JsonDBObject object) {
@@ -111,14 +119,12 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   @Override
   public boolean isRepeatable() {
-    // Admission excludes mutable views; the built-in residual captures an immutable comparison point.
-    // An arbitrary caller-supplied predicate may have side effects.
-    return residual == null || residual instanceof ValidTimeResidual;
+    return true;
   }
 
   @Override
   public @Nullable IntNumeric knownSize() {
-    if (!exactPoint || !isRepeatable()) {
+    if (!exactPoint || residual != null) {
       return null;
     }
     final long[] keys = candidates();

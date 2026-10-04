@@ -119,23 +119,6 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public synchronized void rebuildValidTimeIndexes() {
-    final int revision = getMostRecentRevisionNumber();
-    if (getResourceConfig().getValidTimeConfig() == null) {
-      return;
-    }
-    final JsonIndexController controller = createIndexController(revision);
-    for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
-      if (definition.needsValidTimeRebuild()) {
-        try (final JsonNodeTrx writer = beginNodeTrx(AfterCommitState.CLOSE)) {
-          writer.commit();
-        }
-        return;
-      }
-    }
-  }
-
-  @Override
   public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader,
       Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineReader, (ImmutableJsonNode) documentNode);
@@ -178,7 +161,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     return rtxIndexControllers.computeIfAbsent(revision, _ -> {
       final JsonIndexController controller = createIndexController(revision);
       for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
-        if (definition.needsValidTimeRebuild()) {
+        if (definition.hasUnsupportedValidTimeFormat()) {
           controller.getIndexes().removeIndex(definition);
         }
       }

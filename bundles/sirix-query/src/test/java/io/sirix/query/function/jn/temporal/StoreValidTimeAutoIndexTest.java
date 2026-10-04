@@ -132,7 +132,7 @@ public final class StoreValidTimeAutoIndexTest {
           assertEquals(brute, idsFromValidAt(chain, ctx, t), "jn:valid-at must equal brute force at t=" + t);
 
           final Sequence fast =
-              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null);
+              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false);
           assertNotNull(fast, "the auto-created interval index must be usable at t=" + t);
           assertEquals(brute, idsOfSequence(fast), "interval-index scan must equal brute force at t=" + t);
 
@@ -206,7 +206,7 @@ public final class StoreValidTimeAutoIndexTest {
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB);
         final Instant t = Instant.parse("2021-01-15T00:00:00Z");
-        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null),
+        assertNull(ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false),
             "the interval-index fast path must NOT apply after opting out");
         assertEquals(bruteForce(records, t), idsFromValidAt(chain, ctx, t),
             "jn:valid-at must still be correct via fallback at t=" + t);
@@ -261,7 +261,7 @@ public final class StoreValidTimeAutoIndexTest {
               "jn:valid-at must equal brute force after a post-store insert at t=" + t);
 
           final Sequence fast =
-              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false, null);
+              ValidTimeIntervalIndex.sequence(collection.getDocument(RES), t, validTimeConfig, false, false);
           assertNotNull(fast, "the interval index must still be usable after a post-store insert at t=" + t);
           assertEquals(brute, idsOfSequence(fast),
               "interval-index scan must include listener-maintained entries at t=" + t);

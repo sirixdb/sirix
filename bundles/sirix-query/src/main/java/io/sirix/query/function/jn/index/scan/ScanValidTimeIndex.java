@@ -115,7 +115,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     final Instant validTime = dateTimeToInstant.convert((DateTime) args[1]);
     // Fast path: the persistent interval index.
     final Sequence intervalSequence =
-        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false);
     if (intervalSequence != null) {
       return intervalSequence;
     }

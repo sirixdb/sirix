@@ -130,10 +130,12 @@ public final class OpenBitemporal extends AbstractFunction {
             ? start
             : !start);
     if (matchesIndexedComparison(field, validTimeConfig, start, comparisonPoint, validDateTime)) {
-      final Sequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict,
-          !start && strict, residual);
+      final ValidTimeKeySequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig,
+          start && strict, !start && strict, null);
       if (sequence != null) {
-        return sequence;
+        return sequence.knownSize() != null
+            ? sequence
+            : sequence.withResidual(residual);
       }
     }
 
@@ -177,7 +179,7 @@ public final class OpenBitemporal extends AbstractFunction {
   private static Sequence closedSequence(final JsonDBItem document, final Instant validTime,
       final ValidTimeConfig validTimeConfig) {
     final Sequence intervalSequence =
-        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false, null);
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false);
     if (intervalSequence != null) {
       return intervalSequence;
     }
