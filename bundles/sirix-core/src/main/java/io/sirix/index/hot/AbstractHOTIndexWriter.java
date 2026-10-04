@@ -2294,9 +2294,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     if (referenced) {
       pendingReferencedPayload = NodeReferencesSerializer.serialize(chunkReferences);
-      lastSerializedValueBuf =
-          NodeReferencesSerializer.encodeReferenced(pendingReferencedKey, pendingReferencedPayload.length,
-              ProjectionIndexColumnSegmentCodec.contentHash(pendingReferencedPayload));
+      lastSerializedValueBuf = NodeReferencesSerializer.encodeReferenced(pendingReferencedKey,
+          pendingReferencedPayload.length, ProjectionIndexColumnSegmentCodec.contentHash(pendingReferencedPayload));
       lastSerializedValueLen = lastSerializedValueBuf.length;
       return lastSerializedValueLen;
     }
@@ -7824,7 +7823,12 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  /** A side-map entry captured off a leaf that a bounded frontier splice is about to replace. */
+  /**
+   * A side-map entry captured off a leaf that a bounded frontier splice is about to replace. The
+   * owner key is a private immutable snapshot; reattachment compares its contents explicitly and
+   * never uses record equality.
+   */
+  @SuppressWarnings("ArrayRecordComponent")
   private record CapturedSegmentRef(long refKey, PageReference reference, byte @Nullable [] ownerKey) {
   }
 

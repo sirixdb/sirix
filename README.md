@@ -433,9 +433,10 @@ Three secondary index types, all updated **synchronously** inside the writing tr
 - **Name index** — index object-key / element names.
 
 All three use one canonical [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index)
-representation over off-heap leaf pages. Initial creation may bulk-build a virgin tree, while every
-later insert, update, and delete mutates only the affected posting chunk in that same format. There
-is no per-resource backend selector or alternate mutation route.
+representation over off-heap leaf pages. Initial creation may bulk-build a virgin tree; later
+mutations maintain the affected posting list. The authoritative
+[CAS/VALIDTIME posting layout](docs/DISK_FORMAT.md#cas-and-validtime-posting-chunks) describes delta
+updates and folded side pages. There is no per-resource backend selector.
 
 Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N*
 returns the index state as of *N*—never a later commit's. This is verified across point and range

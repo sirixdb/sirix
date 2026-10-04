@@ -56,7 +56,7 @@ import static java.util.Objects.requireNonNull;
  * Uses a hybrid format optimized for both small and large sets:
  * </p>
  * <ul>
- * <li><b>Small sets (&lt; 64 entries):</b> Packed format - more compact, lower overhead</li>
+ * <li><b>Small sets (up to 64 entries):</b> Packed format - more compact, lower overhead</li>
  * <li><b>Large sets:</b> Roaring64Bitmap native serialization - compressed, efficient</li>
  * </ul>
  *
@@ -89,12 +89,10 @@ public final class NodeReferencesSerializer {
 
   /**
    * Format marker of a <em>referenced</em> chunk: the payload lives in an {@link OverflowPage} on the
-   * leaf's side map and the slot holds only
-   * {@code [0xFD][refKey:8 BE][payloadLength:4 BE][payloadHash:8 BE]} (21
-   * bytes). A folded hot chunk is stored this way so that a versioned leaf image carries 21 bytes per
-   * chunk instead of the payload: the sliding carry-forward then re-emits references, not chunk
-   * bytes. Readers resolve the page through the storage engine ({@code readSideOverflowPage}); every
-   * structural move of the owning entry routes the side reference by the marker
+   * leaf's side map. The marker layout is specified in docs/DISK_FORMAT.md, "CAS and VALIDTIME
+   * posting chunks". A versioned leaf carries the marker so sliding carry-forward does not re-emit
+   * chunk bytes. Readers resolve the page through the storage engine ({@code readSideOverflowPage});
+   * every structural move of the owning entry routes the side reference by the marker
    * ({@link HOTLeafPage#findReferencedPostingOwner}).
    */
   public static final byte REFERENCED_FORMAT = (byte) 0xFD;
@@ -176,6 +174,8 @@ public final class NodeReferencesSerializer {
    * hash-checked against the marker.
    *
    * @throws IllegalStateException when the side reference or its page is missing or the length
+   *         disagrees
+   * @throws SirixCorruptionException when checksum verification is enabled and the payload hash
    *         disagrees
    */
   public static byte[] resolveReferencedPayload(final HOTLeafPage leaf, final long refKey, final int payloadLength,
@@ -572,9 +572,9 @@ public final class NodeReferencesSerializer {
           // absent value. A matched composite slot must carry a canonical chunk payload.
           chunkBytes = leaf.copyStoredValue(idx);
           if (candidate.length == compositeLen && isReferenced(chunkBytes, 0, chunkBytes.length)) {
-            chunkBytes = resolveReferencedPayload(leaf, referencedKey(chunkBytes, 0),
-                referencedPayloadLength(chunkBytes, 0), referencedPayloadHash(chunkBytes, 0),
-                cursor.verifyChecksumsOnRead(), cursor::readSideOverflowPage);
+            chunkBytes =
+                resolveReferencedPayload(leaf, referencedKey(chunkBytes, 0), referencedPayloadLength(chunkBytes, 0),
+                    referencedPayloadHash(chunkBytes, 0), cursor.verifyChecksumsOnRead(), cursor::readSideOverflowPage);
           }
         }
       } catch (RuntimeException e) {
@@ -589,7 +589,7 @@ public final class NodeReferencesSerializer {
         continue;
       }
       tornRounds = 0;
-      if (chunkBytes != null && !isTombstone(chunkBytes, 0, chunkBytes.length)) {
+      if (composite != null && chunkBytes != null && !isTombstone(chunkBytes, 0, chunkBytes.length)) {
         // The copies are validated heap bytes now — safe to hand to the deserializer.
         final long trailer = HOTKeySerializer.readChunkIdx(composite, 0, compositeLen) & 0xFFFFFFFFL;
         if (composite.length == deltaLen) {

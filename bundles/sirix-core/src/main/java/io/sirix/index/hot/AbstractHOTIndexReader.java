@@ -919,11 +919,9 @@ public abstract class AbstractHOTIndexReader<K> {
     }
 
     /**
-     * Whether the slot's logical key (composite minus the chunk trailer) lies inside both bounds, read
-     * straight off the leaf. Zero-copy on purpose: the composite ceiling is wider than the logical
-     * range (index keys are not prefix-free), so a bounded scan visits groups it must reject, and
-     * rejecting them here means {@link HOTLeafPage#getKey} is only ever paid for a group that is
-     * actually emitted.
+     * Whether the slot's logical key lies inside both bounds, read straight off the leaf. Rejecting
+     * excluded groups here covers every base and delta slot without allocating their keys. NAME keys
+     * can also extend a bound's logical prefix, so their comparison removes the chunk trailer.
      */
     private boolean slotWithinBounds(final HOTLeafPage leaf, final int idx) {
       final byte[] lower = lowerBoundKey;

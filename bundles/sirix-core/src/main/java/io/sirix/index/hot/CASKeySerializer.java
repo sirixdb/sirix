@@ -80,10 +80,8 @@ import static java.util.Objects.requireNonNull;
  */
 public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
 
-  // The xs:boolean, xs:float and out-of-range xs:integer encodings all changed here, so a HOT CAS
-  // index written by an older build holds keys this one will not seek to. Nothing to migrate: all
-  // three were returning wrong answers, so such an index holds no correct data to preserve. Delete
-  // and rebuild any local scratch resource that predates this.
+  // Stored-format replacement policy is owned by docs/DISK_FORMAT.md, "CAS and VALIDTIME posting
+  // chunks". Do not add an unframed-key fallback here.
 
   /**
    * Sign-flip constant for order-preserving encoding of signed longs.
@@ -328,8 +326,8 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   static final int HEADER_BYTES = 10;
 
   /**
-   * Maximum bytes available for string value encoding. Header is 10 bytes (8 for pathNodeKey + 2 for
-   * typeId), buffer is 256 bytes.
+   * Maximum string value bytes before escaping and termination. Truncation applies to the atomic
+   * encoding, independently of the caller's destination capacity.
    */
   static final int MAX_STRING_VALUE_BYTES = 246;
 
@@ -1313,4 +1311,3 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     }
   }
 }
-

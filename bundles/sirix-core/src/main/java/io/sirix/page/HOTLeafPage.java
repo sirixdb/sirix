@@ -42,6 +42,7 @@ import io.sirix.index.hot.ByteLaneSearch;
 import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.index.hot.PostingDeltas;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
@@ -122,8 +123,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Page-envelope flag bit: this leaf serializes a trailing overflow-page-reference section (the side
    * map of {@link OverflowPage} references keyed by {@link #overflowPageRefKey(long, int)} — a
-   * generic leaf-page facility; the projection index is its current user, see
-   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   * generic leaf-page facility used by projection segments and referenced posting chunks).
    */
   public static final byte FLAG_OVERFLOW_PAGE_REFS = 0x01;
 
@@ -133,10 +133,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * THE side-map key convention, in one place so the writer and the decoder
    * ({@link #moveOverflowPageRefsAfterSplit}) cannot drift: a side-map entry's key is
-   * {@code (ownerSlotKey << 16) | subId}, where {@code ownerSlotKey} is the long whose
-   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both halves —
-   * a truncated owner key would collide two distinct owners and mis-route refs after splits
-   * (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
+   * {@code (ownerSlotKey << 16) | subId}. For projection entries, {@code ownerSlotKey}'s
+   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Posting entries use
+   * {@link PostingDeltas#referenceKey} and route by {@link #findReferencedPostingOwner} instead.
+   * Validates both halves — a truncated owner key would collide two distinct owners and mis-route
+   * refs after splits (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
    *
    * <p>
    * The sub-id occupies 16 bits (was 8): the projection index encodes a column's segment id here, and
@@ -160,7 +161,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     return (ownerSlotKey << 16) | subId;
   }
 
-  /** Inverse of {@link #overflowPageRefKey}: the owning slot's long key. */
+  /**
+   * Inverse of {@link #overflowPageRefKey}; a posting reference's high field is a hash, not a slot.
+   */
   public static long overflowPageRefOwnerSlot(final long refKey) {
     return refKey >> 16;
   }
@@ -3342,14 +3345,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Route overflow-page-reference side-map entries to {@code target} after a split moved slots there.
-   * A side-map key encodes its owning slot as {@code (slotLong << 16) | subId}, where the owning
-   * slot's stored key bytes are {@code PathKeySerializer.serialize(slotLong)} (the owning slot's
-   * stored-key encoding — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3 for the projection
-   * index, this facility's current user). A reference must live on the page that holds its owning
-   * slot, or readers navigating to the post-split leaf would find the slot but not its overflow page.
-   * Routing by owner-slot residency (not by key-range comparison) stays correct for the disc-bit
-   * split variants, whose partition is not contiguous in key order. Called by every split variant
-   * after entry transfer.
+   * Projection owners are located by their stored slot key; posting owners are located by
+   * {@link #findReferencedPostingOwner}, since a posting side-map key carries a hash. A reference
+   * must live on the page that holds its owning slot, or readers navigating to the post-split leaf
+   * would find the slot but not its overflow page. Routing by owner-slot residency (not by key-range
+   * comparison) stays correct for the disc-bit split variants, whose partition is not contiguous in
+   * key order. Called by every split variant after entry transfer.
    */
   private void moveOverflowPageRefsAfterSplit(final HOTLeafPage target) {
     beginSideReferenceRead();
@@ -4771,11 +4772,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * The slot whose value is a referenced posting-chunk marker ({@code 0xFD ‖ refKey ‖ length})
-   * carrying {@code refKey}, or {@code -1}. A posting index's composite keys are not 8-byte path
-   * keys, so a referenced chunk's side reference is routed to the leaf that holds the marker, not by
-   * {@link #overflowPageRefOwnerSlot}'s derivation. A bounded scan of this leaf's slot headers, used
-   * only when entries move between leaves.
+   * The slot whose value is a referenced posting-chunk marker carrying {@code refKey}, or {@code -1}.
+   * A posting index's composite keys are not 8-byte path keys, so a referenced chunk's side reference
+   * is routed to the leaf that holds the marker, not by {@link #overflowPageRefOwnerSlot}'s
+   * derivation. A bounded scan of this leaf's slot headers, used only when entries move between
+   * leaves.
    */
   public int findReferencedPostingOwner(final long refKey) {
     if (indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) {
