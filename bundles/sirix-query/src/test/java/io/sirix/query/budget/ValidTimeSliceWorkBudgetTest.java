@@ -2,6 +2,7 @@ package io.sirix.query.budget;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Numeric;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
@@ -18,10 +19,13 @@ import io.sirix.budget.WorkReport;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
+import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import io.sirix.io.StorageType;
@@ -56,7 +60,8 @@ import static org.mockito.Mockito.withSettings;
 @Isolated
 final class ValidTimeSliceWorkBudgetTest {
   private static final WorkCapture INDEX_WORK =
-      WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_REFS);
+      WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_REFS,
+          EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS);
   @TempDir
   Path directory;
 
@@ -161,6 +166,54 @@ final class ValidTimeSliceWorkBudgetTest {
   }
 
 
+  @Test
+  void exactOuterCohortCountsStayKeyOnlyWithInexactNestedArrayMembers() throws Exception {
+    shredRows("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+          "nested":[{"id":99,"vf":"2020-01-01T00:00:00.000500Z","vt":"2021-01-01T00:00:00.000500Z"}]},
+         {"id":2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final JsonDBItem document = store.lookup("budget").getDocument("rows");
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+      final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(store.lookup("budget")));
+      doReturn(observed).when(collection).getDocument(eq("rows"), anyInt());
+      final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
+      doReturn(collection).when(observedStore).lookup("budget");
+      try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
+          var observedChain = SirixCompileChain.createWithJsonStore(observedStore);
+          var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        final String predicate = "[] where xs:dateTime($x.vf) le xs:dateTime('2024-01-01T00:00:00Z') and "
+            + "xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt) return $x";
+        final String source = "jn:doc('budget','rows')";
+        assertEquals(2,
+            ((Numeric) new Query(generic, "count(for $x at $position in " + source + predicate + ")").evaluate(
+                context)).intValue());
+        clearInvocations(cursor);
+        final WorkReport work = INDEX_WORK.run(() -> assertEquals(2,
+            ((Numeric) new Query(observedChain, "count(for $x in " + source + predicate + ")").evaluate(
+                observedContext)).intValue()));
+        work.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 4,
+            "an exact outer cohort must retain the closed and half-open index stabs")
+            .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+                "cohort exactness must not enumerate membership or unrelated verification references")
+            .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2, 7,
+                "admission and candidates may only probe their compressed evidence chunks");
+        verify(cursor, never()).moveTo(anyLong());
+        verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+      }
+    }
+  }
+
   private static String comparisonPredicate(final String point, final boolean start, final boolean strict,
       final boolean general, final boolean mirror) {
     final String bound = "xs:dateTime($x." + (start
@@ -210,6 +263,193 @@ final class ValidTimeSliceWorkBudgetTest {
   @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
   void oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab() throws Exception {
     assertInexactEmptyStabBudget(100_000);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {32, 128})
+  void selectivePositiveStabsReadOnlyCandidatePostingsWithMatchFirst(final int count) throws Exception {
+    assertSelectiveStabBudget(count, true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {32, 128})
+  void selectivePositiveStabsReadOnlyCandidatePostingsWithMatchLast(final int count) throws Exception {
+    assertSelectiveStabBudget(count, false);
+  }
+
+  @Test
+  @Tag("heavy")
+  @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
+  void oneHundredThousandSelectiveIntervalsWithMatchFirst() throws Exception {
+    assertSelectiveStabBudget(100_000, true);
+  }
+
+  @Test
+  @Tag("heavy")
+  @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
+  void oneHundredThousandSelectiveIntervalsWithMatchLast() throws Exception {
+    assertSelectiveStabBudget(100_000, false);
+  }
+
+  private void assertSelectiveStabBudget(final int count, final boolean matchFirst) throws Exception {
+    final String match = """
+        {"id":-1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+         "nested":{"id":-2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         "cohort":[{"id":-3,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]}
+        """;
+    final StringBuilder json = new StringBuilder(count * 96);
+    json.append('[');
+    for (int i = 0; i < count; i++) {
+      if (i != 0) {
+        json.append(',');
+      }
+      if (i == (matchFirst
+          ? 0
+          : count - 1)) {
+        json.append(match);
+      } else {
+        json.append("{\"id\":")
+            .append(i)
+            .append(",\"vf\":\"2020-01-01T00:00:00.000500Z\",\"vt\":\"2021-01-01T00:00:00.000500Z\"}");
+      }
+    }
+    json.append(']');
+    shredRows(json.toString());
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final var realCollection = store.lookup("budget");
+      final JsonDBItem document = realCollection.getDocument("rows");
+      final var realCursor = document.getTrx();
+      realCursor.moveTo(document.getNodeKey());
+      if (matchFirst) {
+        realCursor.moveToFirstChild();
+      } else {
+        realCursor.moveToLastChild();
+      }
+      final long matchKey = realCursor.getNodeKey();
+      realCursor.moveTo(document.getNodeKey());
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(realCursor));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+      final var config = observed.getResourceSession().getResourceConfig().getValidTimeConfig();
+      final Instant point = Instant.parse("2024-01-01T00:00:00Z");
+      for (int mode = 0; mode < 4; mode++) {
+        for (int demand = 0; demand < 3; demand++) {
+          final Sequence rows = Objects.requireNonNull(
+              ValidTimeIntervalIndex.sequence(observed, point, config, (mode & 1) != 0, (mode & 2) != 0, null));
+          clearInvocations(cursor);
+          final int request = demand;
+          final WorkReport work = INDEX_WORK.run(() -> {
+            if (request == 0) {
+              assertEquals(1, rows.size().intValue());
+            } else if (request == 1) {
+              assertNotNull(rows.get(Int32.ONE));
+              assertEquals(matchKey, cursor.getNodeKey());
+            } else {
+              try (var iterator = rows.iterate()) {
+                assertNotNull(iterator.next());
+                assertEquals(matchKey, cursor.getNodeKey());
+                assertNull(iterator.next());
+              }
+            }
+          });
+          assertSelectiveWork(work, cursor, count, matchFirst, mode, demand);
+        }
+      }
+      clearInvocations(cursor);
+      final var definition = document.getResourceSession()
+                                     .getRtxIndexController(cursor.getRevisionNumber())
+                                     .getIndexes()
+                                     .getIndexDefs()
+                                     .stream()
+                                     .filter(index -> index.isValidTimeIndex())
+                                     .findFirst()
+                                     .orElseThrow();
+      final WorkReport positive =
+          INDEX_WORK.run(() -> ValidTimeIntervalIndexFactory
+                                                            .createVerificationStore(cursor.getStorageEngineReader(),
+                                                                definition.getID())
+                                                            .scan(0, 0, 0, key -> {
+                                                            }));
+      positive.assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, count - 1L,
+          "the same posting counter must observe unrelated references when explicitly enumerated");
+      final Sequence inexact = Objects.requireNonNull(
+          ValidTimeIntervalIndex.sequence(observed, Instant.parse("2020-06-01T00:00:00Z"), config, false, false, null));
+      final WorkReport verification = INDEX_WORK.run(() -> assertNotNull(inexact.get(Int32.ONE)));
+      verification.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count - 1L,
+          "a positive control must still reach the inexact intervals");
+      verify(cursor, atLeast(1)).getValue();
+      verify(cursor, atLeast(1)).getFirstChildKey();
+      final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(realCollection));
+      doReturn(observed).when(collection).getDocument("rows");
+      doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
+      doReturn(observed).when(collection).getDocument(eq("rows"), anyInt());
+      final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
+      doReturn(collection).when(observedStore).lookup("budget");
+      try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
+          var observedChain = SirixCompileChain.createWithJsonStore(observedStore)) {
+        for (final int mode : new int[] {0, 1, 2, 4, 5}) {
+          final String expression = switch (mode) {
+            case 4 -> "jn:valid-at('budget','rows',xs:dateTime('" + point + "'))";
+            case 5 -> "jn:scan-valid-time-index(jn:doc('budget','rows'),xs:dateTime('" + point + "'))";
+            default -> bitemporalExpression(point, mode);
+          };
+          for (int demand = 0; demand < 3; demand++) {
+            clearInvocations(cursor);
+            final int request = demand;
+            final WorkReport work = INDEX_WORK.run(() -> {
+              if (request == 0) {
+                assertEquals(1, ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
+                    observedContext)).intValue());
+              } else if (request == 1) {
+                assertEquals(Bool.TRUE,
+                    new Query(observedChain, "exists(" + expression + ")").evaluate(observedContext));
+              } else {
+                final Sequence rows = new Query(observedChain, expression).execute(observedContext);
+                try (var iterator = rows.iterate()) {
+                  assertNotNull(iterator.next());
+                  assertEquals(matchKey, cursor.getNodeKey());
+                }
+              }
+            });
+            assertSelectiveWork(work, cursor, count, matchFirst, mode, demand);
+          }
+        }
+      }
+    }
+  }
+
+  private static void assertSelectiveWork(final WorkReport work, final JsonNodeReadOnlyTrx cursor, final int count,
+      final boolean first, final int mode, final int demand) {
+    work.assertBetween(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 3, 6,
+        "only the matching root record and its two nested records may be interval candidates")
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+            "selective demands must never enumerate unrelated posting references")
+        .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2, 6,
+            "only the three candidates' membership and verification chunks may be probed")
+        .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 1, 6,
+            "only the three candidates' compressed posting chunks may be read");
+    verify(cursor, never()).getValue();
+    if (demand == 0) {
+      verify(cursor, never()).moveTo(anyLong());
+      verify(cursor, never()).getFirstChildKey();
+    } else {
+      verify(cursor, times(1)).moveTo(anyLong());
+      verify(cursor, times(1)).getFirstChildKey();
+    }
+    System.out.printf(
+        "valid-time selective records=%d first=%s mode=%d demand=%d intervalRefs=%d postingRefs=%d postingLookups=%d postingChunks=%d objectReads=%d timestampReads=0%n",
+        count, first, mode, demand, work.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
+        work.of(EngineWorkCounters.VALID_TIME_POSTING_REFS), work.of(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS),
+        work.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS), demand == 0
+            ? 0
+            : 1);
   }
 
   private void assertInexactEmptyStabBudget(final int count) throws Exception {
@@ -380,8 +620,10 @@ final class ValidTimeSliceWorkBudgetTest {
   private static void assertZeroIndexWork(final WorkReport work, final int count, final Instant point, final int mode,
       final String route) {
     work.assertZero(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, "an empty closed stab must emit no interval refs")
-        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
-            "an empty closed stab must not expand posting evidence");
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "an empty closed stab must not expand posting evidence")
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS,
+            "an empty closed stab must not probe posting evidence")
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, "an empty closed stab must not read posting chunks");
     System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s intervalRefs=%d postingRefs=%d%n",
         count, point, mode, route, work.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
         work.of(EngineWorkCounters.VALID_TIME_POSTING_REFS));
@@ -390,8 +632,12 @@ final class ValidTimeSliceWorkBudgetTest {
   private static void assertPositiveIndexWork(final WorkReport work, final int count) {
     work.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count,
         "a nonempty stab must enumerate its candidates")
-        .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, 2L * count,
-            "one membership and one verification ref per candidate must be counted");
+        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+            "posting checks must not enumerate membership or verification references")
+        .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
+            "nonempty candidates must probe both membership and verification postings")
+        .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+            "inexact candidates must read both compressed posting chunks");
   }
 
   private static void assertZeroObjectReads(final JsonNodeReadOnlyTrx cursor, final int count, final Instant point,

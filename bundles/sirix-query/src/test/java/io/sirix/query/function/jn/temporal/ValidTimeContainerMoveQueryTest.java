@@ -44,7 +44,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ValidTimeContainerMoveQueryTest {
   private static final String POINT = "xs:dateTime('2024-01-01T00:00:00Z')";
   private static final Instant INSTANT = Instant.parse("2024-01-01T00:00:00Z");
-  private static final WorkCapture POSTINGS = WorkCapture.of(EngineWorkCounters.VALID_TIME_POSTING_REFS);
+  private static final WorkCapture POSTINGS = WorkCapture.of(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+      EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS);
 
   @TempDir
   Path directory;
@@ -80,10 +81,8 @@ final class ValidTimeContainerMoveQueryTest {
             : step >= 5
                 ? new long[] {fourth}
                 : new long[0];
-        assertArrayScope(chain, context, collection, reader, keys.root(), rootKeys,
-            step >= 3 || (mode.equals("right") && step >= 2));
-        assertArrayScope(chain, context, collection, reader, keys.destination(), destinationKeys,
-            mode.equals("right") && step >= 1);
+        assertArrayScope(chain, context, collection, reader, keys.root(), rootKeys);
+        assertArrayScope(chain, context, collection, reader, keys.destination(), destinationKeys);
         final List<Long> closed = step == 1
             ? List.of()
             : step >= 3
@@ -212,16 +211,19 @@ final class ValidTimeContainerMoveQueryTest {
   }
 
   private static void assertArrayScope(final SirixCompileChain chain, final SirixQueryContext context,
-      final JsonDBCollection collection, final JsonNodeReadOnlyTrx reader, final long array, final long[] expected,
-      final boolean unordered) throws Exception {
+      final JsonDBCollection collection, final JsonNodeReadOnlyTrx reader, final long array, final long[] expected)
+      throws Exception {
     assertTrue(reader.moveTo(array));
     final var document = (JsonDBItem) JsonItemFactory.INSTANCE.getSequence(reader, collection);
     final var capture = POSTINGS.call(() -> ValidTimeIntervalIndex.keys(document, INSTANT, false));
     assertArrayEquals(expected, capture.result());
     capture.work()
-           .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, expected.length + 1 + (unordered
-               ? 1
-               : 0), "moved-array membership, duplicate verification and the persisted order marker");
+           .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+               "moved-array membership and duplicate verification must not enumerate posting references")
+           .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
+               "the moved candidates require one membership and one verification chunk probe")
+           .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 1, 2,
+               "only the moved candidates' compressed membership and verification chunks may be read");
     assertArrayEquals(expected, ValidTimeIntervalIndex.keys(document, INSTANT, true));
     final Sequence sequence = requireNonNull(ValidTimeIntervalIndex.sequence(document, INSTANT,
         requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig()), false, false, null));
