@@ -1,11 +1,13 @@
 # Open projection row-group tails: verification
 
-Measured on 2026-10-04 on the i7-12700H. Main baseline: `3fb92436d`. The only production differences
-are the open-row-group tail, merged reader routing, and the bounded writer-seeded merge memo. The
-existing six changed classes and their nested classes were exported from the baseline commit and
-prepended to the common runtime for the main arm. The candidate runtime, main overlay and
-dependencies were copied and hashed before measurement. No benchmark harness or permanent diagnostic counters are
-landed.
+Measured on 2026-10-04 on the i7-12700H. The primary single-commit proof is the historical JSONBench
+replay against main `cc042c494fdb648525bd833cdb14a5b7f82abd6e`. The earlier SH1 and generated-fixture
+campaigns used main `3fb92436d`; their complete results remain below as supplementary evidence. The
+production change contains the open-row-group tail, merged reader routing, and bounded writer-seeded
+merge memo. The six changed existing classes and their nested classes were exported from the earlier
+baseline and prepended to the common runtime for its main arm. Candidate runtime, main overlay and
+dependencies were copied and hashed before measurement; the JSONBench shared query overlay is
+identified below. No benchmark harness or permanent diagnostic counters are landed.
 
 Every build and benchmark process used the prescribed memory limiter (at least 6 GiB available, two
 shared flock slots). Benchmark JVMs were pinned to CPUs 0–11. Both arms use the same Brackit
@@ -65,12 +67,71 @@ Times below are seconds.
 | q11 | 8.772588 | 8.923169 | 1.0148 | 0.9762–1.0243 |
 | q12 | 0.240289 | 0.240432 | 1.0110 | 0.9664–1.0677 |
 
-## Single-record commit proof
+## Historical JSONBench single-record commit proof
 
 The historical prototype result was 210,207 to 188,221 bytes per single commit (-10.5%), with commit
-p50 35.53 to 35.95 ms after the memo was seeded. Its million-row Bluesky replay is unavailable: the
-prototype replay symlink's target is missing. The measurements below use a fresh generated fixture
-and do not reproduce that corpus.
+p50 35.53 to 35.95 ms after the memo was seeded. The historical 077/084 million-row Bluesky workload
+has now been replayed on current main and the candidate. The original `prepare.py` reconstructed the
+canonical replay from the preserved read-only `/var/tmp/jsonbench/data/file_0001.json.gz`. Its SHA-256,
+`ad177298335065afe23beaef0ec5a4b5655f548d94052c94d491be5f10be6e9e`, exactly matches the historical
+`source.json`. The root-single manifest, 617-request suite, independent `expected.json` and parameters
+were preserved; input hashes are recorded below.
+
+Each arm loaded 990,000 rows in 99 commits of 10,000, followed by 10,000 single-row commits with the
+same long-lived writer. It used SLIDING_SNAPSHOT, revision window three, the original eight projected
+fields and sorted specification, `storeDiffs(false)`, node history, custom timestamps, path summary
+enabled and hash NONE. Each arm had a fresh store and JVM. Eight matched pairs alternated order:
+main/candidate for odd pairs, candidate/main for even pairs. Load and correctness JVMs used the
+prescribed memory limiter and `taskset -c 0-11`; running affinity was verified as CPUs 0–11. Both arms
+retained the original 6 GiB heap/offheap configuration, 1 GiB direct cap and diagnostics/promotion
+settings. No campaign-owned tests ran concurrently, and no tuning occurred during this replay.
+
+The scratch driver removed three unavailable prototype-only telemetry snapshot calls and dumped
+production `StorageProfile` totals outside commit timing at 990,000 and 1,000,000 rows. Commit service
+time retained the original driver's `commit_seconds` interval. Bytes per single commit are the delta
+of writer-path persisted disk-page bytes across those 10,000 commits divided by 10,000, the historical
+metric. Every arm checked all 617 requests against the preserved independent oracle before deleting
+its store: **9,872/9,872 exact comparisons** across sixteen arms. All task stores and canonical input
+scratch were deleted afterward; the original data and prototype were unchanged. The campaign ran
+07:32–10:05 UTC on 2026-10-04.
+
+| Measurement | Main median | Candidate median | Paired median ratio | 95% interval |
+|---|---:|---:|---:|---:|
+| Bytes / single commit | 191749.591 | 164279.2227 | 0.856738321 | 0.856738321–0.856738321 |
+| Commit p50 (ms) | 27.34341675 | 27.2227325 | 0.994417978 | 0.974112592–1.002198341 |
+
+Bytes fell **14.326167872%**, with paired change interval [−14.326167872%, −14.326167872%]. Every
+main arm measured 191,749.591 B/commit and every candidate arm 164,279.2227 B/commit; the zero-width
+interval reflects deterministic bytes on this fixed corpus. The paired commit-p50 change was
+**−0.558202177%**, interval [−2.588740832%, +0.219834123%]. There was no confirmed latency regression;
+the upper p50 bound is also below 1.05. Per-pair p50 results are:
+
+| Pair | Order | Main p50 (ms) | Candidate p50 (ms) | Candidate/main ratio |
+|---|---|---:|---:|---:|
+| 1 | Main, candidate | 27.7571305 | 27.0417270 | 0.974226316 |
+| 2 | Candidate, main | 27.2017920 | 27.3267990 | 1.004595543 |
+| 3 | Main, candidate | 27.1910765 | 26.4871700 | 0.974112592 |
+| 4 | Candidate, main | 26.9582910 | 26.9816840 | 1.000867748 |
+| 5 | Main, candidate | 27.1344965 | 27.1889515 | 1.002006855 |
+| 6 | Candidate, main | 27.4850415 | 27.5454630 | 1.002198341 |
+| 7 | Main, candidate | 27.5884520 | 27.2565135 | 0.987968209 |
+| 8 | Candidate, main | 28.7674155 | 27.7164105 | 0.963465435 |
+
+This is the primary proof on the historical corpus and protocol, with a larger byte saving than the
+accepted -10.5% target and p50 at the current-main level within the reported interval. It does not
+claim to reproduce the prototype's absolute 35.53/35.95 ms timings. Main's rounded 191,750 B/commit
+matches the historical pre-A old-design control. The current implementation folds after 64 live
+tail blobs; the historical prototype used the full-row-group bound.
+
+The replay has no persisted order exceptions from middle inserts and does not cover the reported
+bitmap-growth defect. It also does not resolve the reported eager base-payload reads on merge-memo
+hits. Those correctness/read-path findings remain unaddressed by this documentation update; the
+captured measurements do not waive them or validate a later production fix.
+
+## Supplementary generated-fixture single-record commits
+
+The earlier generated fixture used a different corpus and ordinary row-group-major projection
+without a sorted view. Its measurements supplement the historical replay above.
 
 Eight scalar lanes (`kind`, `did`, `time`, `collection`, `operation`, `valid`, `origin`, `id`) are
 projected from `/[]` at load start. Rows 1–990,000 are loaded in 99 batches of 10,000, followed by
@@ -108,7 +169,7 @@ checked on all four versioning types; removing that policy fails all four cases.
 The SH1 kit does not explicitly create a projection index. Its timings gate whole-engine
 regressions; the projected single-record fixture exercises open-row tails directly.
 
-The final first-pair page attribution was:
+The generated-fixture final first-pair page attribution was:
 
 | Page kind | Main B/commit | Candidate B/commit | Change |
 |---|---:|---:|---:|
@@ -119,11 +180,50 @@ The final first-pair page attribution was:
 
 All reported intervals use candidate/main ratios paired by run, the median of those ratios, and 95%
 paired-bootstrap intervals with 5,000 resamples (fixed seed 20261004). A latency cell is a confirmed
-regression when its lower bound exceeds 1.05.
+regression when its lower bound exceeds 1.05. The paired median ratio need not equal the ratio of
+the two arm medians.
 
 ## Frozen artifact provenance
 
-The local campaign evidence is retained under `build/pr6/final/` (ignored): `runtime-manifest.json`,
+### Historical JSONBench replay
+
+The supplied local evidence is retained under
+`/home/johannes/.treehouse/sirix-cdde48/10/sirix/build/pr6/jsonbench/`:
+`verification-summary.txt`, `paired-analysis.json` (full-precision metrics and all per-pair values),
+`artifact-provenance.json`, per-arm facts, commands, logs and exact comparisons under
+`pairs/01-main` through `pairs/08-candidate`, plus scripts and original/adapted driver sources.
+
+Main is `cc042c494fdb648525bd833cdb14a5b7f82abd6e`. Candidate production sources are from
+`32592ea097a52b4f71e935875cc4b8eea3689e92`, rebased by the pipeline to
+`224a668935645be73d8b86c26c26d559e58f16cc`. The replay did not rebuild that pipeline commit: its
+object was absent in the campaign copy. It combined the prior frozen candidate/main compiled arms
+with the two changed current-main query classes in one shared overlay. The campaign checked all six
+main projection sources byte-identical between `3fb92436d` and `cc042c494`; core had no intervening
+main changes. The two query source hashes below also match this review worktree. The prior frozen
+runtime entries, including the candidate core jar, are unchanged. This documents the artifact
+assembly and source continuity, not a new compilation of the pipeline head. Any subsequent change
+to measured production paths needs validation and measurement of the resulting artifacts.
+
+SHA-256 identifiers from `artifact-provenance.json`:
+
+| Artifact or input | SHA-256 |
+|---|---|
+| Frozen runtime/source manifest (`final/runtime-manifest.json`) | `968ae58eb8b3645a6c47b4538dbafb2b399f76038060b8763dde6d791d56150e` |
+| Adapted driver source | `029f7b321e61d173fd744189a9a70896880b807f10def9253dd357940c6fabbb` |
+| Driver classes | `45527f8d27bc21471a704b9801944d097043e8bdbf14693d5eccd64b7c439af2` |
+| Shared current-main query classes | `a7bf611c7f81dda6ddb3b5d9ee72d485f9a13cb62e7722957eb2e4fc7b3049b9` |
+| `SirixArraySize.java` source | `119cae31115a39625a932a7909217b61ab67667a8e091df70a4cb2b5fef47896` |
+| `SirixVectorizedExecutor.java` source | `3ec98b368212a66745c7d643fbb51e4b1a173db378c4b288915b73714e06b56f` |
+| Reconstructed `replay.tsv` (historical `source.json`) | `ad177298335065afe23beaef0ec5a4b5655f548d94052c94d491be5f10be6e9e` |
+| Root-single `manifest.json` | `f61f3a8ad02d635ab72d19dc2057566188c26ab2b2fe5f073133c7bc69a6d766` |
+| `suite.json` | `d579dc25b40ff963f797bd046ea2b5e68c060b6020738602efac87de04c7f8ac` |
+| Independent `expected.json` | `dcf086176306d9c9dad2852925438d19aed5c3af81336297f6f1c01c3fdb521d` |
+| `parameters.json` | `c44fa7aa3b5fd4c34b3734ec7939c1f950bc8dba5b9c4dd852919d3755e27590` |
+
+### Earlier SH1 and generated-fixture campaigns
+
+The earlier local campaign evidence is retained under `build/pr6/final/` (ignored) in the supplied
+campaign checkout: `runtime-manifest.json`,
 `input-manifest.json`, `proof-manifest.json`, `paired-analysis.json`, per-arm commands, logs and
 exact results. The manifests record source and classpath hashes before measurement. The main overlay
 contains all nested classes of the six changed existing projection classes. No live build output was
