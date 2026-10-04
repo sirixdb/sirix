@@ -405,8 +405,8 @@ final class ArrayContainsScopeDifferentialTest {
   }
 
   @Test
-  @DisplayName("a field that is an array in some records and a string in others raises in both routes")
-  void mixedArrayAndStringFieldRaisesInBothRoutes() throws Exception {
+  @DisplayName("both routes skip string-valued fields and count array members in mixed records")
+  void mixedArrayAndStringFieldSkipsNonArraysInBothRoutes() throws Exception {
     final String res = "e-mixed.jn";
     final StringBuilder sb = new StringBuilder(2_000 * 24);
     sb.append('[');
@@ -423,9 +423,9 @@ final class ArrayContainsScopeDifferentialTest {
     final String predicate = "some $g in $m.genres[] satisfies $g eq 'Drama'";
     final String source = "jn:doc('" + DB + "','" + res + "')[]";
     final String viaInterpreter = outcome(source, predicate, false, false);
-    assertTrue(viaInterpreter.startsWith("error="), "the interpreter raises on `[]` over a string: " + viaInterpreter);
+    assertEquals("count=1600", viaInterpreter, "the interpreter must skip the 400 string-valued fields");
     assertEquals(viaInterpreter, outcome(source, predicate, true, true),
-        "the auto-wired route answered where the interpreter raises — the summary gate let a mixed field through");
+        "the auto-wired route and the interpreter must agree on lenient mixed-field unboxing");
   }
 
   @Test
