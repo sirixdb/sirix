@@ -114,7 +114,7 @@ final class XmlNameIndexRemovalTest {
           attributeKey = trx.getNodeKey();
           final var controller = session.getWtxIndexController(trx.getRevisionNumber());
           controller.createIndexes(definitions, trx);
-          expected.put(IndexType.NAME, new TreeSet<>(Set.of(rootKey, childKey)));
+          expected.put(IndexType.NAME, new TreeSet<>(Set.of(rootKey, childKey, attributeKey)));
           expected.put(IndexType.PATH, new TreeSet<>(Set.of(attributeKey)));
           expected.put(IndexType.CAS, new TreeSet<>(Set.of(attributeKey)));
           assertPostings(controller, trx.getStorageEngineReader(), expected);
@@ -171,13 +171,9 @@ final class XmlNameIndexRemovalTest {
           final long textKey = trx.getNodeKey();
           final var controller = session.getWtxIndexController(trx.getRevisionNumber());
           controller.createIndexes(definitions, trx);
-          expected.put(IndexType.NAME, new TreeSet<>(Set.of(rootKey, childKey)));
-          expected.put(IndexType.PATH, new TreeSet<>(Set.of(rootKey, childKey)));
-          expected.put(IndexType.CAS, new TreeSet<>(Set.of(textKey)));
-          if (kind == NodeKind.ATTRIBUTE) {
-            expected.get(IndexType.PATH).add(namedKey);
-            expected.get(IndexType.CAS).add(namedKey);
-          }
+          expected.put(IndexType.NAME, new TreeSet<>(Set.of(rootKey, childKey, namedKey)));
+          expected.put(IndexType.PATH, new TreeSet<>(Set.of(rootKey, childKey, namedKey)));
+          expected.put(IndexType.CAS, new TreeSet<>(Set.of(textKey, namedKey)));
           if (renamed) {
             assertTrue(trx.moveTo(namedKey));
             trx.setName(new QNm("renamed"));

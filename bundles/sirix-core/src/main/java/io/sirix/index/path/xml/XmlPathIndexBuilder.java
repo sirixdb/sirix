@@ -6,6 +6,8 @@ import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.path.PathIndexBuilder;
 import io.sirix.node.immutable.xml.ImmutableAttributeNode;
 import io.sirix.node.immutable.xml.ImmutableElement;
+import io.sirix.node.immutable.xml.ImmutableNamespace;
+import io.sirix.node.immutable.xml.ImmutablePI;
 
 public final class XmlPathIndexBuilder extends AbstractXmlNodeVisitor implements IndexBuildFinalizer {
 
@@ -22,6 +24,16 @@ public final class XmlPathIndexBuilder extends AbstractXmlNodeVisitor implements
 
   @Override
   public VisitResult visit(ImmutableAttributeNode node) {
+    return mPathIndexBuilder.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public VisitResult visit(final ImmutableNamespace node) {
+    return mPathIndexBuilder.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public VisitResult visit(final ImmutablePI node) {
     return mPathIndexBuilder.process(node, node.getPathNodeKey());
   }
 

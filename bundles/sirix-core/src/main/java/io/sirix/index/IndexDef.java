@@ -9,6 +9,8 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.node.parser.FragmentHelper;
 import io.brackit.query.util.path.Path;
+import io.brackit.query.util.path.Path.Axis;
+import io.brackit.query.util.path.Path.Step;
 import io.brackit.query.util.path.PathParser;
 import io.brackit.query.util.serialize.SubtreePrinter;
 import org.jspecify.annotations.Nullable;
@@ -44,6 +46,10 @@ public final class IndexDef implements Materializable {
   private static final QNm NAME_LOCAL_ATTRIBUTE = new QNm("local");
 
   private static final QNm PATH_TAG = new QNm("path");
+
+  private static final QNm PATH_STEP_TAG = new QNm("step");
+
+  private static final QNm PATH_AXIS_ATTRIBUTE = new QNm("axis");
 
   private static final QNm UNIQUE_ATTRIBUTE = new QNm("unique");
 
@@ -283,7 +289,7 @@ public final class IndexDef implements Materializable {
     if (!paths.isEmpty()) {
       for (final Path<QNm> path : paths) {
         tmp.openElement(PATH_TAG);
-        tmp.content(path.toString()); // TODO
+        materializePath(tmp, path);
         tmp.closeElement();
       }
     }
@@ -293,7 +299,7 @@ public final class IndexDef implements Materializable {
       for (int i = 0, n = projectionFields.size(); i < n; i++) {
         tmp.openElement(PROJECTION_FIELD_TAG);
         tmp.attribute(PROJECTION_FIELD_TYPE_ATTRIBUTE, new Una(projectionFieldTypes.get(i).toString()));
-        tmp.content(projectionFields.get(i).toString());
+        materializePath(tmp, projectionFields.get(i));
         tmp.closeElement();
       }
       tmp.closeElement();
@@ -342,6 +348,70 @@ public final class IndexDef implements Materializable {
 
   private static String encodeNameComponent(final String value) {
     return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  /** XML paths carry expanded names; their lexical printed form loses namespace URIs. */
+  private void materializePath(final FragmentHelper fragment, final Path<QNm> path) {
+    if (dbType == DbType.JSON) {
+      fragment.content(path.toString());
+      return;
+    }
+    for (final Step<QNm> step : path.steps()) {
+      fragment.openElement(PATH_STEP_TAG);
+      fragment.attribute(PATH_AXIS_ATTRIBUTE, new Una(step.getAxis().name()));
+      final QNm name = step.getValue();
+      if (name != null) {
+        fragment.attribute(NAME_URI_ATTRIBUTE, new Una(encodeNameComponent(name.getNamespaceURI())));
+        fragment.attribute(NAME_PREFIX_ATTRIBUTE, new Una(encodeNameComponent(name.getPrefix())));
+        fragment.attribute(NAME_LOCAL_ATTRIBUTE, new Una(encodeNameComponent(name.getLocalName())));
+      }
+      fragment.closeElement();
+    }
+  }
+
+  private Path<QNm> readPath(final Node<?> node) {
+    if (dbType == DbType.JSON) {
+      return Path.parse(node.getValue().stringValue(), PathParser.Type.JSON);
+    }
+    if (!node.getValue().stringValue().isBlank()) {
+      throw new DocumentException("XML index paths require encoded axes and expanded names");
+    }
+    final Path<QNm> path = new Path<>();
+    try (final Stream<? extends Node<?>> children = node.getChildren()) {
+      Node<?> step;
+      while ((step = children.next()) != null) {
+        if (step.getName() == null && step.getValue().stringValue().isBlank()) {
+          continue;
+        }
+        if (!PATH_STEP_TAG.equals(step.getName())) {
+          throw new DocumentException("Expected XML path step but found '%s'", step.getName());
+        }
+        final Node<?> axisAttribute = step.getAttribute(PATH_AXIS_ATTRIBUTE);
+        if (axisAttribute == null) {
+          throw new DocumentException("Missing XML path axis");
+        }
+        final Axis axis;
+        try {
+          axis = Axis.valueOf(axisAttribute.getValue().stringValue());
+        } catch (final IllegalArgumentException invalid) {
+          throw new DocumentException(invalid, "Invalid XML path axis");
+        }
+        final QNm name = step.getAttribute(NAME_LOCAL_ATTRIBUTE) == null
+            ? null
+            : new QNm(readNameComponent(step, NAME_URI_ATTRIBUTE), readNameComponent(step, NAME_PREFIX_ATTRIBUTE),
+                readNameComponent(step, NAME_LOCAL_ATTRIBUTE));
+        switch (axis) {
+          case CHILD -> path.child(name);
+          case DESC -> path.descendant(name);
+          case CHILD_ATTRIBUTE -> path.attribute(name);
+          case DESC_ATTRIBUTE -> path.descendantAttribute(name);
+          case PARENT -> path.parent();
+          case SELF -> path.self();
+          default -> throw new DocumentException("Unsupported XML path axis '%s'", axis);
+        }
+      }
+    }
+    return path;
   }
 
   private static String readNameComponent(final Node<?> name, final QNm attribute) {
@@ -430,12 +500,9 @@ public final class IndexDef implements Materializable {
         // indexStatistics.init(child);
         // } else {
         final QNm childName = child.getName();
-        final String value = child.getValue().stringValue();
 
         if (childName.equals(PATH_TAG)) {
-          paths.add(Path.parse(value, dbType == DbType.JSON
-              ? PathParser.Type.JSON
-              : PathParser.Type.XML));
+          paths.add(readPath(child));
         } else if (childName.equals(INCLUDING_TAG)) {
           readNames(child, included);
         } else if (childName.equals(EXCLUDING_TAG)) {
@@ -450,9 +517,7 @@ public final class IndexDef implements Materializable {
               final Type fieldType = typeAttr != null
                   ? resolveType(typeAttr.getValue().stringValue())
                   : Type.STR;
-              projectionFields.add(Path.parse(fieldNode.getValue().stringValue(), dbType == DbType.JSON
-                  ? PathParser.Type.JSON
-                  : PathParser.Type.XML));
+              projectionFields.add(readPath(fieldNode));
               projectionFieldTypes.add(fieldType);
             }
           }
@@ -629,13 +694,14 @@ public final class IndexDef implements Materializable {
    * </p>
    *
    * <p>
-   * Paths are compared in their PERSISTED form. {@link #materialize()} stores every path as
-   * {@link Path#toString()} and {@link #init(Node)} parses that text back, and the parser does not
-   * reproduce the internal step representation for every spelling it accepts: a relative JSON name
-   * such as {@code foo} parses with a CHILD step, prints as {@code ./foo}, and re-parses as
-   * CHILD_OBJECT_FIELD, so {@link Path#equals(Object)} reports a definition as different from its own
-   * persisted copy. The catalogue re-binds listeners from that copy on every commit; comparing the
-   * printed form is what makes a definition equal to what the catalogue will hand back.
+   * XML paths persist exact axes and expanded names and are compared structurally. JSON paths are
+   * compared in their PERSISTED form: {@link #materialize()} stores them as {@link Path#toString()}
+   * and {@link #init(Node)} parses that text back, and the parser does not reproduce the internal
+   * step representation for every spelling it accepts: a relative JSON name such as {@code foo}
+   * parses with a CHILD step, prints as {@code ./foo}, and re-parses as CHILD_OBJECT_FIELD, so
+   * {@link Path#equals(Object)} reports a definition as different from its own persisted copy. The
+   * catalogue re-binds listeners from that copy on every commit; comparing the printed form is what
+   * makes a definition equal to what the catalogue will hand back.
    * </p>
    *
    * @param other definition to compare
@@ -654,11 +720,14 @@ public final class IndexDef implements Materializable {
   }
 
   /**
-   * Set equality of paths by their persisted text; see {@link #hasSameDefinition(IndexDef)}.
+   * Set equality of paths by their persisted meaning; see {@link #hasSameDefinition(IndexDef)}.
    * Definition validation is a catalogue operation, never a per-record path, so the transient set is
    * acceptable here.
    */
-  private static boolean samePersistedPaths(final Set<Path<QNm>> left, final Set<Path<QNm>> right) {
+  private boolean samePersistedPaths(final Set<Path<QNm>> left, final Set<Path<QNm>> right) {
+    if (dbType == DbType.XML) {
+      return left.equals(right);
+    }
     final Set<String> leftPrinted = new HashSet<>(left.size() * 2);
     for (final Path<QNm> path : left) {
       leftPrinted.add(path.toString());
@@ -670,8 +739,11 @@ public final class IndexDef implements Materializable {
     return leftPrinted.equals(rightPrinted);
   }
 
-  /** Positional equality of projection field paths by their persisted text. */
-  private static boolean samePersistedPaths(final List<Path<QNm>> left, final List<Path<QNm>> right) {
+  /** Positional equality of projection field paths by their persisted meaning. */
+  private boolean samePersistedPaths(final List<Path<QNm>> left, final List<Path<QNm>> right) {
+    if (dbType == DbType.XML) {
+      return left.equals(right);
+    }
     if (left.size() != right.size()) {
       return false;
     }

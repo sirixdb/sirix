@@ -23,6 +23,9 @@ public interface PathIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
+    if (filter != null && filter.hasPathConstraint() && filter.getPCRs().isEmpty()) {
+      return Collections.emptyIterator();
+    }
     final HOTLongIndexReader reader =
         HOTLongIndexReader.create(storageEngineReader, indexDef.getType(), indexDef.getID());
 

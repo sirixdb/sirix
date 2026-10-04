@@ -82,6 +82,10 @@ public final class CASFilterRange {
     return pathFilter.getPCRs();
   }
 
+  public boolean hasPathConstraint() {
+    return pathFilter.hasPathConstraint();
+  }
+
   /**
    * Check if an atomic value is within the range bounds.
    * 
