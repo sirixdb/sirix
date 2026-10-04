@@ -278,8 +278,12 @@ The chunk index is unsigned, preserving node keys throughout `[0, 2^48)`.
 
 CAS prefixes have a fixed 10-byte header (sign-flipped path class, type id), followed by the
 atomic value's existing order-preserving encoding with `00` escaped as `00 FF`, then `00 00`.
-The 246-byte value limit applies **before** escaping. This makes logical keys prefix-free without
-changing the atomic ordering or the direct path-class read. VALIDTIME prefixes remain fixed at 17 bytes.
+The value is capped at **236 escaped bytes**, ending before an escape that cannot fit in full.
+This leaves room for the header, terminator, four-byte chunk index and four-byte delta suffix
+within a 256-byte stored key: MultiMask byte positions range from 0 to 255. Over-long values
+share a key and retain the existing document-value re-check. Framing keeps logical keys
+prefix-free without changing the atomic ordering or the direct path-class read.
+VALIDTIME prefixes remain fixed at 17 bytes.
 
 For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
 changes. Each delta is `baseKey || suffix_BE4`, where

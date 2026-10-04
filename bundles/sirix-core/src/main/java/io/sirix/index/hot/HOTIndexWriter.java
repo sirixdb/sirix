@@ -565,6 +565,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    *         byte-equal skip), {@link #DELTA_WRITTEN} or {@link #DELTA_FOLDED}
    */
   private int applyPostingDelta(final byte[] keyBuf, final int compLen, final long bit16, final boolean remove) {
+    if (compLen > HOTKeySerializer.MAX_KEY_BYTES - PostingDeltas.SUFFIX_BYTES) {
+      throw new IllegalArgumentException("HOT delta key exceeds maximum stored length");
+    }
     storageEngineWriter.assertTransactionWritable();
     try {
       return applyPostingDeltaChecked(keyBuf, compLen, bit16, remove);

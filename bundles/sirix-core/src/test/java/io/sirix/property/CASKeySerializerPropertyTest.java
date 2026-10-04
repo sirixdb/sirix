@@ -13,6 +13,8 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.hot.CASKeySerializer;
+import io.sirix.index.hot.HOTKeySerializer;
+import io.sirix.index.hot.PostingDeltas;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -59,7 +61,8 @@ final class CASKeySerializerPropertyTest {
   private static final long PCR = 42L;
 
   /** The serializer's string cap. Past it two values share a key BY DESIGN, so order and */
-  private static final int MAX_STRING_VALUE_BYTES = 246;
+  private static final int MAX_STRING_VALUE_BYTES =
+      HOTKeySerializer.MAX_KEY_BYTES - 10 - 2 - HOTKeySerializer.CHUNK_IDX_BYTES - PostingDeltas.SUFFIX_BYTES;
 
   private static byte[] key(final Atomic value, final Type type) {
     final CASValue key = new CASValue(value, type, PCR);

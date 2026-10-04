@@ -20,6 +20,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The CAS and NAME key serializers write the US-ASCII case straight into the destination buffer
@@ -35,8 +36,8 @@ final class KeySerializerUtf8Test {
   /** Header bytes a CAS key writes before the value: 8 for the path node key, 2 for the type. */
   private static final int CAS_HEADER_BYTES = 10;
 
-  /** Value bytes a CAS key keeps at most; the serializer truncates past this. */
-  private static final int CAS_MAX_VALUE_BYTES = 246;
+  /** Escaped value bytes a CAS key keeps at most. */
+  private static final int CAS_MAX_VALUE_BYTES = (1 << Byte.SIZE) - CAS_HEADER_BYTES - 2 - 2 * Integer.BYTES;
 
   private static String[] samples() {
     return new String[] {"hello", "", "a", "a\0", "\0".repeat(CAS_MAX_VALUE_BYTES), "Ünïcödé", "日本語のフィールド名",
@@ -50,15 +51,49 @@ final class KeySerializerUtf8Test {
   private static byte[] referenceCasValueBytes(final String value) {
     final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
     final ByteArrayOutputStream framed = new ByteArrayOutputStream();
-    for (int i = 0; i < Math.min(utf8.length, CAS_MAX_VALUE_BYTES); i++) {
-      framed.write(utf8[i]);
-      if (utf8[i] == 0) {
+    for (final byte valueByte : utf8) {
+      final int width = valueByte == 0
+          ? 2
+          : 1;
+      if (framed.size() + width > CAS_MAX_VALUE_BYTES) {
+        break;
+      }
+      framed.write(valueByte);
+      if (valueByte == 0) {
         framed.write(0xFF);
       }
     }
     framed.write(0);
     framed.write(0);
     return framed.toByteArray();
+  }
+
+  @Test
+  void cappedEscapesKeepCompositeAndDeltaKeysAddressableAndOrdered() {
+    final String prefix = "a".repeat(CAS_MAX_VALUE_BYTES - 1);
+    final String[] values = {prefix, prefix + '\0', prefix + "\0a", prefix + 'a', prefix + "aa", prefix + 'b',
+        "\0".repeat(130) + "200", "x".repeat(246)};
+    for (final String value : values) {
+      final CASValue key = new CASValue(new Str(value), Type.STR, 7);
+      final byte[] bytes = new byte[1 << Byte.SIZE];
+      final int baseLength = CASKeySerializer.INSTANCE.serializeWithChunkIdx(key, Integer.MAX_VALUE, bytes, 0);
+      final int deltaLength = baseLength + Integer.BYTES;
+      HOTKeySerializer.writeChunkIdxBE(bytes, baseLength, PostingDeltas.suffix(PostingDeltas.MAX_SEQ, true));
+      assertTrue(deltaLength <= 1 << Byte.SIZE);
+      assertEquals(baseLength - Integer.BYTES, CASKeySerializer.INSTANCE.logicalKeyLength(bytes, 0, deltaLength));
+      for (final String other : values) {
+        final CASValue otherKey = new CASValue(new Str(other), Type.STR, 7);
+        final byte[] otherBytes = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(otherKey)];
+        final int otherLength = CASKeySerializer.INSTANCE.serialize(otherKey, otherBytes, 0);
+        final int keyOrder = Arrays.compareUnsigned(bytes, 0, baseLength - Integer.BYTES, otherBytes, 0, otherLength);
+        assertTrue(Integer.signum(keyOrder) * Integer.signum(value.compareTo(other)) >= 0);
+      }
+    }
+    final CASValue longest = new CASValue(new Str("x".repeat(CAS_MAX_VALUE_BYTES)), Type.STR, 7);
+    final byte[] bytes = new byte[1 << Byte.SIZE];
+    assertEquals(bytes.length - Integer.BYTES, CASKeySerializer.INSTANCE.serializeWithChunkIdx(longest, 0, bytes, 0));
+    assertThrows(IllegalArgumentException.class, () -> NameKeySerializer.INSTANCE.serializeWithChunkIdx(
+        new QNm("x".repeat((1 << Byte.SIZE) - Integer.BYTES + 1)), 0, new byte[(1 << Byte.SIZE) + 1], 0));
   }
 
   @Test

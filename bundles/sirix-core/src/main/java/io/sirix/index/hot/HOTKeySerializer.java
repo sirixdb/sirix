@@ -60,6 +60,8 @@ import java.util.Arrays;
  */
 public interface HOTKeySerializer<K> {
 
+  int MAX_KEY_BYTES = 1 << Byte.SIZE;
+
   /**
    * Serializes the key into the destination buffer.
    *
@@ -189,6 +191,9 @@ public interface HOTKeySerializer<K> {
    */
   default int serializeWithChunkIdx(K key, int chunkIdx, byte[] dest, int offset) {
     final int prefixLen = serialize(key, dest, offset);
+    if (prefixLen > MAX_KEY_BYTES - CHUNK_IDX_BYTES) {
+      throw new IllegalArgumentException("HOT composite key exceeds maximum stored length");
+    }
     writeChunkIdxBE(dest, offset + prefixLen, chunkIdx);
     return prefixLen + CHUNK_IDX_BYTES;
   }

@@ -172,16 +172,23 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     requireNonNull(dest, "dest");
     final byte[] raw = RAW_KEY.get();
     final int rawLength = serializeUnescaped(key, raw, 0);
-    int length = rawLength + 2;
-    for (int i = HEADER_BYTES; i < rawLength; i++) {
-      if (raw[i] == 0) {
-        length++;
+    int valueLength = 0;
+    int rawEnd = HEADER_BYTES;
+    while (rawEnd < rawLength) {
+      final int width = raw[rawEnd] == 0
+          ? 2
+          : 1;
+      if (valueLength + width > MAX_STRING_VALUE_BYTES) {
+        break;
       }
+      valueLength += width;
+      rawEnd++;
     }
+    final int length = HEADER_BYTES + valueLength + 2;
     Objects.checkFromIndexSize(offset, length, dest.length);
     System.arraycopy(raw, 0, dest, offset, HEADER_BYTES);
     int out = offset + HEADER_BYTES;
-    for (int i = HEADER_BYTES; i < rawLength; i++) {
+    for (int i = HEADER_BYTES; i < rawEnd; i++) {
       final byte value = raw[i];
       dest[out++] = value;
       if (value == 0) {
@@ -237,7 +244,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    */
   @Override
   public int maxSerializedLength(final CASValue key) {
-    return HEADER_BYTES + 2 * MAX_STRING_VALUE_BYTES + 2;
+    return HEADER_BYTES + MAX_STRING_VALUE_BYTES + 2;
   }
 
   /**
@@ -326,10 +333,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   static final int HEADER_BYTES = 10;
 
   /**
-   * Maximum string value bytes before escaping and termination. Truncation applies to the atomic
-   * encoding, independently of the caller's destination capacity.
+   * Maximum escaped value bytes, independently of the caller's destination capacity.
    */
-  static final int MAX_STRING_VALUE_BYTES = 246;
+  static final int MAX_STRING_VALUE_BYTES =
+      HOTKeySerializer.MAX_KEY_BYTES - HEADER_BYTES - 2 - HOTKeySerializer.CHUNK_IDX_BYTES - PostingDeltas.SUFFIX_BYTES;
 
   /** Scratch for the bounded atomic encoding, reused across keys on this thread. */
   private static final ThreadLocal<byte[]> RAW_KEY =
@@ -519,8 +526,8 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
 
-  /** Bytes a decimal's exact suffix may use: the value budget minus the 8-byte double prefix. */
-  private static final int MAX_DECIMAL_SUFFIX_BYTES = MAX_STRING_VALUE_BYTES - Long.BYTES;
+  /** Bytes a decimal's exact suffix may use, including its terminator. */
+  private static final int MAX_DECIMAL_SUFFIX_BYTES = MAX_STRING_VALUE_BYTES - 2 * Long.BYTES - 1;
 
   /**
    * Encodes {@code xs:decimal} as an order-preserving double FOLLOWED BY the exact value.
@@ -537,7 +544,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Appending the exact value makes the key INJECTIVE, so equality is decided by the seek alone and
    * {@code narrowsNumeric} can answer {@code false} — the re-check disappears from the hot path and
    * survives only for a decimal too long to fit, which {@link #MAX_DECIMAL_SUFFIX_BYTES} bounds at
-   * ~238 significant digits.
+   * its escaped value budget.
    * </p>
    *
    * <p>
@@ -938,7 +945,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // StorageEngineReader and a document read per posting.
       //
       // The one case left is a decimal whose normalized form does not FIT, which collapses onto its
-      // prefix exactly as an over-long string does. Bounded at ~238 significant digits, so the
+      // prefix exactly as an over-long string does. The suffix is bounded, so the
       // allocation here is paid by a query that is genuinely ambiguous rather than by every price
       // lookup.
       final BigDecimal exact = exactDecimalOrNull(value);
@@ -949,11 +956,11 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // check on every decimal equality query — the second full normalization per query, after the
       // encoder's. plainDecimalLength bounds it from precision and scale without allocating, and the
       // bound is exact for the unstripped form, so a value comfortably inside the budget (which is
-      // every decimal anyone actually indexes — the limit is ~237 significant digits) settles it in
+      // every ordinary indexed decimal) settles it in
       // arithmetic. The formatting survives only where the bound cannot decide, which is where the
       // key genuinely may not be injective and a re-check was going to be paid for anyway.
-      return plainDecimalLength(exact) > MAX_DECIMAL_SUFFIX_BYTES - 1
-          && normalizedDecimalString(exact).length() > MAX_DECIMAL_SUFFIX_BYTES - 1;
+      return plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
+          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1;
     }
     if (id != TYPE_INTEGER) {
       // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
@@ -1033,16 +1040,6 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * monotone, so a bounded cursor still places every stored key correctly against the bound, and the
    * O(index) fallback a {@code true} answer used to trigger re-derived its comparison value from the
    * very same narrowed key — the identical answer at vastly higher cost.
-   * </p>
-   *
-   * <p>
-   * <b>The boundary is {@code >=}, not {@code >}</b>, and the difference is a real over-match rather
-   * than a rounding preference. A value measuring EXACTLY {@link #MAX_STRING_VALUE_BYTES} is itself
-   * stored losslessly, but the encoder caps every LONGER value at the same 246 bytes, so a 250-byte
-   * stored value sharing that prefix produces a byte-identical key of identical length — and the
-   * chunk walk filters on the composite length, so nothing downstream separates them either. At
-   * exactly the cap the seek is therefore GUARANTEED to over-match, which is precisely where a
-   * {@code >} test switched the caller's re-check off.
    * </p>
    *
    * @param value the atomic being probed for, may be {@code null}
@@ -1145,24 +1142,23 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // and no char exceeds three UTF-8 bytes (a surrogate PAIR is four bytes across two chars, i.e.
     // two per char), so a char count under a third of the cap settles the other direction.
     final int chars = str.length();
-    if (chars >= MAX_STRING_VALUE_BYTES) {
+    if (chars >= MAX_STRING_VALUE_BYTES - 1) {
       return true;
     }
-    // ORDER-DEPENDENT, and the dependence is the point: the test above caps `chars` below 246, so
-    // the product below cannot overflow. Removing it — on the reasoning that utf8Length subsumes it
+    // ORDER-DEPENDENT, and the dependence is the point: the test above bounds `chars`, so
+    // the product below cannot overflow. Removing it — on the reasoning that escapedUtf8Length subsumes
+    // it
     // — would let `chars * 3` go negative for a string past ~715M chars, and a negative product
     // satisfies `< MAX_STRING_VALUE_BYTES`, reporting a gigabyte-long value as losslessly
     // representable and switching the caller's re-check off for exactly the value that needs it.
-    // STRICT `<`, matching the `>=` boundary: 82 three-byte chars measure exactly 246, which
-    // collides, so the short-circuit must not claim it is safe.
-    if (chars * 3 < MAX_STRING_VALUE_BYTES) {
+    if (chars * 3 < MAX_STRING_VALUE_BYTES - 1) {
       return false;
     }
-    return utf8Length(str) >= MAX_STRING_VALUE_BYTES;
+    return escapedUtf8Length(str) >= MAX_STRING_VALUE_BYTES - 1;
   }
 
   /**
-   * UTF-8 length of {@code str}, counted without encoding it.
+   * Escaped UTF-8 length of {@code str}, counted without encoding it.
    *
    * <p>
    * An UNPAIRED surrogate is counted as three bytes while {@code String.getBytes(UTF_8)} — what the
@@ -1173,14 +1169,16 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * </p>
    *
    * @param str the string to measure
-   * @return its length in UTF-8 bytes, never below what the serializer writes
+   * @return its length in escaped UTF-8 bytes, never below what the serializer writes
    */
-  private static int utf8Length(final String str) {
+  private static int escapedUtf8Length(final String str) {
     int length = 0;
     for (int i = 0, n = str.length(); i < n; i++) {
       final char c = str.charAt(i);
       if (c < 0x80) {
-        length += 1;
+        length += c == 0
+            ? 2
+            : 1;
       } else if (c < 0x800) {
         length += 2;
       } else if (Character.isHighSurrogate(c) && i + 1 < n && Character.isLowSurrogate(str.charAt(i + 1))) {

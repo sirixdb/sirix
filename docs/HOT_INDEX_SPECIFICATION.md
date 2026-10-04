@@ -294,8 +294,8 @@ depend on `Type.ordinal()` (`CASKeySerializer`'s `typeId` and policy table).
 
 | Id | Type | Value bytes | Encoding |
 |---|---|---|---|
-| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | ≤ 246 | string encoding (`:316-333`, `:935-941`) |
-| 1 | STRING | ≤ 246 | UTF-8, cut at 246 **bytes** (may split a multi-byte sequence) (`:316-333`) |
+| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | ≤ 236 | string encoding, capped after zero escaping |
+| 1 | STRING | ≤ 236 | UTF-8 prefix with at most 236 escaped bytes; zero escapes stay whole (a multi-byte UTF-8 sequence may be split) |
 | 2 | BOOLEAN | 1 | `0x00` / `0x01`; lexical `"true"` or `"1"` is true (`:305-310`, `:645-669`) |
 | 3 | DOUBLE | 8 | IEEE order-preserving transform (below) |
 | 4 | FLOAT | 8 | narrowed to `float`, then encoded as a double (`:296-304`, `:364-376`) |
@@ -354,7 +354,7 @@ Byte order equals key order within each serializer, except:
 
 | Case | Why | Where compensated |
 |---|---|---|
-| CAS strings of ≥ 246 UTF-8 bytes | truncated; a 246-byte value collides with every longer value sharing that prefix, hence `≥` not `>` (`hot/CASKeySerializer.java:965-973`) | `CASIndex` re-checks candidates against the documents when `losesInformation` holds (`idx/cas/CASIndex.java:613-623`) |
+| CAS strings of ≥ 235 escaped UTF-8 bytes | a value within one byte of the 236-byte cap can collide with a longer value when the next zero escape cannot fit | `CASIndex` re-checks candidates against the documents when `losesInformation` holds (`idx/cas/CASIndex.java:613-623`) |
 | CAS string bounds containing unpaired surrogates | UTF-8 encoding would replace the original literal | open that side of the scan and compare the original bounds as residuals; see §4.4.3 |
 | CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`hot/CASKeySerializer.java:478-483`) | `narrowsNumeric` (`:829-928`) |
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
@@ -1031,7 +1031,7 @@ boundary opens that side without serializing replacement bytes. An encodable opp
 bound remains eligible for a bounded scan. Every returned key is checked against both
 original bounds, with their original inclusivity, using the
 [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
-Path-class filtering still applies. If a stored key reaches the 246-byte cap, the
+Path-class filtering still applies. If a stored key reaches the escaped-value cap, the
 residual reads each candidate's original document value rather than comparing the
 decoded prefix; a separate record reader preserves the index cursor for read-only
 transactions, while a writer supplies its own uncommitted records. Losslessly encodable

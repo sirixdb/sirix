@@ -371,24 +371,42 @@ final class CASKeySerializerEdgeCaseTest {
     @Test
     @DisplayName("the boundary is at the cap, not past it")
     void theBoundaryIsInclusive() {
-      // >= and not >, and the difference is a real over-match rather than a rounding preference. A
-      // value measuring EXACTLY the cap is stored losslessly, but every LONGER value is capped to the
-      // same 246 bytes — so a 250-byte value sharing the prefix produces a byte-identical key of
-      // identical length, and nothing downstream separates them. At exactly the cap the seek is
-      // therefore guaranteed to over-match, which is precisely where a `>` test switched the caller's
-      // re-check off.
-      assertFalse(CASKeySerializer.truncates(new Str("A".repeat(245)), Type.STR), "one below the cap is safe");
-      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(246)), Type.STR), "exactly at the cap collides");
-      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(247)), Type.STR));
+      final int cap = CASKeySerializer.MAX_STRING_VALUE_BYTES;
+      assertFalse(CASKeySerializer.truncates(new Str("A".repeat(cap - 2)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap - 1)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap + 1)), Type.STR));
     }
 
     @Test
     @DisplayName("the cap is measured in UTF-8 bytes, not characters")
     void multiByteCharactersCountTheirBytes() {
-      // 82 three-byte characters measure exactly 246 bytes, so this collides while its character
-      // count (82) is nowhere near the cap. Measuring characters would report it safe.
-      assertTrue(CASKeySerializer.truncates(new Str("中".repeat(82)), Type.STR));
-      assertFalse(CASKeySerializer.truncates(new Str("中".repeat(81)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("中".repeat(79)), Type.STR));
+      assertFalse(CASKeySerializer.truncates(new Str("中".repeat(78)), Type.STR));
+    }
+
+    @Test
+    void escapedBytesAndIncompleteEscapeRoomRequireValueRechecks() {
+      for (final Type type : new Type[] {Type.STR, Type.AURI}) {
+        assertFalse(CASKeySerializer.losesInformation(new Str("\0".repeat(117)), type));
+        assertTrue(CASKeySerializer.losesInformation(new Str("\0".repeat(118)), type));
+        final String prefix = "\0".repeat(117) + 'a';
+        assertTrue(CASKeySerializer.losesInformation(new Str(prefix), type));
+        assertArrayEquals(key(new Str(prefix), type), key(new Str(prefix + '\0'), type));
+      }
+    }
+
+    @Test
+    void cappedDecimalSuffixesRemainDecodableAndRequestRechecks() {
+      for (final String sign : new String[] {"", "-"}) {
+        final Dec value = new Dec(sign + "0." + "1".repeat(300));
+        final byte[] bytes = key(value, Type.DEC);
+        assertTrue(bytes.length + 2 * Integer.BYTES <= 1 << Byte.SIZE);
+        final CASValue decoded = CASKeySerializer.INSTANCE.deserialize(bytes, 0, bytes.length);
+        assertTrue(CASKeySerializer.losesInformation(value, Type.DEC));
+        assertTrue(CASKeySerializer.losesInformation(decoded.getAtomicValue(), Type.DEC));
+        assertArrayEquals(bytes, key(decoded.getAtomicValue(), Type.DEC));
+      }
     }
 
     @Test

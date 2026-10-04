@@ -62,6 +62,36 @@ final class HOTBulkBuilderTest {
   private static final byte[] TOMBSTONE = {(byte) 0xFE};
 
   @Test
+  void oversizedStoredKeysAndOffsetsFailBeforeAllocatingPages() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final List<HOTBulkBuilder.Entry> entries =
+        List.of(new HOTBulkBuilder.Entry(new byte[(1 << Byte.SIZE) + 1], TOMBSTONE));
+    assertThrows(IllegalArgumentException.class,
+        () -> HOTBulkBuilder.build(entries, 1, IndexType.CAS, allocator::getAndIncrement));
+    final PageReference[] children = {new PageReference(), new PageReference()};
+    for (final int[] bits : new int[][] {{10 * Byte.SIZE, 256 * Byte.SIZE}, {256 * Byte.SIZE}}) {
+      assertThrows(IllegalArgumentException.class,
+          () -> HOTBulkBuilder.assembleIndirect(bits, new int[] {0, 1}, children, 1, 1, allocator::getAndIncrement));
+    }
+    assertEquals(1, allocator.get());
+  }
+
+  @Test
+  void multiMaskRoutesTheLastUnsignedBytePosition() {
+    final PageReference[] children = {new PageReference(), new PageReference(), new PageReference()};
+    try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 255 * Byte.SIZE},
+        new int[] {0, 1, 2}, children, 1, 1, () -> 1)) {
+      final byte[] key = new byte[1 << Byte.SIZE];
+      assertEquals(0, node.findChildIndex(key, key.length));
+      key[255] = (byte) 0x80;
+      assertEquals(1, node.findChildIndex(key, key.length));
+      key[255] = 0;
+      key[10] = (byte) 0x80;
+      assertEquals(2, node.findChildIndex(key, key.length));
+    }
+  }
+
+  @Test
   @DisplayName("a later child build failure retires every earlier fresh child")
   void laterChildFailureClosesEarlierBulkSubtrees() {
     final HOTLeafPage initializationProbe = new HOTLeafPage(0, 1, IndexType.CAS);
