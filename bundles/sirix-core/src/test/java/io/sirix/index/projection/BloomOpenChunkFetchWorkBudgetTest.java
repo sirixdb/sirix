@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * A sealed chunk is one contiguous block, so its payload arrives in one ranged fetch. The open
  * chunk is one blob per row group instead, and paginating those by the block window
  * ({@code FETCH_WINDOW_CHUNKS}, default 16) made one chunk cost {@code ceil(tails / 16)} fetches —
- * and {@link io.sirix.index.projection.ProjectionIndexCatalog} opens a read transaction per
+ * and {@link ProjectionIndexCatalog} opens a read transaction per
  * {@code fetchRange}, so that is a transaction open per window. Measured on this fixture's 100
  * referenced tails: 7 ranged fetches with the block window, 1 with the chunk-wide window. The same
  * pagination is what made the range holding the open chunk far heavier than its siblings when

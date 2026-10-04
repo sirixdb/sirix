@@ -1698,7 +1698,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (load != null) {
       // Intermediate commits drain the records closed so far into the build (full leaves are already
       // in the sub-tree and ride this commit); the final commit additionally writes the dictionaries,
-      // the fingerprint blocks, the fences and the metadata that replaces the tombstone, after which
+      // the Bloom tails and manifests, the fences and the metadata that replaces the tombstone, after which
       // activeBulkLoad() hands this listener back to ordinary maintenance.
       try {
         drainStructuralDeleteCandidates(true);
