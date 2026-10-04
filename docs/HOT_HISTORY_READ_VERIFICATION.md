@@ -139,10 +139,12 @@ Ratios below are fix/baseline; bounds use unrounded values for verdicts.
 All eight pinned alternating t25k runs match all twelve oracle answers exactly.
 Under the campaign rule, regression is confirmed only when the 95% lower bound
 exceeds 1.05. The pinned P-core matched pairs show **no confirmed SH1 regression
-against either the parent or current main**, so the earlier unpinned lean is
-not reproduced under that rule. Cells whose 95% interval straddles 1.05 are
-**not claimed equivalent within 5%**, including parent load, q3 and q7 with
-slower medians and wide intervals. q2 meets the parent bound. q12's large
+against the parent**, so the earlier unpinned lean is not reproduced under that
+rule. Against current main, only read and write cells were measured: all nine
+read targets meet, with no confirmed read or write regressions. Cells whose
+95% interval straddles 1.05 are **not claimed equivalent within 5%**, including
+parent load, q3 and q7 with slower medians and wide intervals. q2 meets the
+parent bound. q12's large
 artifact improvement includes intervening query changes and is not attributed
 to this HOT fix. The separate earlier unpinned eight-run campaign likewise
 confirmed no SH1 slowdown. The parent comparison is shown below.
@@ -205,9 +207,12 @@ The reused kit was copied from the read-only earlier worker evidence; that
 copy was never modified. Build artifacts are local evidence, not repository
 source or portable URLs. This committed report records the verdicts and
 limitations; the pinned JSON keeps `targetsAllMeet: false` for the parent.
-The benchmark candidate's production-source hashes identify the frozen source
-before pipeline lint housekeeping. No production edits were made between the
-unpinned failure and pinned campaigns.
+The benchmark candidate's production-source hashes identify the source frozen
+for the original acceptance campaigns, before the pipeline lint edits widened
+suffix-offset arithmetic and replaced the predicate lambda with a static method
+reference. No production edits were made between the original unpinned failure
+and pinned campaigns. Later pipeline validation and the focused span revalidation
+below provide separate evidence for the subsequently revised source.
 
 ## Focused latest-revision span test setup correction
 

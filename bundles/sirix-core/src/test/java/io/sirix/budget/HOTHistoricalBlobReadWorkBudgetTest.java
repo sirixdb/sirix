@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -98,8 +99,8 @@ final class HOTHistoricalBlobReadWorkBudgetTest {
         final StorageEngineReader reader = trx.getStorageEngineReader();
         final byte[] last = payload(SLOTS - 1, 1);
         assertArrayEquals(last, ProjectionIndexHOTStorage.readBlob(reader, 0, LAST_GROUP + SLOTS - 1));
-        final WorkCapture.Captured<byte[]> maximum =
-            CAPTURE.call(() -> ProjectionIndexHOTStorage.readBlob(reader, 0, LAST_GROUP + SLOTS - 1));
+        final WorkCapture.Captured<byte[]> maximum = CAPTURE.call(() -> Objects.requireNonNull(
+            ProjectionIndexHOTStorage.readBlob(reader, 0, LAST_GROUP + SLOTS - 1), "last-key blob must exist"));
         assertArrayEquals(last, maximum.result());
         maximum.work()
                .assertBetween(SUFFIX_READS, 1, 8,
@@ -112,8 +113,8 @@ final class HOTHistoricalBlobReadWorkBudgetTest {
         span.assertBetween(SUFFIX_READS, 2, 16,
             "first/last probes must each stay within one suffix lane per search step")
             .assertExactly(SIDE_READS, 0, "both span endpoints are inline");
-        final WorkCapture.Captured<byte[]> referenced =
-            CAPTURE.call(() -> ProjectionIndexHOTStorage.readBlob(reader, 0, LAST_GROUP + SLOTS / 2));
+        final WorkCapture.Captured<byte[]> referenced = CAPTURE.call(() -> Objects.requireNonNull(
+            ProjectionIndexHOTStorage.readBlob(reader, 0, LAST_GROUP + SLOTS / 2), "overflow blob must exist"));
         assertArrayEquals(overflow, referenced.result());
         referenced.work()
                   .assertBetween(SUFFIX_READS, 1, 8, "the same lane budget applies to an overflow marker")
