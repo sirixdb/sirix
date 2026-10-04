@@ -7,7 +7,13 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 
 import static java.util.Objects.requireNonNull;
 
-/** Resolves XML names whose transient cache is absent on page-backed node views. */
+/**
+ * Resolves XML names from authoritative dictionary keys.
+ *
+ * <p>
+ * Page-backed views may lack a cached name, and rebinding a write singleton can retain a cached
+ * name from another node. Index delivery must resolve the currently addressed node's keys.
+ */
 public final class XmlNameResolver {
   private XmlNameResolver() {}
 

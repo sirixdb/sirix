@@ -321,7 +321,9 @@ public final class IndexDef implements Materializable {
   }
 
   /**
-   * Persist each component separately: lexical QNames lose URIs and comma-delimited lists lose names.
+   * Persist each filter QName as a name child with UTF-8/Base64 {@code uri}, {@code prefix}, and
+   * {@code local} attributes. Separate components preserve URIs and names containing commas; Base64
+   * protects XML-sensitive characters from serialization and attribute-normalization losses.
    */
   private static void materializeNames(final FragmentHelper fragment, final QNm tag, final Set<QNm> names) {
     if (names.isEmpty()) {

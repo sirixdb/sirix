@@ -319,8 +319,7 @@ final class XmlNodeTrxImpl extends
     final QNm name;
     if (indexController.hasNameIndex() && node instanceof NameNode nameNode) {
       name = switch (kind) {
-        case ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION ->
-          XmlNameResolver.resolveName(nameNode, storageEngineWriter);
+        case ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION -> XmlNameResolver.resolveName(nameNode, storageEngineWriter);
         default -> null;
       };
     } else {
@@ -1467,7 +1466,8 @@ final class XmlNodeTrxImpl extends
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
           final long currentNodeKey = axis.nextLong();
 
-          // Remove namespaces and attributes.
+          // De-index attributes before removing their owner's path-summary subtree, so filtered
+          // PATH/CAS listeners can still resolve the attribute paths.
           removeNonStructural();
 
           // Remove name.
@@ -1492,6 +1492,7 @@ final class XmlNodeTrxImpl extends
         // System.out.println("references: " + getPathSummary().getReferences());
         // }
 
+        // The starting element needs the same cleanup order as its descendants.
         removeNonStructural();
         removeName();
         removeValue();
@@ -1562,6 +1563,10 @@ final class XmlNodeTrxImpl extends
     }
   }
 
+  /**
+   * Remove value postings without resolving names: named-node deletion has already been delivered by
+   * {@link #removeName()} before dictionary release.
+   */
   private void removeValue() throws SirixIOException {
     final NodeKind kind = getKind();
     final ValueNode valueNode;

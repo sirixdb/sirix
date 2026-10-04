@@ -27,7 +27,7 @@ public final class NameIndexListener {
   }
 
   public void listen(final IndexController.ChangeType type, final long nodeKey, final QNm name) {
-    // Skip if name is null (can happen when node is loaded from disk without cached name)
+    // A null name means this notification has no NAME posting to maintain.
     if (name == null) {
       return;
     }
