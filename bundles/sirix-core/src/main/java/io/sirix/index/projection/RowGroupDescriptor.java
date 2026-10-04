@@ -28,7 +28,7 @@ import java.util.Objects;
  *
  * <pre>
  *   int    MAGIC = "PIXD"                        [offset 0]
- *   byte   VERSION = 0                           [offset 4]
+ *   byte   VERSION = 0 (base) or 1 (tailed)       [offset 4]
  *   int    rowCount                              [offset 5]
  *   short  columnCount                           [offset 9]
  *   long   firstRecordKey                        [offset 11]
@@ -56,25 +56,21 @@ public final class RowGroupDescriptor {
   public static final int MAGIC = 0x44584950;
 
   /**
-   * Wire-format version, and there is exactly ONE — the current one, like
-   * {@link io.sirix.BinaryEncodingVersion} and {@link ProjectionIndexMetadata}'s. The byte exists so
-   * that a future format change can be REJECTED rather than misread, not so two formats can coexist:
-   * {@link #validate} refuses any other value outright, so a changed payload fails loudly instead of
-   * being read at shifted offsets.
-   *
-   * <p>
-   * It starts at 0 rather than carrying a history. Earlier values existed only within this codebase's
-   * own development — the entry's columnSegmentId widening from 1 to 2 bytes, the descriptor being
-   * reduced to a zone map — and no resource written with them exists, so numbering as though a
-   * migration path had to be preserved would document a compatibility guarantee this project does not
-   * make. A zero here is unambiguous because {@link #isDescriptor} gates on the magic first: a
-   * zero-filled buffer is rejected as "not a descriptor", never read as a version-0 one.
-   *
-   * <p>
-   * Bump it when the payload's shape changes. That is what makes such a change safe: an old
-   * descriptor is refused, instead of its bytes being read at shifted offsets.
+   * Descriptor state for persisted column segments. The current format has one layout with two
+   * states: this base state and {@link #VERSION_TAILED}, whose segments are resolved through an open
+   * row tail. Neither state is a compatibility reader. {@link #validate} rejects every other version.
    */
   public static final byte VERSION = 0;
+
+  /**
+   * Version byte of a descriptor whose row group has an OPEN row tail
+   * ({@link ProjectionOpenRowGroupTail}): the descriptor describes the row group as every reader sees
+   * it (base rows plus the tail rows: row count, fences, zone maps and the byte length / content hash
+   * of every MERGED column segment), while the persisted segment slots still hold the base rows only.
+   * The layout is identical to {@link #VERSION}; only the version byte differs, so every positional
+   * accessor applies unchanged. Cleared back to {@link #VERSION} by the fold.
+   */
+  public static final byte VERSION_TAILED = 1;
 
   /**
    * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key: every
@@ -236,10 +232,10 @@ public final class RowGroupDescriptor {
     if (!isDescriptor(d)) {
       throw new IllegalStateException("Not a leaf descriptor (missing PIXD magic)");
     }
-    if (d.length < OFF_KINDS || d[4] != VERSION) {
+    if (d.length < OFF_KINDS || (d[4] != VERSION && d[4] != VERSION_TAILED)) {
       throw new IllegalStateException("Unknown leaf-descriptor version " + (d.length > 4
           ? d[4]
-          : "<missing>") + " (expected " + VERSION + ") or truncated header");
+          : "<missing>") + " (expected " + VERSION + " or " + VERSION_TAILED + ") or truncated header");
     }
     final int rowCount = ProjectionIndexRowGroupCodec.getIntLE(d, OFF_ROW_COUNT);
     final int columnCount = getShortLE(d, OFF_COLUMN_COUNT) & 0xFFFF;
@@ -433,6 +429,33 @@ public final class RowGroupDescriptor {
     return column < 0
         ? name
         : name + '(' + column + ')';
+  }
+
+  /** Whether {@code d} carries {@link #VERSION_TAILED}: its row group has an open row tail. */
+  public static boolean isTailed(final byte[] d) {
+    return isDescriptor(d) && d.length > 4 && d[4] == VERSION_TAILED;
+  }
+
+  /** A copy of {@code d} with its version byte set to {@code version}. */
+  public static byte[] withVersion(final byte[] d, final byte version) {
+    if (d == null || d.length <= 4) {
+      throw new IllegalArgumentException("descriptor too short for a version byte");
+    }
+    if (version != VERSION && version != VERSION_TAILED) {
+      throw new IllegalArgumentException("unknown descriptor version " + version);
+    }
+    validate(d);
+    final byte[] copy = d.clone();
+    copy[4] = version;
+    return copy;
+  }
+
+  /** Whether two descriptors are byte-identical apart from their version byte. */
+  public static boolean sameContentIgnoringVersion(final byte[] a, final byte[] b) {
+    if (a == null || b == null || a.length != b.length || a.length <= 4) {
+      return false;
+    }
+    return Arrays.equals(a, 0, 4, b, 0, 4) && Arrays.equals(a, 5, a.length, b, 5, b.length);
   }
 
   public static int rowCount(final byte[] d) {

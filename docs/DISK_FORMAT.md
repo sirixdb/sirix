@@ -423,7 +423,7 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          versions: any other value parses to null → "no
                                          metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is
-                                { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
+                                { int "PIXD"; u8 ver; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
                                   u8 kinds[columnCount]; u16 segCount;
                                   segCount × { u16 columnSegmentId; int byteLen;
@@ -431,10 +431,19 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
                segment's own slot, never also here. The encoder emits only this form and
                every storage/read boundary rejects a byteLen inline marker or trailing
-               payload; there is no normalization or compatibility reader. ver=0 is the
-               ONLY supported version: validation refuses any other value, so a future
-               shape change is rejected rather than misread.
+               payload; there is no normalization or compatibility reader. ver=0 describes
+               persisted column segments. ver=1 describes the merged base plus open row tail;
+               the segments remain the base until a fold. These are two states of the same
+               format, with identical descriptor layout. Other versions are rejected.
                zero-length value = tombstone; rowCount==0 descriptor = live empty row group
+    slotKey 2^46+2^45+(rowGroupId<<16): PIXB blob with PIXH tail header, version 1,
+               base descriptor length + bytes, tail blob count, tail row count.
+    slotKey 2^46+2^45+(rowGroupId<<16)+seq: referenced PIXB blob with PIXT rows,
+               version 1, row count, column kinds, then record key, order-exception flag,
+               order label and flagged column values for each row. seq starts at 1.
+               Only row-group-major slots carry tails. The writer folds after 64 live blobs,
+               at completion or a non-append edit:
+               merged segments replace the base and every tail slot is tombstoned atomically.
     slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]
                kind 0 = INLINE (bytes follow, used when ≤ 512 B); kind 1 = REFERENCED
                (bytes in one OverflowPage off the side map). The CONTAINER carries no magic,

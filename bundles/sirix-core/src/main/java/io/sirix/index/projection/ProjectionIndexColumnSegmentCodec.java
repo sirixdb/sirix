@@ -383,6 +383,19 @@ public final class ProjectionIndexColumnSegmentCodec {
     return new EncodeWorkspace();
   }
 
+  /**
+   * Encode {@code page} with a pooled workspace — the reader-side entry point of the open-row-group
+   * tail merge ({@link ProjectionOpenRowGroupTail}), which has no maintenance workspace of its own.
+   */
+  static EncodedRowGroup encodePooled(final ProjectionIndexRowGroupPage page) {
+    final EncodeWorkspace workspace = acquireEncodeWorkspace();
+    try {
+      return encode(page, workspace);
+    } finally {
+      releaseEncodeWorkspace(workspace);
+    }
+  }
+
   private static void releaseEncodeWorkspace(final EncodeWorkspace workspace) {
     synchronized (ENCODE_WORKSPACE_POOL) {
       if (ENCODE_WORKSPACE_POOL.size() < ENCODE_WORKSPACE_POOL_SIZE) {

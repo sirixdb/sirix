@@ -405,6 +405,61 @@ public final class ProjectionIndexRowExtractor {
   private static final String[] EMPTY_SET = new String[0];
 
   /**
+   * Capture the row just appended by {@link #appendTo} at {@code row} of {@code leaf} as an
+   * open-row-group tail row ({@link ProjectionOpenRowGroupTail}): the extractor's own per-column
+   * lanes (values, UTF-8 strings, sets, presence and representability flags) plus, for STRING_GLOBAL
+   * columns, the value-dictionary id the page resolved on append.
+   */
+  ProjectionOpenRowGroupTail.Row captureTailRow(final ProjectionIndexRowGroupPage leaf, final int row,
+      final long recordKey, final boolean orderException, final byte[] orderLabel) {
+    final int columns = columnKinds.length;
+    final long[] longs = new long[columns];
+    final boolean[] bools = new boolean[columns];
+    final byte[][] strings = new byte[columns][];
+    final String[][] sets = new String[columns][];
+    final boolean[] present = new boolean[columns];
+    final boolean[] unrepresentable = new boolean[columns];
+    final boolean[] nonIntegral = new boolean[columns];
+    final boolean[] nonDoubleSource = new boolean[columns];
+    for (int c = 0; c < columns; c++) {
+      present[c] = rowPresent[c];
+      unrepresentable[c] = rowUnrepresentable[c];
+      nonIntegral[c] = rowNonIntegral[c];
+      nonDoubleSource[c] = rowNonDoubleSource[c];
+      final boolean clean = rowPresent[c] && !rowUnrepresentable[c];
+      // STRING_GLOBAL is an encoding election of the persisted page, while extraction still uses
+      // the declared STRING_DICT kind. Capture the id the page actually resolved on append.
+      switch (leaf.columnKind(c)) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT ->
+          longs[c] = leaf.numericColumn(c)[row];
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> bools[c] = rowBools[c];
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          if (clean) {
+            final int length = rowStringUtf8Lengths[c];
+            strings[c] = Arrays.copyOf(rowStringUtf8[c], length);
+          } else {
+            strings[c] = EMPTY_UTF8;
+          }
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int n = clean
+              ? rowStringSetLen[c]
+              : 0;
+          final String[] elements = new String[n];
+          for (int i = 0; i < n; i++) {
+            elements[i] = rowStringSets[c][i];
+          }
+          sets[c] = elements;
+        }
+        default -> longs[c] = rowLongs[c];
+      }
+    }
+    return new ProjectionOpenRowGroupTail.Row(recordKey, orderException, orderLabel.clone(), longs, bools, strings,
+        sets, present, unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /**
    * Append the buffers filled by the last {@link #extractInto}/{@link #extractAt} call as one row of
    * {@code leaf}.
    *

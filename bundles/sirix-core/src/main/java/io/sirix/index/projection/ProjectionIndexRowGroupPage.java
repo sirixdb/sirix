@@ -1383,6 +1383,125 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
+   * Append one open-row-group tail row ({@link ProjectionOpenRowGroupTail}): the writer's captured
+   * inputs of {@link #appendExtractedUtf8Row} with every STRING_GLOBAL id already resolved in
+   * {@code longValues}. Writer and readers replay the same rows through this one method, so the
+   * merged page — and its encoding — is identical on both sides.
+   */
+  boolean appendTailRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+    if (longValues == null || boolValues == null || stringUtf8Values == null || present == null
+        || unrepresentable == null || nonIntegral == null || nonDoubleSource == null) {
+      throw new IllegalArgumentException("tail rows carry every per-column lane");
+    }
+    if (longValues.length < columnCount || boolValues.length < columnCount || stringUtf8Values.length < columnCount
+        || present.length < columnCount || unrepresentable.length < columnCount || nonIntegral.length < columnCount
+        || nonDoubleSource.length < columnCount || (stringUtf8Lengths != null && stringUtf8Lengths.length < columnCount)
+        || (stringSetValues != null && stringSetValues.length < columnCount)) {
+      throw new IllegalArgumentException("tail row lanes must cover " + columnCount + " columns");
+    }
+    if (!canAppendOrderLabel(orderLabel)) {
+      return false;
+    }
+    final boolean appended =
+        appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths, stringSetValues,
+            present, unrepresentable, nonIntegral, nonDoubleSource, orderException, true);
+    if (!appended) {
+      throw new IllegalStateException("projection order-label preflight admitted a full row group");
+    }
+    replaceLastOrderLabel(orderLabel);
+    return true;
+  }
+
+  /**
+   * Whether the first {@code rows} rows of this page and of {@code other} hold the same content:
+   * record keys, order labels and exceptions, presence, and every column value (strings by content,
+   * not by dictionary id). Page-level sticky flags are not compared. The open-row-group tail path
+   * uses this to prove that a maintenance rewrite is a pure append over the persisted rows.
+   */
+  boolean rowsEqualPrefix(final ProjectionIndexRowGroupPage other, final int rows) {
+    if (other == null || rows < 0 || rows > rowCount || rows > other.rowCount || columnCount != other.columnCount
+        || !Arrays.equals(columnKinds, other.columnKinds)) {
+      return false;
+    }
+    for (int row = 0; row < rows; row++) {
+      if (recordKeys[row] != other.recordKeys[row] || orderExceptionAt(row) != other.orderExceptionAt(row)) {
+        return false;
+      }
+      if (compareOrderLabels(orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1], other.orderLabelBytes,
+          other.orderLabelOffsets[row], other.orderLabelOffsets[row + 1]) != 0) {
+        return false;
+      }
+    }
+    for (int c = 0; c < columnCount; c++) {
+      for (int row = 0; row < rows; row++) {
+        final boolean present = (presenceCols[c][row >>> 6] & (1L << (row & 63))) != 0;
+        if (present != ((other.presenceCols[c][row >>> 6] & (1L << (row & 63))) != 0)) {
+          return false;
+        }
+      }
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
+            COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_STRING_SEGMENT -> {
+          if (!Arrays.equals(numericCols[c], 0, rows, other.numericCols[c], 0, rows)) {
+            return false;
+          }
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          for (int row = 0; row < rows; row++) {
+            if (((booleanCols[c][row >>> 6] >>> (row & 63)) & 1L) != ((other.booleanCols[c][row >>> 6] >>> (row & 63))
+                & 1L)) {
+              return false;
+            }
+          }
+        }
+        case COLUMN_KIND_STRING_DICT -> {
+          for (int row = 0; row < rows; row++) {
+            if (!dictionaryEntriesEqual(c, stringDictIdCols[c][row], other, other.stringDictIdCols[c][row])) {
+              return false;
+            }
+          }
+        }
+        case COLUMN_KIND_STRING_SET -> {
+          int mine = 0;
+          int theirs = 0;
+          for (int row = 0; row < rows; row++) {
+            final int count = stringSetCountCols[c][row];
+            if (count != other.stringSetCountCols[c][row]) {
+              return false;
+            }
+            for (int e = 0; e < count; e++) {
+              if (!dictionaryEntriesEqual(c, stringSetIdCols[c][mine + e], other,
+                  other.stringSetIdCols[c][theirs + e])) {
+                return false;
+              }
+            }
+            mine += count;
+            theirs += count;
+          }
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    return true;
+  }
+
+  private boolean dictionaryEntriesEqual(final int c, final int dictId, final ProjectionIndexRowGroupPage other,
+      final int otherDictId) {
+    final int length = stringDictionaryEntryLength(c, dictId);
+    if (length != other.stringDictionaryEntryLength(c, otherDictId)) {
+      return false;
+    }
+    final byte[] mine = stringDictionaryEntryBacking(c, dictId);
+    final int myOffset = stringDictionaryEntryOffset(c, dictId);
+    final byte[] theirs = other.stringDictionaryEntryBacking(c, otherDictId);
+    final int theirOffset = other.stringDictionaryEntryOffset(c, otherDictId);
+    return Arrays.equals(mine, myOffset, myOffset + length, theirs, theirOffset, theirOffset + length);
+  }
+
+  /**
    * Append one extracted value to a one-column maintenance page.
    *
    * <p>
@@ -1531,6 +1650,21 @@ public final class ProjectionIndexRowGroupPage {
       final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
+    return appendRowInternal(recordKey, longValues, boolValues, stringValues, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException, false);
+  }
+
+  /**
+   * {@code globalIdsResolved}: a STRING_GLOBAL cell's value dictionary id is taken from
+   * {@code longValues[c]} instead of being interned — the open-row-group tail replay
+   * ({@link ProjectionOpenRowGroupTail}) re-appends rows whose ids the writer already resolved, on
+   * readers that have no dictionary writer.
+   */
+  private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final boolean globalIdsResolved) {
     if (rowCount == MAX_ROWS)
       return false;
     if (stringUtf8Values == null) {
@@ -1586,10 +1720,12 @@ public final class ProjectionIndexRowGroupPage {
         // zone map stays a range over real ids because only clean cells widen it.
         case COLUMN_KIND_STRING_GLOBAL -> {
           final long id = clean
-              ? stringUtf8Values == null
-                  ? internGlobal(c, stringValues[c])
-                  : internGlobalUtf8(c, stringUtf8Values[c],
-                      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
+              ? globalIdsResolved
+                  ? longValues[c]
+                  : stringUtf8Values == null
+                      ? internGlobal(c, stringValues[c])
+                      : internGlobalUtf8(c, stringUtf8Values[c],
+                          extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
               : 0L;
           numericCols[c][row] = id;
           if (clean) {

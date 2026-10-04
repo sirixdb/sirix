@@ -450,8 +450,28 @@ normal:     2, 5, 8, 11
 ```
 
 No sparse locator is written. Among the routing units, only the last normal
-boundary is extended. The target `KEYS` and column segments, its descriptor,
-slot-0 metadata, and any affected derived column metadata still change.
+boundary is extended. The descriptor, slot-0 metadata, and affected derived
+column metadata still change. A pure append to an existing open row group in
+row-group-major layout stores the new rows in referenced side pages and retains
+the base `KEYS` and column segments. The writer proves that the re-extracted
+prefix equals the persisted rows, including order labels, presence and values.
+A group completed at 1024 rows, a membership rewrite or a column patch folds
+the tail into ordinary column segments in the same transaction. The writer
+also folds on the append after 64 live tail blobs, then starts a new tail on
+the next append. This bounds reference carry-forward and cold replay even
+when the base columns compress too well to repay hundreds of references.
+
+The tailed descriptor describes the merged group, including its row count,
+zone maps and segment hashes. Single-group reads, batch assembly, directory
+walks and writer segment reads all merge the base with the tail before using
+segment bytes. Cold merges verify the re-encoded descriptor. The writer seeds
+a merge memo with its own encoding after each append, so its next commit can
+reuse those bytes without replaying the tail. The memo is bounded to 64 MiB;
+eviction falls back to the verified cold merge. The persisted tail layout is
+described in `DISK_FORMAT.md`. Public row and directory reads return detached
+arrays so callers cannot alter the memo; internal maintenance borrows read-only
+bytes. The four-versioning-type tests and matched byte/latency measurements are
+recorded in [the row-tail verification report](PROJECTION_OPEN_ROW_GROUP_TAIL_VERIFICATION.md).
 
 If either fact is not proven, the new row is classified as an exception. The
 writer must not guess that an absent projection row is a tail append merely

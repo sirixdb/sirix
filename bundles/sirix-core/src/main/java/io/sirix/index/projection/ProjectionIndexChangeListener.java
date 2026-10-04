@@ -2328,13 +2328,28 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         int from = 0;
         int previousSlot = edit.slot;
         int group = 0;
+        // Open-row-group tail: a pure append to an existing, still-open row group stores the
+        // new rows row-major and republishes the merged descriptor instead of rewriting every column
+        // segment. Eligibility is structural here (no removal, every insertion at the end, no
+        // column-only update pending for this leaf, one planned group, the group stays open) and is
+        // proven below by comparing the re-extracted prefix with the persisted rows.
+        final int priorRows = edit.oldPage == null
+            ? 0
+            : edit.oldPage.getRowCount();
+        final boolean tailEligible =
+            edit.priorExists && edit.oldPage != null && edit.appendOnly && plannedGroups == 1 && rows > priorRows
+                && rows < ProjectionIndexRowGroupPage.MAX_ROWS && !changedColumnsBySlot.containsKey(edit.slot)
+                && storage.slotLayout() == ProjectionSlotLayout.ROW_GROUP_MAJOR;
+        final ArrayList<ProjectionOpenRowGroupTail.Row> tailRows = tailEligible
+            ? new ArrayList<>(rows - priorRows)
+            : null;
         while (from < rows) {
           final int targetGroupSize = group < plannedGroups
               ? smallerGroupSize + (group < largerGroups
                   ? 1
                   : 0)
               : Math.min(ProjectionIndexRowGroupPage.MAX_ROWS, rows - from);
-          final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
+          ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
           page.setGlobalDictionaries(globalDictionaries);
           int appendedRows = 0;
           while (from < rows && appendedRows < targetGroupSize) {
@@ -2349,9 +2364,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             if (!extractInto(extractor, rtx, key)) {
               return false;
             }
-            final boolean appended = extractor.appendTo(page, key, edit.orderExceptions.getBoolean(from), orderLabel);
+            final boolean orderException = edit.orderExceptions.getBoolean(from);
+            final boolean appended = extractor.appendTo(page, key, orderException, orderLabel);
             if (!appended) {
               throw new IllegalStateException("a preflighted projection maintenance row was rejected");
+            }
+            // A label wider than the tail format can still use the ordinary full-segment write.
+            if (tailRows != null && from >= priorRows
+                && orderLabel.length <= ProjectionOpenRowGroupTail.MAX_ROW_ORDER_LABEL_BYTES) {
+              tailRows.add(extractor.captureTailRow(page, appendedRows, key, orderException, orderLabel));
             }
             from++;
             appendedRows++;
@@ -2359,10 +2380,36 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           final int physicalSlot = group == 0
               ? edit.slot
               : fences.allocateSlot();
-          updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
-          validateRewrittenRowGroup(page, physicalSlot, locator, rewrittenRecordKeys);
-          writeRowGroup(storage, physicalSlot, page, fences, changedLeafSlots, changedColumnsByLeaf, allColumnWords,
-              true, group == 0 && edit.priorExists, encodeWorkspace);
+          boolean tailAppended = false;
+          if (tailRows != null && group == 0 && from == rows && tailRows.size() == rows - priorRows
+              && page.rowsEqualPrefix(edit.oldPage, priorRows)) {
+            // The persisted rows are untouched: replay the new rows onto the hydrated page — the very
+            // construction every reader repeats — and publish its encoding as the tailed descriptor.
+            final ProjectionIndexRowGroupPage merged = edit.oldPage;
+            merged.setGlobalDictionaries(globalDictionaries);
+            ProjectionOpenRowGroupTail.appendRows(merged, tailRows, physicalSlot);
+            if (merged.getRowCount() != rows) {
+              throw new IllegalStateException("projection tail replay produced " + merged.getRowCount()
+                  + " rows instead of " + rows + " at physical leaf " + physicalSlot);
+            }
+            page = merged;
+            updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
+            validateRewrittenRowGroup(page, physicalSlot, locator, rewrittenRecordKeys);
+            final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+                ProjectionIndexColumnSegmentCodec.encode(page, encodeWorkspace);
+            storage.putOpenRowGroupTailAppend(physicalSlot, encoded,
+                ProjectionOpenRowGroupTail.encodeRows(persistedKinds, tailRows), tailRows.size(), page.serialize());
+            fences.set(physicalSlot, page.firstRecordKey(), page.lastRecordKey());
+            changedLeafSlots.add(physicalSlot);
+            changedColumnsByLeaf.put(physicalSlot, allColumnWords.clone());
+            tailAppended = true;
+          }
+          if (!tailAppended) {
+            updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
+            validateRewrittenRowGroup(page, physicalSlot, locator, rewrittenRecordKeys);
+            writeRowGroup(storage, physicalSlot, page, fences, changedLeafSlots, changedColumnsByLeaf, allColumnWords,
+                true, group == 0 && edit.priorExists, encodeWorkspace);
+          }
           persistedLookup.invalidate(physicalSlot);
           adjustSetValueRowCounts(setValueRowCounts, page, 1L, allColumnWords);
           if (group > 0) {
@@ -2381,6 +2428,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         final int slot = Math.toIntExact(iterator.nextLong());
         if (membershipSlots.contains(slot)) {
           continue; // membership rewrite already refreshed every column exactly once
+        }
+        // A column patch replaces whole column segments; an open row tail must be folded first so
+        // every persisted segment covers the same rows, and the keys/descriptor cache must see the
+        // folded descriptor.
+        if (storage.foldOpenRowGroupTail(slot)) {
+          persistedLookup.invalidate(slot);
         }
         final ProjectionPersistedRecordLookup.Keys cachedKeys = persistedLookup.keys(slot);
         if (!applyColumnOnlyUpdate(storage, slot, changedColumnsBySlot.get(slot), persistedKinds, globalDictionaries,
@@ -2762,7 +2815,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     final ProjectionIndexRowGroupPage oldPage;
     if (priorExists) {
-      final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(slot);
+      final byte[] raw = storage.getRowGroupForMaintenance(slot);
       if (raw == null) {
         throw new IllegalStateException("projection physical leaf " + slot + " has no row-group payload");
       }
@@ -2881,6 +2934,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private final BooleanArrayList orderExceptions;
     private final ObjectArrayList<byte[]> orderLabels;
     private boolean keysChanged;
+    /** Every membership change so far appended at the end: the open-row-group tail path applies. */
+    private boolean appendOnly = true;
     private boolean readCounted;
     /**
      * Lazily built membership index over {@link #recordKeys}, kept in sync by
@@ -2934,6 +2989,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
     private void insertKeyAt(final int row, final long recordKey, final boolean orderException,
         final byte[] orderLabel) {
+      if (row != recordKeys.size()) {
+        appendOnly = false;
+      }
       recordKeys.add(row, recordKey);
       orderExceptions.add(row, orderException);
       orderLabels.add(row, orderLabel);
@@ -2944,6 +3002,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
 
     private void removeKeyAt(final int row) {
+      appendOnly = false;
       final long removed = recordKeys.removeLong(row);
       orderExceptions.removeBoolean(row);
       orderLabels.remove(row);
