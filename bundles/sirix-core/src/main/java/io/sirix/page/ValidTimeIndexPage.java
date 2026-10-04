@@ -83,8 +83,8 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Get the HOT-tree root reference for the valid-time index with the given {@code IndexDef} id.
-   * Creates an empty reference slot if none exists yet.
+   * Get the HOT-tree root reference for the given physical tree id. Creates an empty reference slot
+   * if none exists yet.
    */
   public PageReference getIndirectPageReference(final int index) {
     return getOrCreateIndexReference(index);
@@ -96,7 +96,7 @@ public final class ValidTimeIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Initialize the valid-time index's HOT tree.
+   * Initialize a physical valid-time HOT tree.
    */
   public void createValidTimeIndexTree(final StorageEngineReader storageEngineReader, final int index,
       final TransactionIntentLog log) {

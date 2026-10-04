@@ -10,7 +10,9 @@ import io.sirix.query.json.BasicJsonDBStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Isolates a direct half-open slice count; the expected count is the sum of SH1 Q7's oracle groups. */
+/**
+ * Isolates a direct half-open slice count; the expected count is the sum of SH1 Q7's oracle groups.
+ */
 public final class DirectSliceProbe {
   private static final String QUERY = """
       count(for $r in jn:open-bitemporal('bt','contracts',xs:dateTime('2024-12-26T00:00:00Z'),
@@ -44,8 +46,8 @@ public final class DirectSliceProbe {
         if (count != expected) {
           throw new IllegalStateException("Slice count " + count + " differs from Q7 oracle sum " + expected);
         }
-        System.out.printf("SLICE rep=%d compile_ms=%.3f execute_ms=%.3f total_ms=%.3f count=%d%n",
-            repetition, (compiled - start) / 1e6, (finished - compiled) / 1e6, (finished - start) / 1e6, count);
+        System.out.printf("SLICE rep=%d compile_ms=%.3f execute_ms=%.3f total_ms=%.3f count=%d%n", repetition,
+            (compiled - start) / 1e6, (finished - compiled) / 1e6, (finished - start) / 1e6, count);
       }
     }
   }

@@ -53,17 +53,18 @@ it does not accumulate as revisions advance.
 `NodeStorageEngineWriter.close()` retires its controller's change listeners and
 transaction-serving handles after fencing asynchronous work. Cached catalogue
 definitions remain available, while listener retention follows active writer
-lifetimes, including the bounded pending writer of a pipelined commit. The existing
-catalogue cache size and persisted formats are unchanged.
+lifetimes, including the bounded pending writer of a pipelined commit. Listener retirement leaves
+the catalogue cache size and persisted formats unchanged.
 
 The controller belongs to the prepared revision root, which can differ from the
 represented revision after a revert. Factory construction restores its catalogue
 from the latest persisted snapshot at or below `representRevision` through the
 session's memoized resolver. An absent snapshot inherits; an explicitly persisted
 empty catalogue stops inheritance within that revision's history. Restoration
-discards uncommitted definitions on reused controllers. `revertTo(r)` gives the
-new head exactly revision `r`'s definitions for every index type; it leaves the
-intervening revisions and their catalogues readable.
+discards uncommitted definitions on reused controllers. `revertTo(r)` restores revision `r`'s
+catalogue, subject to the obsolete VALIDTIME replacement described in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md#index-representation); it leaves the intervening
+revisions and their catalogues readable.
 
 On successful successor handoff, the predecessor's complete live catalogue replaces
 that restored catalogue, including an empty set or partial drops. This is necessary

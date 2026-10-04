@@ -22,7 +22,8 @@ import java.util.ArrayList;
 public final class LatencyProbe {
   public static void main(final String[] args) throws Exception {
     if (args.length < 5) {
-      throw new IllegalArgumentException("Usage: LatencyProbe <db-root> <oracle-dir> <output-dir> <reps> <query-numbers...>");
+      throw new IllegalArgumentException(
+          "Usage: LatencyProbe <db-root> <oracle-dir> <output-dir> <reps> <query-numbers...>");
     }
     final Path db = Path.of(args[0]);
     final Path oracle = Path.of(args[1]);
@@ -33,10 +34,10 @@ public final class LatencyProbe {
       throw new IllegalArgumentException("reps must be positive");
     }
     try (var store = BasicJsonDBStore.newBuilder().location(db).build();
-         var context = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = store.lookup("bt");
-      for (final String resource : new String[]{"contracts", "products", "suppliers"}) {
+      for (final String resource : new String[] {"contracts", "products", "suppliers"}) {
         final var doc = collection.getDocument(resource, BitemporalSchema.systemTime(24));
         doc.getTrx().close();
       }
@@ -72,8 +73,10 @@ public final class LatencyProbe {
           if (Files.mismatch(tsv, oracle.resolve("q" + number + ".tsv")) != -1) {
             throw new IllegalStateException("Oracle mismatch Q" + number);
           }
-          System.out.printf("RUN q=%d rep=%d compile_ms=%.3f execute_ms=%.3f serialize_ms=%.3f canonicalize_ms=%.3f total_ms=%.3f rows=%d%n",
-              number, rep, (t1-t0)/1e6, (t2-t1)/1e6, (t3-t2)/1e6, (t4-t3)/1e6, (t3-t0)/1e6, items.size());
+          System.out.printf(
+              "RUN q=%d rep=%d compile_ms=%.3f execute_ms=%.3f serialize_ms=%.3f canonicalize_ms=%.3f total_ms=%.3f rows=%d%n",
+              number, rep, (t1 - t0) / 1e6, (t2 - t1) / 1e6, (t3 - t2) / 1e6, (t4 - t3) / 1e6, (t3 - t0) / 1e6,
+              items.size());
         }
       }
     }
