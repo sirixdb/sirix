@@ -1,5 +1,7 @@
 package io.sirix.index.name;
 
+import java.util.Objects;
+
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
@@ -310,6 +312,34 @@ public final class Names {
   public int keyForName(final String name) {
     assert name != null;
     return probe(name, name.hashCode());
+  }
+
+  /**
+   * Rebuild one occurrence in an import-owned name namespace. The explicit binding preserves
+   * collision assignments used by persisted document hashes; ordinary inserts still use probing.
+   */
+  public void importName(final int key, final String name, final StorageEngineWriter writer) {
+    Objects.requireNonNull(name);
+    Objects.requireNonNull(writer);
+    if (key == NO_NAME_KEY) {
+      throw new IllegalArgumentException("The no-name sentinel cannot be imported");
+    }
+    final NameEntry existing = nameMap.get(key);
+    if (existing != null) {
+      if (!existing.string().equals(name)) {
+        throw new IllegalStateException("Conflicting imported name binding at " + key);
+      }
+      addCount(key, 1, writer);
+      return;
+    }
+    final long entryKey = Math.addExact(maxNodeKey, 1);
+    final long countKey = Math.addExact(entryKey, 1);
+    writer.createRecord(new HashEntryNode(entryKey, key, name), IndexType.NAME, indexNumber);
+    writer.createRecord(new HashCountEntryNode(countKey, 1), IndexType.NAME, indexNumber);
+    maxNodeKey = countKey;
+    countNodeMap.put(key, countKey);
+    nameMap.put(key, new NameEntry(name, getBytes(name)));
+    countNameMapping.put(key, 1);
   }
 
   /**

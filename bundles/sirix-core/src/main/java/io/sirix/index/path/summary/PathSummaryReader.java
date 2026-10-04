@@ -125,7 +125,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather
    * than a hash of it.
    */
-  private final PathSummaryChildIndex childLookupCache;
+  private PathSummaryChildIndex childLookupCache;
 
   private boolean init = true;
 
@@ -1221,6 +1221,25 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getPreviousRevisionNumber() {
     throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Refresh this writer-owned view after a private import installed a complete logical namespace.
+   * Preserve the reader object held by index listeners, but discard every derived lookup cache.
+   */
+  public void reloadAfterImport() {
+    assertNotClosed();
+    if (!storageEngineReader.hasTrxIntentLog()) {
+      throw new IllegalStateException("Only a private write transaction may reload imported paths");
+    }
+    final PathSummaryReader rebuilt = new PathSummaryReader(storageEngineReader, resourceSession);
+    currentNode = rebuilt.currentNode;
+    pathNodeMapping = rebuilt.pathNodeMapping;
+    qnmMapping.clear();
+    qnmMapping.putAll(rebuilt.qnmMapping);
+    childLookupCache = rebuilt.childLookupCache;
+    pathCache.clear();
+    localNameIndex.invalidate();
   }
 
   public void clearCache() {

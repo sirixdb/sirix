@@ -49,6 +49,9 @@ public interface ChangeListener {
    */
   default void beforePageFlush() {}
 
+  /** The private importer replaced path records; discard resolved path sets, retaining pending edits. */
+  default void pathSummaryImported() {}
+
   /**
    * The owning write transaction is discarding its current lineage rather than committing it.
    *

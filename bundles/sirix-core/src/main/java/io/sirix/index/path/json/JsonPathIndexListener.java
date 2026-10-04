@@ -18,6 +18,11 @@ final class JsonPathIndexListener implements PathNodeKeyChangeListener {
   }
 
   @Override
+  public void pathSummaryImported() {
+    pathIndexListener.pathSummaryImported();
+  }
+
+  @Override
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
     listen(type, node.getNodeKey(), node.getKind(), pathNodeKey, null, null);
   }

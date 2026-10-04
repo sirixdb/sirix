@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.StringWriter;
@@ -35,6 +37,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static io.sirix.diff.DiffTestHelper.assertJsonCopyStructure;
 import static java.util.Objects.requireNonNull;
@@ -44,43 +47,47 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class JsonBulkInsertDiffRegressionTest {
+  private static final VersioningType REPLAY_VERSIONING =
+      VersioningType.valueOf(System.getProperty("sirix.replay.versioning", "SLIDING_SNAPSHOT"));
+
   @BeforeEach
   @AfterEach
   void cleanUp() {
     JsonTestHelper.deleteEverything();
   }
 
+  static Stream<Arguments> laterParentConfigurations() {
+    return Stream.of(VersioningType.values()).flatMap(versioning -> Stream.of(false, true)
+        .flatMap(dewey -> Stream.of(false, true).map(recompute -> Arguments.of(versioning, dewey, recompute))));
+  }
+
   @ParameterizedTest
-  @EnumSource(VersioningType.class)
-  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning) throws Exception {
-    for (final boolean deweyIDs : new boolean[] {false, true}) {
-      for (final boolean recompute : new boolean[] {false, true}) {
-        JsonTestHelper.deleteEverything();
-        final var configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-            .storageType(StorageType.FILE_CHANNEL)
-            .versioningApproach(versioning)
-            .useDeweyIDs(deweyIDs)
-            .build();
-        try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(
-            JsonTestHelper.PATHS.PATH1.getFile(), configuration);
-            final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-          seed(session, "[0]");
-          try (final var wtx = session.beginNodeTrx()) {
-            assertTrue(wtx.moveTo(1));
-            insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"x\":1},{}]");
-            assertTrue(wtx.moveTo(5));
-            wtx.moveSubtreeToFirstChild(4);
-            assertTrue(wtx.moveTo(3));
-            wtx.remove();
-            wtx.commit();
-            assertEquals("[0,{\"x\":1}]", serialize(session, 2));
-          }
-          if (recompute) {
-            Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
-          }
-          assertCopiedRevisions(session, deweyIDs);
-        }
+  @MethodSource("laterParentConfigurations")
+  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning,
+      final boolean deweyIDs, final boolean recompute) throws Exception {
+    final var configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+        .storageType(StorageType.FILE_CHANNEL)
+        .versioningApproach(versioning)
+        .useDeweyIDs(deweyIDs)
+        .build();
+    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(
+        JsonTestHelper.PATHS.PATH1.getFile(), configuration);
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      seed(session, "[0]");
+      try (final var wtx = session.beginNodeTrx()) {
+        assertTrue(wtx.moveTo(1));
+        insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"x\":1},{}]");
+        assertTrue(wtx.moveTo(5));
+        wtx.moveSubtreeToFirstChild(4);
+        assertTrue(wtx.moveTo(3));
+        wtx.remove();
+        wtx.commit();
+        assertEquals("[0,{\"x\":1}]", serialize(session, 2));
       }
+      if (recompute) {
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+      }
+      assertCopiedRevisions(session, deweyIDs);
     }
   }
 
@@ -1041,7 +1048,8 @@ final class JsonBulkInsertDiffRegressionTest {
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (
         final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(),
+                config(deweyIDs, source.getResourceConfig().versioningType));
         final var destination = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = source.beginNodeReadOnlyTrx(1);
         final var wtx = destination.beginNodeTrx()) {
@@ -1825,6 +1833,7 @@ final class JsonBulkInsertDiffRegressionTest {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                                       .versioningApproach(REPLAY_VERSIONING)
                                                                        .useDeweyIDs(deweyIDs)
                                                                        .storeDiffs(false)
                                                                        .build();
@@ -2689,8 +2698,13 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   private static ResourceConfiguration config(final boolean deweyIDs) {
+    return config(deweyIDs, REPLAY_VERSIONING);
+  }
+
+  private static ResourceConfiguration config(final boolean deweyIDs, final VersioningType versioning) {
     return ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                 .storageType(StorageType.FILE_CHANNEL)
+                                .versioningApproach(versioning)
                                 .useDeweyIDs(deweyIDs)
                                 .build();
   }

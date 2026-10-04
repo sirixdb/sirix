@@ -683,6 +683,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private int compoundOperationDepth;
 
+  /** Import epochs must own a clean writer so failure cannot discard unrelated mutations. */
+  protected final void requireCleanImportEpoch() {
+    nodeReadOnlyTrx.assertNotClosed();
+    assertRunning();
+    if (modificationCount != 0 || compoundOperationDepth != 0) {
+      throw new IllegalStateException("Identity import requires a clean transaction epoch");
+    }
+  }
+
   /**
    * Mark the start of a compound structural operation. Must be balanced with
    * {@link #endCompoundOperation()} in a {@code finally} block so an exception mid-operation cannot

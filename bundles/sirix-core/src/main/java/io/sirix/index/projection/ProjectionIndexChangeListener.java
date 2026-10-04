@@ -1026,6 +1026,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
+  @Override
+  public void pathSummaryImported() {
+    seeded = false;
+    resolvedRecordMemo = null;
+    arrayRootInstances = null;
+  }
+
   /**
    * One-time PCR-set seeding, deferred to the first notification so transactions that never write pay
    * nothing. Seeds the root PCRs, their ancestors (structural deletes of an enclosing container drop

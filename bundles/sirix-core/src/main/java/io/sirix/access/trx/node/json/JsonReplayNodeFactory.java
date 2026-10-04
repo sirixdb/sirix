@@ -28,8 +28,8 @@ final class JsonReplayNodeFactory {
   static StructNode stage(final JsonReplayRecord record, final JsonReplayManifest manifest,
       final LongHashFunction hashFunction) {
     final long key = record.key();
-    final int previous = manifest.mapRevision(record.previousRevision());
-    final int modified = manifest.mapRevision(record.lastModifiedRevision());
+    final int previous = manifest.mapPreviousRevision(record.previousRevision());
+    final int modified = manifest.mapLastModifiedRevision(record.lastModifiedRevision());
     final var dewey = record.deweyID();
     final int nameKey = record.nameKey();
     final long pathKey = record.pathKey();

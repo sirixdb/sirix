@@ -41,7 +41,7 @@ recommendation B and its ordered migration/acceptance plan. The report remains r
 
 1. [in progress] Pin public behavior and promote R16 across Dewey/recompute/versioning;
    define typed protocol without routing production replay to it.
-2. [pending] Independent full-snapshot test reconstruction and private import seam;
+2. [in progress] Independent full-snapshot test reconstruction and private import seam;
    explicit keys/gaps/frontier, stage-failure rollback tests. Rebase onto the separate
    tombstone/recreate/restore fix when firstmate reports it landed; do not duplicate it.
 3. [pending] Authoritative delta discovery; shadow hook compares delta-applied graph to
@@ -84,7 +84,7 @@ From Monday 2026-10-05 no new campaign after 05:00 Berlin; benchmark JVMs done b
 
 - Isolation: pwd -P and git top-level both /home/johannes/.treehouse/sirix-cdde48/20/sirix.
 - Assigned branch created; no-mistakes doctor passed (daemon running, codex runnable).
-- No production edits or validation runs yet. Report establishes R16 on current base.
+- At setup there were no production edits or validation runs. Later evidence is recorded below.
 
 ## Captain steering, acknowledged 2026-10-05 00:02 Berlin
 
@@ -121,3 +121,76 @@ No no-mistakes run started; doctor only. No push. Baseline log is empty (limiter
 After firstmate resumes: inspect inbox, rebase the prerequisite tombstone fix when it
 lands, continue implementation, then run the required acceptance sequence. Do not
 represent this WIP commit as task completion or hand it off as the first done gate.
+
+## Resume clarification (inbox 002, 2026-10-05 00:05 Berlin)
+
+Firstmate explicitly resumed normal work until the 03:40 validation cutoff. Continue
+on top of WIP 24128d1af; perform save-and-park between 03:40 and 03:55 Berlin.
+
+Baseline evidence: build/replay/baseline.log and baseline-results/*.xml. Four versioning
+invocations of R16 fail with the expected temporary allocation parent -1 exception;
+each invocation stops at its first Dewey/recompute case, so this run alone does not
+claim all sixteen combinations. Five BasicJsonDiffWorkBudgetTest invocations pass.
+
+## Gate 2 implementation and first oracle run
+
+Private InternalJsonNodeTrx.importRevision owns a clean locked epoch, suppresses public
+mutation sidecars, stages detached records, links them, validates the graph, rebuilds
+logical name/path namespaces, notifies indexes and commits. Failure checkpoints exist
+at identities-staged, links-installed, derived-state-finalized and before-publish.
+The complete path namespace is currently rebuilt; production replay is NOT routed here.
+Changed-path and bounded graph validation remain later work once the oracle is sound.
+
+First focused run: 29 invocations, 13 pass and 16 fail. Eight HashType.NONE R16 snapshots
+across Dewey/versioning combinations pass after cold reopen, including frontier 1,000,000;
+all four staging rollback/retry tests (with colliding names Aa/BB) and dirty-writer refusal
+pass. ROLLING/POSTORDER snapshots fail the independent descendant-count invariant.
+A diagnostic shadow comparison of ALL copied fields against the source now runs before
+that invariant check to distinguish importer drift from pre-existing source corruption.
+Suspect source path: insertSubtreeInternal repairs only the selected last root after a
+skipped-root bulk append; AbstractNodeHashing.postorderAdd does not maintain descendant
+counts. Do not weaken the validator or copy acceptance to make this green.
+
+Source performance paths remain unchanged except new cold import methods. Full suites,
+index integration, allocation budgets, delta discovery and benchmarking have not run.
+
+History-suffix mapping is explicit: source revision S maps to destination 1; later
+revisions retain the same offset. Predecessors before S become unavailable (-1), and
+last modification before S maps to snapshot boundary 1. Document-root sentinel metadata
+remains its engine-defined zero. Full history from source revision 1 preserves metadata.
+
+Manifest source identity is ResourceConfiguration.resourceUuid, not merely the resource
+path or reusable numeric resource id. Import validates both the UUID and exact epoch.
+No legacy format fallback is promised (captain explicitly waived old database formats).
+
+The queued second diagnostic adds all fused/ordinary payload kinds, an overflow Unicode
+string, and a name-hash collision whose earlier binding has been deleted. The independent
+oracle now checks document name/path keys and path-summary topology, allocation frontier,
+references, all statistics values/trust flags, HLL and persisted page-presence state.
+R1-R18 test configurations can be selected with -Dsirix.replay.versioning=<VersioningType>;
+the default stays SLIDING_SNAPSHOT, and copied resources use the source versioning type.
+This matrix support has not yet been run across all versions.
+
+R16 now has sixteen separately reported versioning/Dewey/recompute invocations. The
+report's small-edit R18 work budget is promoted with its original bounds, extended to
+both Dewey modes. Primitive index snapshot coverage independently checks expected node
+keys after cold reopen for NAME, unrestricted/selective PATH, and unrestricted/selective
+CAS indexes. Source and staged document fields are compared before separately validating
+the immutable source's graph invariants in the second diagnostic.
+
+## Gate-2 stop checkpoint (2026-10-05 01:07 Berlin)
+
+Second diagnostic finished: compilation passed; 37 tests ran, 21 passed and 16 failed.
+All R16 staged/source field comparisons pass, then immutable SOURCE validation fails:
+ROLLING array key 1 stores 2 descendants instead of 3; POSTORDER object key 5 stores
+0 instead of 1. Both failures cover all four versioning types and both Dewey modes.
+This repeats the first run's obstacle, so the worker brief requires a blocker handoff
+and stop. Full evidence and source-repair leads: build/replay/source-count-findings.md.
+
+The 21 passing invocations include all added payload/name-collision and primitive-index
+checks, all four fault rollback/retry checkpoints, dirty-writer refusal and eight NONE
+R16 cases. The newly expanded public R16 matrix and promoted R18 test compiled but have
+not run in their new form. Existing baseline public-diff budgets passed five invocations.
+Formatting, full suites and performance acceptance are pending; no production switch,
+no tombstone duplication, no push, no no-mistakes pipeline. The diagnostic job finished.
+Preserve a local WIP commit and await firstmate resolution before continuing gate 2.

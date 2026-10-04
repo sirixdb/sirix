@@ -172,6 +172,14 @@ public final class PathSummaryPage extends AbstractForwardingPage {
     return maxNodeKeys.get(indexNo);
   }
 
+  /** Preserve sparse path identities when rebuilding a complete imported path namespace. */
+  public void setMaxNodeKey(final int indexNo, final long key) {
+    if (indexNo < 0 || key < 0) {
+      throw new IllegalArgumentException("Invalid path-summary allocation frontier");
+    }
+    maxNodeKeys.put(indexNo, key);
+  }
+
   public long incrementAndGetMaxNodeKey(final int indexNo) {
     final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
     maxNodeKeys.put(indexNo, newMaxNodeKey);

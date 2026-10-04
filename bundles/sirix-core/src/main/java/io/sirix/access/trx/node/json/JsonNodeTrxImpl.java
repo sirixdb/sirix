@@ -110,6 +110,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.BiConsumer;
+import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayPaths;
+import io.sirix.service.json.replay.JsonReplayGraphValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
@@ -4452,6 +4457,8 @@ final class JsonNodeTrxImpl extends
   public JsonNodeTrx revertTo(final int revision) {
     runLocked(() -> {
       super.revertTo(revision);
+      replaySourceResource = null;
+      replaySourceIdentity = null;
       beforeBulkInsertionRevisionNumber = -1;
       suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
     });
@@ -4482,6 +4489,159 @@ final class JsonNodeTrxImpl extends
   private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
       final StorageEngineWriter storageEngineWriter) {
     storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
+  }
+
+  @Nullable
+  private Path replaySourceResource;
+  @Nullable
+  private UUID replaySourceIdentity;
+  private int replaySourceRevision;
+  private int replayDestinationRevision;
+
+  @Nullable
+  static volatile BiConsumer<String, JsonNodeTrx> replayTestHook;
+
+  private void replayCheckpoint(final String phase) {
+    final var hook = replayTestHook;
+    if (hook != null) {
+      hook.accept(phase, this);
+    }
+  }
+
+  @Override
+  public void importRevision(final JsonIdentityDelta delta, final JsonNodeReadOnlyTrx source) {
+    requireNonNull(delta);
+    requireNonNull(source);
+    runLocked(() -> importRevisionLocked(delta, source));
+  }
+
+  private void importRevisionLocked(final JsonIdentityDelta delta, final JsonNodeReadOnlyTrx source) {
+    requireCleanImportEpoch();
+    final var manifest = delta.manifest();
+    final var sourceConfig = source.getResourceSession().getResourceConfig();
+    final var targetConfig = resourceSession.getResourceConfig();
+    if (source.getStorageEngineReader().hasTrxIntentLog()
+        || source.getRevisionNumber() > source.getResourceSession().getMostRecentRevisionNumber()
+        || !manifest.sourceResource().equals(sourceConfig.getResource().toAbsolutePath().normalize())
+        || !manifest.sourceIdentity().equals(sourceConfig.resourceUuid)
+        || manifest.targetRevision() != source.getRevisionNumber()
+        || manifest.targetFrontier() != source.getMaxNodeKey()
+        || manifest.destinationRevision() != getRevisionNumber()
+        || manifest.deweyIDs() != sourceConfig.areDeweyIDsStored
+        || manifest.deweyIDs() != targetConfig.areDeweyIDsStored
+        || manifest.hashType() != sourceConfig.hashType || manifest.hashType() != targetConfig.hashType
+        || sourceConfig.withPathSummary != targetConfig.withPathSummary
+        || sourceConfig.withPathStatistics != targetConfig.withPathStatistics
+        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()) {
+      throw new IllegalArgumentException("Identity replay source, epoch or resource configuration mismatch");
+    }
+    if (replaySourceResource == null) {
+      if (manifest.baseRevision() != 0 || manifest.baseFrontier() != 0 || getRevisionNumber() != 1
+          || getMaxNodeKey() != 0 || !delta.puts().containsKey(0)) {
+        throw new IllegalArgumentException("Initial identity import requires a fresh destination");
+      }
+    } else if (!replaySourceResource.equals(manifest.sourceResource())
+        || !manifest.sourceIdentity().equals(replaySourceIdentity)
+        || replaySourceRevision != manifest.baseRevision()
+        || manifest.targetRevision() != replaySourceRevision + 1
+        || replayDestinationRevision + 1 != manifest.destinationRevision()
+        || getMaxNodeKey() != manifest.baseFrontier()) {
+      throw new IllegalArgumentException("Identity replay does not name the destination's exact base epoch");
+    }
+    beginCompoundOperation();
+    try {
+      checkAccessAndCommit();
+      // Direct record import cannot truthfully emit a public mutation sidecar. Cache miss is safe.
+      suppressUpdateDiffs = true;
+      for (final long key : delta.deletes()) {
+        replayRemoveDerivedState(key);
+      }
+      for (final long key : delta.puts().keySet()) {
+        replayRemoveDerivedState(key);
+      }
+      final var namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+      for (final var record : delta.puts().values()) {
+        final String name = record.name();
+        if (name != null) {
+          namePage.importJsonName(record.nameKey(), name, storageEngineWriter);
+        }
+        storageEngineWriter.persistRecord(JsonReplayNodeFactory.stage(record, manifest, hashFunction),
+            IndexType.DOCUMENT, -1);
+      }
+      replayCheckpoint("identities-staged");
+      for (final var record : delta.puts().values()) {
+        final StructNode staged = storageEngineWriter.prepareRecordForModification(record.key(), IndexType.DOCUMENT, -1);
+        JsonReplayNodeFactory.link(staged, record);
+        storageEngineWriter.persistRecord(staged, IndexType.DOCUMENT, -1);
+      }
+      for (final long key : delta.deletes()) {
+        storageEngineWriter.removeRecord(key, IndexType.DOCUMENT, -1);
+      }
+      storageEngineWriter.getActualRevisionRootPage().setMaxNodeKeyInDocumentIndex(manifest.targetFrontier());
+      moveToDocumentRoot();
+      replayCheckpoint("links-installed");
+      JsonReplayGraphValidator.validate(this, delta.puts().keySet());
+      JsonReplayPaths.rebuild(source, storageEngineWriter, manifest);
+      if (pathSummaryWriter != null) {
+        pathSummaryWriter.getPathSummary().reloadAfterImport();
+      }
+      for (final var listener : indexController.getChangeListenerSnapshot()) {
+        listener.pathSummaryImported();
+      }
+      for (final long key : delta.puts().keySet()) {
+        replayNotifyIndex(key, IndexController.ChangeType.INSERT);
+      }
+      moveToDocumentRoot();
+      replayCheckpoint("derived-state-finalized");
+      replayCheckpoint("before-publish");
+      commit();
+      replaySourceResource = manifest.sourceResource();
+      replaySourceIdentity = manifest.sourceIdentity();
+      replaySourceRevision = manifest.targetRevision();
+      replayDestinationRevision = manifest.destinationRevision();
+    } catch (final RuntimeException | Error failure) {
+      if (resourceSession.getMostRecentRevisionNumber() < manifest.destinationRevision()) {
+        try {
+          rollback();
+        } catch (final RuntimeException | Error cleanupFailure) {
+          if (cleanupFailure != failure) {
+            try {
+              failure.addSuppressed(cleanupFailure);
+            } catch (final RuntimeException | Error ignored) {
+              // Keep the original import failure even if diagnostic suppression cannot allocate.
+            }
+          }
+        }
+      }
+      throw failure;
+    } finally {
+      endCompoundOperation();
+    }
+  }
+
+  private void replayRemoveDerivedState(final long key) {
+    if (!moveTo(key)) {
+      return;
+    }
+    replayNotifyIndex(key, IndexController.ChangeType.DELETE);
+    if (getKind().playsObjectKeyRole()) {
+      storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
+          .removeName(getNameKey(), getKind(), storageEngineWriter);
+    }
+  }
+
+  private void replayNotifyIndex(final long key, final IndexController.ChangeType type) {
+    if (!indexController.hasAnyPrimitiveIndex() || !moveTo(key)) {
+      return;
+    }
+    final ImmutableNode node = storageEngineWriter.getRecord(key, IndexType.DOCUMENT, -1);
+    long path = getPathNodeKey();
+    if (path < 0 && node.getParentKey() >= 0) {
+      moveTo(node.getParentKey());
+      path = getPathNodeKey();
+      moveTo(key);
+    }
+    notifyPrimitiveIndexChange(type, node, path);
   }
 
   @Override
