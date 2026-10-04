@@ -103,7 +103,7 @@ public final class DiffTest {
       final String dbName = databasePath.getFileName().toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
+      final String xq = "xn:diff('" + dbName + "','" + resName + "',1,2)";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
@@ -114,12 +114,12 @@ public final class DiffTest {
 
         new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
-        final String xq2 = "xml:doc('" + dbName + "','" + resName + "',3)";
+        final String xq2 = "xn:doc('" + dbName + "','" + resName + "',3)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        final String xq3 = "xml:doc('" + dbName + "','" + resName + "',2)";
+        final String xq3 = "xn:doc('" + dbName + "','" + resName + "',2)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
@@ -142,7 +142,7 @@ public final class DiffTest {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "xml:diff('" + dbName + "', '" + resName + "',1,5)";
+      final String xq1 = "xn:diff('" + dbName + "', '" + resName + "',1,5)";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
 
@@ -153,12 +153,12 @@ public final class DiffTest {
 
         new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
-        final String xq2 = "xml:doc('" + dbName + "','" + resName + "',6)";
+        final String xq2 = "xn:doc('" + dbName + "','" + resName + "',6)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        final String xq3 = "xml:doc('" + dbName + "','" + resName + "',5)";
+        final String xq3 = "xn:doc('" + dbName + "','" + resName + "',5)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 

@@ -27,7 +27,7 @@ import java.util.Optional;
  * Supported signatures are:
  * </p>
  * <ul>
- * <li><code>xml:find-path-index($doc as node(), $path as xs:string) as xs:int</code></li>
+ * <li><code>xn:find-path-index($doc as node(), $path as xs:string) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

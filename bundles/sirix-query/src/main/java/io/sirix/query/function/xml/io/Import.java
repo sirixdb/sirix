@@ -35,7 +35,7 @@ import static java.util.Objects.requireNonNull;
  * document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>xml:import($coll as xs:string, $res as xs:string, $resToImport as xs:string) as xs:node</code>
+ * <li><code>xn:import($coll as xs:string, $res as xs:string, $resToImport as xs:string) as xs:node</code>
  * </li>
  * </ul>
  *

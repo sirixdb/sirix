@@ -31,9 +31,9 @@ import java.util.Set;
  * If successful, this function returns statistics about the newly created index as an XML fragment.
  * Supported signatures are:<br>
  * <ul>
- * <li><code>xml:create-path-index($doc as node(), $paths as xs:string*) as
+ * <li><code>xn:create-path-index($doc as node(), $paths as xs:string*) as
  * node()</code></li>
- * <li><code>xml:create-path-index($doc as node()) as node()</code></li>
+ * <li><code>xn:create-path-index($doc as node()) as node()</code></li>
  * </ul>
  *
  * @author Max Bechtold

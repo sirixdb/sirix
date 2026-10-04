@@ -29,7 +29,7 @@ import java.util.Optional;
  * Supported signatures are:
  * </p>
  * <ul>
- * <li><code>xml:find-name-index($doc as node(), $name as xs:QName) as xs:int</code></li>
+ * <li><code>xn:find-name-index($doc as node(), $name as xs:QName) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

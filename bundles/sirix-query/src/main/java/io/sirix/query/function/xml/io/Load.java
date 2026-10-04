@@ -42,7 +42,7 @@ import java.time.Instant;
  * </p>
  *
  * <pre>
- * <code>xml:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as node()?</code>
+ * <code>xn:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as node()?</code>
  * </pre>
  *
  * @author Johannes Lichtenberger

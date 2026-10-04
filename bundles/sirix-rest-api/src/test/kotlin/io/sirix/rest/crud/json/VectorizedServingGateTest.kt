@@ -102,7 +102,7 @@ class VectorizedServingGateTest {
         assertFalse(gate("count(fn:doc('x')[])"))
         assertFalse(gate("count(doc('x')[])"))
         assertFalse(gate("count(sdb:doc('mydb','x.jn')[])"))
-        assertFalse(gate("count(xml:doc('mydb','x')[])"))
+        assertFalse(gate("count(xn:doc('mydb','x')[])"))
     }
 
     @Test

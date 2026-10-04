@@ -717,15 +717,26 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
+      if (!(node instanceof final XmlDBNode dbNode)) {
+        return Accessor.ATTRIBUTE.performStep(node, test);
+      }
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      return new SirixNodeStream(new FilterAxis<>(new AttributeAxis(rtx), new XmlNameFilter(rtx, test.getQName())),
-          dbNode.getCollection());
+      final AttributeAxis axis = new AttributeAxis(rtx);
+      if (test.getNodeKind() == Kind.ATTRIBUTE) {
+        // AttributeAxis already restricts the kind; only a named test needs a filter.
+        final QNm name = test.getQName();
+        return new SirixNodeStream(name == null
+            ? axis
+            : new FilterAxis<>(axis, new XmlNameFilter(rtx, name)), dbNode.getCollection());
+      }
+      return new SirixNodeStream(SirixTranslator.getAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
+      if (!(node instanceof final XmlDBNode dbNode)) {
+        return Accessor.ATTRIBUTE.performStep(node);
+      }
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixNodeStream(new AttributeAxis(rtx), dbNode.getCollection());
     }

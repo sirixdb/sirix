@@ -18,9 +18,9 @@ import io.sirix.query.node.XmlDBCollection;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>xml:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
+ * <li><code>xn:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
  * </li>
- * <li><code>xml:doc($coll as xs:string, $res as xs:string) as node()</code></li>
+ * <li><code>xn:doc($coll as xs:string, $res as xs:string) as node()</code></li>
  * </ul>
  *
  * @author Max Bechtold

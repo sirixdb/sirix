@@ -83,7 +83,7 @@ public final class XmlGetNodeKeyTest {
       final String resName = XmlTestHelper.RESOURCE;
 
       final String xq1 =
-          "xquery version \"1.0\";declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('" + dbName
+          "xquery version \"1.0\";declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xn:doc('" + dbName
               + "','" + resName + "')/p:a/b[1])";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);

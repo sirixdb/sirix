@@ -15,7 +15,7 @@ import io.sirix.query.node.XmlDBNode;
  * Function for getting the number of attributes of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>xml:get-attribute-count($doc as xs:structured-item) as xs:int</code></li>
+ * <li><code>xn:get-attribute-count($doc as xs:structured-item) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
