@@ -215,6 +215,11 @@ final class StoreCausePropagationTest {
     }
 
     @Override
+    public void drop(final String name, final Path databasePath) {
+      throw unsupported();
+    }
+
+    @Override
     public void makeDir(final String path) {
       throw unsupported();
     }

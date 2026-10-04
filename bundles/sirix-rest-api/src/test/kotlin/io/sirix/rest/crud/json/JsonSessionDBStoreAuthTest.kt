@@ -91,6 +91,7 @@ class JsonSessionDBStoreAuthTest {
         assertForbidden { store.createFromJsonStrings(DB, strStream) }
         assertForbidden { store.makeDir(DB) }
         assertForbidden { store.drop(DB) }
+        assertForbidden { store.drop(DB, path) }
 
         // Not a single write reached the underlying store.
         Mockito.verifyNoInteractions(delegate)

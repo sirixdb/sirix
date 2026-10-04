@@ -200,7 +200,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
   @Override
   public void delete() {
-    jsonDbStore.drop(database.getDatabaseConfig().getDatabaseFile().toString());
+    jsonDbStore.drop(getName(), database.getDatabaseConfig().getDatabaseFile());
   }
 
   @Override

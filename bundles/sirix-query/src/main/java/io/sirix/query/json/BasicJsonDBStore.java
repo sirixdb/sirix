@@ -980,7 +980,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   private Path databasePath(final String name) {
-    final Path dbPath = location.resolve(name);
+    return databasePath(location.resolve(name));
+  }
+
+  private Path databasePath(final Path dbPath) {
+    requireNonNull(dbPath);
     try {
       return Files.exists(dbPath)
           ? dbPath.toRealPath()
@@ -992,7 +996,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public void drop(final String name) {
-    final Path dbPath = databasePath(name);
+    drop(name, location.resolve(name));
+  }
+
+  @Override
+  public void drop(final String name, final Path databasePath) {
+    requireNonNull(name);
+    final Path dbPath = databasePath(databasePath);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (!removeIfExisting(name, dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");

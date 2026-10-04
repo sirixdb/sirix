@@ -75,6 +75,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   @Override
   void drop(String name);
 
+  void drop(String name, Path databasePath);
+
   @Override
   void makeDir(String path);
 
