@@ -456,23 +456,9 @@ public abstract class AbstractHOTIndexReader<K> {
                 break;
               }
               if (cmp == 0) {
-                final int keyLength = leaf.getKeyLength(idx);
-                if (keyLength == compositeLen) {
-                  final long trailer = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-                  if (!accumulator.addChunk(leaf, leaf.valueRef(idx), trailer << 16, trie)) {
-                    torn = true;
-                    break;
-                  }
-                } else if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
-                    && keyLength == compositeLen + PostingDeltas.SUFFIX_BYTES) {
-                  final long suffix = leaf.readKeyIntBE(idx, compositeLen) & 0xFFFFFFFFL;
-                  if (PostingDeltas.isDelta(suffix)) {
-                    final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-                    if (!accumulator.applyDelta(leaf, leaf.valueRef(idx), chunkIdx, suffix, trie)) {
-                      torn = true;
-                      break;
-                    }
-                  }
+                if (!accumulateChunkOrDelta(leaf, idx, prefixLen, compositeLen, accumulator, trie)) {
+                  torn = true;
+                  break;
                 }
               }
               idx++;
@@ -505,6 +491,25 @@ public abstract class AbstractHOTIndexReader<K> {
       trie.close(); // clears the reader's leaf snapshot + path; the object stays reusable
       pooledWalkState.compareAndSet(null, state);
     }
+  }
+
+  /** Decode one matching slot; the caller validates the leaf stamp before keeping its additions. */
+  private boolean accumulateChunkOrDelta(final HOTLeafPage leaf, final int index, final int prefixLen,
+      final int compositeLen, final NodeReferencesSerializer.ChunkAccumulator accumulator, final HOTTrieReader trie) {
+    final int keyLength = leaf.getKeyLength(index);
+    if (keyLength == compositeLen) {
+      final long trailer = leaf.readKeyIntBE(index, prefixLen) & 0xFFFFFFFFL;
+      return accumulator.addChunk(leaf, leaf.valueRef(index), trailer << 16, trie);
+    }
+    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
+        && keyLength == compositeLen + PostingDeltas.SUFFIX_BYTES) {
+      final long suffix = leaf.readKeyIntBE(index, compositeLen) & 0xFFFFFFFFL;
+      if (PostingDeltas.isDelta(suffix)) {
+        final long chunkIdx = leaf.readKeyIntBE(index, prefixLen) & 0xFFFFFFFFL;
+        return accumulator.applyDelta(leaf, leaf.valueRef(index), chunkIdx, suffix, trie);
+      }
+    }
+    return true;
   }
 
 

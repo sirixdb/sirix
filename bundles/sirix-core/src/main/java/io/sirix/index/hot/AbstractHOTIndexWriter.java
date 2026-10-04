@@ -2045,18 +2045,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         final long refKey = oldRefKey != NO_REFERENCED_KEY
             ? oldRefKey
             : PostingDeltas.referenceKey(keyBuf, keyLen);
-        final int owner = leaf.findReferencedPostingOwner(refKey);
-        if ((owner < 0 && leaf.getPageReference(refKey) == null) || owner == index) {
-          // Serializer buffers are reusable scratch. A side page must own immutable, exact bytes.
-          final byte[] payload = Arrays.copyOf(valueBuf, valueLen);
-          if (leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, valueLen,
-              ProjectionIndexColumnSegmentCodec.contentHash(payload)))) {
-            attachReferencedPayload(leaf, refKey, payload);
-            if (VersioningType.hotMergeDiagEnabled()) {
-              REFERENCED_CHUNK_WRITES.incrementAndGet();
-            }
-            return;
-          }
+        if (replacePostingChunkReferenced(leaf, index, refKey, valueBuf, valueLen)) {
+          return;
         }
         // A hash collision belongs to a different chunk; retain this payload inline.
       }
@@ -2078,6 +2068,25 @@ public abstract class AbstractHOTIndexWriter<K> {
       markTransactionRollbackOnly(failure);
       throw failure;
     }
+  }
+
+  /** Replace the slot with a referenced payload when its side-map key and marker space permit it. */
+  private static boolean replacePostingChunkReferenced(final HOTLeafPage leaf, final int index, final long refKey,
+      final byte[] valueBuf, final int valueLen) {
+    final int owner = leaf.findReferencedPostingOwner(refKey);
+    if ((owner < 0 && leaf.getPageReference(refKey) == null) || owner == index) {
+      // Serializer buffers are reusable scratch. A side page must own immutable, exact bytes.
+      final byte[] payload = Arrays.copyOf(valueBuf, valueLen);
+      if (leaf.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, valueLen,
+          ProjectionIndexColumnSegmentCodec.contentHash(payload)))) {
+        attachReferencedPayload(leaf, refKey, payload);
+        if (VersioningType.hotMergeDiagEnabled()) {
+          REFERENCED_CHUNK_WRITES.incrementAndGet();
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -8074,31 +8083,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new IllegalStateException("Segment-ref reattach after frontier splice: duplicate refKey "
             + captured.refKey() + " was captured from more than one source leaf");
       }
-      final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
-      PathKeySerializer.INSTANCE.serialize(ownerSlot, projectionOwnerKey, 0);
+      final HOTLeafPage leaf = resolveCapturedReferenceOwner(newRoot, captured, projectionOwnerKey);
       final byte[] ownerKey = captured.ownerKey() == null
           ? projectionOwnerKey
           : captured.ownerKey();
-      Page current = newRoot;
-      while (current instanceof HOTIndirectPage indirect) {
-        final int childIndex = indirect.findChildIndex(ownerKey);
-        if (childIndex < 0) {
-          current = null;
-          break;
-        }
-        current = resolveHOTPageForTraversal(indirect.getChildReference(childIndex));
-      }
-      if (!(current instanceof HOTLeafPage leaf) || leaf.findEntry(ownerKey) < 0) {
-        throw new IllegalStateException("Segment-ref reattach after frontier splice: owning slot " + ownerSlot
-            + " (refKey=" + captured.refKey() + ") not found in the replacement subtree — an entry was lost.");
-      }
       if (captured.ownerKey() != null) {
-        final int index = leaf.findEntry(ownerKey);
-        final long value = leaf.valueRef(index);
-        if (!NodeReferencesSerializer.isReferenced(leaf, value)
-            || NodeReferencesSerializer.referencedKey(leaf, value) != captured.refKey()) {
-          throw new IllegalStateException("Posting marker changed during side-reference reattachment");
-        }
         for (int previous = 0; previous < i; previous++) {
           if (owners[previous] == leaf && Arrays.equals(refs.get(previous).ownerKey(), ownerKey)) {
             throw new IllegalStateException("Posting owner captured more than once during frontier rebuild");
@@ -8111,25 +8100,60 @@ public abstract class AbstractHOTIndexWriter<K> {
     // unexpected lifecycle/runtime fault does occur, the caller closes the still-unpublished root;
     // HOTLeafPage teardown severs (but does not retire) these shared PageReference objects.
     for (int i = 0; i < refs.size(); i++) {
-      final CapturedSegmentRef captured = refs.get(i);
-      final HOTLeafPage owner = owners[i];
-      long refKey = captured.refKey();
-      if (captured.ownerKey() != null) {
-        final int index = owner.findEntry(captured.ownerKey());
-        if (owner.findReferencedPostingOwner(refKey) != index || owner.getPageReference(refKey) != null) {
-          // Hashes need only be unique within a leaf. Two source leaves can share a hash and a
-          // frontier rebuild can place both owners together. Rename this marker before attaching.
-          refKey = unusedPostingReferenceKey(owner, refKey);
-          final long value = owner.valueRef(index);
-          final int length = NodeReferencesSerializer.referencedPayloadLength(owner, value);
-          final long hash = NodeReferencesSerializer.referencedPayloadHash(owner, value);
-          if (!owner.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, length, hash))) {
-            throw new IllegalStateException("Cannot rename a colliding posting reference marker");
-          }
+      attachCapturedReference(owners[i], refs.get(i));
+    }
+  }
+
+  /** Resolve and validate one owner without attaching or renaming any captured reference. */
+  private HOTLeafPage resolveCapturedReferenceOwner(final Page newRoot, final CapturedSegmentRef captured,
+      final byte[] projectionOwnerKey) {
+    final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
+    PathKeySerializer.INSTANCE.serialize(ownerSlot, projectionOwnerKey, 0);
+    final byte[] ownerKey = captured.ownerKey() == null
+        ? projectionOwnerKey
+        : captured.ownerKey();
+    Page current = newRoot;
+    while (current instanceof HOTIndirectPage indirect) {
+      final int childIndex = indirect.findChildIndex(ownerKey);
+      if (childIndex < 0) {
+        current = null;
+        break;
+      }
+      current = resolveHOTPageForTraversal(indirect.getChildReference(childIndex));
+    }
+    if (!(current instanceof HOTLeafPage leaf) || leaf.findEntry(ownerKey) < 0) {
+      throw new IllegalStateException("Segment-ref reattach after frontier splice: owning slot " + ownerSlot
+          + " (refKey=" + captured.refKey() + ") not found in the replacement subtree — an entry was lost.");
+    }
+    if (captured.ownerKey() != null) {
+      final int index = leaf.findEntry(ownerKey);
+      final long value = leaf.valueRef(index);
+      if (!NodeReferencesSerializer.isReferenced(leaf, value)
+          || NodeReferencesSerializer.referencedKey(leaf, value) != captured.refKey()) {
+        throw new IllegalStateException("Posting marker changed during side-reference reattachment");
+      }
+    }
+    return leaf;
+  }
+
+  /** Attach one validated reference, preserving marker metadata when a local hash must be renamed. */
+  private static void attachCapturedReference(final HOTLeafPage owner, final CapturedSegmentRef captured) {
+    long refKey = captured.refKey();
+    if (captured.ownerKey() != null) {
+      final int index = owner.findEntry(captured.ownerKey());
+      if (owner.findReferencedPostingOwner(refKey) != index || owner.getPageReference(refKey) != null) {
+        // Hashes need only be unique within a leaf. Two source leaves can share a hash and a
+        // frontier rebuild can place both owners together. Rename this marker before attaching.
+        refKey = unusedPostingReferenceKey(owner, refKey);
+        final long value = owner.valueRef(index);
+        final int length = NodeReferencesSerializer.referencedPayloadLength(owner, value);
+        final long hash = NodeReferencesSerializer.referencedPayloadHash(owner, value);
+        if (!owner.updateValue(index, NodeReferencesSerializer.encodeReferenced(refKey, length, hash))) {
+          throw new IllegalStateException("Cannot rename a colliding posting reference marker");
         }
       }
-      owner.setPageReference(refKey, captured.reference());
     }
+    owner.setPageReference(refKey, captured.reference());
   }
 
   /** A collision is cold; at most one probe per resident marker can be occupied. */
