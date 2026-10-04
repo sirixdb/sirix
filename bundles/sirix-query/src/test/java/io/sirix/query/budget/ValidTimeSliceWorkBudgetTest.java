@@ -4,6 +4,8 @@ import io.brackit.query.Query;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.QNm;
+import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.brackit.query.jdm.Sequence;
@@ -41,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -240,6 +243,186 @@ final class ValidTimeSliceWorkBudgetTest {
         : (start
             ? bound + " " + operator + " " + point
             : point + " " + operator + " " + bound);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {32, 128})
+  void selectivePlainFlworReusesMultiChunkAdmissionWithMatchFirst(final int count) throws Exception {
+    assertPlainAdmissionBudget(count, true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {32, 128})
+  void selectivePlainFlworReusesMultiChunkAdmissionWithMatchLast(final int count) throws Exception {
+    assertPlainAdmissionBudget(count, false);
+  }
+
+  @Test
+  @Tag("heavy")
+  @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
+  void oneHundredThousandPlainCohortsWithMatchFirst() throws Exception {
+    assertPlainAdmissionBudget(100_000, true);
+  }
+
+  @Test
+  @Tag("heavy")
+  @EnabledIfEnvironmentVariable(named = "SIRIX_VALID_TIME_LARGE_BUDGET", matches = "true")
+  void oneHundredThousandPlainCohortsWithMatchLast() throws Exception {
+    assertPlainAdmissionBudget(100_000, false);
+  }
+
+  private void assertPlainAdmissionBudget(final int count, final boolean matchFirst) throws Exception {
+    final int padding = count == 32
+        ? 2200
+        : count == 128
+            ? 600
+            : 0;
+    final String gap = ",\"gap\":[" + "0,".repeat(padding) + "0]";
+    final StringBuilder json = new StringBuilder(count * (240 + gap.length()));
+    json.append('[');
+    for (int i = 0; i < count; i++) {
+      if (i != 0) {
+        json.append(',');
+      }
+      final boolean match = i == (matchFirst
+          ? 0
+          : count - 1);
+      json.append("{\"id\":")
+          .append(i)
+          .append(",\"vf\":\"2023-01-01T00:00:00Z\",\"vt\":\"")
+          .append(match
+              ? "2025"
+              : "2023")
+          .append("-06-01T00:00:00Z\",")
+          .append("\"nested\":[{\"vf\":\"2020-01-01T00:00:00.000500Z\",\"vt\":\"2021-01-01T00:00:00.000500Z\"}]")
+          .append(gap)
+          .append('}');
+    }
+    json.append(']');
+    shredRows(json.toString());
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final JsonDBCollection realCollection = store.lookup("budget");
+      final JsonDBItem document = realCollection.getDocument("rows");
+      final var realCursor = document.getTrx();
+      realCursor.moveTo(document.getNodeKey());
+      realCursor.moveToFirstChild();
+      final long firstKey = realCursor.getNodeKey();
+      realCursor.moveTo(document.getNodeKey());
+      realCursor.moveToLastChild();
+      final long lastKey = realCursor.getNodeKey();
+      final long matchKey = matchFirst
+          ? firstKey
+          : lastKey;
+      assertTrue((lastKey >>> 16) > (firstKey >>> 16), "fixture must span multiple posting chunks");
+      final var definition = document.getResourceSession()
+                                     .getRtxIndexController(realCursor.getRevisionNumber())
+                                     .getIndexes()
+                                     .getIndexDefs()
+                                     .stream()
+                                     .filter(index -> index.isValidTimeIndex())
+                                     .findFirst()
+                                     .orElseThrow();
+      final var membership =
+          ValidTimeIntervalIndexFactory.createMembershipStore(realCursor.getStorageEngineReader(), definition.getID());
+      final long cardinality = Objects.requireNonNull(membership.chunk(document.getNodeKey(), 0, firstKey))
+                                      .getNodeKeys()
+                                      .getLongCardinality();
+      assertEquals(count > 64, cardinality > 64, "fixture must exercise the selected packed/bitmap representation");
+      realCursor.moveTo(document.getNodeKey());
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(realCursor));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+      final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(realCollection));
+      doReturn(observed).when(collection).getDocument("rows");
+      doReturn(observed).when(collection).getDocument(eq("rows"), anyInt());
+      final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
+      doReturn(collection).when(observedStore).lookup("budget");
+      try (var observedContext = SirixQueryContext.createWithJsonStore(observedStore);
+          var observedChain = SirixCompileChain.createWithJsonStore(observedStore)) {
+        final String source = "jn:doc('budget','rows')[]";
+        final String point = "xs:dateTime('2024-01-01T00:00:00Z')";
+        final String closed = "for $x in " + source + " where xs:dateTime($x.vf) le " + point + " and " + point
+            + " le xs:dateTime($x.vt) return $x";
+        clearInvocations(cursor);
+        final WorkReport cold = INDEX_WORK.run(() -> assertEquals(1,
+            ((Numeric) new Query(observedChain, "count(" + closed + ")").evaluate(observedContext)).intValue()));
+        cold.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 1, "cold admission must use the interval index")
+            .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "cold validation must not enumerate references")
+            .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 7,
+                "first admission must validate multiple compressed cohort chunks");
+        verify(cursor, never()).moveTo(anyLong());
+        verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        for (int repetition = 0; repetition < 2; repetition++) {
+          for (int mode = 0; mode < 4; mode++) {
+            final String expression = "for $x in " + source + " where "
+                + comparisonPredicate(point, true, (mode & 1) != 0, repetition != 0, repetition != 0) + " and "
+                + comparisonPredicate(point, false, (mode & 2) != 0, repetition != 0, repetition != 0) + " return $x";
+            for (int demand = 0; demand < 3; demand++) {
+              clearInvocations(cursor);
+              final int request = demand;
+              final WorkReport warm = INDEX_WORK.run(() -> {
+                if (request == 0) {
+                  assertEquals(1, ((Numeric) new Query(observedChain, "count(" + expression + ")").evaluate(
+                      observedContext)).intValue());
+                } else if (request == 1) {
+                  assertEquals(Bool.TRUE,
+                      new Query(observedChain, "exists(" + expression + ")").evaluate(observedContext));
+                } else {
+                  try (var iterator = new Query(observedChain, expression).execute(observedContext).iterate()) {
+                    assertNotNull(iterator.next());
+                    assertEquals(matchKey, cursor.getNodeKey());
+                  }
+                }
+              });
+              warm.assertBetween(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 1, 2,
+                  "only the selected outer interval may be stabbed")
+                  .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+                      "warm admission must not enumerate references")
+                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
+                      "only candidate membership and verification may be probed")
+                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+                      "warm admission must not decode cohort chunks again");
+              verify(cursor, never()).getValue();
+              verify(cursor, times(request == 0
+                  ? 0
+                  : 1)).moveTo(anyLong());
+              verify(cursor, times(request == 0
+                  ? 0
+                  : 1)).getFirstChildKey();
+              System.out.printf(
+                  "valid-time admission rows=%d first=%s mode=%d demand=%d coldChunks=%d warmChunks=%d intervalRefs=%d postingRefs=%d probes=%d objectReads=%d timestampReads=0%n",
+                  count, matchFirst, mode, demand, cold.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS),
+                  warm.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS),
+                  warm.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
+                  warm.of(EngineWorkCounters.VALID_TIME_POSTING_REFS),
+                  warm.of(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS), request == 0
+                      ? 0
+                      : 1);
+            }
+          }
+        }
+        INDEX_WORK.run(() -> membership.scan(document.getNodeKey(), 0, 0, _ -> {
+        }))
+                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, count,
+                      "explicit enumeration must observe the whole cohort");
+        INDEX_WORK.run(() -> assertEquals(count, membership.cardinality(document.getNodeKey(), 0)))
+                  .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+                      "explicit cardinality must decode multiple posting chunks");
+        realCursor.moveTo(matchKey);
+        clearInvocations(cursor);
+        assertNotNull(new JsonDBObject(cursor, realCollection).get(new QNm("vf")));
+        verify(cursor, atLeast(1)).getValue();
+        verify(cursor, times(1)).getFirstChildKey();
+      }
+    }
   }
 
   /**
