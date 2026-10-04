@@ -350,7 +350,10 @@ public final class IndexDef implements Materializable {
     return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
   }
 
-  /** XML paths carry expanded names; their lexical printed form loses namespace URIs. */
+  /**
+   * XML paths must retain axes and expanded names: lexical printing loses namespace URIs. Name
+   * components use the same encoding as {@link #materializeNames} to avoid XML normalization losses.
+   */
   private void materializePath(final FragmentHelper fragment, final Path<QNm> path) {
     if (dbType == DbType.JSON) {
       fragment.content(path.toString());
@@ -369,6 +372,10 @@ public final class IndexDef implements Materializable {
     }
   }
 
+  /**
+   * Reject legacy lexical XML paths rather than silently losing namespace constraints. JSON keeps its
+   * printed-path contract; {@link #hasSameDefinition(IndexDef)} owns comparison semantics.
+   */
   private Path<QNm> readPath(final Node<?> node) {
     if (dbType == DbType.JSON) {
       return Path.parse(node.getValue().stringValue(), PathParser.Type.JSON);

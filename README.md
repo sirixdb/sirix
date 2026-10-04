@@ -428,16 +428,23 @@ Database (directory)
 
 Three secondary index types, all updated **synchronously** inside the writing transaction — queries never see a stale index:
 
-- **Path index** — index specific JSON paths for faster navigation.
-- **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and range predicates, optionally `unique` for constraint enforcement.
-- **Name index** — index literal JSON object keys and XML element expanded names. Create it before
-  inserting nodes or over a populated resource, including XML elements inserted in the current
-  uncommitted transaction.
+- **Path index** — index specific JSON or XML paths for faster navigation. XML indexes cover
+  elements, attributes, namespace declarations, and processing instructions.
+- **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and
+  range predicates. The persisted `unique` flag is metadata only and does not enforce uniqueness.
+  XML indexes cover attribute, text, comment, and processing instruction values. Attributes and
+  processing instructions use their own paths; text and comments use their parent's path (the
+  document path at the root).
+- **Name index** — index literal JSON object keys, XML element and attribute expanded names, and
+  processing instruction target names. Namespace declarations are excluded.
 
 All three use one canonical [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index)
-representation over off-heap leaf pages. Initial creation may bulk-build a virgin tree, while every
-later insert, update, and delete mutates only the affected posting chunk in that same format. There
-is no per-resource backend selector or alternate mutation route.
+representation over off-heap leaf pages. Create an index before inserting nodes or over a populated
+resource, including nodes inserted in the current uncommitted transaction; both cover the same
+node kinds. Initial creation may bulk-build a virgin tree, while every later insert, update, and
+delete mutates only the affected posting chunk in that same format. There is no per-resource backend
+selector or alternate mutation route. For PATH and CAS scans, an empty path filter imposes no path
+restriction; supplied paths that match no path classes return no nodes.
 
 Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N*
 returns the index state as of *N*—never a later commit's. This is verified across point and range
@@ -451,7 +458,7 @@ or braces in a key.
 
 `xml:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
 namespaced name with `fn:QName('urn:a', 'item')`, or use `xs:QName('a:item')` with prefix `a`
-declared. A QName with an empty namespace matches only namespace-free elements. Pass `()` to
+declared. A QName with an empty namespace matches only namespace-free names. Pass `()` to
 scan all names covered by the index. With an index covering both namespaces:
 
 ```xquery
