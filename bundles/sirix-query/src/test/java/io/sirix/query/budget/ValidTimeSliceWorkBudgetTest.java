@@ -962,9 +962,8 @@ final class ValidTimeSliceWorkBudgetTest {
             """;
         final String call = "local:slice(xs:dateTime('2024-01-01T00:00:00Z'))";
         clearInvocations(cursor);
-        assertEquals(count,
-            ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(observedContext))
-                .intValue());
+        assertEquals(count, ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(
+            observedContext)).intValue());
         verify(cursor, never()).getFirstChildKey();
         verify(cursor, never()).getValue();
         final String indexWrapped = """
@@ -995,9 +994,8 @@ final class ValidTimeSliceWorkBudgetTest {
             declare function local:typed($p as xs:dateTime) as xs:string* { local:slice($p) };
             count(local:typed(xs:dateTime('2024-01-01T00:00:00Z')))
             """;
-        assertEquals(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            assertThrows(QueryException.class, () -> new Query(observedChain, typed).evaluate(observedContext))
-                .getCode());
+        assertEquals(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, assertThrows(QueryException.class,
+            () -> new Query(observedChain, typed).evaluate(observedContext)).getCode());
       }
     }
   }
