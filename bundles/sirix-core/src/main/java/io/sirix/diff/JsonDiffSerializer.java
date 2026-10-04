@@ -11,6 +11,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
@@ -106,6 +107,10 @@ public final class JsonDiffSerializer {
         return finish(json, includeIntegrityMetadata);
       }
 
+      final LongSet deletionKeys = deletionKeys();
+      final Long2BooleanOpenHashMap deletedAncestors = deletionKeys.isEmpty()
+          ? null : new Long2BooleanOpenHashMap();
+      final LongArrayList ancestorPath = new LongArrayList(0);
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
 
@@ -120,6 +125,11 @@ public final class JsonDiffSerializer {
           if (!oldRtx.moveTo(diffTuple.getOldNodeKey())) {
             continue;
           }
+          if (deletedAncestors != null
+              && hasRemovedAncestor(oldRtx, newRtx, deletionKeys, deletedAncestors, ancestorPath)) {
+            continue;
+          }
+          oldRtx.moveTo(diffTuple.getOldNodeKey());
         } else {
           if (!newRtx.moveTo(diffTuple.getNewNodeKey()) || !oldRtx.moveTo(diffTuple.getOldNodeKey())) {
             continue;
@@ -256,6 +266,46 @@ public final class JsonDiffSerializer {
     }
 
     return finish(json, includeIntegrityMetadata);
+  }
+
+  private LongSet deletionKeys() {
+    LongSet roots = LongSets.EMPTY_SET;
+    for (final DiffTuple tuple : diffs) {
+      if (tuple.getDiff() == DiffFactory.DiffType.DELETED) {
+        if (roots == LongSets.EMPTY_SET) {
+          roots = new LongOpenHashSet();
+        }
+        roots.add(tuple.getOldNodeKey());
+      }
+    }
+    return roots;
+  }
+
+  private static boolean hasRemovedAncestor(final JsonNodeReadOnlyTrx oldRevision,
+      final JsonNodeReadOnlyTrx newRevision, final LongSet deletionKeys, final Long2BooleanOpenHashMap cache,
+      final LongArrayList path) {
+    boolean deleted = false;
+    while (oldRevision.moveToParent()) {
+      final long key = oldRevision.getNodeKey();
+      if (cache.containsKey(key)) {
+        deleted = cache.get(key);
+        break;
+      }
+      final boolean retained = newRevision.moveTo(key);
+      if (retained && newRevision.getParentKey() != oldRevision.getParentKey()) {
+        break;
+      }
+      if (deletionKeys.contains(key)) {
+        deleted = !retained;
+        break;
+      }
+      path.add(key);
+    }
+    for (int index = 0; index < path.size(); index++) {
+      cache.put(path.getLong(index), deleted);
+    }
+    path.clear();
+    return deleted;
   }
 
   private static void orderInserts(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision,

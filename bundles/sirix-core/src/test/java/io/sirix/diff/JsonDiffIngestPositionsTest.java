@@ -225,7 +225,7 @@ final class JsonDiffIngestPositionsTest {
   private static void assertCompatibleCommit(final String database, final JsonResourceSession session,
       final JsonNodeTrx wtx) throws Exception {
     final ResourceConfiguration config = session.getResourceConfig();
-    final var diffs = IngestArrayPositionProbe.pendingDiffs(wtx, config.areDeweyIDsStored);
+    final var diffs = IngestArrayPositionProbe.pendingDiffs(wtx);
     final var hints = IngestArrayPositionProbe.snapshot(wtx);
     final int revision = wtx.getRevisionNumber();
     wtx.commit();

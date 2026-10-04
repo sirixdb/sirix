@@ -97,7 +97,6 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -114,7 +113,6 @@ import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Predicate;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -155,8 +153,6 @@ final class JsonNodeTrxImpl extends
    * whole map in O(1), and commit/rollback/revert release its backing storage.
    */
   private @Nullable Long2IntOpenHashMap ingestArrayPositions;
-
-  private @Nullable Long2ObjectOpenHashMap<SirixDeweyID> pendingInsertDeweyIDs;
 
   /** Whether the resource configuration can produce and consume ingest ordinals at all. */
   private final boolean ingestArrayPositionsConfigured;
@@ -606,8 +602,6 @@ final class JsonNodeTrxImpl extends
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
         // - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
         // upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
-        // Revision-producing intermediate commits reInstantiate the hashing helper without its
-        // autoCommit flag, so imports spanning those logical commits still need the repair mode.
         // - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
         // repair over the imported subtree at the end. Correct for ANY import size; costs a
         // full subtree walk after the import (opt-in for exactly that reason).
@@ -1077,92 +1071,42 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey) {
+  private void adaptUpdateOperationsForInsert(final SirixDeweyID id, final long newNodeKey) {
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
-        ? null
-        : new DiffDepth(id.getLevel(), 0));
-    if (id == null) {
-      updateOperationsUnordered.put(newNodeKey, diffTuple);
-    } else {
-      updateOperationsOrdered.put(id, diffTuple);
-      if (pendingInsertDeweyIDs == null) {
-        pendingInsertDeweyIDs = new Long2ObjectOpenHashMap<>();
-      }
-      pendingInsertDeweyIDs.put(newNodeKey, id);
+    final DiffTuple pending = updateOperationsUnordered.get(newNodeKey);
+    if (pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+      return;
     }
+    updateOperationsUnordered.put(newNodeKey,
+        new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
+            ? null : new DiffDepth(id.getLevel(), 0)));
   }
 
-  private void removePendingInsert(final long nodeKey) {
-    if (pendingInsertDeweyIDs != null) {
-      final SirixDeweyID id = pendingInsertDeweyIDs.remove(nodeKey);
-      if (id != null) {
-        final DiffTuple tuple = updateOperationsOrdered.get(id);
-        if (tuple != null && tuple.getDiff() == DiffFactory.DiffType.INSERTED && tuple.getNewNodeKey() == nodeKey) {
-          updateOperationsOrdered.remove(id);
-        }
-      }
-    }
-  }
-
-  private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
+  private void adaptUpdateOperationsForReplace(final SirixDeweyID id, final long oldNodeKey,
+      final long newNodeKey) {
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    if (pendingInsertDeweyIDs != null) {
-      pendingInsertDeweyIDs.remove(oldNodeKey);
-      pendingInsertDeweyIDs.remove(newNodeKey);
+    if (oldNodeKey == 0) {
+      adaptUpdateOperationsForInsert(id, newNodeKey);
+      return;
     }
-    // The fused-replace path (remove + insertObjectRecordAs* + REPLACEDNEW) leaves a stray
-    // DELETED tuple for {@code oldNodeKey} from the inner remove(). The REPLACE diff already
-    // captures the old → new transition; downstream replay ({@link
-    // io.sirix.service.json.shredder.JsonResourceCopy}) only needs the REPLACE
-    // entry, otherwise it would receive a no-op DELETE on the just-replaced node and surface
-    // it as a phantom delete in the diff JSON.
-    if (id == null) {
-      updateOperationsUnordered.values()
-                               .removeIf(
-                                   t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
-      updateOperationsUnordered.put(newNodeKey,
-          new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, null));
-    } else {
-      updateOperationsOrdered.values()
-                             .removeIf(
-                                 t -> t.getDiff() == DiffFactory.DiffType.DELETED && t.getOldNodeKey() == oldNodeKey);
-      updateOperationsOrdered.put(id, new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey,
-          new DiffDepth(id.getLevel(), id.getLevel())));
-    }
+    updateOperationsUnordered.remove(-oldNodeKey);
+    updateOperationsUnordered.put(newNodeKey,
+        new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, id == null
+            ? null : new DiffDepth(id.getLevel(), id.getLevel())));
   }
 
-  /**
-   * Record a subtree move in the update-operations maps as DELETED at the old position + INSERTED at
-   * the new one — the same representation a remove+copy produces, which diff consumers (replay,
-   * change feeds) already understand. Without these tuples a move-only transaction wrote an empty
-   * diff for a revision whose tree order changed (#1074).
-   *
-   * @param oldDeweyID the moved node's DeweyID before the move ({@code null} without DeweyIDs)
-   * @param newDeweyID the moved node's DeweyID after the move ({@code null} without DeweyIDs)
-   * @param nodeKey the moved node's key (unchanged by the move)
-   */
   private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
       final long nodeKey) {
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    final var deleteTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
-        ? null
-        : new DiffDepth(0, oldDeweyID.getLevel()));
-    if (oldDeweyID != null && newDeweyID != null) {
-      removePendingInsert(nodeKey);
-      updateOperationsOrdered.put(oldDeweyID, deleteTuple);
-    } else {
-      // The unordered map is keyed by node key purely for uniqueness (consumers iterate
-      // values()); a move needs TWO tuples for one node key, so the DELETED entry is keyed by
-      // the negated key to avoid colliding with the INSERTED entry. Real node keys are > 0.
-      updateOperationsUnordered.put(-nodeKey, deleteTuple);
-    }
+    updateOperationsUnordered.put(-nodeKey,
+        new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
+            ? null : new DiffDepth(0, oldDeweyID.getLevel())));
     adaptUpdateOperationsForInsert(newDeweyID, nodeKey);
   }
 
@@ -2273,7 +2217,12 @@ final class JsonNodeTrxImpl extends
       }
 
       final String keyName = getName().getLocalName();
-      final long oldValueNodeKey = nodeKey; // fused record IS the value holder
+      final DiffTuple pending = updateOperationsUnordered.get(nodeKey);
+      final long oldValueNodeKey = pending == null ? nodeKey : switch (pending.getDiff()) {
+        case INSERTED -> 0;
+        case REPLACEDNEW -> pending.getOldNodeKey();
+        default -> nodeKey;
+      };
       final boolean hasLeft = hasLeftSibling();
       final long anchorKey = hasLeft
           ? getLeftSiblingKey()
@@ -3357,31 +3306,13 @@ final class JsonNodeTrxImpl extends
         // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
-        // Removing a subtree must also purge INSERTED/UPDATED/REPLACEDNEW diff tuples recorded
-        // earlier in this transaction for DESCENDANTS of the removed node: their node keys no
-        // longer resolve in the new revision, and a stale tuple makes the commit-time diff
-        // serializer read from an unpositioned cursor (NPE or silently corrupt diff files). The
-        // subtree root's own tuple is already handled by adaptUpdateOperationsForRemove; the
-        // DELETED tuple of the root subsumes all descendant operations.
-        final LongOpenHashSet removedDescendantKeys = storeDeweyIDs()
-            ? new LongOpenHashSet()
-            : null;
-
-        // Remove subtree.
         for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
           final long currentNodeKey = axis.nextLong();
-
-          if (pendingInsertDeweyIDs != null) {
-            pendingInsertDeweyIDs.remove(currentNodeKey);
-          }
-
-          if (removedDescendantKeys != null) {
-            removedDescendantKeys.add(currentNodeKey);
-          } else {
-            final DiffTuple staleTuple = updateOperationsUnordered.get(currentNodeKey);
-            if (staleTuple != null && staleTuple.getDiff() != DiffFactory.DiffType.DELETED) {
-              updateOperationsUnordered.remove(currentNodeKey);
-            }
+          final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
+          if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+            final long originalKey = staleTuple.getOldNodeKey();
+            updateOperationsUnordered.put(-originalKey,
+                new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
           }
 
           // Remove name.
@@ -3409,12 +3340,6 @@ final class JsonNodeTrxImpl extends
           if (storeNodeHistory) {
             nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
           }
-        }
-
-        if (removedDescendantKeys != null && !removedDescendantKeys.isEmpty()) {
-          updateOperationsOrdered.values()
-                                 .removeIf(tuple -> tuple.getDiff() != DiffFactory.DiffType.DELETED
-                                     && removedDescendantKeys.contains(tuple.getNewNodeKey()));
         }
 
         if (node.getKind().playsObjectKeyRole()) {
@@ -3463,25 +3388,17 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForRemove(SirixDeweyID id, final long oldNodeKey) {
+  private void adaptUpdateOperationsForRemove(final SirixDeweyID id, final long oldNodeKey) {
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    if (pendingInsertDeweyIDs != null) {
-      pendingInsertDeweyIDs.remove(oldNodeKey);
-    }
-    moveToNext();
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, oldNodeKey, id == null
-        ? null
-        : new DiffDepth(0, id.getLevel()));
-    if (id == null) {
-      updateOperationsUnordered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == oldNodeKey);
-      updateOperationsUnordered.put(oldNodeKey, diffTuple);
-    } else {
-      updateOperationsOrdered.values().removeIf(currDiffTuple -> currDiffTuple.getNewNodeKey() == oldNodeKey);
-      updateOperationsOrdered.put(id, diffTuple);
-    }
-    moveTo(oldNodeKey);
+    final DiffTuple pending = updateOperationsUnordered.remove(oldNodeKey);
+    final long originalKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
+        ? pending.getOldNodeKey() : oldNodeKey;
+    updateOperationsUnordered.remove(-oldNodeKey);
+    updateOperationsUnordered.put(-originalKey,
+        new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, id == null
+            ? null : new DiffDepth(0, id.getLevel())));
   }
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
@@ -3879,32 +3796,13 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
-    if (!resourceSession.getResourceConfig().storeDiffs()) {
+  private void adaptUpdateOperationsForUpdate(final SirixDeweyID id, final long nodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs() || updateOperationsUnordered.containsKey(nodeKey)) {
       return;
     }
-    final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
-        ? null
-        : new DiffDepth(id.getLevel(), id.getLevel()));
-    if (id == null && updateOperationsUnordered.get(nodeKey) == null) {
-      updateOperationsUnordered.put(nodeKey, diffTuple);
-    } else if (id != null && hasNoUpdatingNodeWithGivenNodeKey(nodeKey)) {
-      updateOperationsOrdered.put(id, diffTuple);
-    }
-  }
-
-  private boolean hasNoUpdatingNodeWithGivenNodeKey(long nodeKey) {
-    return updateOperationsOrdered.values()
-                                  .stream()
-                                  .filter(filterInsertedOrDeletedTuplesWithNodeKey(nodeKey))
-                                  .findAny()
-                                  .isEmpty();
-  }
-
-  private Predicate<DiffTuple> filterInsertedOrDeletedTuplesWithNodeKey(long nodeKey) {
-    return currDiffTuple -> (currDiffTuple.getNewNodeKey() == nodeKey
-        && currDiffTuple.getDiff() == DiffFactory.DiffType.INSERTED)
-        || (currDiffTuple.getOldNodeKey() == nodeKey && currDiffTuple.getDiff() == DiffFactory.DiffType.DELETED);
+    updateOperationsUnordered.put(nodeKey,
+        new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
+            ? null : new DiffDepth(id.getLevel(), id.getLevel())));
   }
 
   @Override
@@ -4386,8 +4284,6 @@ final class JsonNodeTrxImpl extends
       ingestArrayPositions = null;
       if (!nodeHashing.isBulkInsert()) {
         beforeBulkInsertionRevisionNumber = -1;
-        pendingInsertDeweyIDs = null;
-        updateOperationsOrdered.clear();
         updateOperationsUnordered.clear();
       }
     }
@@ -4400,9 +4296,7 @@ final class JsonNodeTrxImpl extends
     if (!nodeHashing.isBulkInsert() && oldRevisionNumber > 0) {
 
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
-          oldRevisionNumber, revisionNumber, storeDeweyIDs()
-              ? updateOperationsOrdered.values()
-              : updateOperationsUnordered.values());
+          oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
       final var jsonDiff = ingestArrayPositions == null
           ? diffSerializer.serializeSidecar()
           : diffSerializer.serializeSidecar(ingestArrayPositions);
@@ -4441,7 +4335,6 @@ final class JsonNodeTrxImpl extends
     runLocked(() -> {
       super.rollback();
       beforeBulkInsertionRevisionNumber = -1;
-      pendingInsertDeweyIDs = null;
     });
     return this;
   }
@@ -4451,7 +4344,6 @@ final class JsonNodeTrxImpl extends
     runLocked(() -> {
       super.revertTo(revision);
       beforeBulkInsertionRevisionNumber = -1;
-      pendingInsertDeweyIDs = null;
     });
     return this;
   }

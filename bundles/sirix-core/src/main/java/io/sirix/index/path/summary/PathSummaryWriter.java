@@ -784,6 +784,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           new PathKindFilter(pathSummaryReader, pathFilterKind));
       if (axis.hasNext()) {
         axis.nextLong();
+        if (pathSummaryReader.getNodeKey() == oldPathNodeKey) {
+          return;
+        }
 
         long nodeKey = decrementReferenceCountOrRemove(node);
 

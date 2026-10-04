@@ -67,6 +67,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     this.autoCommit = value;
   }
 
+  public boolean isAutoCommit() {
+    return autoCommit;
+  }
+
   /**
    * Adapting the structure with a hash for all ancestors only with insert.
    * Uses the current cursor position as the start node.

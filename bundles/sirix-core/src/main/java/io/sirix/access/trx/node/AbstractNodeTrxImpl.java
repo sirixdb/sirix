@@ -27,6 +27,8 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,13 +37,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -120,14 +118,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final boolean buildPathSummary;
 
   /**
-   * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
+   * Collects update operations in no particular order.
    */
-  protected final SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered;
-
-  /**
-   * Collects update operations in no particular order (if DeweyIDs used for sorting are not stored).
-   */
-  protected final Map<Long, DiffTuple> updateOperationsUnordered;
+  protected final Long2ObjectMap<DiffTuple> updateOperationsUnordered;
 
   /**
    * An optional lock for all methods, if an automatic commit is issued.
@@ -267,8 +260,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
-    this.updateOperationsOrdered = new TreeMap<>();
-    this.updateOperationsUnordered = new HashMap<>();
+    this.updateOperationsUnordered = new Long2ObjectOpenHashMap<>();
 
     this.storageEngineWriter = (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
 
@@ -976,12 +968,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
       final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      final boolean autoCommitHashing = nodeHashing.isAutoCommit();
       nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
       nodeHashing.setBulkInsert(isBulkInsert);
+      nodeHashing.setAutoCommit(autoCommitHashing);
 
       if (!isBulkInsert) {
         updateOperationsUnordered.clear();
-        updateOperationsOrdered.clear();
       }
 
       reInstantiateIndexes(true);
@@ -1114,8 +1107,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // this, the first post-rollback mutation on a hash-enabled resource would call
       // prepareRecordForModification on the closed writer and throw.
       final boolean isBulkInsert = nodeHashing.isBulkInsert();
+      final boolean autoCommitHashing = nodeHashing.isAutoCommit();
       nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
       nodeHashing.setBulkInsert(isBulkInsert);
+      nodeHashing.setAutoCommit(autoCommitHashing);
 
       reInstantiateIndexes(false);
 
@@ -1126,7 +1121,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // aborted revision and must not leak into the next commit's diff (a later commit would
       // otherwise serialize phantom operations that were never committed).
       updateOperationsUnordered.clear();
-      updateOperationsOrdered.clear();
 
       // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
       nodeReadOnlyTrx.moveTo(rollbackNodeKey);
@@ -1188,7 +1182,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Discard update-operation tuples recorded against the reverted-from revision.
       updateOperationsUnordered.clear();
-      updateOperationsOrdered.clear();
 
       // Reset modification counter.
       modificationCount = 0L;
