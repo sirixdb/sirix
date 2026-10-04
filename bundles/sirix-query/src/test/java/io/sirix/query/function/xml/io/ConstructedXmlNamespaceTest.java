@@ -2,6 +2,7 @@ package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.node.NodeKind;
@@ -22,6 +23,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 final class ConstructedXmlNamespaceTest {
   private static final String ITEMS = "<item xmlns='urn:a' xmlns:p='urn:attr' p:flag='a' flag='plain'>a</item>"
@@ -48,6 +50,105 @@ final class ConstructedXmlNamespaceTest {
     assertEquals(List.of("ELEMENT||root|", "ELEMENT|urn:a|item|", "ELEMENT|urn:b|item|", "ELEMENT|urn:a|item|p",
         "ELEMENT||item|"), names(versioning, "oracle", "resource1"));
     assertEquals(names(versioning, "oracle", "resource1"), names(versioning, "names", "resource1"));
+    final String serialized = run(versioning, "xml:doc('names','resource1')");
+    try (final var store = store(versioning)) {
+      store.create("reported-round-trip", "resource1", new DocumentParser(serialized));
+    }
+    assertEquals(names(versioning, "oracle", "resource1"), names(versioning, "reported-round-trip", "resource1"),
+        serialized);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void serializationRoundTripKeepsNamespaces(final VersioningType versioning) {
+    final String nested = "<root xmlns='urn:a' xmlns:p='urn:a'><item p:flag='a'/>"
+        + "<branch xmlns='urn:b' xmlns:p='urn:b'><p:item p:flag='b'/><item xmlns=''/></branch>"
+        + "<p:item/><item xmlns=''/></root>";
+    final List<String> nestedNames = List.of("ELEMENT|urn:a|root|", "ELEMENT|urn:a|item|",
+        "ATTRIBUTE|urn:a|flag|p",
+        "ELEMENT|urn:b|branch|", "ELEMENT|urn:b|item|p", "ATTRIBUTE|urn:b|flag|p", "ELEMENT||item|",
+        "ELEMENT|urn:a|item|p", "ELEMENT||item|");
+    for (final String input : List.of(XML, nested)) {
+      run(versioning, "xml:store('serialized',()," + input + ")");
+      final String serialized = run(versioning, "xml:doc('serialized','resource1')");
+      try (final var store = store(versioning)) {
+        store.create("reparsed", "resource1", new DocumentParser(serialized));
+      }
+      assertEquals(input.equals(XML) ? EXPECTED_NAMES : nestedNames, names(versioning, "reparsed", "resource1"),
+          serialized);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void pathNameTestsMatchExpandedNames(final VersioningType versioning) {
+    run(versioning, "xml:store('paths',()," + XML + ")");
+    final String document = "xml:doc('paths','resource1')";
+    assertAll(() -> assertEquals("a alias", run(versioning,
+        "declare namespace a='urn:a'; " + document + "/root/a:item/string()")),
+        () -> assertEquals("", run(versioning,
+            "declare namespace p='urn:not-a'; " + document + "/root/p:item/string()")),
+        () -> assertEquals("plain", run(versioning, document + "/root/item/string()")),
+        () -> assertEquals("a alias", run(versioning,
+            "declare namespace a='urn:a'; " + document + "//a:item/string()")),
+        () -> assertEquals("a alias", run(versioning,
+            "declare default element namespace 'urn:a'; " + document + "/*/item/string()")));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void wildcardAttributesKeepExpandedNames(final VersioningType versioning) {
+    final String xml = "<root xmlns:p='urn:a' p:flag='a' flag='plain'/>";
+    run(versioning, "xml:store('constructed-attributes',()," + xml + ")");
+    try (final var store = store(versioning)) {
+      store.create("parsed-attributes", "resource1", new DocumentParser(xml));
+    }
+    for (final String collection : List.of("constructed-attributes", "parsed-attributes")) {
+      final String attributes = "xml:doc('" + collection + "','resource1')/root/@*";
+      assertEquals("|flag|plain urn:a|flag|a", run(versioning, "for $a in " + attributes
+          + " order by namespace-uri($a) return concat(namespace-uri($a),'|',local-name($a),'|',string($a))"));
+      assertEquals("a", run(versioning, "for $a in " + attributes
+          + " where node-name($a) eq fn:QName('urn:a','flag') return string($a)"));
+      assertEquals("a", run(versioning, "declare namespace a='urn:a'; xml:doc('" + collection
+          + "','resource1')/root/@a:flag/string()"));
+      assertEquals("plain", run(versioning, "xml:doc('" + collection + "','resource1')/root/@flag/string()"));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void namespaceScopesResolveBindingsWithoutMovingTheCursor(final VersioningType versioning) {
+    final String xml = "<root xmlns='urn:a' xmlns:p='urn:a' xmlns:q='urn:q'>"
+        + "<branch xmlns='' xmlns:p='urn:b'><leaf xml:lang='en'/></branch><p:item/></root>";
+    try (final var store = store(versioning)) {
+      final var document = store.create("scopes", "resource1", new DocumentParser(xml)).getDocument("resource1");
+      final var root = document.getFirstChild();
+      final var rootScope = root.getScope();
+      final var leaf = root.getFirstChild().getFirstChild();
+      final var leafScope = leaf.getScope();
+      final var trx = leaf.getTrx();
+      final long cursor = trx.getNodeKey();
+      assertAll(() -> assertEquals("urn:a", rootScope.defaultNS()),
+          () -> assertEquals("urn:a", rootScope.resolvePrefix("p")),
+          () -> assertEquals("", leafScope.defaultNS()),
+          () -> assertEquals("", leafScope.resolvePrefix(null)),
+          () -> assertEquals("urn:b", leafScope.resolvePrefix("p")),
+          () -> assertEquals("urn:q", leafScope.resolvePrefix("q")),
+          () -> assertEquals("http://www.w3.org/XML/1998/namespace", leafScope.resolvePrefix("xml")),
+          () -> assertNull(leafScope.resolvePrefix("missing")));
+      assertEquals(cursor, trx.getNodeKey());
+      final List<String> prefixes = new ArrayList<>(3);
+      try (final Stream<String> stream = rootScope.localPrefixes()) {
+        String prefix;
+        while ((prefix = stream.next()) != null) {
+          prefixes.add(prefix);
+          assertEquals(cursor, trx.getNodeKey());
+        }
+      }
+      prefixes.sort(null);
+      assertEquals(List.of("", "p", "q"), prefixes);
+      assertEquals(cursor, trx.getNodeKey());
+    }
   }
 
   @ParameterizedTest

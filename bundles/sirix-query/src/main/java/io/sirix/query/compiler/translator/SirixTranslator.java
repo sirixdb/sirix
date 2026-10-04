@@ -719,7 +719,7 @@ public class SirixTranslator extends TopDownTranslator {
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      return new SirixNodeStream(new FilterAxis<>(new AttributeAxis(rtx), new XmlNameFilter(rtx, test.getQName())),
+      return new SirixNodeStream(SirixTranslator.getAxis(test, rtx, new AttributeAxis(rtx)),
           dbNode.getCollection());
     }
 
@@ -861,7 +861,7 @@ public class SirixTranslator extends TopDownTranslator {
             if (matchLevel == level + 1) {
               reader.close();
               return new SirixNodeStream(new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx),
-                  new XmlNameFilter(rtx, test.getQName().toString())), dbNode.getCollection());
+                  new XmlNameFilter(rtx, test.getQName())), dbNode.getCollection());
             }
             // Match at a level below the child level.
             final Deque<QNm> names = getNames(matchLevel, level, reader);
@@ -932,7 +932,7 @@ public class SirixTranslator extends TopDownTranslator {
               // Match at the next level (single child-path).
               else if (matchLevel == level + 1) {
                 axisQueue.addLast(new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx),
-                    new XmlNameFilter(rtx, test.getQName().toString())));
+                    new XmlNameFilter(rtx, test.getQName())));
               }
               // Match at a level below the child level.
               else {

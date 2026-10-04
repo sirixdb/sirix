@@ -25,6 +25,9 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.filter.PathNameFilter;
 import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.AbstractFilter;
+import org.jspecify.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * //todo duplicate description as to that of
@@ -39,8 +42,11 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
   /** Key of local name to test. */
   private final int mLocalNameKey;
 
-  /** Key of prefix to test. */
+  /** Key of prefix to test for a lexical name without a namespace context. */
   private final int mPrefixKey;
+
+  /** Namespace URI for an expanded-name test, or null for a lexical name test. */
+  private final @Nullable String mNamespaceURI;
 
   /**
    * Default constructor.
@@ -50,9 +56,9 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
-        ? -1
-        : rtx.keyForName(name.getPrefix());
+    requireNonNull(name);
+    mPrefixKey = -1;
+    mNamespaceURI = name.getNamespaceURI() == null ? "" : name.getNamespaceURI();
     mLocalNameKey = rtx.keyForName(name.getLocalName());
   }
 
@@ -64,6 +70,8 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
+    requireNonNull(name);
+    mNamespaceURI = null;
     final int index = name.indexOf(":");
     if (index != -1) {
       mPrefixKey = rtx.keyForName(name.substring(0, index));
@@ -76,10 +84,16 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   @Override
   public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+    final XmlNodeReadOnlyTrx trx = getTrx();
+    if (!trx.isNameNode() || trx.getLocalNameKey() != mLocalNameKey) {
+      return false;
     }
-    return returnVal;
+    if (mNamespaceURI == null) {
+      return trx.getPrefixKey() == mPrefixKey;
+    }
+    // Elements use -1 for an absent URI; attributes store the empty URI in the dictionary.
+    return trx.getURIKey() == -1
+        ? mNamespaceURI.isEmpty()
+        : mNamespaceURI.equals(trx.getNamespaceURI());
   }
 }
