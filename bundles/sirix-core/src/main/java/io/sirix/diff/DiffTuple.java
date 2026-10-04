@@ -63,7 +63,7 @@ public final class DiffTuple implements Serializable {
    * @param diff {@link DiffFactory.DiffType} which specifies the kind of diff between two nodes
    * @param newNodeKey node key of node in new revision
    * @param oldNodeKey node key of node in old revision
-   * @param depth current {@link DiffDepth} instance
+   * @param depth current {@link DiffDepth} instance, or {@code null} when depth is unavailable
    */
   public DiffTuple(final DiffFactory.DiffType diff, final long newNodeKey, final long oldNodeKey,
       final @Nullable DiffDepth depth) {
@@ -127,7 +127,7 @@ public final class DiffTuple implements Serializable {
   /**
    * Get depth.
    *
-   * @return the depth
+   * @return the depth, or {@code null} when depth is unavailable
    */
   public @Nullable DiffDepth getDepth() {
     return depth;

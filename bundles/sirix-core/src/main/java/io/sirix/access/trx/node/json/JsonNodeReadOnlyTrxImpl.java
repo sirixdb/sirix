@@ -117,8 +117,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     } catch (final IOException | RuntimeException e) {
       // Sidecars are durable per-resource state; one written before the integrity envelope (or
       // damaged since) must not brick this API. The sidecar is only a CACHE of the diff, so
-      // recompute it from the two revisions — the same fallback the REST diff handler applies
-      // when it meets an invalid sidecar.
+      // recompute identity-preserving update operations from the two committed revisions.
       jsonObject = recomputeUpdateOperations(revisionNumber);
     }
     jsonObject.getAsJsonArray("diffs").forEach(serializeJsonFragmentIfNeeded(diffTuples));

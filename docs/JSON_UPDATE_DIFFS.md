@@ -136,8 +136,9 @@ That commit resets the guard and pending bulk baseline; rollback also resets bot
 Array-position resolution additionally requires a path summary and an array step in an emitted
 path. Ingest hints additionally require stored child counts (`storeChildCount`, also `true` by
 default); missing hints retain the structural resolver described above.
-`storeDiffs(false)` disables commit-sidecar generation; `buildPathSummary(false)` leaves diff
-storage enabled but skips path resolution. Pending tuples use one primitive node-key map with
-either Dewey-ID setting; Dewey IDs add metadata without disabling path resolution. XML shares
-the builder's flag default, but `XmlNodeTrxImpl.serializeUpdateDiffs` is empty and never runs this
-JSON resolver.
+`storeDiffs(false)` disables pending-tuple collection and commit-sidecar generation, including
+the boundary capture, Dewey-ID reads, and sibling sweep for skipped-root bulk inserts.
+`buildPathSummary(false)` leaves diff storage enabled but skips path resolution.
+Pending tuples use one primitive node-key map with either Dewey-ID setting; Dewey IDs add metadata
+without disabling path resolution. XML shares the builder's flag default, but
+`XmlNodeTrxImpl.serializeUpdateDiffs` is empty and never runs this JSON resolver.
