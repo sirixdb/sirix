@@ -368,43 +368,23 @@ page granularity — a small leaf is what makes per-commit maintenance cheap.
 
 ## 5. Wire formats, byte by byte
 
-Four magics, all little-endian; every payload is self-describing:
-
-| Magic | ASCII | Where | Role |
-|---|---|---|---|
-| `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
-| `0x53584950` | `PIXS` | segment page payload | one encoded segment |
-| `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
-| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape + set-summary capabilities, VERSION 0) |
+The authoritative [disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+defines the little-endian payload magics and their placement, including open-row-group tails.
 
 ### 5.1 `PIXD` — the row-group descriptor
 
-```text
-offset  size  field
-------  ----  -----------------------------------------------
- 0       4    MAGIC "PIXD"
- 4       1    VERSION = 0                the ONLY supported value; any other is refused
- 5       4    rowCount                  (0 = live empty row group)
- 9       2    columnCount
-11       8    firstRecordKey            ┐ fences (Long.MAX/Long.MIN
-19       8    lastRecordKey             ┘  sentinels when empty)
-27       C    kinds[columnCount]        one kind byte per column
-27+C     2    segCount
-        31    per segment entry (sorted by ascending columnSegmentId):
-                short columnSegmentId   2 bytes since the cap became 21 844
-                int   byteLen           exact non-negative segment length
-                long  contentHash       XXH3-64 of segment bytes
-                byte  colFlags          provenance mirror
-                long  min               ┐ zone-map mirror
-                long  max               ┘  (transform domain for doubles)
-```
+The authoritative [disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+defines the descriptor fields, base/tailed states and tail slots. Positional
+accessors and schema validation live in `RowGroupDescriptor`.
 
 In the segment ⇔ slot layout the descriptor is **zone-map only**: it names
 each segment and vouches for it, but never holds its bytes. The encoder emits
 only this form, and every storage/read boundary validates it. A descriptor
 with an inline flag or trailing payload region is unsupported and fails
 closed; it is never normalized, migrated, or accepted as a second format.
-Assembly therefore resolves every segment through exactly one segment slot.
+For an untailed group, assembly resolves every segment through its own slot.
+Open-tail resolution follows the
+[maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 Inline-vs-referenced did not disappear; it moved down one level, to the
 **slot** (§8.4). A segment slot's value is a 1-byte discriminator plus either
@@ -714,16 +694,10 @@ reference; ordinary maintenance never performs that global walk.
 
 ### 6.4 Update containment, honestly scoped
 
-| Change to one 1024-row leaf | Segments rewritten |
-|---|---|
-| in-place value update, column *c* | `BODY(c)` (+ `DICT(c)` iff the dictionary grew) + descriptor |
-| row append (tail) | `KEYS` + every `BODY` (+ interning `DICT`s) + descriptor |
-| row delete | every segment of the leaf (rowCount changed) + descriptor |
-| untouched leaf | nothing — descriptor and all segments shared |
-
-Deletes/appends change `rowCount`, which participates in every column's
-encoding — the re-encode-then-hash-compare loop makes the containment
-automatic rather than hand-tracked.
+The authoritative [incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md)
+specifies the write units for value updates, positional membership changes and
+open-row-group appends, including when a tail folds. Hash-based sharing (§6.3)
+applies when segment slots are written.
 
 ---
 
@@ -1031,8 +1005,9 @@ for document records (an encoded inline slot allocation ≤ `MAX_RECORD_SIZE = 5
 including any Dewey payload/trailer; a larger allocation puts the record body in an
 `OverflowPage` while the Dewey ID remains in page metadata). A projection applies it per segment.
 
-The single persisted projection format has three storage classes with two
-versioning behaviours:
+For persisted base segments and routing metadata, the storage classes below
+have two versioning behaviours. Open-tail storage and folding follow the
+[maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 | Storage class | What it is | How it versions |
 |---|---|---|

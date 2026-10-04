@@ -9,8 +9,10 @@ document tree.
 
 Persisted leaves are stored as **semantic segments** — the record-key column, one body per
 column, one (FSST-compressed where beneficial) dictionary per string column — each its own
-copy-on-write page addressed from a tiny per-leaf descriptor, so a single-column update
-rewrites one segment page and unchanged segments are shared across revisions by reference.
+copy-on-write unit addressed from a tiny per-leaf descriptor. Unchanged persisted segments
+are shared across revisions by reference; the
+[maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md) governs update granularity
+and open-row-group appends.
 Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the
 versioned document store stays ~10%. Double columns store exact values in an order-preserving
 encoding; value-exact consumers decline columns tainted by lossy decimal conversions

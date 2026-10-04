@@ -12,7 +12,7 @@
 >    84-column cap became 21 844, the descriptor became zone-map-only, and
 >    inline-vs-referenced moved from the descriptor to the slot).
 > 2. **Descriptor-contained payloads are rejected, not deprecated.** The one
->    `RowGroupDescriptor` form is zone-map-only. Every payload has one segment
+>    `RowGroupDescriptor` form is zone-map-only. Every persisted base segment has one
 >    slot; the descriptor never carries a second copy. See §2.3a and §6.
 > 3. **The slot-0 `PIXM` metadata no longer carries per-leaf order/fences.**
 >    Explicit document links and normal-backbone routing metadata live in
@@ -41,9 +41,10 @@
 >    which allocates a fresh physical id. Nothing resets or rebuilds a populated
 >    tree in place.
 >
-> The normative current references are `PROJECTION_INDEX_DEEP_DIVE.md` and the
-> class contracts listed below. Any contradictory planning text later in this
-> file is historical rationale only.
+> The current wire contract is owned by [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout),
+> and the mutation contract, including open-row-group tails, by
+> [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
+> Any contradictory planning text later in this file is historical rationale only.
 
 Status: **historical design and implementation log** — checked against
 the as-built code on `main` after PR #1116 (compact codec), #1117

@@ -742,12 +742,12 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * P5b stage 2: build a COLUMN-LAZY handle from one descriptor walk — zero segment reads at load
-   * time. Column kernels fetch only their columns' BODY segments (one fresh read transaction per
-   * column fill); whole-leaf consumers materialize through the same assembling read the eager path
-   * uses. Returns {@code null} to fall back to eager decoding (unresolved refs, corrupt walk — the
-   * eager path re-surfaces the corruption through the established fail-soft flow), or
-   * {@link #NOT_USABLE} for stale/truncated.
+   * P5b stage 2: build a COLUMN-LAZY handle from one descriptor walk. Open-tail resolution follows
+   * the contract of {@link ProjectionIndexHOTStorage.RowGroupDirectory}. Column kernels consume only
+   * their columns' BODY segments (one fresh read transaction per column fill); whole-leaf consumers
+   * materialize through the same assembling read the eager path uses. Returns {@code null} to fall
+   * back to eager decoding (unresolved refs, corrupt walk — the eager path re-surfaces the corruption
+   * through the established fail-soft flow), or {@link #NOT_USABLE} for stale/truncated.
    */
   private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(final ResourceSession<?, ?> session,
       final int revision, final IndexDef def, final StorageEngineReader reader) {

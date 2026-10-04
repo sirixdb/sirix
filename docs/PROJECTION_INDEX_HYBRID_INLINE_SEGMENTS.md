@@ -1,9 +1,7 @@
 # Projection Index — Segment-Slot Inline / Overflow Storage
 
-> **Current format.** A row-group descriptor contains metadata and zone maps
-> only. Every encoded segment has exactly one HOT segment slot. A segment payload
-> of at most **512 bytes** is stored inline in that slot; a larger payload is
-> stored in an `OverflowPage` referenced by that slot.
+> **Current format.** Persisted segment and open-row-group tail placement is
+> defined in [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 >
 > An earlier design proposed putting small segment payloads in a trailing region
 > of the row-group descriptor. That proposal was rejected and is documented here
@@ -18,12 +16,11 @@ The broader index layout is described in
 
 ## 1. The one supported layout
 
-Each row group has one descriptor slot and one slot per encoded segment:
-
-```text
-(rowGroupId, 0)               zone-map-only row-group descriptor
-(rowGroupId, segmentId + 1)   that segment's HOT slot
-```
+The placement rules below describe persisted base segments. Their slot layout,
+including open-row-group tail storage, is defined in
+[DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
+append, merge and fold rules are owned by the
+[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 The descriptor records the row count, key range, column kinds, and each
 segment's identity, encoded length, content hash, provenance, and min/max zone
@@ -98,7 +95,7 @@ silently accepted.
 
 ## 4. Read path
 
-To read a segment:
+To read a segment of an untailed group:
 
 1. Read and validate the zone-map-only descriptor entry for its expected
    length, hash, and provenance.
@@ -115,8 +112,9 @@ and must fail closed.
 
 ## 5. Incremental write path
 
-For a touched row group, encode the affected logical segments and compare each
-result with the previous descriptor entry:
+For a segment write, encode the affected logical segments and compare each
+result with the previous base descriptor entry. Tail handling follows the
+maintenance contract linked above.
 
 ```text
 same encoded length and content hash

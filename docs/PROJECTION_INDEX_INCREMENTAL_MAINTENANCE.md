@@ -277,8 +277,12 @@ price:          10  25  30
 exception:       0   0   0
 ```
 
-The value-only path must not materialize, copy, or rewrite an order-exception
-bitmap. It only needs the already encoded `KEYS` metadata for validation.
+For an untailed group, the value-only path must not materialize, copy, or rewrite
+an order-exception bitmap. It only needs the already encoded `KEYS` metadata for
+validation. A group with an open row tail first folds as specified in
+[§9](#9-tail-insert); the selected-column patch then uses the folded descriptor
+and `KEYS`. That fold may rewrite sibling segments while preserving their
+logical values and order exceptions.
 
 Re-extracting the whole selected column is intentional in V0. Zone maps and
 aggregate provenance flags describe the complete segment, and V0 has no
@@ -417,8 +421,7 @@ For marker 0:
 - No exception bitmap object is allocated.
 - No bitmap words are persisted.
 - An exception test returns false directly from the marker.
-- A value-only column update preserves the encoded marker without decoding a
-  bitmap.
+- Value-only bitmap handling follows [§5](#5-value-update-price-20-becomes-25).
 
 For marker 1, only `ceil(rowCount / 64)` live words are stored. At the maximum
 1024 rows this is 16 longs, or 128 bytes.
@@ -450,8 +453,32 @@ normal:     2, 5, 8, 11
 ```
 
 No sparse locator is written. Among the routing units, only the last normal
-boundary is extended. The target `KEYS` and column segments, its descriptor,
-slot-0 metadata, and any affected derived column metadata still change.
+boundary is extended. The descriptor, slot-0 metadata, and affected derived
+column metadata still change. A pure append to an existing open row group in
+row-group-major layout stores the new rows in referenced side pages and retains
+the base `KEYS` and column segments. The writer proves that the re-extracted
+prefix equals the persisted rows, including order labels, presence and values.
+A group completed at 1024 rows, a membership rewrite or a column patch folds
+the tail into ordinary column segments in the same transaction. The writer
+also folds on the append after 64 live tail blobs, then starts a new tail on
+the next append. This bounds reference carry-forward and cold replay even
+when the base columns compress too well to repay hundreds of references.
+
+The tailed descriptor describes the merged group, including its row count,
+zone maps and segment hashes. Single-group reads, batch assembly, directory
+walks and writer segment reads all merge the base with the tail before using
+segment bytes. Cold merges verify the re-encoded descriptor. The writer seeds
+a merge memo with its own encoding after each append, so its next commit can
+reuse those bytes without replaying the tail. Directory and batch routes retain
+structural slot checks but resolve the memo before fetching referenced base
+payloads. On a miss, raw assembly fetches only `KEYS`, `BODY` and `DICT` base
+segments; it does not fetch unused `DICT_HASHES` or other acceleration segments.
+The memo is bounded to 64 MiB; eviction falls back to the verified cold merge.
+The persisted tail layout is
+described in `DISK_FORMAT.md`. Public row and directory reads return detached
+arrays so callers cannot alter the memo; internal maintenance borrows read-only
+bytes. The four-versioning-type tests and matched byte/latency measurements are
+recorded in [the row-tail verification report](PROJECTION_OPEN_ROW_GROUP_TAIL_VERIFICATION.md).
 
 If either fact is not proven, the new row is classified as an exception. The
 writer must not guess that an absent projection row is a tail append merely
@@ -694,7 +721,8 @@ trie cannot become a committed revision.
 The intended persistent work, in phone-readable form, is:
 
 - **Value update:** selected column segments, one descriptor, slot-0 metadata,
-  and bounded derived column units when applicable.
+  and bounded derived column units when applicable, after folding any open tail
+  as specified in §9.
 - **Delete:** each affected source row group, its changed local fence/link unit,
   an exception locator if applicable, and slot-0/derived metadata.
 - **Insert without split:** each target row group, its changed local fence/link
@@ -772,7 +800,7 @@ The common ingestion and update paths obey these rules:
 
 - No per-row boxed objects in encode, lookup, or maintenance loops.
 - No exception bitmap allocation for a normal-only row group.
-- No exception bitmap decode/copy for a value-only update.
+- Value-only bitmap handling follows [§5](#5-value-update-price-20-becomes-25).
 - At most 128 bytes of live bitmap payload for an exception-bearing 1024-row
   group: 16 longs, plus the JVM array header when materialized.
 - A membership rewrite may use one primitive `BooleanArrayList` for the touched
@@ -901,7 +929,8 @@ The implementation is incomplete until focused tests cover:
 
 ### Performance
 
-- Value-only update writes no KEYS/exception bitmap segment.
+- Value-only updates obey the bitmap and segment-write contract in
+  [§5](#5-value-update-price-20-becomes-25).
 - Ordinary normal LDJSON ingestion creates no locator entries.
 - Local insert/delete/move leaves distant row-group hashes unchanged.
 - Allocation profile confirms no per-row allocation regression.

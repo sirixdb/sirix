@@ -8,6 +8,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Primitive-column leaf page for a projection index. Each page holds up to {@link #MAX_ROWS}
@@ -115,10 +117,11 @@ import java.util.Arrays;
  *
  * <ul>
  * <li>No projection-relevant rows changed → zero bytes.</li>
- * <li>A value-only update rewrites the row-group descriptor and only the selected column segments
- * whose length/hash changed; all other segment slots are true no-ops.</li>
- * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Even there, the
- * descriptor diff carries byte-identical segments forward instead of writing them again.</li>
+ * <li>A value-only update to an untailed group rewrites the row-group descriptor and only the
+ * selected column segments whose length/hash changed; an open tail must fold first.</li>
+ * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Proven appends may use
+ * {@link ProjectionOpenRowGroupTail}; full segment writes carry byte-identical base segments
+ * forward instead of writing them again.</li>
  * </ul>
  *
  * <p>
@@ -1116,6 +1119,10 @@ public final class ProjectionIndexRowGroupPage {
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
   private void ensureCapacity() {
     ensureCapacity(true);
+    // Hydration sizes this bitmap to persisted rows; an append may cross its final word.
+    if (orderExceptionBits != null && orderExceptionBits.length <= (rowCount >>> 6)) {
+      orderExceptionBits = Arrays.copyOf(orderExceptionBits, (MAX_ROWS + 63) >>> 6);
+    }
   }
 
   /**
@@ -1383,6 +1390,125 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
+   * Append one open-row-group tail row ({@link ProjectionOpenRowGroupTail}): the writer's captured
+   * inputs of {@link #appendExtractedUtf8Row} with every STRING_GLOBAL id already resolved in
+   * {@code longValues}. Writer and readers replay the same rows through this one method, so the
+   * merged page — and its encoding — is identical on both sides.
+   */
+  boolean appendTailRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+    if (longValues == null || boolValues == null || stringUtf8Values == null || present == null
+        || unrepresentable == null || nonIntegral == null || nonDoubleSource == null) {
+      throw new IllegalArgumentException("tail rows carry every per-column lane");
+    }
+    if (longValues.length < columnCount || boolValues.length < columnCount || stringUtf8Values.length < columnCount
+        || present.length < columnCount || unrepresentable.length < columnCount || nonIntegral.length < columnCount
+        || nonDoubleSource.length < columnCount || (stringUtf8Lengths != null && stringUtf8Lengths.length < columnCount)
+        || (stringSetValues != null && stringSetValues.length < columnCount)) {
+      throw new IllegalArgumentException("tail row lanes must cover " + columnCount + " columns");
+    }
+    if (!canAppendOrderLabel(orderLabel)) {
+      return false;
+    }
+    final boolean appended =
+        appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths, stringSetValues,
+            present, unrepresentable, nonIntegral, nonDoubleSource, orderException, true);
+    if (!appended) {
+      throw new IllegalStateException("projection order-label preflight admitted a full row group");
+    }
+    replaceLastOrderLabel(orderLabel);
+    return true;
+  }
+
+  /**
+   * Whether the first {@code rows} rows of this page and of {@code other} hold the same content:
+   * record keys, order labels and exceptions, presence, and every column value (strings by content,
+   * not by dictionary id). Page-level sticky flags are not compared. The open-row-group tail path
+   * uses this to prove that a maintenance rewrite is a pure append over the persisted rows.
+   */
+  boolean rowsEqualPrefix(final @Nullable ProjectionIndexRowGroupPage other, final int rows) {
+    if (other == null || rows < 0 || rows > rowCount || rows > other.rowCount || columnCount != other.columnCount
+        || !Arrays.equals(columnKinds, other.columnKinds)) {
+      return false;
+    }
+    for (int row = 0; row < rows; row++) {
+      if (recordKeys[row] != other.recordKeys[row] || orderExceptionAt(row) != other.orderExceptionAt(row)) {
+        return false;
+      }
+      if (compareOrderLabels(orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1], other.orderLabelBytes,
+          other.orderLabelOffsets[row], other.orderLabelOffsets[row + 1]) != 0) {
+        return false;
+      }
+    }
+    for (int c = 0; c < columnCount; c++) {
+      for (int row = 0; row < rows; row++) {
+        final boolean present = (presenceCols[c][row >>> 6] & (1L << (row & 63))) != 0;
+        if (present != ((other.presenceCols[c][row >>> 6] & (1L << (row & 63))) != 0)) {
+          return false;
+        }
+      }
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
+            COLUMN_KIND_STRING_GLOBAL, COLUMN_KIND_STRING_SEGMENT -> {
+          if (!Arrays.equals(numericCols[c], 0, rows, other.numericCols[c], 0, rows)) {
+            return false;
+          }
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          for (int row = 0; row < rows; row++) {
+            if (((booleanCols[c][row >>> 6] >>> (row & 63)) & 1L) != ((other.booleanCols[c][row >>> 6] >>> (row & 63))
+                & 1L)) {
+              return false;
+            }
+          }
+        }
+        case COLUMN_KIND_STRING_DICT -> {
+          for (int row = 0; row < rows; row++) {
+            if (!dictionaryEntriesEqual(c, stringDictIdCols[c][row], other, other.stringDictIdCols[c][row])) {
+              return false;
+            }
+          }
+        }
+        case COLUMN_KIND_STRING_SET -> {
+          int mine = 0;
+          int theirs = 0;
+          for (int row = 0; row < rows; row++) {
+            final int count = stringSetCountCols[c][row];
+            if (count != other.stringSetCountCols[c][row]) {
+              return false;
+            }
+            for (int e = 0; e < count; e++) {
+              if (!dictionaryEntriesEqual(c, stringSetIdCols[c][mine + e], other,
+                  other.stringSetIdCols[c][theirs + e])) {
+                return false;
+              }
+            }
+            mine += count;
+            theirs += count;
+          }
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    return true;
+  }
+
+  private boolean dictionaryEntriesEqual(final int c, final int dictId, final ProjectionIndexRowGroupPage other,
+      final int otherDictId) {
+    final int length = stringDictionaryEntryLength(c, dictId);
+    if (length != other.stringDictionaryEntryLength(c, otherDictId)) {
+      return false;
+    }
+    final byte[] mine = stringDictionaryEntryBacking(c, dictId);
+    final int myOffset = stringDictionaryEntryOffset(c, dictId);
+    final byte[] theirs = other.stringDictionaryEntryBacking(c, otherDictId);
+    final int theirOffset = other.stringDictionaryEntryOffset(c, otherDictId);
+    return Arrays.equals(mine, myOffset, myOffset + length, theirs, theirOffset, theirOffset + length);
+  }
+
+  /**
    * Append one extracted value to a one-column maintenance page.
    *
    * <p>
@@ -1528,9 +1654,24 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
+    return appendRowInternal(recordKey, longValues, boolValues, stringValues, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException, false);
+  }
+
+  /**
+   * {@code globalIdsResolved}: a STRING_GLOBAL cell's value dictionary id is taken from
+   * {@code longValues[c]} instead of being interned — the open-row-group tail replay
+   * ({@link ProjectionOpenRowGroupTail}) re-appends rows whose ids the writer already resolved, on
+   * readers that have no dictionary writer.
+   */
+  private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final boolean globalIdsResolved) {
     if (rowCount == MAX_ROWS)
       return false;
     if (stringUtf8Values == null) {
@@ -1586,10 +1727,12 @@ public final class ProjectionIndexRowGroupPage {
         // zone map stays a range over real ids because only clean cells widen it.
         case COLUMN_KIND_STRING_GLOBAL -> {
           final long id = clean
-              ? stringUtf8Values == null
-                  ? internGlobal(c, stringValues[c])
-                  : internGlobalUtf8(c, stringUtf8Values[c],
-                      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
+              ? globalIdsResolved
+                  ? longValues[c]
+                  : stringUtf8Values == null
+                      ? internGlobal(c, Objects.requireNonNull(stringValues)[c])
+                      : internGlobalUtf8(c, stringUtf8Values[c],
+                          extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
               : 0L;
           numericCols[c][row] = id;
           if (clean) {
@@ -1611,7 +1754,7 @@ public final class ProjectionIndexRowGroupPage {
         // count-distinct kernel depends on it), not a builder convention.
         case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = stringUtf8Values == null
             ? appendString(c, clean
-                ? stringValues[c]
+                ? Objects.requireNonNull(stringValues)[c]
                 : "")
             : clean
                 ? appendBorrowedStringUtf8(c, stringUtf8Values[c],
@@ -1647,9 +1790,9 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Validate the legacy String entry point completely before the page or a global dictionary mutates.
    */
-  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues, final String[] stringValues,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
-      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues,
+      final String @Nullable [] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
     }
@@ -1714,7 +1857,7 @@ public final class ProjectionIndexRowGroupPage {
    *
    * @param dictionaries per-column writers, index-aligned with the column kinds
    */
-  void setGlobalDictionaries(final GlobalValueDictionaryEncoder[] dictionaries) {
+  void setGlobalDictionaries(final GlobalValueDictionaryEncoder @Nullable [] dictionaries) {
     this.globalDicts = dictionaries;
   }
 

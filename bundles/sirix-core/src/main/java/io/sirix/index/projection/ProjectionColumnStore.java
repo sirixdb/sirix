@@ -27,9 +27,10 @@ import java.util.stream.IntStream;
 /**
  * Column-sliced view of a projection's persisted leaves (P5b stage 2,
  * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-7): built from {@link RowGroupDirectory}s — one
- * descriptor walk, ZERO segment reads — and fetching/decoding a column's BODY segments only when
- * that column is first touched. A query for {@code sum(age)} over a 3-column projection loads one
- * third of the store's segments instead of hydrating whole leaves.
+ * descriptor walk, with open-tail resolution governed by
+ * docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md §9. Column BODY segments are decoded only when
+ * that column is first touched. For untailed groups, a query for {@code sum(age)} over a 3-column
+ * projection loads one third of the store's segments instead of hydrating whole leaves.
  *
  * <p>
  * <b>Segment truth.</b> Every slice decodes from its BODY segment bytes after byteLen + XXH3-64

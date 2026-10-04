@@ -423,7 +423,7 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                                          versions: any other value parses to null → "no
                                          metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is
-                                { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
+                                { int "PIXD"; u8 ver; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
                                   u8 kinds[columnCount]; u16 segCount;
                                   segCount × { u16 columnSegmentId; int byteLen;
@@ -431,10 +431,26 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                ZONE MAP ONLY — no trailing inline region: a segment's bytes live in the
                segment's own slot, never also here. The encoder emits only this form and
                every storage/read boundary rejects a byteLen inline marker or trailing
-               payload; there is no normalization or compatibility reader. ver=0 is the
-               ONLY supported version: validation refuses any other value, so a future
-               shape change is rejected rather than misread.
+               payload; there is no normalization or compatibility reader. ver=0 describes
+               persisted column segments. ver=1 describes the merged base plus open row tail;
+               the segments remain the base until a fold. These are two states of the same
+               format, with identical descriptor layout. Other versions are rejected.
                zero-length value = tombstone; rowCount==0 descriptor = live empty row group
+    slotKey 2^46+2^45+(rowGroupId<<16): PIXB blob with tail header payload
+               { int "PIXH"; u8 ver=1; int baseDescriptorLen; u8 baseDescriptor[];
+                 int tailBlobCount; int tailRowCount }.
+               The base descriptor is untailed and describes the persisted segment slots.
+    slotKey 2^46+2^45+(rowGroupId<<16)+seq: referenced PIXB blob with PIXT rows,
+               { int "PIXT"; u8 ver=1; int rowCount; u16 columnCount; u8 kinds[];
+                 rowCount × { i64 recordKey; u8 orderFlags; u16 orderLabelLen;
+                              u8 orderLabel[]; columnCount × { u8 flags; value } } }.
+               orderFlags bit0 = order exception; column flags bits0-3 = present,
+               unrepresentable, non-integral, non-double-source. Other bits are rejected.
+               value = i64 lane value (including resolved STRING_GLOBAL ids), u8 boolean,
+               int UTF-8 byteLen + bytes for STRING_DICT, or int elementCount followed by
+               int UTF-8 byteLen + bytes per STRING_SET element. seq starts at 1.
+               Only row-group-major slots carry tails. Append eligibility, reader resolution
+               and atomic folding are specified in PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md §9.
     slotKind ≥ 1: BARE segment slot — { u8 kind } [+ raw segment bytes]
                kind 0 = INLINE (bytes follow, used when ≤ 512 B); kind 1 = REFERENCED
                (bytes in one OverflowPage off the side map). The CONTAINER carries no magic,

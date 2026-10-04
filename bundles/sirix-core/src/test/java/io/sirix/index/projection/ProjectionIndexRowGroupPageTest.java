@@ -242,6 +242,35 @@ final class ProjectionIndexRowGroupPageTest {
   }
 
   @Test
+  void hydratedOrderBitmapsGrowForEveryAppendLane() {
+    for (int lane = 0; lane < 4; lane++) {
+      final ProjectionIndexRowGroupPage original =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < 64; row++) {
+        assertTrue(appendNumericRow(original, row + 1L, row, row == 31));
+      }
+      final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(original.serialize());
+      assertEquals(1, restored.orderExceptionBits().length);
+      final boolean appended = switch (lane) {
+        case 0 -> restored.appendRow(65L, new long[] {64L}, new boolean[1], new String[1]);
+        case 1 -> appendNumericRow(restored, 65L, 64L, false);
+        case 2 ->
+          restored.appendTailRow(65L, new long[] {64L}, new boolean[1], new byte[1][], new int[1], new String[1][],
+              new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false, new byte[] {0, 0, 0, 64});
+        case 3 -> restored.appendExtractedSingleColumnRow(65L, 64L, false, new byte[0], 0, new String[0], 0, true,
+            false, false, false);
+        default -> throw new AssertionError(lane);
+      };
+      assertTrue(appended);
+      final ProjectionIndexRowGroupPage result = ProjectionIndexRowGroupPage.deserialize(restored.serialize());
+      assertEquals(65, result.getRowCount());
+      assertTrue(result.orderExceptionAt(31));
+      assertFalse(result.orderExceptionAt(64));
+      assertEquals(64L, result.numericColumn(0)[64]);
+    }
+  }
+
+  @Test
   void builderReuseClearsLiveExceptionWords() {
     final ProjectionIndexRowGroupPage page =
         new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});

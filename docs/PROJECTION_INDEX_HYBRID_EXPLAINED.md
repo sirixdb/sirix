@@ -2,9 +2,9 @@
 
 This is the plain-English companion to
 [`PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md`](PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md).
-The precise rule is simple: every encoded segment owns one HOT slot; that slot
-holds a payload of at most **512 bytes** directly and references an
-`OverflowPage` for a larger payload.
+The discussion below explains persisted base segments. The
+[disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+owns current segment and open-row-group tail placement.
 
 > **There is only one format.** Segment bytes never live in the row-group
 > descriptor. A former proposal to pack small segments into the descriptor was
@@ -119,7 +119,7 @@ force the boolean payload to move.
 
 ## 5. Reading a segment
 
-Reading `BODY(active)` works like this:
+Reading `BODY(active)` from an untailed row group works like this:
 
 1. Use the descriptor entry to learn the expected size and checksum.
 2. Find `BODY(active)`'s segment slot by its logical row-group and segment id.
@@ -131,11 +131,13 @@ Reading `BODY(age)` differs only at step 3: its slot refers to an
 
 There is no fallback that searches the descriptor for payload bytes. If a
 descriptor claims to contain them, it is malformed and opening it must fail.
+For a group with an open row tail, reader resolution follows the
+[incremental maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 ## 6. Incremental updates
 
-Assume one JSON update flips `active` for one record. Sirix re-encodes the
-affected row group's `BODY(active)` segment, then compares its length and
+Assume one JSON update flips `active` for one record in an untailed group. Sirix
+re-encodes the affected row group's `BODY(active)` segment, then compares its length and
 content hash with the previous entry.
 
 - If the encoded result is identical, it writes nothing for that segment.
@@ -147,9 +149,9 @@ content hash with the previous entry.
 - The descriptor changes only when its integrity or zone-map information
   changes.
 
-Deletes and inserts use the same production mutation path. They re-encode the
-smallest affected row groups and update the changed segment slots; they do not
-rebuild the complete projection index.
+For inserts, deletes and updates to tailed groups, the
+[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md)
+owns the write granularity and folding rules.
 
 This remains true across Sirix `VersioningType`s. HOT slot changes use that
 resource's versioning rules. Large immutable payloads use copy-on-write: an

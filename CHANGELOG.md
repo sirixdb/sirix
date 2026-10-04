@@ -6,6 +6,10 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Open projection row-group tails** — append-only commits retain base column segments
+  and store new rows as referenced side pages. Every reader resolves the merged group;
+  completion and other edits fold it atomically. A bounded writer-seeded merge memo
+  avoids replaying the tail on the next commit. See `docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md`.
 - **Projection indexes (experimental, analytical)** are maintained **incrementally** by the
   transactions that touch the record set: inserts, updates, deletes and moves resolve each dirty
   record through exact locators or a bounded fence probe and rewrite only the touched persistent

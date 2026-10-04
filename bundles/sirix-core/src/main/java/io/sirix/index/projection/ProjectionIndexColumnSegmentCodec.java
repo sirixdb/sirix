@@ -33,9 +33,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * helper owns no persisted row-group envelope; this class owns the one supported format, in which
  *
  * <ul>
- * <li>a query reading column {@code c} fetches {@code BODY(c)} (+ {@code DICT(c)} for string
- * predicates) and nothing else;</li>
- * <li>a single-column update re-encodes only that column's changed segments;</li>
+ * <li>a query reading column {@code c} from an untailed group fetches {@code BODY(c)} (+
+ * {@code DICT(c)} for string predicates) and nothing else;</li>
+ * <li>a single-column update re-encodes only that column's changed segments after folding any open
+ * tail;</li>
  * <li>{@link #assembleRaw} reconstructs the raw scan form <b>byte-identically</b>, including
  * presence, unrepresentable, and integrality provenance.</li>
  * </ul>
@@ -381,6 +382,19 @@ public final class ProjectionIndexColumnSegmentCodec {
       }
     }
     return new EncodeWorkspace();
+  }
+
+  /**
+   * Encode {@code page} with a pooled workspace — the reader-side entry point of the open-row-group
+   * tail merge ({@link ProjectionOpenRowGroupTail}), which has no maintenance workspace of its own.
+   */
+  static EncodedRowGroup encodePooled(final ProjectionIndexRowGroupPage page) {
+    final EncodeWorkspace workspace = acquireEncodeWorkspace();
+    try {
+      return encode(page, workspace);
+    } finally {
+      releaseEncodeWorkspace(workspace);
+    }
   }
 
   private static void releaseEncodeWorkspace(final EncodeWorkspace workspace) {
