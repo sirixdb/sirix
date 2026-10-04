@@ -25,8 +25,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.TreeSet;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -89,13 +91,13 @@ final class PostingDeltaRollbackTest {
           final TreeSet<Long> uncommitted = new TreeSet<>(expected);
           uncommitted.add(2000L);
           uncommitted.remove(0L);
-          assertArrayEquals(keys(uncommitted), writer.get(key, SearchMode.EQUAL).toSortedArray());
+          assertArrayEquals(keys(uncommitted), requireNonNull(writer.get(key, SearchMode.EQUAL)).toSortedArray());
           trx.rollback();
         }
         assertRevisions(session, serializer, type, key, snapshots);
         try (JsonNodeTrx trx = session.beginNodeTrx()) {
           final HOTIndexWriter<K> writer = HOTIndexWriter.create(trx.getStorageEngineWriter(), serializer, type, 0);
-          assertArrayEquals(keys(expected), writer.get(key, SearchMode.EQUAL).toSortedArray());
+          assertArrayEquals(keys(expected), requireNonNull(writer.get(key, SearchMode.EQUAL)).toSortedArray());
           writer.indexNodeKey(key, 2001); // folds the restored live deltas again
           expected.add(2001L);
           trx.commit();
@@ -197,8 +199,8 @@ final class PostingDeltaRollbackTest {
               NodeReferencesSerializer.referencedPayloadHash(afterMarker, 0), "different side-page contents");
           assertTrue(first.remove(key, 3000), "decoded-base reuse must compare the resolved payload");
           expected.remove(3000L);
-          assertArrayEquals(keys(expected), first.get(key, SearchMode.EQUAL).toSortedArray());
-          assertArrayEquals(keys(expected), second.get(key, SearchMode.EQUAL).toSortedArray());
+          assertArrayEquals(keys(expected), requireNonNull(first.get(key, SearchMode.EQUAL)).toSortedArray());
+          assertArrayEquals(keys(expected), requireNonNull(second.get(key, SearchMode.EQUAL)).toSortedArray());
           trx.commit();
           snapshots.add(keys(expected));
         }
@@ -215,7 +217,7 @@ final class PostingDeltaRollbackTest {
   private static byte[] baseMarker(final HOTIndexWriter<ValidTimeKey> writer, final ValidTimeKey key) {
     final byte[] composite = new byte[ValidTimeKeySerializer.KEY_BYTES + Integer.BYTES];
     ValidTimeKeySerializer.INSTANCE.serialize(key, composite, 0);
-    final HOTLeafPage leaf = writer.acquireLeafForRead(composite, composite.length);
+    final HOTLeafPage leaf = requireNonNull(writer.acquireLeafForRead(composite, composite.length));
     try {
       final byte[] marker = leaf.copyStoredValue(leaf.findEntry(composite));
       assertTrue(NodeReferencesSerializer.isReferenced(marker, 0, marker.length));
@@ -225,7 +227,7 @@ final class PostingDeltaRollbackTest {
     }
   }
 
-  private static long[] keys(final TreeSet<Long> keys) {
+  private static long[] keys(final Set<Long> keys) {
     return keys.stream().mapToLong(Long::longValue).toArray();
   }
 

@@ -181,7 +181,7 @@ final class HOTSplitHalfPublicationGuardTest {
         }
         throw new AssertionError(failure.getCause());
       } catch (final ReflectiveOperationException failure) {
-        throw new AssertionError(failure);
+        throw new LinkageError(failure.getMessage(), failure);
       }
     }
 

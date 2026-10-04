@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
@@ -112,8 +113,8 @@ final class HOTFrontierSplitHalfCanonicalTest {
 
   private void replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound) {
     final List<List<String>> transactions = transactions();
-    final Map<ValidTimeKey, TreeSet<Long>> expected = new HashMap<>();
-    final List<Map<ValidTimeKey, TreeSet<Long>>> snapshots = new ArrayList<>();
+    final Map<ValidTimeKey, Set<Long>> expected = new HashMap<>();
+    final List<Map<ValidTimeKey, Set<Long>>> snapshots = new ArrayList<>();
 
     final Path databasePath = temporaryDirectory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
@@ -132,7 +133,7 @@ final class HOTFrontierSplitHalfCanonicalTest {
             wtx.commit();
           }
           publication++;
-          final Map<ValidTimeKey, TreeSet<Long>> snapshot = new HashMap<>();
+          final Map<ValidTimeKey, Set<Long>> snapshot = new HashMap<>();
           expected.forEach((key, keys) -> snapshot.put(key, new TreeSet<>(keys)));
           snapshots.add(snapshot);
           try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
@@ -152,7 +153,7 @@ final class HOTFrontierSplitHalfCanonicalTest {
   }
 
   private static void assertRevisions(final JsonResourceSession session,
-      final List<Map<ValidTimeKey, TreeSet<Long>>> snapshots) {
+      final List<Map<ValidTimeKey, Set<Long>>> snapshots) {
     for (int i = 0; i < snapshots.size(); i++) {
       try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(i + 1)) {
         assertExact(trx, snapshots.get(i), i + 1);
@@ -160,9 +161,9 @@ final class HOTFrontierSplitHalfCanonicalTest {
     }
   }
 
-  private static void apply(final HOTIndexWriter<ValidTimeKey> writer, final Map<ValidTimeKey, TreeSet<Long>> expected,
+  private static void apply(final HOTIndexWriter<ValidTimeKey> writer, final Map<ValidTimeKey, Set<Long>> expected,
       final String op) {
-    final String[] fields = op.split(" ");
+    final String[] fields = op.split(" ", 0);
     assertEquals(5, fields.length, "op " + op);
     final ValidTimeKey key =
         new ValidTimeKey(Byte.parseByte(fields[1]), Long.parseLong(fields[2]), Long.parseLong(fields[3]));
@@ -173,7 +174,7 @@ final class HOTFrontierSplitHalfCanonicalTest {
         expected.computeIfAbsent(key, k -> new TreeSet<>()).add(nodeKey);
       }
       case "r" -> {
-        final TreeSet<Long> postings = expected.get(key);
+        final Set<Long> postings = expected.get(key);
         if (postings == null || !postings.remove(nodeKey)) {
           // The reduction dropped this posting's registration; the writer must see it as absent too.
           assertFalse(writer.remove(key, nodeKey), "removal of an unregistered posting must report absence: " + op);
@@ -188,11 +189,11 @@ final class HOTFrontierSplitHalfCanonicalTest {
     }
   }
 
-  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, TreeSet<Long>> expected,
+  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, Set<Long>> expected,
       final int publication) {
     final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
-    for (final Map.Entry<ValidTimeKey, TreeSet<Long>> entry : expected.entrySet()) {
+    for (final Map.Entry<ValidTimeKey, Set<Long>> entry : expected.entrySet()) {
       final NodeReferences postings = reader.get(entry.getKey(), SearchMode.EQUAL);
       assertNotNull(postings, "postings of " + entry.getKey() + " after publication " + publication);
       final long[] nodeKeys = entry.getValue().stream().mapToLong(Long::longValue).toArray();

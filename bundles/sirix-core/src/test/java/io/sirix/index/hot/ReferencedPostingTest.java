@@ -10,6 +10,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -52,13 +53,12 @@ final class ReferencedPostingTest {
           payload.length, hash, true, ReferencedPostingTest::read));
       final PageReference reference = reference(payload);
       leaf.setPageReference(key, reference);
-      assertArrayEquals(payload,
-          NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash, true,
-              ReferencedPostingTest::read));
+      assertArrayEquals(payload, NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash,
+          true, ReferencedPostingTest::read));
       assertThrows(IllegalStateException.class, () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key,
           payload.length + 1, hash, true, ReferencedPostingTest::read));
-      assertThrows(IllegalStateException.class,
-          () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key, payload.length, hash, true, ignored -> null));
+      assertThrows(IllegalStateException.class, () -> NodeReferencesSerializer.resolveReferencedPayload(leaf, key,
+          payload.length, hash, true, ignored -> null));
       assertThrows(IllegalStateException.class,
           () -> leaf.mergeWithNodeRefs(key(4), key(4).length, payload, payload.length));
       final byte[] corrupted = payload.clone();
@@ -249,7 +249,7 @@ final class ReferencedPostingTest {
   }
 
   private static void invoke(final TestWriter writer, final String methodName, final Class<?>[] types,
-      final Object... args) {
+      final @Nullable Object... args) {
     try {
       final Method method = AbstractHOTIndexWriter.class.getDeclaredMethod(methodName, types);
       method.setAccessible(true);
@@ -260,7 +260,7 @@ final class ReferencedPostingTest {
       }
       throw new AssertionError(failure.getCause());
     } catch (final ReflectiveOperationException failure) {
-      throw new AssertionError(failure);
+      throw new LinkageError(failure.getMessage(), failure);
     }
   }
 

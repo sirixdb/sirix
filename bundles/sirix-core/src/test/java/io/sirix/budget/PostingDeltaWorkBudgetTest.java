@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Path;
 import java.util.TreeSet;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -94,7 +95,7 @@ final class PostingDeltaWorkBudgetTest {
                    .assertExactly(WRITES, 0, "duplicates must not write delta slots")
                    .assertExactly(FOLDS, 0, "duplicates must not trigger folds");
             assertArrayEquals(expected.stream().mapToLong(Long::longValue).toArray(),
-                writer.get(KEY, SearchMode.EQUAL).toSortedArray());
+                requireNonNull(writer.get(KEY, SearchMode.EQUAL)).toSortedArray());
             trx.commit();
           }
         }

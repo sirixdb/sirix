@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -60,7 +61,7 @@ final class PostingDeltaLeafBatchTest {
     try (final Fixture fixture = new Fixture(true)) {
       final IllegalArgumentException failure =
           assertThrows(IllegalArgumentException.class, () -> fixture.writer.indexNodeKey(KEY, 1001));
-      assertTrue(failure.getMessage().contains("exactly one packed chunk bit"));
+      assertTrue(requireNonNull(failure.getMessage()).contains("exactly one packed chunk bit"));
       verify(fixture.storage).markTransactionRollbackOnly(failure);
       verify(fixture.storage, never()).loadHOTPageAndGuard(fixture.root);
       for (final HOTLeafPage leaf : fixture.leaves) {
