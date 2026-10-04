@@ -2025,6 +2025,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   protected final void doReplacePostingChunk(final byte[] keyBuf, final int keyLen, final byte[] valueBuf,
       final int valueLen, final boolean referencePayload) {
     storageEngineWriter.assertTransactionWritable();
+    storageEngineWriter.getLog().invalidateHOTPostingViews(indexScope());
     requireNonNull(keyBuf);
     requireNonNull(valueBuf);
     if (keyLen <= 0 || keyLen > keyBuf.length || valueLen <= 0 || valueLen > valueBuf.length) {
@@ -2115,6 +2116,10 @@ public abstract class AbstractHOTIndexWriter<K> {
           + (valueBuf == null
               ? "null"
               : valueBuf.length));
+    }
+
+    if (indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) {
+      storageEngineWriter.getLog().claimHOTPostingViewOwner(indexScope(), this);
     }
 
     if (operation == MutationOperation.REMOVE_POSTING_BIT) {
@@ -8225,6 +8230,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    * merely re-used by reference.
    */
   private void registerFreshSubtree(PageReference touchedRef) {
+    if (indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) {
+      storageEngineWriter.getLog().invalidateHOTPostingViews(indexScope());
+    }
     // Every structural mutation publishes exactly one touched reference before entering this
     // registration choke point. Keeping the deterministic fault seam here tests the atomicity of
     // the shared writer instead of depending on one rare repair shape to occur by chance.

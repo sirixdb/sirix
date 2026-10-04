@@ -19,11 +19,14 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -34,6 +37,39 @@ import static org.mockito.Mockito.when;
 final class PostingDeltaLeafBatchTest {
   private static final ValidTimeKey KEY = new ValidTimeKey((byte) 0, 1, 2);
   private static final int COMPOSITE_LENGTH = ValidTimeKeySerializer.KEY_BYTES + Integer.BYTES;
+
+  @Test
+  void reclaimingAnInvalidatedOwnerCannotReviveAnOlderView() {
+    try (final Fixture fixture = new Fixture(false)) {
+      final TransactionIntentLog log = fixture.storage.getLog();
+      when(log.claimHOTPostingViewOwner(anyLong(), any())).thenCallRealMethod();
+      doAnswer(invocation -> invocation.callRealMethod()).when(log).invalidateHOTPostingViews(anyLong());
+      fixture.writer.indexNodeKey(KEY, 1001);
+      final long scope = TransactionIntentLog.indexScope(IndexType.VALIDTIME, 0);
+      log.invalidateHOTPostingViews(scope);
+      log.claimHOTPostingViewOwner(scope, fixture.writer); // an intervening mutation prelude
+      fixture.replaceLastBit(1002);
+      assertFalse(fixture.writer.remove(KEY, 1001), "the reloaded view no longer contains this posting");
+      verify(fixture.storage, never()).markTransactionRollbackOnly(any());
+    }
+  }
+
+  @Test
+  void reusedViewAnswersNoOpsWithoutReadingPagesAgain() {
+    try (final Fixture fixture = new Fixture(false)) {
+      when(fixture.storage.getLog().claimHOTPostingViewOwner(anyLong(), any())).thenCallRealMethod();
+      fixture.writer.indexNodeKey(KEY, 1001);
+      clearInvocations(fixture.storage);
+      for (int i = 0; i < 10; i++) {
+        fixture.writer.indexNodeKey(KEY, 1001);
+        fixture.writer.indexNodeKey(KEY, 2);
+        assertFalse(fixture.writer.remove(KEY, 65000));
+      }
+      verify(fixture.storage, never()).loadHOTPage(any(PageReference.class));
+      verify(fixture.storage, never()).loadHOTPageAndGuard(any(PageReference.class));
+      verify(fixture.storage, never()).markTransactionRollbackOnly(any());
+    }
+  }
 
   @Test
   void tornBatchDiscardsPartialDeltasAndReleasesTheRecoveryGuard() {
@@ -79,6 +115,7 @@ final class PostingDeltaLeafBatchTest {
     private final boolean malformed;
     private boolean evictDuringRead;
     private int evictions;
+    private long lastBit = 1001;
 
     private Fixture(final boolean malformed) {
       this.malformed = malformed;
@@ -117,7 +154,7 @@ final class PostingDeltaLeafBatchTest {
                ? 1000
                : seq == 1
                    ? 0
-                   : 1001);
+                   : lastBit);
         if (malformed && seq == 1) {
           bit.getNodeKeys().addLong(2);
         }
@@ -133,6 +170,20 @@ final class PostingDeltaLeafBatchTest {
       }).when(leaf).readKeyIntBE(anyInt(), anyInt());
       leaves.add(leaf);
       return leaf;
+    }
+
+    private void replaceLastBit(final long bit) {
+      lastBit = bit;
+      final byte[] delta = new byte[COMPOSITE_LENGTH + PostingDeltas.SUFFIX_BYTES];
+      ValidTimeKeySerializer.INSTANCE.serialize(KEY, delta, 0);
+      HOTKeySerializer.writeChunkIdxBE(delta, ValidTimeKeySerializer.KEY_BYTES, 0);
+      HOTKeySerializer.writeChunkIdxBE(delta, COMPOSITE_LENGTH, PostingDeltas.suffix(2, false));
+      final NodeReferences posting = new NodeReferences();
+      posting.getNodeKeys().addLong(bit);
+      final byte[] payload = NodeReferencesSerializer.serialize(posting);
+      for (final HOTLeafPage leaf : leaves) {
+        assertTrue(leaf.updateValue(leaf.findEntry(delta), payload));
+      }
     }
 
     @Override

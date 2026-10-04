@@ -30,12 +30,14 @@ package io.sirix.index.hot;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.VersioningType;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -86,8 +88,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   private final int hotChunkBytes;
   private final int foldBound;
 
-  /** Transaction-confined scratch; no per-change delta arrays. */
-  private final @Nullable ChunkView chunkView;
+  /** Bound retained decoded postings even when a bulk transaction touches many hot chunks. */
+  private static final int MAX_CACHED_POSTING_CHUNKS = 256;
+
+  /** Transaction-confined probe/scratch, promoted into the cache only for a hot chunk. */
+  private @Nullable ChunkView chunkView;
+  private final @Nullable Object2ObjectOpenHashMap<ChunkView, ChunkView> postingViews;
+  private int postingViewGeneration = -1;
+  private long postingViewEpoch;
 
   private static final AtomicLong DELTA_WRITES = new AtomicLong();
   private static final AtomicLong DELTA_FOLDS = new AtomicLong();
@@ -127,6 +135,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     this.foldBound = foldBound;
     this.chunkView = postingDeltas
         ? new ChunkView(foldBound)
+        : null;
+    this.postingViews = postingDeltas
+        ? new Object2ObjectOpenHashMap<>()
         : null;
 
     // Initialize HOT index tree based on type
@@ -293,14 +304,16 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   // At the fold bound, the live deltas and current operation replace the base once.
   // ---------------------------------------------------------------------------------------------
 
-  /** The writer's view of one chunk: its base payload and its live deltas in application order. */
+  /** A validated chunk view, including the membership of all its pending deltas. */
   private static final class ChunkView {
+    private byte[] key = new byte[0];
+    private int keyLength;
+    private int keyHash;
     private boolean baseExists;
     private int baseLength;
-    private @Nullable Roaring64Bitmap baseBits;
-    private byte[] cachedBase = new byte[0];
+    private @Nullable Roaring64Bitmap bits;
     private byte[] baseReadBuffer = new byte[0];
-    private int cachedBaseLength = -1;
+    private long maximumBit;
     private int liveCount;
     private final boolean[] liveRemove;
     private final long[] liveBit;
@@ -310,7 +323,27 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
       liveBit = new long[foldBound - 1];
     }
 
-    /** Reuse a decoded base only after comparing every current payload byte under the leaf guard. */
+    private void probe(final byte[] keyBuf, final int length) {
+      key = keyBuf;
+      keyLength = length;
+      int hash = 1;
+      for (int i = 0; i < length; i++) {
+        hash = 31 * hash + keyBuf[i];
+      }
+      keyHash = hash;
+    }
+
+    @Override
+    public int hashCode() {
+      return keyHash;
+    }
+
+    @Override
+    public boolean equals(final Object other) {
+      return other instanceof ChunkView view && keyLength == view.keyLength
+          && Arrays.equals(key, 0, keyLength, view.key, 0, view.keyLength);
+    }
+
     private void readBase(final HOTLeafPage leaf, final long ref, final int length) {
       if (length > leaf.slotCapacity()) {
         throw new IllegalStateException("posting base exceeds its leaf slot capacity");
@@ -319,36 +352,40 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
         baseReadBuffer = new byte[Math.max(length, baseReadBuffer.length * 2)];
       }
       leaf.copyRefInto(ref, 0, baseReadBuffer, 0, length);
-      finishReadBase(length);
-    }
-
-    private void readBase(final byte[] payload) {
-      if (cachedBaseLength != payload.length
-          || !Arrays.equals(cachedBase, 0, payload.length, payload, 0, payload.length)) {
-        if (baseReadBuffer.length < payload.length) {
-          baseReadBuffer = new byte[Math.max(payload.length, baseReadBuffer.length * 2)];
-        }
-        System.arraycopy(payload, 0, baseReadBuffer, 0, payload.length);
-        cacheReadBase(payload.length);
-      }
-      baseLength = payload.length;
-      baseExists = true;
-    }
-
-    private void finishReadBase(final int length) {
-      if (cachedBaseLength != length || !Arrays.equals(cachedBase, 0, length, baseReadBuffer, 0, length)) {
-        cacheReadBase(length);
-      }
+      bits = NodeReferencesSerializer.deserializeChunk(baseReadBuffer, 0, length).getNodeKeys();
       baseLength = length;
       baseExists = true;
     }
 
-    private void cacheReadBase(final int length) {
-      final byte[] previous = cachedBase;
-      cachedBase = baseReadBuffer;
-      baseReadBuffer = previous;
-      baseBits = NodeReferencesSerializer.deserializeChunk(cachedBase, 0, length).getNodeKeys();
-      cachedBaseLength = length;
+    private void readBase(final byte[] payload) {
+      bits = NodeReferencesSerializer.deserializeChunk(payload).getNodeKeys();
+      baseLength = payload.length;
+      baseExists = true;
+    }
+
+    /** Apply only after every leaf batch validated; a torn scan must not change membership. */
+    private void finishRead() {
+      final Roaring64Bitmap membership = requireNonNull(bits);
+      for (int i = 0; i < liveCount; i++) {
+        if (liveRemove[i]) {
+          membership.removeLong(liveBit[i]);
+        } else {
+          membership.addLong(liveBit[i]);
+        }
+      }
+      maximumBit = membership.isEmpty()
+          ? -1
+          : membership.last();
+    }
+
+    private void apply(final long bit16, final boolean remove) {
+      final Roaring64Bitmap membership = requireNonNull(bits);
+      if (remove) {
+        membership.removeLong(bit16);
+      } else {
+        membership.addLong(bit16);
+        maximumBit = Math.max(maximumBit, bit16);
+      }
     }
 
     private void addLive(final int seq, final boolean remove, final long bit16) {
@@ -363,7 +400,35 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   }
 
   private ChunkView readChunkView(final byte[] keyBuf, final int compLen) {
-    final ChunkView view = requireNonNull(chunkView);
+    final Object2ObjectOpenHashMap<ChunkView, ChunkView> views = requireNonNull(postingViews);
+    final TransactionIntentLog log = storageEngineWriter.getLog();
+    final int generation = log.getCurrentGeneration();
+    final long epoch = log.claimHOTPostingViewOwner(TransactionIntentLog.indexScope(indexType, indexNumber), this);
+    if (epoch == 0 || postingViewEpoch != epoch || postingViewGeneration != generation) {
+      views.clear();
+      postingViewEpoch = epoch;
+      postingViewGeneration = generation;
+    }
+    final ChunkView probe = requireNonNull(chunkView);
+    probe.probe(keyBuf, compLen);
+    final ChunkView cached = views.get(probe);
+    if (cached != null) {
+      return cached;
+    }
+    final ChunkView view = loadChunkView(probe, keyBuf, compLen);
+    if (view.baseExists && (view.baseLength >= hotChunkBytes || view.liveCount > 0)) {
+      view.finishRead();
+      if (views.size() >= MAX_CACHED_POSTING_CHUNKS) {
+        views.clear();
+      }
+      view.key = Arrays.copyOf(keyBuf, compLen);
+      views.put(view, view);
+      chunkView = new ChunkView(foldBound);
+    }
+    return view;
+  }
+
+  private ChunkView loadChunkView(final ChunkView view, final byte[] keyBuf, final int compLen) {
     view.baseExists = false;
     view.baseLength = 0;
     view.liveCount = 0;
@@ -514,22 +579,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     if (!view.baseExists || (view.liveCount == 0 && view.baseLength < hotChunkBytes)) {
       return DELTA_NOT_APPLICABLE;
     }
-    boolean present = false;
-    boolean changedByDelta = false;
-    for (int i = view.liveCount - 1; i >= 0; i--) {
-      if (view.liveBit[i] == bit16) {
-        present = !view.liveRemove[i];
-        changedByDelta = true;
-        break;
-      }
-    }
-    if (!changedByDelta) {
-      present = view.baseBits != null && view.baseBits.contains(bit16);
-    }
+    // The high-water mark includes every current posting. A larger append is provably new;
+    // duplicates, removals and re-additions below it still consult the decoded membership.
+    final boolean present = bit16 <= view.maximumBit && requireNonNull(view.bits).contains(bit16);
     if (remove != present) {
       return DELTA_SKIPPED; // adding a present key or removing an absent one changes nothing
     }
     if (view.liveCount + 1 >= foldBound) {
+      requireNonNull(postingViews).remove(view);
       foldPostingDeltas(keyBuf, compLen, view, bit16, remove);
       if (VersioningType.hotMergeDiagEnabled()) {
         DELTA_FOLDS.incrementAndGet();
@@ -540,6 +597,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     HOTKeySerializer.writeChunkIdxBE(keyBuf, compLen, PostingDeltas.suffix(view.liveCount, remove));
     serializeSingleBit(bit16);
     doIndex(keyBuf, deltaLen, lastSerializedValueBuf, lastSerializedValueLen);
+    view.addLive(view.liveCount, remove, bit16);
+    view.apply(bit16, remove);
     if (VersioningType.hotMergeDiagEnabled()) {
       DELTA_WRITES.incrementAndGet();
     }
@@ -553,22 +612,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   private void foldPostingDeltas(final byte[] keyBuf, final int compLen, final ChunkView view, final long bit16,
       final boolean remove) {
     final byte[] baseKey = Arrays.copyOf(keyBuf, compLen);
-    // Fold in memory — the base bits, the live deltas in application order, then the operation — and
-    // store the result once. Hot payloads live in side pages referenced by their leaf markers.
-    final Roaring64Bitmap folded = requireNonNull(view.baseBits);
-    view.cachedBaseLength = -1; // The cached bitmap is about to diverge from its payload bytes.
-    for (int i = 0; i < view.liveCount; i++) {
-      if (view.liveRemove[i]) {
-        folded.removeLong(view.liveBit[i]);
-      } else {
-        folded.addLong(view.liveBit[i]);
-      }
-    }
-    if (remove) {
-      folded.removeLong(bit16);
-    } else {
-      folded.addLong(bit16);
-    }
+    // The cached membership already includes every validated pending delta.
+    view.apply(bit16, remove);
+    final Roaring64Bitmap folded = requireNonNull(view.bits);
     serializeValueInto(NodeReferences.owning(folded));
     doReplacePostingChunk(baseKey, compLen, lastSerializedValueBuf, lastSerializedValueLen,
         lastSerializedValueLen >= hotChunkBytes);

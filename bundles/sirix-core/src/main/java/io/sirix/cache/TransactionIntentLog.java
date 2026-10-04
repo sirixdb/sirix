@@ -58,6 +58,47 @@ public final class TransactionIntentLog implements AutoCloseable {
   /** Number of active entries in the current arrays. */
   private int size;
 
+  /** Last foreground posting writer for each index; never serialized or shared with readers. */
+  private @Nullable Long2ObjectOpenHashMap<PostingViewOwner> hotPostingViewOwners;
+  private long hotPostingViewEpoch;
+
+  private static final class PostingViewOwner {
+    private @Nullable Object writer;
+    private long epoch;
+  }
+
+  /**
+   * Claim decoded posting views for one writer and return its ownership epoch. An epoch changes
+   * whenever another writer takes over or the index is invalidated, even if a mutation prelude has
+   * already reclaimed ownership before the next cache lookup. Zero never proves ownership.
+   */
+  public long claimHOTPostingViewOwner(final long scope, final Object writer) {
+    Objects.requireNonNull(writer);
+    if (hotPostingViewOwners == null) {
+      hotPostingViewOwners = new Long2ObjectOpenHashMap<>();
+    }
+    PostingViewOwner owner = hotPostingViewOwners.get(scope);
+    if (owner == null) {
+      owner = new PostingViewOwner();
+      hotPostingViewOwners.put(scope, owner);
+    }
+    if (owner.writer != writer) {
+      owner.writer = writer;
+      owner.epoch = ++hotPostingViewEpoch;
+    }
+    return owner.epoch;
+  }
+
+  /** Invalidate decoded views after a posting replacement or structural publication. */
+  public void invalidateHOTPostingViews(final long scope) {
+    final PostingViewOwner owner = hotPostingViewOwners == null
+        ? null
+        : hotPostingViewOwners.get(scope);
+    if (owner != null) {
+      owner.writer = null;
+    }
+  }
+
   /**
    * Scratch for {@link #releaseOrphanedHOTLeaves}: the identity set of candidate orphan leaves.
    *
@@ -2174,6 +2215,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public void clear() {
     Throwable closeFailure = null;
+    if (hotPostingViewOwners != null) {
+      hotPostingViewOwners.clear();
+    }
     try {
       bufferManager.getRecordPageCache().cleanUp();
     } catch (final RuntimeException | Error failure) {
