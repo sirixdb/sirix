@@ -174,6 +174,37 @@ final class ProjectionOpenRowGroupTail {
     if (rows == null || rows.isEmpty() || rows.size() > ProjectionIndexRowGroupPage.MAX_ROWS) {
       throw new IllegalArgumentException("a tail blob holds between one and MAX_ROWS rows");
     }
+    final byte[] out = new byte[encodedRowsSize(kinds, rows)];
+    int pos = 0;
+    RowGroupDescriptor.putIntLE(out, pos, ROWS_MAGIC);
+    pos += 4;
+    out[pos++] = VERSION;
+    RowGroupDescriptor.putIntLE(out, pos, rows.size());
+    pos += 4;
+    out[pos++] = (byte) kinds.length;
+    out[pos++] = (byte) (kinds.length >>> 8);
+    System.arraycopy(kinds, 0, out, pos, kinds.length);
+    pos += kinds.length;
+    for (final Row row : rows) {
+      RowGroupDescriptor.putLongLE(out, pos, row.recordKey());
+      pos += 8;
+      out[pos++] = (byte) (row.orderException()
+          ? FLAG_ORDER_EXCEPTION
+          : 0);
+      final byte[] label = row.orderLabel();
+      out[pos++] = (byte) label.length;
+      out[pos++] = (byte) (label.length >>> 8);
+      System.arraycopy(label, 0, out, pos, label.length);
+      pos += label.length;
+      pos = encodeColumnLanes(out, kinds, pos, row);
+    }
+    if (pos != out.length) {
+      throw new IllegalStateException("tail blob size mismatch: " + pos + " != " + out.length);
+    }
+    return out;
+  }
+
+  private static int encodedRowsSize(final byte[] kinds, final List<Row> rows) {
     long size = 4L + 1 + 4 + 2 + kinds.length;
     for (final Row row : rows) {
       if (row.longs().length != kinds.length) {
@@ -206,80 +237,55 @@ final class ProjectionOpenRowGroupTail {
     if (size > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("tail rows blob exceeds the byte-array size limit");
     }
-    final byte[] out = new byte[(int) size];
-    int pos = 0;
-    RowGroupDescriptor.putIntLE(out, pos, ROWS_MAGIC);
-    pos += 4;
-    out[pos++] = VERSION;
-    RowGroupDescriptor.putIntLE(out, pos, rows.size());
-    pos += 4;
-    out[pos++] = (byte) kinds.length;
-    out[pos++] = (byte) (kinds.length >>> 8);
-    System.arraycopy(kinds, 0, out, pos, kinds.length);
-    pos += kinds.length;
-    for (final Row row : rows) {
-      RowGroupDescriptor.putLongLE(out, pos, row.recordKey());
-      pos += 8;
-      out[pos++] = (byte) (row.orderException()
-          ? FLAG_ORDER_EXCEPTION
-          : 0);
-      final byte[] label = row.orderLabel();
-      if (label.length > MAX_ROW_ORDER_LABEL_BYTES) {
-        throw new IllegalArgumentException("order label too long for a tail row");
-      }
-      out[pos++] = (byte) label.length;
-      out[pos++] = (byte) (label.length >>> 8);
-      System.arraycopy(label, 0, out, pos, label.length);
-      pos += label.length;
-      for (int c = 0; c < kinds.length; c++) {
-        final byte kind = kinds[c];
-        out[pos++] = (byte) ((row.present()[c]
-            ? FLAG_PRESENT
-            : 0)
-            | (row.unrepresentable()[c]
-                ? FLAG_UNREPRESENTABLE
-                : 0)
-            | (row.nonIntegral()[c]
-                ? FLAG_NON_INTEGRAL
-                : 0)
-            | (row.nonDoubleSource()[c]
-                ? FLAG_NON_DOUBLE_SOURCE
-                : 0));
-        if (isStringDictKind(kind)) {
-          final byte[] value = row.strings()[c] == null
-              ? EMPTY_BYTES
-              : row.strings()[c];
-          RowGroupDescriptor.putIntLE(out, pos, value.length);
+    return (int) size;
+  }
+
+  private static int encodeColumnLanes(final byte[] out, final byte[] kinds, int pos, final Row row) {
+    for (int c = 0; c < kinds.length; c++) {
+      final byte kind = kinds[c];
+      out[pos++] = (byte) ((row.present()[c]
+          ? FLAG_PRESENT
+          : 0)
+          | (row.unrepresentable()[c]
+              ? FLAG_UNREPRESENTABLE
+              : 0)
+          | (row.nonIntegral()[c]
+              ? FLAG_NON_INTEGRAL
+              : 0)
+          | (row.nonDoubleSource()[c]
+              ? FLAG_NON_DOUBLE_SOURCE
+              : 0));
+      if (isStringDictKind(kind)) {
+        final byte[] value = row.strings()[c] == null
+            ? EMPTY_BYTES
+            : row.strings()[c];
+        RowGroupDescriptor.putIntLE(out, pos, value.length);
+        pos += 4;
+        System.arraycopy(value, 0, out, pos, value.length);
+        pos += value.length;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        final String[] set = row.sets()[c] == null
+            ? EMPTY_SET
+            : row.sets()[c];
+        RowGroupDescriptor.putIntLE(out, pos, set.length);
+        pos += 4;
+        for (final String element : set) {
+          final byte[] bytes = element.getBytes(StandardCharsets.UTF_8);
+          RowGroupDescriptor.putIntLE(out, pos, bytes.length);
           pos += 4;
-          System.arraycopy(value, 0, out, pos, value.length);
-          pos += value.length;
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          final String[] set = row.sets()[c] == null
-              ? EMPTY_SET
-              : row.sets()[c];
-          RowGroupDescriptor.putIntLE(out, pos, set.length);
-          pos += 4;
-          for (final String element : set) {
-            final byte[] bytes = element.getBytes(StandardCharsets.UTF_8);
-            RowGroupDescriptor.putIntLE(out, pos, bytes.length);
-            pos += 4;
-            System.arraycopy(bytes, 0, out, pos, bytes.length);
-            pos += bytes.length;
-          }
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
-          out[pos++] = (byte) (row.bools()[c]
-              ? 1
-              : 0);
-        } else {
-          RowGroupDescriptor.putLongLE(out, pos, row.longs()[c]);
-          pos += 8;
+          System.arraycopy(bytes, 0, out, pos, bytes.length);
+          pos += bytes.length;
         }
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+        out[pos++] = (byte) (row.bools()[c]
+            ? 1
+            : 0);
+      } else {
+        RowGroupDescriptor.putLongLE(out, pos, row.longs()[c]);
+        pos += 8;
       }
     }
-    if (pos != out.length) {
-      throw new IllegalStateException("tail blob size mismatch: " + pos + " != " + out.length);
-    }
-    return out;
+    return pos;
   }
 
   /** Check an append's row count and kinds without decoding or allocating row lanes. */
@@ -332,68 +338,68 @@ final class ProjectionOpenRowGroupTail {
       }
       final byte[] label = Arrays.copyOfRange(blob, pos, pos + labelLength);
       pos += labelLength;
-      final long[] longs = new long[columns];
-      final boolean[] bools = new boolean[columns];
-      final byte[][] strings = new byte[columns][];
-      final String[][] sets = new String[columns][];
-      final boolean[] present = new boolean[columns];
-      final boolean[] unrepresentable = new boolean[columns];
-      final boolean[] nonIntegral = new boolean[columns];
-      final boolean[] nonDoubleSource = new boolean[columns];
-      for (int c = 0; c < columns; c++) {
-        requireBytes(blob, pos, 1, rowGroupId);
-        final int flags = blob[pos++] & 0xFF;
-        if ((flags & ~15) != 0) {
-          throw new IllegalStateException("invalid tail column flags at row group " + rowGroupId);
-        }
-        present[c] = (flags & FLAG_PRESENT) != 0;
-        unrepresentable[c] = (flags & FLAG_UNREPRESENTABLE) != 0;
-        nonIntegral[c] = (flags & FLAG_NON_INTEGRAL) != 0;
-        nonDoubleSource[c] = (flags & FLAG_NON_DOUBLE_SOURCE) != 0;
-        final byte kind = kinds[c];
-        if (isStringDictKind(kind)) {
-          requireBytes(blob, pos, 4, rowGroupId);
-          final int length = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
-          pos += 4;
-          requireBytes(blob, pos, length, rowGroupId);
-          strings[c] = Arrays.copyOfRange(blob, pos, pos + length);
-          pos += length;
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          requireBytes(blob, pos, 4, rowGroupId);
-          final int count = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
-          pos += 4;
-          if (count < 0 || count > (blob.length - pos) / 4) {
-            throw new IllegalStateException("invalid tail set size at row group " + rowGroupId);
-          }
-          final String[] set = new String[count];
-          for (int i = 0; i < count; i++) {
-            requireBytes(blob, pos, 4, rowGroupId);
-            final int length = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
-            pos += 4;
-            requireBytes(blob, pos, length, rowGroupId);
-            set[i] = new String(blob, pos, length, StandardCharsets.UTF_8);
-            pos += length;
-          }
-          sets[c] = set;
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
-          requireBytes(blob, pos, 1, rowGroupId);
-          if (blob[pos] != 0 && blob[pos] != 1) {
-            throw new IllegalStateException("invalid tail boolean at row group " + rowGroupId);
-          }
-          bools[c] = blob[pos++] != 0;
-        } else {
-          requireBytes(blob, pos, 8, rowGroupId);
-          longs[c] = ProjectionIndexRowGroupCodec.getLongLE(blob, pos);
-          pos += 8;
-        }
-      }
-      rows.add(new Row(recordKey, orderException, label, longs, bools, strings, sets, present, unrepresentable,
-          nonIntegral, nonDoubleSource));
+      final Row row = new Row(recordKey, orderException, label, new long[columns], new boolean[columns],
+          new byte[columns][], new String[columns][], new boolean[columns], new boolean[columns], new boolean[columns],
+          new boolean[columns]);
+      pos = decodeColumnLanes(blob, kinds, pos, rowGroupId, row);
+      rows.add(row);
     }
     if (pos != blob.length) {
       throw new IllegalStateException("projection row group " + rowGroupId + " tail rows blob has trailing bytes");
     }
     return rows;
+  }
+
+  private static int decodeColumnLanes(final byte[] blob, final byte[] kinds, int pos, final long rowGroupId,
+      final Row row) {
+    for (int c = 0; c < kinds.length; c++) {
+      requireBytes(blob, pos, 1, rowGroupId);
+      final int flags = blob[pos++] & 0xFF;
+      if ((flags & ~15) != 0) {
+        throw new IllegalStateException("invalid tail column flags at row group " + rowGroupId);
+      }
+      row.present()[c] = (flags & FLAG_PRESENT) != 0;
+      row.unrepresentable()[c] = (flags & FLAG_UNREPRESENTABLE) != 0;
+      row.nonIntegral()[c] = (flags & FLAG_NON_INTEGRAL) != 0;
+      row.nonDoubleSource()[c] = (flags & FLAG_NON_DOUBLE_SOURCE) != 0;
+      final byte kind = kinds[c];
+      if (isStringDictKind(kind)) {
+        requireBytes(blob, pos, 4, rowGroupId);
+        final int length = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
+        pos += 4;
+        requireBytes(blob, pos, length, rowGroupId);
+        row.strings()[c] = Arrays.copyOfRange(blob, pos, pos + length);
+        pos += length;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        requireBytes(blob, pos, 4, rowGroupId);
+        final int count = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
+        pos += 4;
+        if (count < 0 || count > (blob.length - pos) / 4) {
+          throw new IllegalStateException("invalid tail set size at row group " + rowGroupId);
+        }
+        final String[] set = new String[count];
+        for (int i = 0; i < count; i++) {
+          requireBytes(blob, pos, 4, rowGroupId);
+          final int length = ProjectionIndexRowGroupCodec.getIntLE(blob, pos);
+          pos += 4;
+          requireBytes(blob, pos, length, rowGroupId);
+          set[i] = new String(blob, pos, length, StandardCharsets.UTF_8);
+          pos += length;
+        }
+        row.sets()[c] = set;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+        requireBytes(blob, pos, 1, rowGroupId);
+        if (blob[pos] != 0 && blob[pos] != 1) {
+          throw new IllegalStateException("invalid tail boolean at row group " + rowGroupId);
+        }
+        row.bools()[c] = blob[pos++] != 0;
+      } else {
+        requireBytes(blob, pos, 8, rowGroupId);
+        row.longs()[c] = ProjectionIndexRowGroupCodec.getLongLE(blob, pos);
+        pos += 8;
+      }
+    }
+    return pos;
   }
 
   private static void requireBytes(final byte[] blob, final int offset, final int length, final long rowGroupId) {

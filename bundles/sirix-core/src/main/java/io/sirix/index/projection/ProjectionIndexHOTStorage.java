@@ -624,30 +624,37 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
 
       putBlob(descriptorSlotKey(rowGroupId), next);
-      int written = 0;
-      for (int encodedIndex = 0; encodedIndex < encodedColumnCount; encodedIndex++) {
-        final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn = encodedColumns[encodedIndex];
-        final int[] ids = encodedColumn.columnSegmentIds();
-        final byte[][] segments = encodedColumn.segments();
-        for (int i = 0; i < ids.length; i++) {
-          final int priorEntry = RowGroupDescriptor.entryIndexOf(priorDescriptor, ids[i]);
-          final int nextEntry = RowGroupDescriptor.entryIndexOf(next, ids[i]);
-          final boolean unchanged = priorEntry >= 0
-              && RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry) == RowGroupDescriptor.entryByteLen(next,
-                  nextEntry)
-              && RowGroupDescriptor.entryContentHash(priorDescriptor,
-                  priorEntry) == RowGroupDescriptor.entryContentHash(next, nextEntry);
-          if (!unchanged) {
-            putColumnSegmentSlot(segmentSlotKey(rowGroupId, ids[i]), segments[i]);
-            written++;
-          }
-        }
-      }
+      final int written =
+          writePatchedColumnSegmentSlots(rowGroupId, priorDescriptor, next, encodedColumns, encodedColumnCount);
       return new ColumnPatchResult(true, written, tombstoned);
     } catch (final RuntimeException | Error failure) {
       poisonMutation(failure);
       throw failure;
     }
+  }
+
+  private int writePatchedColumnSegmentSlots(final long rowGroupId, final byte[] priorDescriptor, final byte[] next,
+      final ProjectionIndexColumnSegmentCodec.EncodedColumn[] encodedColumns, final int encodedColumnCount) {
+    int written = 0;
+    for (int encodedIndex = 0; encodedIndex < encodedColumnCount; encodedIndex++) {
+      final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn = encodedColumns[encodedIndex];
+      final int[] ids = encodedColumn.columnSegmentIds();
+      final byte[][] segments = encodedColumn.segments();
+      for (int i = 0; i < ids.length; i++) {
+        final int priorEntry = RowGroupDescriptor.entryIndexOf(priorDescriptor, ids[i]);
+        final int nextEntry = RowGroupDescriptor.entryIndexOf(next, ids[i]);
+        final boolean unchanged = priorEntry >= 0
+            && RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry) == RowGroupDescriptor.entryByteLen(next,
+                nextEntry)
+            && RowGroupDescriptor.entryContentHash(priorDescriptor,
+                priorEntry) == RowGroupDescriptor.entryContentHash(next, nextEntry);
+        if (!unchanged) {
+          putColumnSegmentSlot(segmentSlotKey(rowGroupId, ids[i]), segments[i]);
+          written++;
+        }
+      }
+    }
+    return written;
   }
 
   private static void validateColumnPatchDescriptor(final byte[] prior, final byte[] next,
@@ -792,15 +799,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // it could strand durable pages. There is no reset/rebuild mutation mode to clean those up.
     final byte @Nullable [] prior = getPriorBlobForMutation(descriptorSlotKey(rowGroupId));
     if (prior != null) {
-      if (!RowGroupDescriptor.isDescriptor(prior)) {
-        throw poisonMalformedPriorDescriptor(rowGroupId, "missing descriptor magic");
-      }
-      try {
-        RowGroupDescriptor.validate(prior);
-      } catch (final RuntimeException | Error failure) {
-        poisonMutation(failure);
-        throw failure;
-      }
+      validatePriorRowGroupDescriptorForMutation(rowGroupId, prior);
     }
     if (changedColumnWords != null && prior == null) {
       throw new IllegalStateException("cannot validate a column-scoped projection update without a prior descriptor");
@@ -839,6 +838,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         tombstoneOpenRowGroupTail(rowGroupId, tail);
       }
       return true;
+    } catch (final RuntimeException | Error failure) {
+      poisonMutation(failure);
+      throw failure;
+    }
+  }
+
+  private void validatePriorRowGroupDescriptorForMutation(final long rowGroupId, final byte[] prior) {
+    if (!RowGroupDescriptor.isDescriptor(prior)) {
+      throw poisonMalformedPriorDescriptor(rowGroupId, "missing descriptor magic");
+    }
+    try {
+      RowGroupDescriptor.validate(prior);
     } catch (final RuntimeException | Error failure) {
       poisonMutation(failure);
       throw failure;
@@ -2303,51 +2314,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final ProjectionOpenRowGroupTail.Header header = walk.tailHeaders[slot];
       final long rowGroupId = base.rowGroupId();
       final ProjectionOpenRowGroupTail.Materialized merged =
-          ProjectionOpenRowGroupTail.cached(ProjectionOpenRowGroupTail.cacheKey(reader.getDatabaseId(),
-              reader.getResourceId(), indexNumber, rowGroupId, virtualDescriptor), () -> {
-                final int[] ids = base.columnSegmentIds();
-                final byte[][] payloads = new byte[ids.length][];
-                int referenced = 0;
-                for (int i = 0; i < ids.length; i++) {
-                  if (!isRawAssemblySegment(ids[i])) {
-                    continue;
-                  }
-                  final byte[] inline = base.inlineColumnSegmentBytes() == null
-                      ? null
-                      : base.inlineColumnSegmentBytes()[i];
-                  if (inline != null) {
-                    payloads[i] = inline;
-                  } else {
-                    referenced++;
-                  }
-                }
-                if (referenced > 0) {
-                  final long[] offsets = new long[referenced];
-                  final int[] positions = new int[referenced];
-                  int n = 0;
-                  for (int i = 0; i < ids.length; i++) {
-                    if (isRawAssemblySegment(ids[i]) && payloads[i] == null) {
-                      offsets[n] = base.columnSegmentOffsets()[i];
-                      positions[n++] = i;
-                    }
-                  }
-                  final byte[][] pages = readSegmentBytesBatch(reader, offsets);
-                  for (int k = 0; k < referenced; k++) {
-                    if (pages == null || pages[k] == null) {
-                      throw new IllegalStateException("projection row group " + rowGroupId + " base segment "
-                          + ids[positions[k]] + " is missing (indexNumber=" + indexNumber + ")");
-                    }
-                    payloads[positions[k]] = pages[k];
-                  }
-                }
-                return ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
-                    readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
-                      final int pos = indexOf(ids, columnSegmentId);
-                      return pos < 0
-                          ? null
-                          : payloads[pos];
-                    });
-              });
+          ProjectionOpenRowGroupTail.cached(
+              ProjectionOpenRowGroupTail.cacheKey(reader.getDatabaseId(), reader.getResourceId(), indexNumber,
+                  rowGroupId, virtualDescriptor),
+              () -> mergeTailedDirectory(reader, indexNumber, base, virtualDescriptor, header));
       final int[] mergedIds = merged.encoded().columnSegmentIds();
       final long[] noOffsets = new long[mergedIds.length];
       Arrays.fill(noOffsets, Constants.NULL_ID_LONG);
@@ -2358,6 +2328,54 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       out[slot] = new RowGroupDirectory(rowGroupId, virtualDescriptor, mergedIds.clone(), noOffsets, detached);
     }
+  }
+
+  private static ProjectionOpenRowGroupTail.Materialized mergeTailedDirectory(final StorageEngineReader reader,
+      final int indexNumber, final RowGroupDirectory base, final byte[] virtualDescriptor,
+      final ProjectionOpenRowGroupTail.Header header) {
+    final long rowGroupId = base.rowGroupId();
+    final int[] ids = base.columnSegmentIds();
+    final byte[][] payloads = new byte[ids.length][];
+    int referenced = 0;
+    for (int i = 0; i < ids.length; i++) {
+      if (!isRawAssemblySegment(ids[i])) {
+        continue;
+      }
+      final byte[] inline = base.inlineColumnSegmentBytes() == null
+          ? null
+          : base.inlineColumnSegmentBytes()[i];
+      if (inline != null) {
+        payloads[i] = inline;
+      } else {
+        referenced++;
+      }
+    }
+    if (referenced > 0) {
+      final long[] offsets = new long[referenced];
+      final int[] positions = new int[referenced];
+      int n = 0;
+      for (int i = 0; i < ids.length; i++) {
+        if (isRawAssemblySegment(ids[i]) && payloads[i] == null) {
+          offsets[n] = base.columnSegmentOffsets()[i];
+          positions[n++] = i;
+        }
+      }
+      final byte[][] pages = readSegmentBytesBatch(reader, offsets);
+      for (int k = 0; k < referenced; k++) {
+        if (pages == null || pages[k] == null) {
+          throw new IllegalStateException("projection row group " + rowGroupId + " base segment " + ids[positions[k]]
+              + " is missing (indexNumber=" + indexNumber + ")");
+        }
+        payloads[positions[k]] = pages[k];
+      }
+    }
+    return ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
+        readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
+          final int pos = indexOf(ids, columnSegmentId);
+          return pos < 0
+              ? null
+              : payloads[pos];
+        });
   }
 
   /**
@@ -4224,26 +4242,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
     }
     if (inline) {
-      final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
-      RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
-      value[4] = BLOB_VERSION;
-      RowGroupDescriptor.putIntLE(value, 5, payload.length | BLOB_INLINE_FLAG);
-      RowGroupDescriptor.putLongLE(value, 9, hash);
-      System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
-      boolean ownerMarkerWritten = false;
-      try {
-        writeSlotValue(slotKey, value);
-        ownerMarkerWritten = true;
-        // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
-        if (priorWasReferencedBlob) {
-          removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
-        }
-      } catch (final RuntimeException | Error failure) {
-        if (ownerMarkerWritten) {
-          poisonMutation(failure);
-        }
-        throw failure;
-      }
+      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob);
     } else {
       final byte[] marker = new byte[BLOB_MARKER_BYTES];
       RowGroupDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
@@ -4261,6 +4260,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         }
         throw failure;
       }
+    }
+  }
+
+  private void writeInlineBlobPayload(final long slotKey, final byte[] payload, final long hash,
+      final boolean priorWasReferencedBlob) {
+    final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
+    RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
+    value[4] = BLOB_VERSION;
+    RowGroupDescriptor.putIntLE(value, 5, payload.length | BLOB_INLINE_FLAG);
+    RowGroupDescriptor.putLongLE(value, 9, hash);
+    System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
+    boolean ownerMarkerWritten = false;
+    try {
+      writeSlotValue(slotKey, value);
+      ownerMarkerWritten = true;
+      // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
+      if (priorWasReferencedBlob) {
+        removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
+      }
+    } catch (final RuntimeException | Error failure) {
+      if (ownerMarkerWritten) {
+        poisonMutation(failure);
+      }
+      throw failure;
     }
   }
 

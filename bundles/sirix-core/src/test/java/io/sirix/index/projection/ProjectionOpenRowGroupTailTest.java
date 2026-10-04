@@ -414,17 +414,7 @@ final class ProjectionOpenRowGroupTailTest {
               default -> throw new AssertionError(route);
             }
             if (route >= 2) {
-              assertNotNull(directories);
-              assertEquals(route == 3
-                  ? 2
-                  : groups, directories.size());
-              assertDirectory(directories.get(0), expectedEncoded, true);
-              for (int group = 1; group < directories.size(); group++) {
-                assertFalse(RowGroupDescriptor.isTailed(directories.get(group).descriptor()));
-                assertEquals(route == 3
-                    ? groups
-                    : group + 1, directories.get(group).rowGroupId());
-              }
+              assertMemoReadDirectories(directories, route, groups, expectedEncoded);
             }
             assertEquals(cold
                 ? requiredOffsets.size()
@@ -433,6 +423,22 @@ final class ProjectionOpenRowGroupTailTest {
           }
         }
       }
+    }
+  }
+
+  private static void assertMemoReadDirectories(
+      final @Nullable List<ProjectionIndexHOTStorage.RowGroupDirectory> directories, final int route, final int groups,
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedEncoded) {
+    assertNotNull(directories);
+    assertEquals(route == 3
+        ? 2
+        : groups, directories.size());
+    assertDirectory(directories.get(0), expectedEncoded, true);
+    for (int group = 1; group < directories.size(); group++) {
+      assertFalse(RowGroupDescriptor.isTailed(directories.get(group).descriptor()));
+      assertEquals(route == 3
+          ? groups
+          : group + 1, directories.get(group).rowGroupId());
     }
   }
 
