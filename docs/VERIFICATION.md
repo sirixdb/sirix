@@ -19,7 +19,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/BatchedSegmentReadWorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
-| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns and nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
+| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
 | SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
 
 ## Why these layers, specifically
@@ -91,6 +91,40 @@ in CI via the `Deep verification` workflow.
 # Concurrency invariant harnesses
 ./gradlew :sirix-core:test --tests 'io.sirix.access.trx.RevisionEpochTrackerWatermarkSafetyTest' \
                            --tests 'io.sirix.cache.ShardedPageCacheInvariantStressTest'
+
+# HOT structural property test, default lane: runs with the normal test task, one test per index
+# kind, every seed's stream under all four versioning types. A step is one operation of the stream,
+# so a bulk posting run (the M and X operations) is checked once it has written every node key, not
+# between them. After every operation it runs the structural validator, the full ordered slot walk
+# against the reference and compares every one of the reference's keys with what the index answers;
+# a revert is followed by those same checks of the writer it rebound to the earlier revision, every
+# commit checks the new revision that way through the reader, and every cold reopen re-checks every
+# historical revision from disk. Nothing else is sampled. About a minute per kind;
+# -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
+# Heavy lane: every index kind with a longer seeded budget (each seed again under all four versioning
+# types), sampling for reach instead. A mutation whose last handler merged or removed in place checks
+# its touched key alone, except at zero-based stream positions divisible by 32. At those positions,
+# after every other mutation handler, and after every successful revert, it also runs the structural
+# validator, full ordered slot walk and a sampled lookup pass. The position counts all operations,
+# including commit/revert/reopen; a bulk run still checks only after its last node key.
+# Sampled writer and reader lookup passes target 16 keys using stride max(1, floor(size / min(16,
+# size))) for a nonempty reference, rotating the offset modulo that stride each pass. Rounding can
+# select more than 16 keys; stride 1 checks all keys. Every commit checks structure and slot order for
+# the new revision, plus three rotating older-revision checks when an older revision exists (these
+# can repeat). Every 8th commit requests exhaustive new-revision values and its logical iterator,
+# where provided; other revision checks sample values. A cold reopen checks structure and
+# slot order for every revision, all values for the newest, and sampled values for older revisions.
+# Records each shrunk failure as a replayable stream whose header names the versioning, cadence and
+# lane it failed under (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
+                           -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
+                           -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
+# Replay one recorded failure under the checks its header records; -Dhot.diag.validationDump=true
+# makes the writer's own post-publication validator describe the offending node on stderr
+./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
+                           -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
+                           -Dhot.diag.validationDump=true
 
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'

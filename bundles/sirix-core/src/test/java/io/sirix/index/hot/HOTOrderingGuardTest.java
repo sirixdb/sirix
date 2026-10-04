@@ -57,6 +57,122 @@ import static org.mockito.Mockito.when;
 final class HOTOrderingGuardTest {
 
   @Test
+  void mergeIntoRoutedLeafMustNotCrossAnAncestorsPreviousSibling() {
+    try (final Fixture fixture = new Fixture()) {
+      // The root tells the middle leaf from the node below it by bit 6 alone; the middle leaf holds
+      // keys on both sides of bits 3 and 5, which the root does not discriminate on for it, and the
+      // node below branches on bit 4. Ordinary projection-store writes built this shape on main.
+      final PageReference below = fixture.node(new int[] {4}, new int[] {0, 1}, fixture.leaf(0x37), fixture.leaf(0x3b));
+      fixture.install(fixture.node(new int[] {2, 6}, new int[] {0, 2, 3}, fixture.leaf(0x10),
+          fixture.leaf(0x25, 0x2d, 0x34), below));
+      fixture.assertKeys(0x10, 0x25, 0x2d, 0x34, 0x37, 0x3b);
+      final long delegated = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get();
+      // 0x33 has bits 2 and 6 set, so it routes to the node below and on to the 0x37 leaf, from
+      // which it differs at bit 5, below that node's only bit: the merge arm. Merged in place it
+      // would be the node's new minimum, below the middle leaf's maximum 0x34, and the root's two
+      // children would interleave (I12); on main that was published silently and the next
+      // structural insert through the block found no well-formed frontier candidate at all.
+      assertDoesNotThrow(() -> fixture.writer.insert(0x33), () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertKeys(0x10, 0x25, 0x2d, 0x33, 0x34, 0x37, 0x3b);
+      assertEquals(delegated + 1, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
+          "the merge arm must hand a key that would cross a spine neighbour to the complete frontier");
+    }
+  }
+
+  @Test
+  void leafSplitAboveItsSeparatingBitMustNotBeFoldedIn() {
+    try (final Fixture fixture = new Fixture()) {
+      // A full leaf of the multiples of 8 below 0x1000: its keys lie on both sides of bit 20 (0x800).
+      // The root tells it from the one-key leaf after it by bit 29 (0x4) alone, which is below 20.
+      final int[] straddling = new int[HOTLeafPage.MAX_ENTRIES];
+      for (int i = 0; i < straddling.length; i++) {
+        straddling[i] = i << 3;
+      }
+      fixture.install(
+          fixture.node(new int[] {29}, new int[] {0, 1}, fixture.wideLeaf(straddling), fixture.wideLeaf(0xffc)));
+      fixture.assertWideKeys(fixture.sortedUnion(straddling, 0xffc));
+      final long routed = AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get();
+      final long declined = HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT.get();
+      // 0xff9 merges into the full leaf, which splits at bit 20. Folding that split into the root
+      // with addEntry would give the next sibling a zero in the new column: its partial 0b01 would
+      // sit after the β=1 half's 0b10, and the root was published with partials out of order (I7).
+      assertDoesNotThrow(() -> fixture.writer.insertWide(0xff9), () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertWideKeys(fixture.sortedUnion(straddling, 0xff9, 0xffc));
+      assertEquals(declined + 1, HOTIncrementalInsert.FRESH_BIT_FOLD_NOT_ADJACENT.get(),
+          "the fresh-bit fold must be declined because the sibling parts from the leaf below the split bit");
+      assertEquals(routed + 1, AbstractHOTIndexWriter.MERGE_OVERFLOW_ROUTED_FROM_INTEGRATE_ARM.get(),
+          "the declined fold must route the overflow through the complete frontier");
+    }
+  }
+
+  @Test
+  void splitHalfSubInsertMustNotSplitAChildAtTheHalfsOwnBit() {
+    try (final Fixture fixture = new Fixture()) {
+      // A full root over bits 1..7 of the first key byte (partial = that byte). Its lower half,
+      // once compressed, discriminates on bit 2 first. The child at partial 0x08 is a full leaf
+      // holding 0x08... keys and 0x2a... keys, so it spans bit 2 although its partial has a zero
+      // there; the keys still route to it because no sibling partial is a subset of 0x2a.
+      final int[] straddling = new int[HOTLeafPage.MAX_ENTRIES];
+      for (int i = 0; i < 256; i++) {
+        straddling[i] = 0x08000000 + i;
+        straddling[256 + i] = 0x2a000000 + i;
+      }
+      final int[] siblings = new int[31];
+      fixture.install(fixture.fullFirstByteRoot(fixture.wideLeaf(straddling), siblings));
+      final int[] before = fixture.sortedUnion(straddling, siblings);
+      fixture.assertWideKeys(before);
+      final long declined = AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get();
+      // 0x28... routes to the straddling leaf (bits 2 and 4 set; no higher subset partial exists)
+      // and parts from its successor 0x2a... at bit 6, a bit the full root already discriminates
+      // on. The root is split at bit 1, the key's combination partial in the lower half is the
+      // leaf's own, and the Direction-1 sub-insert would split the full leaf at bit 2 — the half's
+      // most significant bit — so the re-split half was published with a child on its own bit (I11).
+      assertDoesNotThrow(() -> fixture.writer.insertWide(0x28000000),
+          () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertWideKeys(fixture.sortedUnion(before, 0x28000000));
+      assertEquals(declined + 1, AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get(),
+          "the sub-insert must be declined because the leaf and the key span the half's most significant bit");
+    }
+  }
+
+  @Test
+  void splitHalfSubInsertMustNotSplitAChildTheKeyOverflowsByBytes() {
+    try (final Fixture fixture = new Fixture()) {
+      // The same full root, but the child at partial 0x08 holds 500 of its 512 possible entries,
+      // all 0x2a00.... with a 124-byte value: 65,000 of the leaf's 65,536 bytes are used and its
+      // common prefix is the two bytes 0x2a 0x00.
+      final int[] resident = new int[500];
+      for (int i = 0; i < resident.length; i++) {
+        resident[i] = 0x2a000000 + i;
+      }
+      final PageReference straddling = fixture.paddedLeaf(resident, 124);
+      final int[] siblings = new int[31];
+      fixture.install(fixture.fullFirstByteRoot(straddling, siblings));
+      final int[] before = fixture.sortedUnion(resident, siblings);
+      fixture.assertWideKeys(before);
+      final HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, fixture.page(straddling));
+      assertTrue(leaf.getEntryCount() < HOTLeafPage.MAX_ENTRIES, "the leaf must have slots left");
+      assertTrue(leaf.getRemainingSpace() >= 4 + 4 + 32,
+          "the free bytes alone must look like room for the four-byte key and value");
+      final long declined = AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get();
+      final long refused = HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get();
+      // 0x0a... routes to that leaf (0x08 is the most specific stored partial below its own 0x0a)
+      // and parts from every resident at bit 2 — the lower half's own most significant bit. The
+      // leaf has a slot and 536 free bytes, so an entry-sized estimate calls this an in-place
+      // merge, but the key shortens the leaf's common prefix: all 500 residents grow by the two
+      // reclaimed bytes, 66,000 bytes do not fit, and the sub-insert would split the leaf at bit 2
+      // instead, leaving the re-split half with a child on its own bit (I11).
+      assertDoesNotThrow(() -> fixture.writer.insertWide(0x0a000000),
+          () -> "handler=" + fixture.writer.lastDispatchHandler);
+      fixture.assertWideKeys(fixture.sortedUnion(before, 0x0a000000));
+      assertEquals(declined + 1, AbstractHOTIndexWriter.DIRECTION_ONE_SPLIT_ABOVE_HALF.get(),
+          "the sub-insert must be declined because the key cannot be stored in the leaf in place");
+      assertEquals(refused, HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get(),
+          "the decline must precede the sub-insert, so the leaf is never asked to shrink its prefix");
+    }
+  }
+
+  @Test
   void pairMaximumMustNotCrossAnAncestorsNextSibling() {
     try (final Fixture fixture = new Fixture()) {
       final PageReference child = fixture.node(new int[] {1, 4}, new int[] {0, 1, 2}, fixture.leaf(0x00),
@@ -537,6 +653,56 @@ final class HOTOrderingGuardTest {
       return register(leaf);
     }
 
+    /**
+     * A leaf of {@code keys} whose values are {@code valueLength} bytes each, so it fills by bytes long
+     * before it fills by count.
+     */
+    private PageReference paddedLeaf(final int[] keys, final int valueLength) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
+      final byte[] value = new byte[valueLength];
+      for (final int key : keys) {
+        Arrays.fill(value, (byte) key);
+        assertTrue(leaf.put(wideKey(key), value));
+      }
+      return register(leaf);
+    }
+
+    /**
+     * A full root over bits 1-7 of the first key byte (partial = that byte) whose child at partial 0x08
+     * is {@code straddle}: 32 children, so a branch insert at an existing bit splits it, and the
+     * compressed lower half discriminates on bit 2 first. Every other child is a one-key leaf
+     * {@code partial << 24}; those keys are written to {@code siblings} ascending.
+     */
+    private PageReference fullFirstByteRoot(final PageReference straddle, final int[] siblings) {
+      final PageReference[] children = new PageReference[32];
+      final int[] partials = new int[32];
+      int slot = 0;
+      int sibling = 0;
+      for (int partial = 0; partial <= 8; partial++) {
+        partials[slot] = partial;
+        children[slot++] = partial == 8
+            ? straddle
+            : siblingLeaf(partial, siblings, sibling++);
+      }
+      for (int partial = 0x30; partial <= 0x36; partial++) {
+        partials[slot] = partial;
+        children[slot++] = siblingLeaf(partial, siblings, sibling++);
+      }
+      for (int partial = 0x40; partial <= 0x4f; partial++) {
+        partials[slot] = partial;
+        children[slot++] = siblingLeaf(partial, siblings, sibling++);
+      }
+      assertEquals(32, slot, "the root must be full");
+      assertEquals(siblings.length, sibling, "every sibling key must be recorded");
+      return node(new int[] {1, 2, 3, 4, 5, 6, 7}, partials, children);
+    }
+
+    /** The one-key sibling leaf at {@code partial}, recording its key at {@code index}. */
+    private PageReference siblingLeaf(final int partial, final int[] siblings, final int index) {
+      siblings[index] = partial << 24;
+      return wideLeaf(siblings[index]);
+    }
+
     private PageReference node(final int[] bits, final int[] partials, final PageReference... children) {
       int height = 1;
       for (final PageReference child : children) {
@@ -564,6 +730,45 @@ final class HOTOrderingGuardTest {
     private void install(final PageReference reference) {
       root = reference;
       writer.rootReference = reference;
+    }
+
+    /** {@code base} plus {@code extra}, ascending — the expected four-byte key order. */
+    private int[] sortedUnion(final int[] base, final int... extra) {
+      final int[] all = Arrays.copyOf(base, base.length + extra.length);
+      System.arraycopy(extra, 0, all, base.length, extra.length);
+      Arrays.sort(all);
+      return all;
+    }
+
+    /** {@link #assertKeys} for four-byte keys. */
+    private void assertWideKeys(final int... expected) {
+      HOTInvariantValidator.validate(root, storage).assertOk();
+      final List<Integer> actual = new ArrayList<>();
+      collectWide(root, actual);
+      assertEquals(Arrays.stream(expected).boxed().toList(), actual, "physical traversal must be exact and ordered");
+      for (final int value : expected) {
+        Page current = page(root);
+        for (int depth = 0; current instanceof HOTIndirectPage node && depth < 32; depth++) {
+          current = page(node.getChildReference(node.findChildIndex(wideKey(value))));
+        }
+        final HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, current);
+        assertTrue(leaf.findEntry(wideKey(value)) >= 0, "key must route to its owning leaf: " + value);
+      }
+    }
+
+    private void collectWide(final PageReference reference, final List<Integer> actual) {
+      final Page current = page(reference);
+      if (current instanceof HOTLeafPage leaf) {
+        for (int i = 0; i < leaf.getEntryCount(); i++) {
+          final byte[] key = leaf.getKey(i);
+          actual.add((key[0] & 0xFF) << 24 | (key[1] & 0xFF) << 16 | (key[2] & 0xFF) << 8 | (key[3] & 0xFF));
+        }
+      } else {
+        final HOTIndirectPage node = assertInstanceOf(HOTIndirectPage.class, current);
+        for (int i = 0; i < node.getNumChildren(); i++) {
+          collectWide(node.getChildReference(i), actual);
+        }
+      }
     }
 
     private void assertKeys(final int... expected) {
@@ -682,6 +887,10 @@ final class HOTOrderingGuardTest {
 
     private void insert(final int value) {
       doIndex(key(value), 1, key(value), 1);
+    }
+
+    private void insertWide(final int value) {
+      doIndex(wideKey(value), 4, wideKey(value), 4);
     }
 
     @Override

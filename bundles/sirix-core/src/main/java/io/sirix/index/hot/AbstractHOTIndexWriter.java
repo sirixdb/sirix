@@ -152,6 +152,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final int CONSOLIDATION_INTERVAL = 4096;
 
   /**
+   * Test-only override of {@link #CONSOLIDATION_INTERVAL}, read once per writer at construction; zero
+   * selects the production cadence. A bounded test can only reach the consolidation path at all by
+   * shortening the cadence, since the production one needs thousands of puts per writer.
+   */
+  private static volatile int consolidationIntervalForTesting;
+
+  /** This writer's consolidation cadence: the production constant unless a test overrode it. */
+  private final int consolidationInterval;
+
+  /**
    * The largest union a consolidation merge produces — kept below page capacity so a merged leaf has
    * room before it re-splits. {@code MAX_ENTRIES * 3/4} packs leaves toward well-filled.
    */
@@ -473,6 +483,23 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.indexNumber = indexNumber;
     this.pageKeyAllocator = createPageKeyAllocator(storageEngineWriter, indexType, indexNumber);
     this.traversalPageResolver = this::resolveHOTPageForTraversal;
+    final int cadenceOverride = consolidationIntervalForTesting;
+    this.consolidationInterval = cadenceOverride > 0
+        ? cadenceOverride
+        : CONSOLIDATION_INTERVAL;
+  }
+
+  /**
+   * Override the leaf-consolidation cadence of writers created from now on; {@code 0} restores the
+   * production cadence. Tests only.
+   *
+   * @param interval puts between consolidation attempts, or {@code 0} for the production value
+   */
+  static void setConsolidationIntervalForTesting(final int interval) {
+    if (interval < 0) {
+      throw new IllegalArgumentException("consolidation interval must not be negative: " + interval);
+    }
+    consolidationIntervalForTesting = interval;
   }
 
   /**
@@ -1993,7 +2020,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // CoW'd every indirect in the index every 4,096 inserts: a deterministic O(index) latency cliff
     // on an ordinary foreground put. One HOT block has at most MAX_NODE_ENTRIES children, so this
     // attempt is O(path depth + fixed fanout), independent of total index size.
-    if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
+    if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= consolidationInterval) {
       insertsSinceConsolidation = 0;
       // A split/fold may have replaced the pre-dispatch parent, so re-descend only after a
       // structural splice. A plain value merge leaves navResult current and avoids a second walk.
@@ -2292,7 +2319,23 @@ public abstract class AbstractHOTIndexWriter<K> {
         : "branch";
     final byte[] structuralKey;
     final boolean structurallyChanged;
-    if (merge) {
+    if (merge && !mergeKeepsSpineOrder(navResult, keyBuf, keyLen)) {
+      // The descent routes K to this leaf, yet K sorts past a neighbour of the leaf on the spine: a
+      // sibling that holds keys on both sides of a bit the block discriminates on (which Direction 1
+      // sub-inserts create on purpose) can have a range the routed leaf's new extreme would reach
+      // into. Merged in place, the two children's ranges interleave (I12) and the next structural
+      // insert through the block finds no well-formed candidate. The complete frontier places K at
+      // its lexicographic position instead, exactly as it does for a branch insert.
+      MERGE_SPINE_ORDER_DELEGATED.incrementAndGet();
+      lastDispatchHandler = "h:merge-spine-order";
+      structuralKey = exactKeyForStructuralMutation(keyBuf, keyLen);
+      final byte[] valueSlice = valueLen == valueBuf.length
+          ? valueBuf
+          : Arrays.copyOf(valueBuf, valueLen);
+      spliceCompleteFrontierIncrementally(navResult, pathDepth - 1, structuralKey, valueSlice,
+          StructuralSplitKey.ABSENT);
+      structurallyChanged = true;
+    } else if (merge) {
       structuralKey = mergeIntoLeaf(navResult, keyBuf, keyLen, valueBuf, valueLen);
       structurallyChanged = structuralKey != null;
     } else {
@@ -2472,13 +2515,14 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Walk the leftmost path from {@code ref} to its leaf and return that leaf's first key -- the
-   * smallest key contained in the subtree rooted at {@code ref}. Bounded by tree height
-   * ({@link #MAX_PATH_DEPTH}); returns {@code null} on an empty subtree or an unresolvable descent
-   * (defensive). Used by the Direction 1 I8-safety pre-check to compare K's lex position against
-   * {@code affected}'s neighbouring siblings.
+   * The leaf holding the subtree's smallest ({@code side == 0}) or greatest ({@code side == 1}) key,
+   * by leftmost respectively rightmost descent. Returning the page rather than the key lets a caller
+   * compare that extreme in place ({@link HOTLeafPage#compareKeyWithBound}) instead of materializing
+   * it, which is what keeps the merge guard's spine walk allocation-free. Bounded by tree height
+   * ({@link #MAX_PATH_DEPTH}); {@code null} when the subtree offers no key to compare — an
+   * unresolvable reference or page, a childless node, or an empty leaf (all defensive).
    */
-  private byte @Nullable [] firstKeyOfSubtree(@Nullable PageReference ref) {
+  private @Nullable HOTLeafPage extremeLeafOfSubtree(final @Nullable PageReference ref, final int side) {
     if (ref == null) {
       return null;
     }
@@ -2489,15 +2533,16 @@ public abstract class AbstractHOTIndexWriter<K> {
         return null;
       }
       if (page instanceof HOTLeafPage leaf) {
-        if (leaf.getEntryCount() == 0) {
-          return null;
-        }
-        return leaf.getFirstKey();
+        return leaf.getEntryCount() == 0
+            ? null
+            : leaf;
       }
       if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
         return null;
       }
-      cur = indirect.getChildReference(0);
+      cur = indirect.getChildReference(side == 0
+          ? 0
+          : indirect.getNumChildren() - 1);
       if (cur == null) {
         return null;
       }
@@ -2506,35 +2551,29 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Walk the leftmost path from {@code ref} to its leaf and return that leaf's first key -- the
+   * smallest key contained in the subtree rooted at {@code ref}. Bounded by tree height
+   * ({@link #MAX_PATH_DEPTH}); returns {@code null} on an empty subtree or an unresolvable descent
+   * (defensive). Used by the Direction 1 I8-safety pre-check to compare K's lex position against
+   * {@code affected}'s neighbouring siblings.
+   */
+  private byte @Nullable [] firstKeyOfSubtree(@Nullable PageReference ref) {
+    final HOTLeafPage leaf = extremeLeafOfSubtree(ref, 0);
+    return leaf == null
+        ? null
+        : leaf.getFirstKey();
+  }
+
+  /**
    * The last (lex-greatest) key of the subtree at {@code ref}, by rightmost descent — the true
    * maximum when the subtree is internally ordered, which is what the propagation boundary check
    * needs (a genuinely disordered subtree is the detector's to flag, not this walk's).
    */
   private byte @Nullable [] lastKeyOfSubtree(@Nullable PageReference ref) {
-    if (ref == null) {
-      return null;
-    }
-    PageReference cur = ref;
-    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
-      final Page page = resolveHOTPageForTraversal(cur);
-      if (page == null) {
-        return null;
-      }
-      if (page instanceof HOTLeafPage leaf) {
-        final int n = leaf.getEntryCount();
-        return n == 0
-            ? null
-            : leaf.getKey(n - 1);
-      }
-      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
-        return null;
-      }
-      cur = indirect.getChildReference(indirect.getNumChildren() - 1);
-      if (cur == null) {
-        return null;
-      }
-    }
-    return null;
+    final HOTLeafPage leaf = extremeLeafOfSubtree(ref, 1);
+    return leaf == null
+        ? null
+        : leaf.getKey(leaf.getEntryCount() - 1);
   }
 
   /**
@@ -3368,7 +3407,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private boolean pairKeepsSpineOrder(final LeafNavigationResult navResult, final int betaValue,
       final byte[] keySlice) {
-    return extremeKeepsSpineOrder(navResult, navResult.pathDepth() - 1, betaValue, keySlice);
+    return extremeKeepsSpineOrder(navResult, navResult.pathDepth() - 1, betaValue, keySlice, keySlice.length);
   }
 
   /**
@@ -3408,22 +3447,60 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false; // defensive: an unresolvable subtree cannot be proved safe
     }
     if (Arrays.compareUnsigned(keySlice, first) < 0) {
-      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 0, keySlice);
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 0, keySlice, keySlice.length);
     }
     if (Arrays.compareUnsigned(keySlice, last) > 0) {
-      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice);
+      return extremeKeepsSpineOrder(navResult, placementDepth - 1, 1, keySlice, keySlice.length);
     }
     return true; // K lies inside the subtree's range: no extreme on the spine changes
   }
 
   /**
-   * The spine walk shared by {@link #pairKeepsSpineOrder} and {@link #keyKeepsSpineOrder}: from
-   * {@code fromDepth} upward, {@code K} is the route slot's new minimum ({@code side == 0}) or
-   * maximum ({@code side == 1}). The walk stops at the first level whose slot has a neighbour on that
-   * side, since the extreme change goes no further.
+   * In-place merges declined because {@code K}, routed to a leaf whose range it would extend, sorts
+   * past that leaf's neighbour on the spine; the complete frontier placed the key instead.
+   */
+  public static final AtomicLong MERGE_SPINE_ORDER_DELEGATED = new AtomicLong();
+
+  /**
+   * Whether merging {@code K} into the routed leaf keeps every spine neighbour in order — the
+   * {@link #keyKeepsSpineOrder} question for the leaf itself, asked of the serialization buffer
+   * {@code keyBuf[0..keyLen)} so that the guard materializes no key arrays for an ordinary merge. A
+   * key present in the leaf or inside its range moves no extreme and costs two comparisons against
+   * the leaf's end entries; only a key beyond one end walks the spine, which compares the neighbour's
+   * extreme on the leaf that holds it, so no array is allocated there either. Only a declined merge
+   * materializes the exact key, for the structural frontier that then places it.
+   */
+  private boolean mergeKeepsSpineOrder(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen) {
+    final int pathDepth = navResult.pathDepth();
+    if (pathDepth == 0) {
+      return true; // the leaf is the whole index: no spine above it
+    }
+    final HOTLeafPage leaf = navResult.leaf();
+    final int entries = leaf.getEntryCount();
+    final boolean belowFirst = entries == 0 || leaf.compareKeyWithBound(0, keyBuf, keyLen) > 0;
+    final boolean aboveLast = entries == 0 || leaf.compareKeyWithBound(entries - 1, keyBuf, keyLen) < 0;
+    if (!belowFirst && !aboveLast) {
+      return true; // K is present or lies inside the leaf's range: no extreme on the spine changes
+    }
+    return (!belowFirst || extremeKeepsSpineOrder(navResult, pathDepth - 1, 0, keyBuf, keyLen))
+        && (!aboveLast || extremeKeepsSpineOrder(navResult, pathDepth - 1, 1, keyBuf, keyLen));
+  }
+
+  /**
+   * The spine walk shared by {@link #pairKeepsSpineOrder}, {@link #keyKeepsSpineOrder} and
+   * {@link #mergeKeepsSpineOrder}: from {@code fromDepth} upward, {@code K} is the route slot's new
+   * minimum ({@code side == 0}) or maximum ({@code side == 1}). The walk stops at the first level
+   * whose slot has a neighbour on that side, since the extreme change goes no further.
+   *
+   * <p>
+   * {@code K} is {@code keyBuf[0..keyLen)}, so the merge arm can ask this of the writer's
+   * serialization buffer without copying a key out of it; the structural callers pass the exact key
+   * they already hold, which is the same range. The neighbour's facing extreme is compared on the
+   * leaf that holds it, so the walk materializes no key either.
+   * </p>
    */
   private boolean extremeKeepsSpineOrder(final LeafNavigationResult navResult, final int fromDepth, final int side,
-      final byte[] keySlice) {
+      final byte[] keyBuf, final int keyLen) {
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final int[] childSlots = navResult.pathChildIndices();
     for (int depth = fromDepth; depth >= 0; depth--) {
@@ -3431,12 +3508,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int slot = childSlots[depth];
       if (side == 0) {
         if (slot > 0) {
-          final byte[] previousLast = lastKeyOfSubtree(node.getChildReference(slot - 1));
-          return previousLast != null && Arrays.compareUnsigned(previousLast, keySlice) < 0;
+          final HOTLeafPage previous = extremeLeafOfSubtree(node.getChildReference(slot - 1), 1);
+          return previous != null && previous.compareKeyWithBound(previous.getEntryCount() - 1, keyBuf, keyLen) < 0;
         }
       } else if (slot + 1 < node.getNumChildren()) {
-        final byte[] nextFirst = firstKeyOfSubtree(node.getChildReference(slot + 1));
-        return nextFirst != null && Arrays.compareUnsigned(keySlice, nextFirst) < 0;
+        final HOTLeafPage next = extremeLeafOfSubtree(node.getChildReference(slot + 1), 0);
+        return next != null && next.compareKeyWithBound(0, keyBuf, keyLen) > 0;
       }
     }
     return true; // K becomes the index's own extreme on that side
@@ -3572,7 +3649,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         return true; // the upper half still carries the split subtree's maximum
       }
     }
-    return extremeKeepsSpineOrder(navResult, insertDepth - 1, side, keySlice);
+    return extremeKeepsSpineOrder(navResult, insertDepth - 1, side, keySlice, keySlice.length);
   }
 
   /**
@@ -3589,6 +3666,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE = new AtomicLong();
   /** Indirect complete frontiers wrapped with K after a two-endpoint opposite-side proof. */
   public static final AtomicLong DIRECTION_ONE_OPPOSITE_FRONTIER_WRAP = new AtomicLong();
+  /**
+   * Sub-inserts into a freshly compressed split half declined because the key and the affected
+   * child's extremes span a bit at or above the half's most significant bit: the sub-insert could
+   * split the child there and the re-split half would then contradict the trie condition.
+   */
+  public static final AtomicLong DIRECTION_ONE_SPLIT_ABOVE_HALF = new AtomicLong();
   /** C2 continuations performed inside a freshly split full-node half. */
   public static final AtomicLong FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT = new AtomicLong();
 
@@ -4951,24 +5034,25 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Pre-check whether {@link HOTIncrementalInsert#integrate}'s cascade — starting at
    * {@code currentDepth} with a BiNode on {@code biNodeBeta} — will fold cleanly, or whether any
    * level requires an un-mergeable cross-level-overlap fold (which would otherwise throw out of
-   * integrate), or would split a full node into a half that breaks the trie condition against its own
-   * children ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the
-   * caller uses the complete frontier.
+   * integrate), a fresh-bit fold whose upper half would sort past a sibling, or a full-node split
+   * into a half that breaks the trie condition against its own children
+   * ({@link #splitKeepsTrieCondition}). Returns {@code false} before publication so the caller uses
+   * the complete frontier.
    *
    * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
    * throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every level
-   * whose mask contains the running β. The β evolution exactly matches integrate's full-node cascade
-   * (β becomes {@code parent.MSB} after a split). It does not model integrate's
-   * intermediate-placement short-circuit (a height comparison) — skipping it can only choose the
-   * complete-frontier arm unnecessarily, never miss a crash, because integrate never folds at an
-   * intermediate level.
+   * whose mask contains the running β, and {@link HOTIncrementalInsert#freshBitLandsBesideSlot} where
+   * β is fresh. The β evolution exactly matches integrate's full-node cascade (β becomes
+   * {@code parent.MSB} after a split). It does not model integrate's intermediate-placement
+   * short-circuit (a height comparison) — skipping it can only choose the complete-frontier arm
+   * unnecessarily, never miss a crash, because integrate never folds at an intermediate level.
    *
    * @param pathNodes the spine, root-to-leaf
    * @param childSlots the child slot taken at each spine node
    * @param currentDepth the depth at which the initial BiNode integrates
    * @param biNodeBeta the initial BiNode's discriminative bit
-   * @return {@code true} iff the integrate cascade folds without an un-mergeable overlap
+   * @return {@code true} when the cascade passes the fold-order and existing-child trie checks
    */
   private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int[] childSlots, int currentDepth,
       int biNodeBeta) {
@@ -4976,8 +5060,15 @@ public abstract class AbstractHOTIndexWriter<K> {
     int depth = currentDepth;
     while (depth > 0) {
       final HOTIndirectPage parent = pathNodes[depth - 1];
-      if (parent.isDiscriminativeBit(beta)
-          && !HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
+      if (parent.isDiscriminativeBit(beta)) {
+        if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
+          return false;
+        }
+      } else if (!HOTIncrementalInsert.freshBitLandsBesideSlot(parent, childSlots[depth - 1], beta)) {
+        // A fresh bit is folded in by addEntry, which puts the β=1 half right after the slot and a
+        // zero into every other child's new column. The slot's keys span β, so a sibling the block
+        // tells apart from it only by a bit below β sorts between the two halves: the fold would
+        // publish the half past that sibling (I7/I12). The complete frontier re-encodes the block.
         return false;
       }
       if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
@@ -5314,7 +5405,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   private boolean directionOneIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage originalNode,
       final int insertDepth, final HOTIndirectPage half, final boolean rightHalf, final int affectedIdx,
       final byte[] keySlice, final byte[] valueSlice, final int revision) {
-    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, half, rightHalf, affectedIdx, keySlice)) {
+    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, half, rightHalf, affectedIdx, keySlice)
+        || !subInsertKeepsHalfTrieCondition(half, affectedIdx, keySlice, valueSlice)) {
       DIRECTION_ONE_FALLBACK.incrementAndGet();
       return false;
     }
@@ -5353,6 +5445,68 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       throw failure;
     }
+  }
+
+  /**
+   * Bytes a leaf must have free beyond the key and value themselves for a prefix-preserving merge to
+   * stay in place: the entry's two length fields plus slack. Over-estimating only sends a sub-insert
+   * to the generic placements, under-estimating would let it split where the guard below says it
+   * cannot.
+   */
+  private static final int LEAF_ENTRY_SLACK = 32;
+
+  /**
+   * Whether the Direction-1 sub-insert of {@code K} into the split half's child at
+   * {@code affectedIdx} can leave the half satisfying the trie condition. The half's MSB is measured
+   * before the sub-insert and unchanged by the re-split, while the child is not: a sub-insert that
+   * splits a leaf, or branches above a node, roots the child on the union's MSDB, and the published
+   * route then fails closed when that bit is at or above the half's MSB (I11) — after {@code K} is
+   * already placed, when nothing can decline any more. That MSDB is never more significant than the
+   * MSDB of {@code K} with the child's extremes, so the arm is declined when that one is at or above
+   * the half's MSB, unless the child is a leaf that is certain to take {@code K} in place
+   * ({@link #leafTakesKeyInPlace}), which introduces no bit. A leaf whose keys span the half's MSB (a
+   * straddle its zero column in the half says nothing about) is the shape that reaches this.
+   */
+  private boolean subInsertKeepsHalfTrieCondition(final HOTIndirectPage half, final int affectedIdx,
+      final byte[] keySlice, final byte[] valueSlice) {
+    final PageReference affected = half.getChildReference(affectedIdx);
+    final byte[] first = firstKeyOfSubtree(affected);
+    final byte[] last = lastKeyOfSubtree(affected);
+    if (first == null || last == null) {
+      return false; // defensive: an unresolvable subtree cannot be proved safe
+    }
+    final byte[] unionMin = Arrays.compareUnsigned(keySlice, first) < 0
+        ? keySlice
+        : first;
+    final byte[] unionMax = Arrays.compareUnsigned(keySlice, last) > 0
+        ? keySlice
+        : last;
+    if (Arrays.equals(unionMin, unionMax)
+        || HOTBulkBuilder.msdb(unionMin, unionMax) > half.getMostSignificantBitIndex()) {
+      return true; // every bit the sub-insert can introduce lies below the half's MSB
+    }
+    final Page child = resolveHOTPageForTraversal(affected);
+    if (child instanceof HOTLeafPage leaf && leafTakesKeyInPlace(leaf, keySlice, valueSlice)) {
+      return true; // K merges into the leaf in place: no split, no new bit
+    }
+    DIRECTION_ONE_SPLIT_ABOVE_HALF.incrementAndGet();
+    return false;
+  }
+
+  /**
+   * Whether {@code leaf} is certain to store {@code K} in place, by count and by bytes. An entry
+   * costs the two length fields plus the key's suffix under the leaf's common prefix and the value,
+   * which {@link #LEAF_ENTRY_SLACK} bounds — but only while that prefix covers {@code K}. A key that
+   * shortens it rewrites every resident entry with the reclaimed prefix bytes, so the leaf needs
+   * {@code entryCount} times those bytes on top of the entry and refuses the rebuild, splitting
+   * instead, when the grown residents no longer fit the frame: a per-entry estimate cannot bound
+   * that, so a key that does not keep the prefix is never taken in place here.
+   */
+  private static boolean leafTakesKeyInPlace(final HOTLeafPage leaf, final byte[] keySlice, final byte[] valueSlice) {
+    final int prefixLength = leaf.getCommonPrefixLen();
+    return leaf.getEntryCount() < HOTLeafPage.MAX_ENTRIES && keySlice.length >= prefixLength
+        && Arrays.mismatch(leaf.getCommonPrefix(), 0, prefixLength, keySlice, 0, prefixLength) < 0
+        && leaf.getRemainingSpace() >= keySlice.length + valueSlice.length + LEAF_ENTRY_SLACK;
   }
 
   /**
@@ -5900,9 +6054,29 @@ public abstract class AbstractHOTIndexWriter<K> {
     return spliced;
   }
 
-  /** The two persistent halves of a subtree split immediately before an absent key. */
-  private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right) {
+  /** Persistent boundary halves; a dropped owner's references await the key's fresh leaf. */
+  private record StructuralKeySplit(@Nullable PageReference left, @Nullable PageReference right,
+      @Nullable List<CarriedSideReference> droppedOwnerSideReferences) {
+    StructuralKeySplit(final @Nullable PageReference left, final @Nullable PageReference right) {
+      this(left, right, null);
+    }
   }
+
+  /**
+   * A side-map reference whose owning slot is the entry a
+   * {@link StructuralSplitKey#PRESENT_AND_DROPPED} split dropped from its boundary leaf. The owner
+   * lives on in {@code K}'s fresh leaf, so the reference moves there with it.
+   */
+  private record CarriedSideReference(long refKey, PageReference reference) {
+  }
+
+  /**
+   * Frontier splits of a present key whose dropped boundary entry owned side-map references, carried
+   * onto the key's fresh leaf. A projection slot reaches this when its referenced blob is replaced by
+   * an inline value that overflows the leaf: the owner marker is rewritten before the side page is
+   * released, so the dropped entry still owns the page at the moment the leaf splits.
+   */
+  public static final AtomicLong FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES = new AtomicLong();
 
   /** What {@link #splitSubtreeBeforeKey} may find of its split key in the boundary leaf. */
   private enum StructuralSplitKey {
@@ -5995,6 +6169,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
       putFreshSingleEntryOrThrow(keyLeaf, keySlice, valueSlice);
+      carryDroppedOwnerSideReferences(keyLeaf, split);
       keyRef = swizzle(keyLeaf);
       replacementRef = joinOrderedAroundKey(split.left(), keyRef, split.right(), keySlice, revision, replacedLeafRefs);
       if (replacementRef == null) {
@@ -6045,6 +6220,18 @@ public abstract class AbstractHOTIndexWriter<K> {
         closeUnregisteredFreshSubtree(keyRef, failure);
       }
       throw failure;
+    }
+  }
+
+  /** Attach a split's dropped owner's side references to the fresh leaf that now holds its key. */
+  private static void carryDroppedOwnerSideReferences(final HOTLeafPage keyLeaf, final StructuralKeySplit split) {
+    final List<CarriedSideReference> carried = split.droppedOwnerSideReferences();
+    if (carried != null) {
+      for (int i = 0, n = carried.size(); i < n; i++) {
+        final CarriedSideReference reference = carried.get(i);
+        keyLeaf.setPageReference(reference.refKey(), reference.reference());
+      }
+      FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES.incrementAndGet();
     }
   }
 
@@ -6165,15 +6352,19 @@ public abstract class AbstractHOTIndexWriter<K> {
         if (rightFrom < leaf.getEntryCount()) {
           right = copyLeafRange(leaf, rightFrom, leaf.getEntryCount());
         }
-        // A side reference whose owning slot is the dropped entry finds no home and fails closed
-        // here: projection segment pages are never silently orphaned.
-        rehomeSplitLeafSideReferences(leaf, left, right);
+        // A side reference whose owning slot is the dropped entry follows that slot to K's fresh
+        // leaf; one whose owner is in neither half fails closed here, so that projection segment
+        // pages are never silently orphaned.
+        final List<CarriedSideReference> carried = rehomeSplitLeafSideReferences(leaf, left, right, dropped
+            ? keySlice
+            : null);
         final StructuralKeySplit result = new StructuralKeySplit(left == null
             ? null
             : swizzle(left),
             right == null
                 ? null
-                : swizzle(right));
+                : swizzle(right),
+            carried);
         if (sourceRef.getKey() >= 0 || sourceRef.getLogKey() >= 0) {
           replacedLeafRefs.add(sourceRef);
         } else if (!leaf.isClosed()) {
@@ -6236,7 +6427,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         discardUnpublishedStructuralCandidateOrThrow(left);
         return null;
       }
-      return new StructuralKeySplit(left, right);
+      return new StructuralKeySplit(left, right, childSplit.droppedOwnerSideReferences());
     } catch (final RuntimeException | Error failure) {
       closeUnregisteredFreshSubtree(left, failure);
       closeUnregisteredFreshSubtree(right, failure);
@@ -6401,14 +6592,18 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Preserve projection side-map ownership when the one boundary leaf is split. A side whose range is
-   * empty has no half; an owner in neither half — the entry a replacing split dropped — is refused
-   * rather than orphaning its segment page.
+   * empty has no half. An owner in neither half is the entry a replacing split dropped, whose
+   * references are returned for the caller to attach to the key's fresh leaf when {@code droppedKey}
+   * names that entry; any other missing owner is refused rather than orphaning its segment page.
+   *
+   * @return the references owned by the dropped entry, or {@code null} when there are none
    */
-  private void rehomeSplitLeafSideReferences(final HOTLeafPage source, final @Nullable HOTLeafPage left,
-      final @Nullable HOTLeafPage right) {
+  private @Nullable List<CarriedSideReference> rehomeSplitLeafSideReferences(final HOTLeafPage source,
+      final @Nullable HOTLeafPage left, final @Nullable HOTLeafPage right, final byte @Nullable [] droppedKey) {
     if (source.segmentRefCount() == 0) {
-      return;
+      return null;
     }
+    List<CarriedSideReference> carried = null;
     final byte[] ownerKey = new byte[Long.BYTES];
     for (final long refKey : source.overflowPageRefKeysSorted()) {
       final PageReference sideRef = source.getPageReference(refKey);
@@ -6421,11 +6616,19 @@ public abstract class AbstractHOTIndexWriter<K> {
           : right != null && right.findEntry(ownerKey) >= 0
               ? right
               : null;
-      if (owner == null) {
+      if (owner != null) {
+        owner.setPageReference(refKey, sideRef);
+        continue;
+      }
+      if (droppedKey == null || !Arrays.equals(ownerKey, droppedKey)) {
         throw new IllegalStateException("HOT boundary leaf split lost side-reference owner for refKey " + refKey);
       }
-      owner.setPageReference(refKey, sideRef);
+      if (carried == null) {
+        carried = new ArrayList<>(2);
+      }
+      carried.add(new CarriedSideReference(refKey, sideRef));
     }
+    return carried;
   }
 
   /**
