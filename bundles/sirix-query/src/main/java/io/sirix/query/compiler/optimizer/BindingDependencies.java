@@ -45,80 +45,7 @@ abstract class BindingDependencies extends ScopeWalker {
       candidate.setProperty(CheapFirstConjunctStage.NATIVE_STORE, true);
     }
     if (node.getType() == XQ.VariableRef || node.getType() == XQ.ContextItemExpr) {
-      final QNm name = node.getType() == XQ.ContextItemExpr
-          ? Bits.FS_DOT
-          : (QNm) node.getValue();
-      final Var variable = findScope(node).resolve(name);
-      if (variable == null) {
-        if (parameter(node, name)) {
-          captured.add(name);
-          return true;
-        }
-        if (inputs != null) {
-          inputs.add(name);
-        }
-        final AST declaration = declaration(name);
-        if (declaration == null) {
-          return name.equals(Bits.FS_DOT) || inputs != null;
-        }
-        final AST source = declaration.getLastChild();
-        if (source.getType() == XQ.ExternalVariable) {
-          return true;
-        }
-        if (!visited.add(declaration)) {
-          return true;
-        }
-        if (!source(source, candidate, inputs, captured, defaults, visited)) {
-          return false;
-        }
-        if (defaults != null) {
-          defaults.add(name);
-        }
-        return true;
-      }
-      final AST binding = variable.scope.getNode();
-      if (binding.getType() == XQ.LetBind || binding.getType() == XQ.ForBind) {
-        if (binding.getType() == XQ.ForBind && !name.equals(binding.getChild(0).getChild(0).getValue())) {
-          return true;
-        }
-        final AST source = initializer(binding);
-        AST ancestor = binding;
-        while (ancestor != null && ancestor != candidate) {
-          ancestor = ancestor.getParent();
-        }
-        if (ancestor == null && captured != null && findScope(candidate).resolve(name) == variable) {
-          final Set<QNm> sourceInputs = new HashSet<>();
-          final Set<QNm> sourceCaptured = new HashSet<>();
-          final Set<QNm> sourceDefaults = new HashSet<>();
-          if (!source(source, candidate, sourceInputs, sourceCaptured, sourceDefaults, new HashSet<>())) {
-            return false;
-          }
-          // A direct filter sees its current freshly produced row before it can escape to
-          // the consumer. Other captured composites may have been exposed or mutated already.
-          if (freshRow(binding, candidate) && storedRead(source)) {
-            // Opening arguments have already been evaluated to produce this row. They are
-            // not inputs to its field predicates, even in a correlated temporal scan.
-            return true;
-          }
-          if (freshRow(binding, candidate) && literalSource(source)) {
-            inputs.addAll(sourceInputs);
-            captured.addAll(sourceCaptured);
-            defaults.addAll(sourceDefaults);
-          } else {
-            captured.add(name);
-          }
-          return true;
-        }
-        return !visited.add(source) || source(source, candidate, inputs, captured, defaults, visited);
-      }
-      if (binding.getType() == XQ.Count) {
-        return true;
-      }
-      AST ancestor = binding;
-      while (ancestor != null && ancestor != candidate) {
-        ancestor = ancestor.getParent();
-      }
-      return ancestor == candidate;
+      return collectVariable(node, candidate, inputs, captured, defaults, visited);
     }
     for (int i = 0; i < node.getChildCount(); i++) {
       if (!collect(node.getChild(i), candidate, inputs, captured, defaults, visited)) {
@@ -126,6 +53,88 @@ abstract class BindingDependencies extends ScopeWalker {
       }
     }
     return true;
+  }
+
+  private boolean collectVariable(final AST node, final AST candidate, final Set<QNm> inputs, final Set<QNm> captured,
+      final Set<QNm> defaults, final Set<AST> visited) {
+    final QNm name = node.getType() == XQ.ContextItemExpr
+        ? Bits.FS_DOT
+        : (QNm) node.getValue();
+    final Var variable = findScope(node).resolve(name);
+    if (variable == null) {
+      return collectUnresolved(node, name, candidate, inputs, captured, defaults, visited);
+    }
+    final AST binding = variable.scope.getNode();
+    if (binding.getType() == XQ.LetBind || binding.getType() == XQ.ForBind) {
+      if (binding.getType() == XQ.ForBind && !name.equals(binding.getChild(0).getChild(0).getValue())) {
+        return true;
+      }
+      final AST source = initializer(binding);
+      if (!withinCandidate(binding, candidate) && captured != null && findScope(candidate).resolve(name) == variable) {
+        return collectCaptured(name, binding, source, candidate, inputs, captured, defaults);
+      }
+      return !visited.add(source) || source(source, candidate, inputs, captured, defaults, visited);
+    }
+    return binding.getType() == XQ.Count || withinCandidate(binding, candidate);
+  }
+
+  private boolean collectUnresolved(final AST node, final QNm name, final AST candidate, final Set<QNm> inputs,
+      final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
+    if (parameter(node, name)) {
+      captured.add(name);
+      return true;
+    }
+    if (inputs != null) {
+      inputs.add(name);
+    }
+    final AST declaration = declaration(name);
+    if (declaration == null) {
+      return name.equals(Bits.FS_DOT) || inputs != null;
+    }
+    final AST source = declaration.getLastChild();
+    if (source.getType() == XQ.ExternalVariable || !visited.add(declaration)) {
+      return true;
+    }
+    if (!source(source, candidate, inputs, captured, defaults, visited)) {
+      return false;
+    }
+    if (defaults != null) {
+      defaults.add(name);
+    }
+    return true;
+  }
+
+  private boolean collectCaptured(final QNm name, final AST binding, final AST source, final AST candidate,
+      final Set<QNm> inputs, final Set<QNm> captured, final Set<QNm> defaults) {
+    final Set<QNm> sourceInputs = new HashSet<>();
+    final Set<QNm> sourceCaptured = new HashSet<>();
+    final Set<QNm> sourceDefaults = new HashSet<>();
+    if (!source(source, candidate, sourceInputs, sourceCaptured, sourceDefaults, new HashSet<>())) {
+      return false;
+    }
+    // A direct filter sees its current freshly produced row before it can escape to
+    // the consumer. Other captured composites may have been exposed or mutated already.
+    if (freshRow(binding, candidate) && storedRead(source)) {
+      // Opening arguments have already been evaluated to produce this row. They are
+      // not inputs to its field predicates, even in a correlated temporal scan.
+      return true;
+    }
+    if (freshRow(binding, candidate) && literalSource(source)) {
+      inputs.addAll(sourceInputs);
+      captured.addAll(sourceCaptured);
+      defaults.addAll(sourceDefaults);
+    } else {
+      captured.add(name);
+    }
+    return true;
+  }
+
+  private static boolean withinCandidate(final AST binding, final AST candidate) {
+    AST ancestor = binding;
+    while (ancestor != null && ancestor != candidate) {
+      ancestor = ancestor.getParent();
+    }
+    return ancestor == candidate;
   }
 
   private boolean source(final AST source, final AST candidate, final Set<QNm> inputs, final Set<QNm> captured,

@@ -165,16 +165,7 @@ public final class CheapFirstConjunctStage implements Stage {
     final int type = node.getType();
     int own = 0;
     if (type == XQ.FunctionCall) {
-      if (!(node.getValue() instanceof QNm name)) {
-        return -1;
-      }
-      final String ns = name.getNamespaceURI();
-      final String local = name.getLocalName();
-      if (!Namespaces.XS_NSURI.equals(ns)
-          && !((Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns))
-              && PURE_FUNCTIONS.contains(local))
-          && !(JSONFun.JSON_NSURI.equals(ns)
-              && (READ_FUNCTIONS.contains(local) || (admitIndexRewrites && INDEX_SCAN_FUNCTIONS.contains(local))))) {
+      if (!admittedFunction(node, admitIndexRewrites)) {
         return -1;
       }
       own = 20;
@@ -204,5 +195,18 @@ public final class CheapFirstConjunctStage implements Stage {
       own = Math.max(own, child);
     }
     return own;
+  }
+
+  private static boolean admittedFunction(final AST node, final boolean admitIndexRewrites) {
+    if (!(node.getValue() instanceof QNm name)) {
+      return false;
+    }
+    final String ns = name.getNamespaceURI();
+    final String local = name.getLocalName();
+    return Namespaces.XS_NSURI.equals(ns)
+        || ((Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns))
+            && PURE_FUNCTIONS.contains(local))
+        || (JSONFun.JSON_NSURI.equals(ns)
+            && (READ_FUNCTIONS.contains(local) || (admitIndexRewrites && INDEX_SCAN_FUNCTIONS.contains(local))));
   }
 }

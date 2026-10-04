@@ -20,7 +20,7 @@ output="$PWD/build/cheap-first-only"
 classpath=$(cat "$output/probe.cp")
 mkdir -p "$output/probe"
 javac -J-Xmx512m --enable-preview --release 25 --add-modules jdk.incubator.vector \
-  -cp "$classpath" -d "$output/probe" "$source_dir/LatencyProbe.java" || exit $?
+  -cp "$classpath" -d "$output/probe" "$source_dir/io/sirix/query/performance/LatencyProbe.java" || exit $?
 git rev-parse HEAD > "$output/$label-revision.txt"
 git status --porcelain > "$output/$label-worktree.txt"
 java -Xmx256m -version > "$output/$label-java.txt" 2>&1
@@ -29,7 +29,7 @@ for jar in "${jars[@]}"; do
   case "$jar" in */brackit-*.jar) sha256sum "$jar";; esac
 done > "$output/$label-brackit.txt"
 java_args=(--enable-preview --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g)
-probe_args=(-cp "$output/probe:$classpath" LatencyProbe "$task_stores/t100k" /var/tmp/sirix-bitemporal/t100k/oracle)
+probe_args=(-cp "$output/probe:$classpath" io.sirix.query.performance.LatencyProbe "$task_stores/t100k" /var/tmp/sirix-bitemporal/t100k/oracle)
 java "${java_args[@]}" "${probe_args[@]}" "$output/$label-warm" 10 1 2 3 10 > "$output/$label-warm.log" 2>&1 || exit $?
 java "${java_args[@]}" "${probe_args[@]}" "$output/$label-warm-q5" 3 5 > "$output/$label-warm-q5.log" 2>&1 || exit $?
 : > "$output/$label-cold.log"

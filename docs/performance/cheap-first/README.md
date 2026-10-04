@@ -72,7 +72,7 @@ for all 24 final answers.
 
 The baseline was current main `28a95fe8efe4d0910a931475b1d61ee884d1b48f`. Stores were loaded with
 `BitemporalSirixLoadMain` using the kit's natural batching and read-only tier event streams. The
-standalone [LatencyProbe.java](LatencyProbe.java) compiles and fully consumes each query, records
+standalone [LatencyProbe.java](io/sirix/query/performance/LatencyProbe.java) compiles and fully consumes each query, records
 compile/execute/serialize/setup separately, canonicalizes each answer, and compares its TSV bytes
 with the independent oracle. Execute time is the metric below.
 
@@ -146,7 +146,7 @@ the probe with `javac -J-Xmx512m --enable-preview --release 25 --add-modules jdk
 ```bash
 java --enable-preview --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
   -Xms512m -Xmx2g -XX:MaxDirectMemorySize=1g -cp "probe:$QUERY_CLASSPATH" \
-  LatencyProbe "$TASK_STORES/t100k" /var/tmp/sirix-bitemporal/t100k/oracle "$OUTPUT" 10 1 2 3 10
+  io.sirix.query.performance.LatencyProbe "$TASK_STORES/t100k" /var/tmp/sirix-bitemporal/t100k/oracle "$OUTPUT" 10 1 2 3 10
 ```
 
 Run Q5 separately with `3 5`; run each cold query in three fresh processes with `1 QUERY_NUMBER`.
