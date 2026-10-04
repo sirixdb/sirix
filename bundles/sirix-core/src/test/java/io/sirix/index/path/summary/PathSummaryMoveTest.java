@@ -175,21 +175,7 @@ final class PathSummaryMoveTest {
             ? "a"
             : "b";
         final boolean anonymous = subtree == JsonSubtree.ARRAY || subtree == JsonSubtree.OBJECT;
-        final String branch =
-            "{\"branch\":{\"leaf\":1},\"leaf\":2,\"items\":[{\"nested\":[{\"value\":4},{\"value\":5}]},{\"nested\":[{\"value\":6}]}]}";
-        final String sourceValue = subtree == JsonSubtree.NAMED_ARRAY || subtree == JsonSubtree.ARRAY
-            ? "[" + branch + "]"
-            : branch;
-        final String targetValue = subtree == JsonSubtree.NAMED_ARRAY || subtree == JsonSubtree.ARRAY
-            ? "[{\"other\":3}]"
-            : "{\"other\":3}";
-        final String sourceContainer = anonymous
-            ? "[0," + sourceValue + ",9]"
-            : "{\"target\":{},\"child\":" + sourceValue + ",\"last\":{}}";
-        final String targetContainer = anonymous
-            ? "[0," + targetValue + ",9]"
-            : "{\"target\":{},\"child\":" + targetValue + ",\"last\":{}}";
-        final String json = "[{\"a\":" + sourceContainer + "},{\"" + secondParent + "\":" + targetContainer + "}]";
+        final String json = jsonMoveDocument(secondParent, subtree);
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         trx.commit();
         final long sourceParent = namedKeys(trx, "a").getFirst();
@@ -253,6 +239,26 @@ final class PathSummaryMoveTest {
     } finally {
       Databases.removeDatabase(path);
     }
+  }
+
+  private static String jsonMoveDocument(final String secondParent, final JsonSubtree subtree) {
+    final boolean anonymous = subtree == JsonSubtree.ARRAY || subtree == JsonSubtree.OBJECT;
+    final boolean array = subtree == JsonSubtree.NAMED_ARRAY || subtree == JsonSubtree.ARRAY;
+    final String branch =
+        "{\"branch\":{\"leaf\":1},\"leaf\":2,\"items\":[{\"nested\":[{\"value\":4},{\"value\":5}]},{\"nested\":[{\"value\":6}]}]}";
+    final String sourceValue = array
+        ? "[" + branch + "]"
+        : branch;
+    final String targetValue = array
+        ? "[{\"other\":3}]"
+        : "{\"other\":3}";
+    final String sourceContainer = anonymous
+        ? "[0," + sourceValue + ",9]"
+        : "{\"target\":{},\"child\":" + sourceValue + ",\"last\":{}}";
+    final String targetContainer = anonymous
+        ? "[0," + targetValue + ",9]"
+        : "{\"target\":{},\"child\":" + targetValue + ",\"last\":{}}";
+    return "[{\"a\":" + sourceContainer + "},{\"" + secondParent + "\":" + targetContainer + "}]";
   }
 
   @ParameterizedTest
