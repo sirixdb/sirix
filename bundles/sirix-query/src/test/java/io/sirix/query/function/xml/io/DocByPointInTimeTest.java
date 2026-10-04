@@ -83,7 +83,7 @@ public final class DocByPointInTimeTest extends TestCase {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "xml:open('" + dbName + "','" + resName + "', xs:dateTime(\"2219-05-01T00:00:00\"))";
+      final String xq1 = "xn:open('" + dbName + "','" + resName + "', xs:dateTime(\"2219-05-01T00:00:00\"))";
 
       // final String xq1 =
       // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div

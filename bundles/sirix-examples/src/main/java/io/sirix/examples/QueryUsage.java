@@ -124,7 +124,7 @@ public final class QueryUsage {
       // Use Query to load sample document into store.
       System.out.println("Loading document:");
       final URI docUri = doc.toUri();
-      final String xq1 = String.format("xml:load('mydoc.col', 'mydoc.xml', '%s')", docUri);
+      final String xq1 = String.format("xn:load('mydoc.col', 'mydoc.xml', '%s')", docUri);
       System.out.println(xq1);
       new Query(xq1).evaluate(ctx);
 
@@ -132,7 +132,7 @@ public final class QueryUsage {
       final QueryContext ctx2 = SirixQueryContext.createWithNodeStore(store);
       System.out.println();
       System.out.println("Query loaded document:");
-      final String xq2 = "xml:doc('mydoc.col', 'mydoc.xml')/Organization/Project[@id='4711']/past::*"; // nachrichten/nachricht[betreff/text()='sommer'
+      final String xq2 = "xn:doc('mydoc.col', 'mydoc.xml')/Organization/Project[@id='4711']/past::*"; // nachrichten/nachricht[betreff/text()='sommer'
       // or
       // betreff/text()='strand' or text/text()='sommer'
       // or text/text()='strand']";
@@ -169,14 +169,14 @@ public final class QueryUsage {
       System.out.println();
       System.out.println("Query loaded document:");
       final String xq2 = """
-          let $doc := xml:doc('mycol.xml', 'mydoc.xml')
+          let $doc := xn:doc('mycol.xml', 'mydoc.xml')
           for $log in $doc/log return\s
           ( insert nodes <a><b/></a> into $log )
           """;
       System.out.println(xq2);
       new Query(xq2).execute(ctx2);
 
-      final Query query = new Query("xml:doc('mycol.xml', 'mydoc.xml')");
+      final Query query = new Query("xn:doc('mycol.xml', 'mydoc.xml')");
       query.prettyPrint().serialize(ctx2, System.out);
       System.out.println();
     }
@@ -197,7 +197,7 @@ public final class QueryUsage {
 
       // Use Query to load sample document into store.
       System.out.println("Loading document:");
-      final String xq1 = String.format("xml:load('mydocs.col', 'resource1', '%s')", docUri.toString());
+      final String xq1 = String.format("xn:load('mydocs.col', 'resource1', '%s')", docUri.toString());
       System.out.println(xq1);
       new Query(compileChain, xq1).evaluate(ctx1);
     }
@@ -330,10 +330,10 @@ public final class QueryUsage {
       System.out.println(
           "Create a cas index for all attributes and another one for text-nodes. A third one is created for all integers:");
       final Query q = new Query(SirixCompileChain.createWithNodeStore(store),
-          "let $doc := xml:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
-              + "let $casStats1 := xml:create-cas-index($doc, 'xs:string', '//@*') "
-              + "let $casStats2 := xml:create-cas-index($doc, 'xs:string', '//*') "
-              + "let $casStats3 := xml:create-cas-index($doc, 'xs:integer', '//*') "
+          "let $doc := xn:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
+              + "let $casStats1 := xn:create-cas-index($doc, 'xs:string', '//@*') "
+              + "let $casStats2 := xn:create-cas-index($doc, 'xs:string', '//*') "
+              + "let $casStats3 := xn:create-cas-index($doc, 'xs:integer', '//*') "
               + "return <rev>{sdb:commit($doc)}</rev>");
       q.serialize(ctx3, System.out);
       System.out.println();
@@ -346,8 +346,8 @@ public final class QueryUsage {
       System.out.println();
       System.out.println("Create path index for all elements (all paths):");
       final Query q = new Query(SirixCompileChain.createWithNodeStore(store),
-          "let $doc := xml:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
-              + "let $stats := xml:create-path-index($doc, '//*') " + "return <rev>{sdb:commit($doc)}</rev>");
+          "let $doc := xn:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
+              + "let $stats := xn:create-path-index($doc, '//*') " + "return <rev>{sdb:commit($doc)}</rev>");
       q.serialize(ctx3, System.out);
       System.out.println();
       System.out.println("Path index creation done.");
@@ -359,9 +359,9 @@ public final class QueryUsage {
       System.out.println();
       System.out.println("Create name index for all elements with name 'src' or 'msg':");
       final Query q = new Query(SirixCompileChain.createWithNodeStore(store),
-          "let $doc := xml:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
-              + "let $stats := xml:create-name-index($doc, fn:QName((), 'src')) "
-              + "return <rev>{xml:commit($doc)}</rev>");
+          "let $doc := xn:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
+              + "let $stats := xn:create-name-index($doc, fn:QName((), 'src')) "
+              + "return <rev>{sdb:commit($doc)}</rev>");
       q.serialize(ctx3, System.out);
       System.out.println();
       System.out.println("Name index creation done.");
@@ -373,7 +373,7 @@ public final class QueryUsage {
       System.out.println("Find CAS index for all attribute values.");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final String query =
-          "let $doc := xml:doc('mydocs.col', 'resource1') return xml:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), '==', ())";
+          "let $doc := xn:doc('mydocs.col', 'resource1') return xn:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), '==', ())";
       final Sequence seq = new Query(SirixCompileChain.createWithNodeStore(store), query).execute(ctx3);
       // final Iter iter = seq.iterate();
       // for (Item item = iter.next(); item != null; item = iter.next()) {
@@ -395,7 +395,7 @@ public final class QueryUsage {
       System.out.println("Find CAS index for all text values which are integers between 10 and 100.");
       final QueryContext ctx3 = SirixQueryContext.createWithNodeStore(store);
       final String query =
-          "let $doc := xml:doc('mydocs.col', 'resource1') return xml:scan-cas-index-range($doc, sdb:find-cas-index($doc, 'xs:integer', '//*'), 10, 100, true(), true(), ())";
+          "let $doc := xn:doc('mydocs.col', 'resource1') return xn:scan-cas-index-range($doc, sdb:find-cas-index($doc, 'xs:integer', '//*'), 10, 100, true(), true(), ())";
       final Sequence seq = new Query(SirixCompileChain.createWithNodeStore(store), query).execute(ctx3);
       // final Iter iter = seq.iterate();
       // for (Item item = iter.next(); item != null; item = iter.next()) {
@@ -425,7 +425,7 @@ public final class QueryUsage {
                                            .findPathIndex(io.brackit.query.util.path.Path.parse("//log/*"));
       System.out.println(index);
       // last param '()' queries whole index.
-      final String query = "let $doc := xml:doc('mydocs.col', 'resource1') " + "return xml:scan-path-index($doc, "
+      final String query = "let $doc := xn:doc('mydocs.col', 'resource1') " + "return xn:scan-path-index($doc, "
           + index.get().getID() + ", '//log/*')";
       final Sequence seq = new Query(SirixCompileChain.createWithNodeStore(store), query).execute(ctx3);
       final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
@@ -443,9 +443,9 @@ public final class QueryUsage {
       System.out.println();
       System.out.println("Query name index (src-element).");
       final QueryContext ctx3 = new BrackitQueryContext(store);
-      final String query = "let $doc := xml:doc('mydocs.col', 'resource1')"
-          + " let $sequence := xml:scan-name-index($doc, xml:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))"
-          + " return xml:sort($sequence)";
+      final String query = "let $doc := xn:doc('mydocs.col', 'resource1')"
+          + " let $sequence := xn:scan-name-index($doc, xn:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))"
+          + " return xn:sort($sequence)";
       final Query q = new Query(SirixCompileChain.createWithNodeStore(store), query);
       q.prettyPrint();
       q.serialize(ctx3, System.out);
@@ -474,7 +474,7 @@ public final class QueryUsage {
       // Serialize second version to XML
       // ($user.home$/sirix-data/output-revision-1.xml).
       final QueryContext ctx5 = SirixQueryContext.createWithNodeStore(store);
-      final String xq5 = "xml:serialize(doc('mydocs.col', 2), true(), 'output-revision-2.xml')";
+      final String xq5 = "xn:serialize(doc('mydocs.col', 2), true(), 'output-revision-2.xml')";
       q = new Query(xq5);
       q.execute(ctx5);
       System.out.println();
@@ -495,7 +495,7 @@ public final class QueryUsage {
 
       final SirixQueryContext ctx = SirixQueryContext.createWithNodeStore(store);
       System.out.println();
-      final String xq3 = String.format("xml:load('mycoll.col', 'mydoc.xml', '%s')", doc.toUri().toString());
+      final String xq3 = String.format("xn:load('mycoll.col', 'mydoc.xml', '%s')", doc.toUri().toString());
       System.out.println(xq3);
       final Query q = new Query(SirixCompileChain.createWithNodeStore(store), xq3);
       q.execute(ctx);

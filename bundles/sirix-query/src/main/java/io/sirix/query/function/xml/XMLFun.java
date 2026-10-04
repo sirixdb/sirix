@@ -44,9 +44,9 @@ import static io.sirix.query.function.xml.index.find.FindPathIndex.FIND_PATH_IND
  */
 public final class XMLFun {
   /**
-   * Prefix for Sirix functions.
+   * Prefix for Sirix XML functions. The reserved {@code xml} prefix belongs to the W3C XML namespace.
    */
-  public static final String XML_PREFIX = "xml";
+  public static final String XML_PREFIX = "xn";
 
   /**
    * Namespace URI for Sirix functions.

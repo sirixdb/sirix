@@ -39,7 +39,7 @@ import java.time.Instant;
  * </p>
  *
  * <pre>
- * <code>xml:store($coll as xs:string, $res as xs:string, $fragment as xs:node, $create-new as xs:boolean?) as ()</code>
+ * <code>xn:store($coll as xs:string, $res as xs:string, $fragment as xs:node, $create-new as xs:boolean?) as ()</code>
  * </pre>
  *
  * @author Johannes Lichtenberger

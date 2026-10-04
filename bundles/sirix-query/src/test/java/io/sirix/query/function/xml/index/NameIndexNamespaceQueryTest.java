@@ -29,7 +29,7 @@ final class NameIndexNamespaceQueryTest {
           new DocumentParser("<root><item xmlns='urn:a'>a</item><item xmlns='urn:b'>b</item>"
               + "<p:item xmlns:p='urn:a'>alias</p:item><item>plain</item></root>"));
     }
-    run("let $doc := xml:doc('names','resource1') let $idx := xml:create-name-index($doc,())"
+    run("let $doc := xn:doc('names','resource1') let $idx := xn:create-name-index($doc,())"
         + " return sdb:commit($doc)");
     assertEquals("urn:a",
         run("declare namespace a='urn:a';" + " string(namespace-uri-from-QName(xs:QName('a:item')))"));
@@ -50,14 +50,14 @@ final class NameIndexNamespaceQueryTest {
     assertEquals("b", scan("xs:QName('b:item')"));
     assertEquals("plain", scan("xs:QName('item')"));
     assertEquals("a b alias", scan("(xs:QName('a:item'),xs:QName('b:item'))"));
-    assertEquals("4", run("let $doc := xml:doc('names','resource1') return count("
-        + "xml:scan-name-index($doc,xml:find-name-index($doc,xs:QName('item')),())/text())"));
+    assertEquals("4", run("let $doc := xn:doc('names','resource1') return count("
+        + "xn:scan-name-index($doc,xn:find-name-index($doc,xs:QName('item')),())/text())"));
   }
 
   private String scan(final String names) {
     return run("declare namespace a='urn:a'; declare namespace b='urn:b';"
-        + " let $doc := xml:doc('names','resource1') return for $n in xml:scan-name-index($doc,"
-        + "xml:find-name-index($doc,xs:QName('a:item'))," + names + ") order by sdb:nodekey($n) return string($n)");
+        + " let $doc := xn:doc('names','resource1') return for $n in xn:scan-name-index($doc,"
+        + "xn:find-name-index($doc,xs:QName('a:item'))," + names + ") order by sdb:nodekey($n) return string($n)");
   }
 
   private String run(final String expression) {

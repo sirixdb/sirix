@@ -31,9 +31,9 @@ import java.util.Set;
  * included {@code QNm}s. If successful, this function returns statistics about the newly created
  * index as an XML fragment. Supported signatures are:<br>
  * <ul>
- * <li><code>xml:create-name-index($doc as node(), $include as xs:QName*) as
+ * <li><code>xn:create-name-index($doc as node(), $include as xs:QName*) as
  * node()</code></li>
- * <li><code>xml:create-name-index($doc as node()) as node()</code></li>
+ * <li><code>xn:create-name-index($doc as node()) as node()</code></li>
  * </ul>
  *
  * @author Max Bechtold

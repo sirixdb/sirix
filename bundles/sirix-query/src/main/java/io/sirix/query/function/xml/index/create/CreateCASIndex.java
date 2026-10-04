@@ -35,9 +35,9 @@ import java.util.Set;
  * are:
  * </p>
  * <ul>
- * <li><code>xml:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
- * <li><code>xml:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
- * <li><code>xml:create-cas-index($doc as node()) as node()</code></li>
+ * <li><code>xn:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
+ * <li><code>xn:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
+ * <li><code>xn:create-cas-index($doc as node()) as node()</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

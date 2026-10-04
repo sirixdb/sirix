@@ -30,7 +30,7 @@ import java.util.Optional;
  * </p>
  * <ul>
  * <li>
- * <code>xml:find-cas-index($doc as node(), $type as xs:string, $path as xs:string) as xs:int</code>
+ * <code>xn:find-cas-index($doc as node(), $type as xs:string, $path as xs:string) as xs:int</code>
  * </li>
  * </ul>
  *

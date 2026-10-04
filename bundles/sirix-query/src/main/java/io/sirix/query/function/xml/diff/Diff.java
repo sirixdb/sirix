@@ -327,7 +327,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   private void createDocString(final Sequence[] args, final int revision1) {
-    buffer.append("xml:doc('");
+    buffer.append(XMLFun.XML_PREFIX).append(":doc('");
     buffer.append(((Str) args[0]).stringValue());
     buffer.append("','");
     buffer.append(((Str) args[1]).stringValue());

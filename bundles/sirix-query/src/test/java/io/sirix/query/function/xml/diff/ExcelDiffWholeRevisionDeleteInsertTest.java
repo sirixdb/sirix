@@ -133,7 +133,7 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest {
       final String dbName = database.getFileName().toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
+      final String xq = "xn:diff('" + dbName + "','" + resName + "',1,2)";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 

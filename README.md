@@ -520,20 +520,25 @@ returns the index state as of *N*—never a later commit's. This is verified acr
 reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see
 `HOTMultiVersionInvariantsTest`).
 
+Sirix XML functions use the `xn:` prefix for `https://sirix.io/xml`, including `xn:doc`,
+`xn:store` and `xn:open`. The reserved `xml:` prefix always refers to
+`http://www.w3.org/XML/1998/namespace` for attributes such as `xml:lang`, `xml:space` and `xml:id`.
+There is no compatibility alias for the former XML function prefix.
+
 XML NAME indexes match by namespace URI and local name. Different namespaces have separate
 postings; prefix aliases share a posting. Selective index definitions, exact lookups, and
 include/exclude filters all use this identity. JSON field names remain literal, including colons
 or braces in a key.
 
-`xml:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
+`xn:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
 namespaced name with `fn:QName('urn:a', 'item')`, or use `xs:QName('a:item')` with prefix `a`
 declared. A QName with an empty namespace matches only namespace-free names. Pass `()` to
 scan all names covered by the index. With an index covering both namespaces:
 
 ```xquery
-let $doc := xml:doc('mydb', 'resource1')
-let $index := xml:find-name-index($doc, fn:QName('urn:a', 'item'))
-return xml:scan-name-index($doc, $index,
+let $doc := xn:doc('mydb', 'resource1')
+let $index := xn:find-name-index($doc, fn:QName('urn:a', 'item'))
+return xn:scan-name-index($doc, $index,
     (fn:QName('urn:a', 'item'), fn:QName('urn:b', 'item')))
 ```
 

@@ -166,7 +166,7 @@ public final class ExcelDiffTest1 {
       final String dbName = databaseLocation.getFileName().toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
+      final String xq = "xn:diff('" + dbName + "','" + resName + "',1,2)";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
@@ -183,12 +183,12 @@ public final class ExcelDiffTest1 {
 
         new Query(SirixCompileChain.createWithNodeStore(store), contentToApply).execute(ctx);
 
-        final String xq2 = "xml:doc('" + dbName + "','" + resName + "',2)";
+        final String xq2 = "xn:doc('" + dbName + "','" + resName + "',2)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
-        final String xq3 = "xml:doc('" + dbName + "','" + resName + "',3)";
+        final String xq3 = "xn:doc('" + dbName + "','" + resName + "',3)";
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = out.toString(StandardCharsets.UTF_8);
 
@@ -198,7 +198,7 @@ public final class ExcelDiffTest1 {
         out.reset();
       }
 
-      final String xq4 = "xquery version \"1.0\";xml:doc('" + dbName + "','" + resName
+      final String xq4 = "xquery version \"1.0\";xn:doc('" + dbName + "','" + resName
           + "',3)//*[local-name()='c' and not(previous::*)]";
       final Sequence sequence = new Query(SirixCompileChain.createWithNodeStore(store), xq4).execute(ctx);
       final Iter iter = sequence.iterate();

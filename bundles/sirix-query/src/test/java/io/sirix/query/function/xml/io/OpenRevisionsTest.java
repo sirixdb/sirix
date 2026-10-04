@@ -95,7 +95,7 @@ public final class OpenRevisionsTest {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "xml:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
+      final String xq1 = "xn:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
           + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
           + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
