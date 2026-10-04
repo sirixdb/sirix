@@ -1859,7 +1859,7 @@ SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). HOT cache budgets and their con
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | fragment-merge, requested-slot and carry-forward `LongAdder` counters, including `completeDumpsWalkedPast` which must stay 0; **on in the sirix-core and sirix-query test JVMs**; work-counter semantics are owned by [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | `set/VersioningType.java` |
+| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); fragment-work semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | `set/VersioningType.java`, `page/HOTLeafPage.java` |
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
 `STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero"; §4.8),

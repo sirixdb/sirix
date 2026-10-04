@@ -41,6 +41,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.Predicate;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -877,6 +878,16 @@ public final class HOTTrieReader implements AutoCloseable {
   /** A scan bypasses requested-slot reads and always resolves through the complete loader. */
   public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
+    return readProjectionEntry(rootRef, key, sideReferenceKey, intent, null);
+  }
+
+  /**
+   * Resolve a projection slot with a content-only side-reference policy. Materialized inline values
+   * can avoid entering the overflow map; fragment and mini-page reads keep their complete provenance
+   * internally. A null predicate preserves the opaque-entry API's reference-copying behavior.
+   */
+  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable Predicate<byte[]> sideReferenceNeeded) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
     Objects.requireNonNull(intent);
@@ -891,7 +902,10 @@ public final class HOTTrieReader implements AutoCloseable {
           final HOTLeafEntry entry =
               storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
           if (!(reference.getPage() instanceof HOTIndirectPage)) {
-            return entry;
+            return entry != null && entry.sideReference() != null && sideReferenceNeeded != null
+                && !sideReferenceNeeded.test(entry.value())
+                    ? new HOTLeafEntry(entry.value(), null)
+                    : entry;
           }
           // A split may leave the old leaf's fragment list on an indirect reference. Its newly
           // swizzled page, not the stale list, determines the route; keep the same bounded descent.
@@ -900,7 +914,7 @@ public final class HOTTrieReader implements AutoCloseable {
         if (page instanceof HOTLeafPage leaf) {
           final HOTLeafEntry result;
           try {
-            result = HOTLeafEntry.copyOf(leaf, key, sideReferenceKey);
+            result = HOTLeafEntry.copyOf(leaf, key, sideReferenceKey, sideReferenceNeeded);
           } catch (final RuntimeException failure) {
             if (validateCurrentLeaf()) {
               throw failure;

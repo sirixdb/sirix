@@ -69,6 +69,16 @@ A decoder-only image is never published as a canonical complete leaf: the comple
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
 ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
 
+Segment-backed binary searches for eight-byte keys with a nonempty suffix prepare one masked
+probe word per search. When the stored suffix has the expected length and at least eight bytes
+remain at its start, an unsigned word comparison reads the suffix in one load. Differently sized stored
+keys and suffixes with fewer than eight segment bytes remaining use the bounded generic comparator.
+Packed heap fragments retain their array comparator.
+
+Materialized leaves let inline blob values and tombstones omit the side-reference map access.
+Requested-slot fragment and mini-page reads retain complete provenance internally; referenced
+blob results and opaque slot callers retain their durable side-page reference.
+
 Read intent controls cache admission:
 
 - `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
@@ -115,7 +125,8 @@ Existing work-budget bounds are unchanged.
 
 Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
 `HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
-`ProjectionBlobHistoryReadTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
+`ProjectionBlobHistoryReadTest`, `HOTLongSuffixSearchTest`,
+`HOTHistoricalBlobReadWorkBudgetTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
 `docs/VERIFICATION.md` remains the required load/query work check.
 
 ## Projection execution

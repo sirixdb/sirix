@@ -72,6 +72,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntConsumer;
 
 /**
@@ -195,6 +196,20 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * 2-byte aligned.
    */
   private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = LE.SHORT;
+
+  private static final boolean READ_WORK_DIAG = Boolean.getBoolean("sirix.hot.mergeDiag");
+  private static final LongAdder SUFFIX_PROBE_READS = new LongAdder();
+  private static final LongAdder SIDE_REFERENCE_READS = new LongAdder();
+
+  /** Native suffix lanes inspected, excluding the fixed slot-length header. */
+  public static long suffixProbeReads() {
+    return SUFFIX_PROBE_READS.sum();
+  }
+
+  /** Overflow-reference map probes, including misses. */
+  public static long sideReferenceReads() {
+    return SIDE_REFERENCE_READS.sum();
+  }
 
   /**
    * The on-heap counterpart of {@link SegmentAccess#getLongBE(MemorySegment, long)}: reads eight
@@ -868,7 +883,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return index if found, or -(insertionPoint + 1) if not found
    */
   public int findEntry(byte[] key) {
-    return findEntry(key, key.length);
+    return findEntry(key, key.length, !binarySearchOnly);
   }
 
   /**
@@ -1148,6 +1163,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return index if found, or -(insertionPoint + 1) if not found
    */
   private int binarySearchSuffix(byte[] key, int keyLen) {
+    if (keyLen == Long.BYTES && commonPrefixLen < Long.BYTES) {
+      return binarySearchLongSuffix(key);
+    }
     int low = 0;
     int high = entryCount;
 
@@ -1162,6 +1180,47 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
           : high;
       if (cmp == 0) {
         return mid;
+      }
+    }
+    return -(low + 1);
+  }
+
+  /**
+   * Eight-byte ordered slot keys need only one scoped suffix load per search step. The probe word is
+   * prepared once; shifting discards bytes after the suffix, including the value header. A shorter
+   * segment tail or a differently sized stored key uses the ordinary comparator, so the word read
+   * never crosses the segment boundary or changes variable-length key ordering.
+   */
+  private int binarySearchLongSuffix(final byte[] key) {
+    final MemorySegment slots = slotMemory;
+    final int suffixLength = Long.BYTES - commonPrefixLen;
+    final int shift = commonPrefixLen << 3;
+    final long probe = (long) BYTE_ARRAY_LONG_BE.get(key, 0) & (-1L >>> shift);
+    final long lastWordStart = slots.byteSize() - Long.BYTES;
+    final int[] offsets = slotOffsets;
+    int low = 0;
+    int high = entryCount;
+    while (low < high) {
+      final int middle = (low + high) >>> 1;
+      final int offset = offsets[middle];
+      final int storedLength = Short.toUnsignedInt(SegmentAccess.getShortLE(slots, offset));
+      final long start = (long) offset + Short.BYTES;
+      final int comparison;
+      if (storedLength == suffixLength && start <= lastWordStart) {
+        if (READ_WORK_DIAG) {
+          SUFFIX_PROBE_READS.increment();
+        }
+        final long stored = SegmentAccess.getLongBE(slots, start) >>> shift;
+        comparison = Long.compareUnsigned(stored, probe);
+      } else {
+        comparison = compareSuffixWithKey(middle, key, Long.BYTES);
+      }
+      if (comparison < 0) {
+        low = middle + 1;
+      } else if (comparison > 0) {
+        high = middle;
+      } else {
+        return middle;
       }
     }
     return -(low + 1);
@@ -1187,6 +1246,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // BYTE_ARRAY_LONG_BE for why the probe side is not assembled from eight shifted byte reads.
     int i = 0;
     for (; i + 8 <= minLen; i += 8) {
+      if (READ_WORK_DIAG) {
+        SUFFIX_PROBE_READS.increment();
+      }
       final long aWord = SegmentAccess.getLongBE(slotMemory, suffixStart + i);
       final long bWord = (long) BYTE_ARRAY_LONG_BE.get(key, keySuffixStart + i);
       if (aWord != bWord) {
@@ -1196,6 +1258,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     // Compare remaining bytes
     for (; i < minLen; i++) {
+      if (READ_WORK_DIAG) {
+        SUFFIX_PROBE_READS.increment();
+      }
       final int aByte = Byte.toUnsignedInt(SegmentAccess.getByte(slotMemory, suffixStart + i));
       final int bByte = key[keySuffixStart + i] & 0xFF;
       if (aByte != bByte) {
@@ -4743,6 +4808,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   @Override
   public PageReference getPageReference(long key) {
+    if (READ_WORK_DIAG) {
+      SIDE_REFERENCE_READS.increment();
+    }
     beginSideReferenceRead();
     try {
       return pageReferences.get(key);

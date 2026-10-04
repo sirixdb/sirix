@@ -77,6 +77,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
+| `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
@@ -121,7 +122,7 @@ maintains, so a budget quotes the same numbers an investigation would:
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
-  listings. Only what a budget captures is listed: a catalog entry nothing reads is one more thing
+  listings, native HOT suffix lanes and overflow-reference map probes. Only what a budget captures is listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners

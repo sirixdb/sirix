@@ -2086,8 +2086,16 @@ coalescing, or is not sorted by file offset, returns the same bytes, so these ar
 (§7.3), the frame-slot allocator's `allocateCount` / `releaseCount` and the index-catalogue directory listings
 (`AbstractResourceSession.indexCatalogueDirectoryListings()`: a session resolves a transaction's catalogue from what it
 knows before it lists `indexes/`, and the listing is what grows with the revision count) are unconditional for the same
-reason. The HOT fragment-merge and requested-slot counters in `VersioningType` sit on the read path and stay gated behind
+reason.
+
+**Gated HOT work counters.** The fragment-merge, requested-slot and carry-forward counters in `VersioningType`,
+and `HOTLeafPage.suffixProbeReads()` / `sideReferenceReads()`, stay gated behind
 `sirix.hot.mergeDiag`, which the `sirix-core` and `sirix-query` test JVMs switch on.
+`suffixProbeReads()` counts one suffix lane per word or residual-byte load in the segment-backed
+binary-search comparators, excluding slot-length headers. Packed heap comparisons and successful
+PEXT candidate checks do not contribute; a PEXT miss can fall back to counted binary search.
+`sideReferenceReads()` counts overflow-reference map probes, including misses.
+These are process-wide running totals, captured as differences just like the always-on counters.
 
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
