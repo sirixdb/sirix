@@ -23,10 +23,10 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>
  * The O(1) arm is deliberately restricted to a direct Sirix-backed array. Every other operand is
  * evaluated by Brackit's own {@link ArrayAccessExpr} and counted through its
- * {@link Sequence#size()} contract. That preserves ArrayAccessExpr's exact runtime dispatch, type
- * errors, lazy sequence behavior, and empty-member behavior instead of maintaining a subtly
- * different local unbox implementation. Literal and other in-memory arrays therefore receive the
- * ordinary Brackit answer and never move the serving counter.
+ * {@link Sequence#size()} contract. That preserves ArrayAccessExpr's runtime dispatch and lazy
+ * sequence behavior, including skipping non-arrays and continuing past empty array members. Literal
+ * and other in-memory arrays therefore receive the ordinary Brackit answer and never move the
+ * serving counter.
  */
 public final class SirixArraySize extends AbstractFunction {
 
