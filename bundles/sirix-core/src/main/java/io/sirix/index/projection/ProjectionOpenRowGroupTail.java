@@ -93,6 +93,8 @@ final class ProjectionOpenRowGroupTail {
   }
 
   /** The tail header: the base descriptor of the persisted segments and the tail's extent. */
+  @SuppressWarnings("ArrayRecordComponent") // Descriptor content is compared by RowGroupDescriptor, not record
+                                            // equality.
   record Header(byte[] baseDescriptor, int blobCount, int rowCount) {
     Header {
       Objects.requireNonNull(baseDescriptor, "baseDescriptor");
@@ -138,6 +140,7 @@ final class ProjectionOpenRowGroupTail {
    * One appended row: the writer's inputs to {@link ProjectionIndexRowGroupPage#appendTailRow} with
    * every STRING_GLOBAL id already resolved in {@code longs}.
    */
+  @SuppressWarnings("ArrayRecordComponent") // Primitive lanes are replayed directly; record equality is not used.
   record Row(long recordKey, boolean orderException, byte[] orderLabel, long[] longs, boolean[] bools, byte[][] strings,
       String[][] sets, boolean[] present, boolean[] unrepresentable, boolean[] nonIntegral, boolean[] nonDoubleSource) {
     Row {
@@ -419,6 +422,7 @@ final class ProjectionOpenRowGroupTail {
   }
 
   /** The merged row group: its (untailed) encoding and its raw scan form. */
+  @SuppressWarnings("ArrayRecordComponent") // Encoded bytes are served directly; record equality is not used.
   record Materialized(ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded, byte[] raw) {
     byte @Nullable [] segment(final int columnSegmentId) {
       final int[] ids = encoded.columnSegmentIds();

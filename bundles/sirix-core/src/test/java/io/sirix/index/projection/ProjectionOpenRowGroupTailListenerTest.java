@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -95,6 +96,7 @@ final class ProjectionOpenRowGroupTailListenerTest {
   }
 
   /** The open row group as revision {@code revision} sees it, with the descriptor's tail state. */
+  @SuppressWarnings("ArrayRecordComponent") // Tests compare each cell explicitly rather than using record equality.
   private record Seen(ProjectionIndexRowGroupPage page, boolean tailed, int tailBlobs, String[] didValues) {
   }
 
@@ -124,8 +126,10 @@ final class ProjectionOpenRowGroupTailListenerTest {
         final ProjectionIndexMetadata metadata =
             ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(storage, INDEX, 0));
         assertNotNull(metadata);
+        final long[] dictionaryHeaderKeys = metadata.valueDictionaryHeaderKeys();
+        assertNotNull(dictionaryHeaderKeys);
         final GlobalValueDictionary.ReadView dictionary =
-            GlobalValueDictionary.readView(metadata.valueDictionaryHeaderKeys()[1], storage);
+            GlobalValueDictionary.readView(dictionaryHeaderKeys[1], storage);
         assertNotNull(dictionary);
         for (int row = 0; row < page.getRowCount(); row++) {
           didValues[row] = dictionary.valueOfCell(page.numericColumn(1)[row]);
@@ -145,9 +149,7 @@ final class ProjectionOpenRowGroupTailListenerTest {
   }
 
   private static String didAt(final ProjectionIndexRowGroupPage page, final int row) {
-    if (page.columnKind(1) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-      return null; // dictionary-id kinds need the value dictionary; the time column is checked instead
-    }
+    assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, page.columnKind(1));
     final int id = page.stringDictIdColumn(1)[row];
     return new String(page.stringDictionaryEntryBacking(1, id), page.stringDictionaryEntryOffset(1, id),
         page.stringDictionaryEntryLength(1, id), StandardCharsets.UTF_8);
@@ -156,7 +158,8 @@ final class ProjectionOpenRowGroupTailListenerTest {
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)
   void middleInsertionThenTailAppendPreservesOrderExceptions(final VersioningType versioningType) {
-    final Path databasePath = temporaryDirectory.resolve("order-bitmap-" + versioningType.name().toLowerCase());
+    final Path databasePath =
+        temporaryDirectory.resolve("order-bitmap-" + versioningType.name().toLowerCase(Locale.ROOT));
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     ProjectionOpenRowGroupTail.clearCacheForTesting();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -170,11 +173,7 @@ final class ProjectionOpenRowGroupTailListenerTest {
           if (row > 0) {
             input.append(',');
           }
-          input.append("{\"kind\":\"commit\",\"did\":\"d")
-               .append(row)
-               .append("\",\"time\":")
-               .append(row)
-               .append('}');
+          input.append("{\"kind\":\"commit\",\"did\":\"d").append(row).append("\",\"time\":").append(row).append('}');
         }
         input.append(']');
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
@@ -205,8 +204,9 @@ final class ProjectionOpenRowGroupTailListenerTest {
           final JsonIndexController controller =
               (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
           controller.applyPendingIndexMaintenance(true);
-          final byte[] raw = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX)
-              .getRowGroupFromColumnSegmentSlots(1);
+          final byte[] raw =
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX).getRowGroupFromColumnSegmentSlots(
+                  1);
           assertNotNull(raw);
           final ProjectionIndexRowGroupPage pending = ProjectionIndexRowGroupPage.deserialize(raw);
           assertEquals(65, pending.getRowCount());
@@ -220,8 +220,7 @@ final class ProjectionOpenRowGroupTailListenerTest {
         final Seen appended = seen(session, 3);
         assertMiddleInsertionRows(appended, 65);
         assertTrue(appended.tailed());
-        assertArrayEquals(recordKeys(session, 65),
-            Arrays.copyOf(appended.page().recordKeys(), 65));
+        assertArrayEquals(recordKeys(session, 65), Arrays.copyOf(appended.page().recordKeys(), 65));
         ProjectionOpenRowGroupTail.clearCacheForTesting();
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage =
@@ -283,7 +282,7 @@ final class ProjectionOpenRowGroupTailListenerTest {
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)
   void singleRecordAppendsTakeTheTailAndEveryOtherEditFoldsIt(final VersioningType versioningType) {
-    final Path databasePath = temporaryDirectory.resolve("listener-" + versioningType.name().toLowerCase());
+    final Path databasePath = temporaryDirectory.resolve("listener-" + versioningType.name().toLowerCase(Locale.ROOT));
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     ProjectionOpenRowGroupTail.clearCacheForTesting();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {

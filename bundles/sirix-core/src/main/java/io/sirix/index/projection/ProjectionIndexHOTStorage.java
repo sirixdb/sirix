@@ -14,6 +14,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.HOTBulkSlotLoader;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.index.projection.ProjectionOpenRowGroupTail.Header;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.io.filechannel.FileChannelReader;
@@ -789,12 +790,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // tombstones every segment slot that vanished. This read is deliberately strict: without a
     // readable prior descriptor there is no authoritative list of owned side slots, so overwriting
     // it could strand durable pages. There is no reset/rebuild mutation mode to clean those up.
-    final byte[] prior = getPriorBlobForMutation(descriptorSlotKey(rowGroupId));
-    final boolean priorIsDescriptor = prior != null && RowGroupDescriptor.isDescriptor(prior);
-    if (prior != null && !priorIsDescriptor) {
-      throw poisonMalformedPriorDescriptor(rowGroupId, "missing descriptor magic");
-    }
-    if (priorIsDescriptor) {
+    final byte @Nullable [] prior = getPriorBlobForMutation(descriptorSlotKey(rowGroupId));
+    if (prior != null) {
+      if (!RowGroupDescriptor.isDescriptor(prior)) {
+        throw poisonMalformedPriorDescriptor(rowGroupId, "missing descriptor magic");
+      }
       try {
         RowGroupDescriptor.validate(prior);
       } catch (final RuntimeException | Error failure) {
@@ -802,7 +802,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         throw failure;
       }
     }
-    if (changedColumnWords != null && !priorIsDescriptor) {
+    if (changedColumnWords != null && prior == null) {
       throw new IllegalStateException("cannot validate a column-scoped projection update without a prior descriptor");
     }
     if (RowGroupDescriptor.isTailed(descriptor)) {
@@ -811,17 +811,17 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // Open-row-group tail: a tailed prior names the merged row group, but the persisted
     // segments hold the base rows — carry-forward and vanish decisions follow the BASE descriptor,
     // the tail is folded (its slots tombstoned), and an unchanged-content write is never a no-op.
-    final ProjectionOpenRowGroupTail.Header tail = priorIsDescriptor && RowGroupDescriptor.isTailed(prior)
+    final @Nullable Header tail = prior != null && RowGroupDescriptor.isTailed(prior)
         ? tailHeaderForWrite(rowGroupId)
         : null;
-    final byte[] persistedPrior = tail != null
+    final byte @Nullable [] persistedPrior = tail != null
         ? tail.baseDescriptor()
         : prior;
-    if (priorIsDescriptor && tail == null && Arrays.equals(prior, descriptor)) {
+    if (prior != null && tail == null && Arrays.equals(prior, descriptor)) {
       return false;
     }
     if (changedColumnWords != null) {
-      validateColumnScopedChanges(descriptor, prior, changedColumnWords, keysChanged);
+      validateColumnScopedChanges(descriptor, Objects.requireNonNull(prior), changedColumnWords, keysChanged);
     }
 
     // ORDER: tombstone vanished slots before overwriting the descriptor, then publish the new
@@ -829,14 +829,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // even a later primitive that rejects before touching its own slot poisons the transaction,
     // because an earlier primitive in this sequence may already have changed another owned slot.
     try {
-      if (priorIsDescriptor) {
+      if (persistedPrior != null) {
         tombstoneVanishedColumnSegmentSlots(rowGroupId, descriptor, persistedPrior);
       }
       // Descriptor before its segments so the row group's leading slot is never headless.
       putBlob(descriptorSlotKey(rowGroupId), descriptor);
-      writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments, priorIsDescriptor
-          ? persistedPrior
-          : null);
+      writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments, persistedPrior);
       if (tail != null) {
         tombstoneOpenRowGroupTail(rowGroupId, tail);
       }
@@ -2228,7 +2226,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         continue;
       }
       final byte[] virtualDescriptor = accum.virtualDescriptor;
-      final ProjectionOpenRowGroupTail.Header header = accum.tailHeader;
+      final ProjectionOpenRowGroupTail.Header header = Objects.requireNonNull(accum.tailHeader);
       final int[] ids = accum.columnSegmentIds;
       final byte[][] payloads = accum.payloads;
       final long rowGroupId = accum.rowGroupId;

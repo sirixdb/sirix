@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -1653,7 +1654,7 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, stringUtf8Values, stringUtf8Lengths,
@@ -1667,7 +1668,7 @@ public final class ProjectionIndexRowGroupPage {
    * readers that have no dictionary writer.
    */
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
       final boolean globalIdsResolved) {
@@ -1729,7 +1730,7 @@ public final class ProjectionIndexRowGroupPage {
               ? globalIdsResolved
                   ? longValues[c]
                   : stringUtf8Values == null
-                      ? internGlobal(c, stringValues[c])
+                      ? internGlobal(c, Objects.requireNonNull(stringValues)[c])
                       : internGlobalUtf8(c, stringUtf8Values[c],
                           extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
               : 0L;
@@ -1753,7 +1754,7 @@ public final class ProjectionIndexRowGroupPage {
         // count-distinct kernel depends on it), not a builder convention.
         case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = stringUtf8Values == null
             ? appendString(c, clean
-                ? stringValues[c]
+                ? Objects.requireNonNull(stringValues)[c]
                 : "")
             : clean
                 ? appendBorrowedStringUtf8(c, stringUtf8Values[c],
@@ -1789,9 +1790,9 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Validate the legacy String entry point completely before the page or a global dictionary mutates.
    */
-  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues, final String[] stringValues,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
-      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues,
+      final String @Nullable [] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
     }

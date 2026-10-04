@@ -2385,7 +2385,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               && page.rowsEqualPrefix(edit.oldPage, priorRows)) {
             // The persisted rows are untouched: replay the new rows onto the hydrated page — the very
             // construction every reader repeats — and publish its encoding as the tailed descriptor.
-            final ProjectionIndexRowGroupPage merged = edit.oldPage;
+            final ProjectionIndexRowGroupPage merged = Objects.requireNonNull(edit.oldPage);
             merged.setGlobalDictionaries(globalDictionaries);
             ProjectionOpenRowGroupTail.appendRows(merged, tailRows, physicalSlot);
             if (merged.getRowCount() != rows) {

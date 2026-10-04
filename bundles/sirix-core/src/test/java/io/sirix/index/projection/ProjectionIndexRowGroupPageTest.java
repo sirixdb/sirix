@@ -254,11 +254,11 @@ final class ProjectionIndexRowGroupPageTest {
       final boolean appended = switch (lane) {
         case 0 -> restored.appendRow(65L, new long[] {64L}, new boolean[1], new String[1]);
         case 1 -> appendNumericRow(restored, 65L, 64L, false);
-        case 2 -> restored.appendTailRow(65L, new long[] {64L}, new boolean[1], new byte[1][], new int[1],
-            new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false,
-            new byte[] {0, 0, 0, 64});
-        case 3 -> restored.appendExtractedSingleColumnRow(65L, 64L, false, null, 0, null, 0, true, false,
-            false, false);
+        case 2 ->
+          restored.appendTailRow(65L, new long[] {64L}, new boolean[1], new byte[1][], new int[1], new String[1][],
+              new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false, new byte[] {0, 0, 0, 64});
+        case 3 -> restored.appendExtractedSingleColumnRow(65L, 64L, false, new byte[0], 0, new String[0], 0, true,
+            false, false, false);
         default -> throw new AssertionError(lane);
       };
       assertTrue(appended);
