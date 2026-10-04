@@ -1432,27 +1432,25 @@ final class XmlNodeTrxImpl extends
         final AttributeNode node =
             storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
-        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
+        removeName();
         final ElementNode parent =
             storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeAttribute(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
-        removeName();
         moveToParent();
       } else if (kind == NodeKind.NAMESPACE) {
         final NamespaceNode node =
             storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
-        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
+        removeName();
         final ElementNode parent =
             storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeNamespace(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
-        removeName();
         moveToParent();
       } else {
         final StructNode node = nodeReadOnlyTrx.getStructuralNode();
@@ -1580,7 +1578,12 @@ final class XmlNodeTrxImpl extends
         ? getPathNodeKey()
         : -1;
     moveTo(nodeKey);
-    notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) valueNode, pathNodeKey);
+    if (indexController.hasAnyPrimitiveIndex()) {
+      final Str value = indexController.hasCASIndex()
+          ? new Str(valueNode.getValue())
+          : null;
+      indexController.notifyChange(IndexController.ChangeType.DELETE, nodeKey, kind, pathNodeKey, null, value);
+    }
     removeXmlValueStat(pathNodeKey, valueNode.getRawValue());
   }
 
