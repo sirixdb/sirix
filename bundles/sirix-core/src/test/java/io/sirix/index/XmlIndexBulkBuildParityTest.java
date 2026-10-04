@@ -220,60 +220,76 @@ final class XmlIndexBulkBuildParityTest {
     nameFilters.add(new NameFilter(Set.of(PLAIN, QUALIFIED, OTHER), Set.of(QUALIFIED)));
     for (final IndexDef definition : definitions) {
       if (definition.getType() == IndexType.NAME) {
-        for (int i = 0; i < nameFilters.size(); i++) {
-          final NameFilter filter = nameFilters.get(i);
-          final Set<Long> expected = new TreeSet<>();
-          for (final Entry entry : entries) {
-            if (isNamed(entry.kind()) && entry.kind() != NodeKind.NAMESPACE
-                && matches(entry.name(), definition.getIncluded(), definition.getExcluded())
-                && matches(entry.name(), filter.getIncludes(), filter.getExcludes())) {
-              expected.add(entry.key());
-            }
-          }
-          check(results, definition.getType() + ":" + definition.getID() + ":name:" + i, expected,
-              controller.openNameIndex(trx.getStorageEngineReader(), definition, filter));
-        }
+        nameLookups(trx, controller, definition, entries, nameFilters, results);
       } else {
-        final List<Set<Path<QNm>>> probes = List.of(Set.of(), Set.of(attributePath(PLAIN)),
-            Set.of(attributePath(QUALIFIED)), Set.of(attributePath(OTHER)),
-            Set.of(attributePath(PLAIN), attributePath(QUALIFIED)), Set.of(attributePath(new QNm("missing"))));
-        for (int i = 0; i < probes.size(); i++) {
-          final Set<Path<QNm>> paths = probes.get(i);
-          final Set<Long> expected = new TreeSet<>();
-          for (final Entry entry : entries) {
-            final boolean covered = definition.getType() == IndexType.PATH
-                ? isNamed(entry.kind())
-                : isValue(entry.kind());
-            if (covered && (definition.getPaths().isEmpty() || definition.getPaths().contains(entry.path()))
-                && (paths.isEmpty() || paths.contains(entry.path()))) {
-              expected.add(entry.key());
-            }
-          }
-          final XmlPCRCollector collector = new XmlPCRCollector(trx);
-          final String probe = definition.getType() + ":" + definition.getID() + ":path:" + i;
-          if (definition.getType() == IndexType.PATH) {
-            check(results, probe, expected,
-                controller.openPathIndex(trx.getStorageEngineReader(), definition, new PathFilter(paths, collector)));
-          } else {
-            check(results, probe + ":range", expected, controller.openCASIndex(trx.getStorageEngineReader(), definition,
-                new CASFilterRange(paths, new Str("a"), new Str("z"), true, true, collector)));
-            for (final String value : List.of("", "shared", "changed", "missing")) {
-              final Set<Long> wanted = new TreeSet<>();
-              for (final Entry entry : entries) {
-                if (expected.contains(entry.key()) && (value.isEmpty() || value.equals(entry.value()))) {
-                  wanted.add(entry.key());
-                }
-              }
-              check(results, probe + ":" + value, wanted,
-                  casPostings(trx, controller, definition, paths, value.isEmpty()
-                      ? null
-                      : new Str(value), collector));
-            }
-          }
-        }
+        pathLookups(trx, controller, definition, entries, results);
       }
     }
     return results;
+  }
+
+  private static void nameLookups(final XmlNodeReadOnlyTrx trx, final IndexController<?, ?> controller,
+      final IndexDef definition, final List<Entry> entries, final List<NameFilter> nameFilters,
+      final Map<String, Set<Long>> results) {
+    for (int i = 0; i < nameFilters.size(); i++) {
+      final NameFilter filter = nameFilters.get(i);
+      final Set<Long> expected = new TreeSet<>();
+      for (final Entry entry : entries) {
+        if (isNamed(entry.kind()) && entry.kind() != NodeKind.NAMESPACE
+            && matches(entry.name(), definition.getIncluded(), definition.getExcluded())
+            && matches(entry.name(), filter.getIncludes(), filter.getExcludes())) {
+          expected.add(entry.key());
+        }
+      }
+      check(results, definition.getType() + ":" + definition.getID() + ":name:" + i, expected,
+          controller.openNameIndex(trx.getStorageEngineReader(), definition, filter));
+    }
+  }
+
+  private static void pathLookups(final XmlNodeReadOnlyTrx trx, final IndexController<?, ?> controller,
+      final IndexDef definition, final List<Entry> entries, final Map<String, Set<Long>> results) {
+    final List<Set<Path<QNm>>> probes =
+        List.of(Set.of(), Set.of(attributePath(PLAIN)), Set.of(attributePath(QUALIFIED)), Set.of(attributePath(OTHER)),
+            Set.of(attributePath(PLAIN), attributePath(QUALIFIED)), Set.of(attributePath(new QNm("missing"))));
+    for (int i = 0; i < probes.size(); i++) {
+      final Set<Path<QNm>> paths = probes.get(i);
+      final Set<Long> expected = expectedPathPostings(definition, paths, entries);
+      final XmlPCRCollector collector = new XmlPCRCollector(trx);
+      final String probe = definition.getType() + ":" + definition.getID() + ":path:" + i;
+      if (definition.getType() == IndexType.PATH) {
+        check(results, probe, expected,
+            controller.openPathIndex(trx.getStorageEngineReader(), definition, new PathFilter(paths, collector)));
+      } else {
+        check(results, probe + ":range", expected, controller.openCASIndex(trx.getStorageEngineReader(), definition,
+            new CASFilterRange(paths, new Str("a"), new Str("z"), true, true, collector)));
+        for (final String value : List.of("", "shared", "changed", "missing")) {
+          final Set<Long> wanted = new TreeSet<>();
+          for (final Entry entry : entries) {
+            if (expected.contains(entry.key()) && (value.isEmpty() || value.equals(entry.value()))) {
+              wanted.add(entry.key());
+            }
+          }
+          check(results, probe + ":" + value, wanted, casPostings(trx, controller, definition, paths, value.isEmpty()
+              ? null
+              : new Str(value), collector));
+        }
+      }
+    }
+  }
+
+  private static Set<Long> expectedPathPostings(final IndexDef definition, final Set<Path<QNm>> paths,
+      final List<Entry> entries) {
+    final Set<Long> expected = new TreeSet<>();
+    for (final Entry entry : entries) {
+      final boolean covered = definition.getType() == IndexType.PATH
+          ? isNamed(entry.kind())
+          : isValue(entry.kind());
+      if (covered && (definition.getPaths().isEmpty() || definition.getPaths().contains(entry.path()))
+          && (paths.isEmpty() || paths.contains(entry.path()))) {
+        expected.add(entry.key());
+      }
+    }
+    return expected;
   }
 
   @SuppressWarnings("NullAway")
