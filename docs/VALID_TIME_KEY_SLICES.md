@@ -91,16 +91,20 @@ admission stops at the first live guard chunk; exceptional-bound admission stops
 intersection with the array's membership. Exceptional intervals in other cohorts do not prevent
 key-only counts over exact array members. The read index controller retains up to 256 cohort admission
 results, scoped to database, resource, immutable revision, definition identity, array key and length.
-Controller eviction and session closure release these proofs. Writer-backed readers decline admission
-and retain the exact comparison fallback. Repeated queries reuse successful or declined admission without decoding whole
-membership and verification postings; point conversion and endpoint selection remain per evaluation.
+Controller eviction or collection of the owning session releases these proofs; entries retain no
+readers or transactions. Writer-backed readers decline admission and retain the exact comparison
+fallback. Repeated queries reuse successful or declined admission without decoding whole membership
+and verification postings; point conversion and endpoint selection remain per evaluation.
 
 ## Verification plan
 
-All Gradle commands use a private Maven-local directory. Do not use or modify `~/.m2` for this
-change: it may contain a stale Brackit snapshot.
+All Gradle and Maven commands use a fresh, worktree-private Maven-local directory and a private
+`TMPDIR`. Do not use or modify `~/.m2` for this change: it may contain a stale Brackit snapshot.
+The example paths below must be empty at the start of a verification campaign.
 
 ```bash
+export TMPDIR="$PWD/build/validtime-verification/tmp"
+mkdir -p "$TMPDIR" "$PWD/build/m2-private"
 heavy ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
   -Dmaven.repo.local="$PWD/build/m2-private" --max-workers=2 \
   -PtestHeapMin=512m -PtestHeapMax=2g \
@@ -112,9 +116,9 @@ heavy ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
 
 Run the complete `:sirix-core:test :sirix-query:test` suites and the work-budget commands in
 [VERIFICATION.md](VERIFICATION.md), with the same private Maven repository. On the shared laptop,
-every Gradle or Maven invocation runs under the supplied memory-gated two-slot `heavy()` limiter;
-other JVMs with heaps above 2 GB use it too. The full-suite run
-uses a 512 MB initial/6 GB maximum test heap and a 2 GB Gradle heap.
+every Gradle or Maven invocation runs under the captured memory-gated two-slot `heavy()` limiter.
+All runs, including the full suites, use two Gradle workers, a 512 MB initial/2 GiB maximum test
+heap and a 2 GiB maximum Gradle heap.
 
 The new budget decorates a real transaction. Before demand and during exact-key counting it permits
 zero candidate moves, timestamp reads, and object-constructor child-pointer reads. The first `next()`
@@ -142,10 +146,11 @@ reverts and reopened historical revisions. The two 100,000-row cohort variants a
 A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
-The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the
-100,000-record variant and record its printed `moveTo`, `getFirstChildKey`, `getValue`, `intervalRefs`
-and `postingRefs` counts,
-all zero for each empty answer before and after the intervals in every mode and query route.
+The small empty-stab inexact fixture remains at 64 records. The dedicated Test phase must execute
+all five 100,000-record variants: empty stabs, selective positive stabs with the match first/last,
+and plain-FLWOR cohorts with the match first/last. For empty stabs, record the printed `moveTo`,
+`getFirstChildKey`, `getValue`, `intervalRefs` and `postingRefs` counts, all zero for each empty
+answer before and after the intervals in every mode and query route.
 Printed modes use bit 1 for strict start and bit 2 for strict end. It is opt-in so ordinary CI retains
 fixture-scale coverage:
 
@@ -153,11 +158,11 @@ fixture-scale coverage:
 SIRIX_VALID_TIME_LARGE_BUDGET=true heavy ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g \
   -Dmaven.repo.local="$PWD/build/m2-private" --max-workers=2 \
   -PtestHeapMin=512m -PtestHeapMax=2g :sirix-query:test \
-  --tests '*ValidTimeSliceWorkBudgetTest.oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab' --info
+  --tests '*ValidTimeSliceWorkBudgetTest.oneHundredThousand*' --info
 ```
 
-If the dedicated Test phase increases a JVM heap above 2 GB, wrap that invocation in the captured
-`heavy()` limiter. This review phase adds the executable scenario; it does not claim a 100k result.
+The Test phase must retain the captured heap limits and limiter for these opt-in scenarios;
+their presence alone is not evidence of a 100k result.
 
 Correctness coverage includes exhaustive small RI-tree domains, hand-computed strict/inclusive
 answers, reversed operators, dynamic resources and correlated points, nested objects, missing and

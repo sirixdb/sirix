@@ -591,9 +591,6 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void applyPendingIndexMaintenance(final boolean finalCommit) {
-    // Uniform listener lifecycle: every listener gets the commit-time hook;
-    // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
-    // default no-op, batching types (projection) apply their pending work.
     final ChangeListener[] activeListeners = listenerSnapshot;
     for (int i = 0; i < activeListeners.length; i++) {
       activeListeners[i].beforeCommit(finalCommit);

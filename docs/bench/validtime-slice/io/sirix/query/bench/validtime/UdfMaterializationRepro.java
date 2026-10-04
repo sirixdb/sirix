@@ -44,7 +44,9 @@ public final class UdfMaterializationRepro {
         @Override
         public Item get(final IntNumeric position) {
           final int index = position.intValue();
-          return index < 1 || index > 64 ? null : item(index);
+          return index < 1 || index > 64
+              ? null
+              : item(index);
         }
 
         private Item item(final int value) {
@@ -58,12 +60,13 @@ public final class UdfMaterializationRepro {
             private int position;
 
             @Override
-            public void close() {
-            }
+            public void close() {}
 
             @Override
             public Item next() {
-              return position == 64 ? null : item(++position);
+              return position == 64
+                  ? null
+                  : item(++position);
             }
           };
         }
@@ -74,9 +77,8 @@ public final class UdfMaterializationRepro {
   public static void main(final String[] args) {
     Functions.predefine(new Keys());
     final String namespace = "declare namespace probe = 'urn:repro'; ";
-    final String[] queries = {
-        "count(probe:keys())",
-        "declare function local:slice() { probe:keys() }; count(local:slice())"};
+    final String[] queries =
+        {"count(probe:keys())", "declare function local:slice() { probe:keys() }; count(local:slice())"};
     for (final String text : queries) {
       constructed = 0;
       final Sequence count = new Query(new CompileChain(), namespace + text).evaluate(new BrackitQueryContext());
