@@ -1,9 +1,7 @@
 # Projection Index — Segment-Slot Inline / Overflow Storage
 
-> **Current format.** A row-group descriptor contains metadata and zone maps
-> only. Every encoded segment has exactly one HOT segment slot. A segment payload
-> of at most **512 bytes** is stored inline in that slot; a larger payload is
-> stored in an `OverflowPage` referenced by that slot.
+> **Current format.** Persisted segment and open-row-group tail placement is
+> defined in [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 >
 > An earlier design proposed putting small segment payloads in a trailing region
 > of the row-group descriptor. That proposal was rejected and is documented here
@@ -18,12 +16,11 @@ The broader index layout is described in
 
 ## 1. The one supported layout
 
-Each row group has one descriptor slot and one slot per encoded segment:
-
-```text
-(rowGroupId, 0)               zone-map-only row-group descriptor
-(rowGroupId, segmentId + 1)   that segment's HOT slot
-```
+The placement rules below describe persisted base segments. Their slot layout,
+including open-row-group tail storage, is defined in
+[DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
+append, merge and fold rules are owned by the
+[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 The descriptor records the row count, key range, column kinds, and each
 segment's identity, encoded length, content hash, provenance, and min/max zone
@@ -47,11 +44,6 @@ This gives every segment one logical address and one authoritative byte source:
 - for a large segment, the bytes are in the `OverflowPage` referenced by that
   segment slot;
 - the descriptor never contains a second copy.
-
-These placement rules describe persisted base segments. Open-row-group tail
-storage is defined in [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
-its append, merge and fold lifecycle is owned by the
-[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 ## 2. Why small segments should be inline
 

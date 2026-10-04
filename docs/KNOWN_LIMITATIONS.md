@@ -186,8 +186,8 @@ else falls back to the generic (always correct) pipeline.
 - **Development-only projection prototypes are unsupported bytes.** Chunked,
   one-slot-per-row-group, and descriptor-inline proposals never define a
   compatibility format. Current readers do not sniff them and writers do not
-  reset or migrate them. Any such payload fails closed. The sole persisted
-  layout is one zone-map descriptor slot plus one HOT slot per segment.
+  reset or migrate them. Any such payload fails closed. The current persisted
+  layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 - **Mixed int/double columns under predicates.** Document doubles are no
   longer truncated to longs during predicate evaluation (the `rating` 3 vs
   3.7 family), and the NumberRegion zone-map page prune now requires the tag

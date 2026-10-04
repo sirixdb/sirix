@@ -675,11 +675,9 @@ array child produced a row, then replaces the tombstone (`proj/ProjectionBulkLoa
   | yes | yes | otherwise | column-only update |
   | any other combination | | | inconsistent → the transaction fails |
 
-- **Membership edits** re-extract every row of each touched row group from the document and re-split it into
-  ⌈rows/1024⌉ groups ("Inserts and deletes rebuild their touched leaves", `:75-77`, `:2296-2375`): up to 1024
-  record extractions per touched row group, not per changed row.
-- **Column-only updates** keep keys and untouched segments and re-extract only the dirty columns, but for **every
-  row** of the row group, because V0 has no per-row provenance bits (`:2965-3090`).
+- **Membership edits and column-only updates** follow the
+  [incremental maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md), including
+  append eligibility and folding an open tail before a column patch.
 - **Publish** (`:2377-2426`): global-dictionary append generations → set summaries → sorted view
   (`maintainSortedView`, `:2395`) → metadata (build revision = current revision) → fences → Bloom
   `rewriteTouchedChunks` → flag summary `rewriteTouched` → **slot 0 last**; every rewritten row group is

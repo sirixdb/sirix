@@ -421,8 +421,7 @@ For marker 0:
 - No exception bitmap object is allocated.
 - No bitmap words are persisted.
 - An exception test returns false directly from the marker.
-- A value-only column update preserves the encoded marker without decoding a
-  bitmap.
+- Value-only bitmap handling follows [§5](#5-value-update-price-20-becomes-25).
 
 For marker 1, only `ceil(rowCount / 64)` live words are stored. At the maximum
 1024 rows this is 16 longs, or 128 bytes.
@@ -801,7 +800,7 @@ The common ingestion and update paths obey these rules:
 
 - No per-row boxed objects in encode, lookup, or maintenance loops.
 - No exception bitmap allocation for a normal-only row group.
-- No exception bitmap decode/copy for a value-only update.
+- Value-only bitmap handling follows [§5](#5-value-update-price-20-becomes-25).
 - At most 128 bytes of live bitmap payload for an exception-bearing 1024-row
   group: 16 longs, plus the JVM array header when materialized.
 - A membership rewrite may use one primitive `BooleanArrayList` for the touched
@@ -930,7 +929,8 @@ The implementation is incomplete until focused tests cover:
 
 ### Performance
 
-- Value-only update writes no KEYS/exception bitmap segment.
+- Value-only updates obey the bitmap and segment-write contract in
+  [§5](#5-value-update-price-20-becomes-25).
 - Ordinary normal LDJSON ingestion creates no locator entries.
 - Local insert/delete/move leaves distant row-group hashes unchanged.
 - Allocation profile confirms no per-row allocation regression.

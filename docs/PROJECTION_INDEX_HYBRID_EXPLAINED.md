@@ -2,9 +2,9 @@
 
 This is the plain-English companion to
 [`PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md`](PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md).
-The precise rule is simple: every encoded segment owns one HOT slot; that slot
-holds a payload of at most **512 bytes** directly and references an
-`OverflowPage` for a larger payload.
+The discussion below explains persisted base segments. The
+[disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+owns current segment and open-row-group tail placement.
 
 > **There is only one format.** Segment bytes never live in the row-group
 > descriptor. A former proposal to pack small segments into the descriptor was

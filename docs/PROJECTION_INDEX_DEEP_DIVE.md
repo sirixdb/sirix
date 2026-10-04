@@ -368,14 +368,8 @@ page granularity — a small leaf is what makes per-commit maintenance cheap.
 
 ## 5. Wire formats, byte by byte
 
-Four magics, all little-endian; every payload is self-describing:
-
-| Magic | ASCII | Where | Role |
-|---|---|---|---|
-| `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
-| `0x53584950` | `PIXS` | segment page payload | one encoded segment |
-| `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
-| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape + set-summary capabilities, VERSION 0) |
+The authoritative [disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+defines the little-endian payload magics and their placement, including open-row-group tails.
 
 ### 5.1 `PIXD` — the row-group descriptor
 
@@ -1011,8 +1005,9 @@ for document records (an encoded inline slot allocation ≤ `MAX_RECORD_SIZE = 5
 including any Dewey payload/trailer; a larger allocation puts the record body in an
 `OverflowPage` while the Dewey ID remains in page metadata). A projection applies it per segment.
 
-The single persisted projection format has three storage classes with two
-versioning behaviours:
+For persisted base segments and routing metadata, the storage classes below
+have two versioning behaviours. Open-tail storage and folding follow the
+[maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 | Storage class | What it is | How it versions |
 |---|---|---|
