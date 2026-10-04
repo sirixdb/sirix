@@ -1,0 +1,291 @@
+{
+  "core": {
+    "tests": 12109,
+    "skipped": 76,
+    "failures": []
+  },
+  "query": {
+    "tests": 2006,
+    "skipped": 7,
+    "failures": [
+      {
+        "class": "io.sirix.query.scan.GroupTopKDifferentialTest",
+        "test": "stringMinAndMaxWithCollationAdversariesAndAllMissingGroup()",
+        "message": "org.opentest4j.AssertionFailedError: served ordered result differs from interpreted for: subsequence(for $u in jn:doc('topk-gb-db','records.jn')[] let $d := $u.dept group by $d let $c := count($u) order by $c descending return {\"d\": $d, \"lo\": min($u.nick), \"hi\": max($u.nick), \"c\": $c}, 1, 4) ==> expected: <{\"d\":\"Mkt\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":533} {\"d\":\"Ops\",\"lo\":null,\"hi\":null,\"c\":513} {\"d\":\"Eng\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":487} {\"d\":\"Sales\",\"lo\":\"m0\",\"hi\":\"\ud801\udc00\",\"c\":470}> but was: <{\"d\":\"Mkt\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":533} {\"d\":\"Ops\",\"lo\":null,\"hi\":null,\"c\":513} {\"d\":\"Eng\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":487} {\"d\":\"Sales\",\"lo\":\"m0\",\"hi\":\"\uff01\",\"c\":470}>"
+      },
+      {
+        "class": "io.sirix.query.scan.StringPredicateDifferentialTest",
+        "test": "supplementaryCharacterOrderingMatchesTheInterpreter()",
+        "message": "org.opentest4j.AssertionFailedError: served result differs for predicate: $u.sup lt \"\uff01\" ==> expected: <> but was: <{\"k\":1,\"c\":1} {\"k\":2,\"c\":1} {\"k\":4,\"c\":1} {\"k\":5,\"c\":1} {\"k\":7,\"c\":1} {\"k\":8,\"c\":1} {\"k\":10,\"c\":1}>"
+      }
+    ]
+  },
+  "focused": [
+    {
+      "name": "io.sirix.query.compiler.optimizer.OpaqueConjunctTest",
+      "tests": "45",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.CheapFirstConjunctTest",
+      "tests": "23",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.ScalarDependencyTest",
+      "tests": "14",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.compiler.optimizer.ConjunctInputTest",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "core_budgets": [
+    {
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": "15",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "query_budgets": [
+    {
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "oracles": {
+    "t25k": {
+      "passed": 12,
+      "total": 12,
+      "kit_natural_batching": true
+    },
+    "t100k": {
+      "passed": 12,
+      "total": 12,
+      "kit_natural_batching": true
+    }
+  },
+  "scope": {
+    "initial_implementation_commit": "fe4b8463df35124f50b5c91605f736114073305d",
+    "initial_results": [
+      "core",
+      "query",
+      "focused",
+      "core_budgets",
+      "query_budgets",
+      "oracles"
+    ],
+    "admission_repair_commit": "f0f6971354f3a2799e273976587b86868b31f426"
+  },
+  "admission_repairs": {
+    "recorded_by": "review fixes R1-R4",
+    "tested_source_sha256": {
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/BindingDependencies.java": "3677182317049940225c52a829c8048a531fe5e4ce954941b4b01c5074e6b2a0",
+      "bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/CheapFirstConjunctStage.java": "4b1680f9220197840448349d91463d59ffbf257c4db492a70ce1ea47276c4353",
+      "bundles/sirix-query/src/test/java/io/sirix/query/compiler/optimizer/OpaqueConjunctTest.java": "71a3d9a8ace0de033cff57f93d87e3696efb0dcff9faee4e5ebda6f5db13adca",
+      "bundles/sirix-query/src/test/java/io/sirix/query/compiler/optimizer/BindingDependencyWorkTest.java": "0f3d410aab0b7936e8c7713d48cff0d39a2c878efd167da6ac10a40fe88c5941"
+    },
+    "initial_focused_run": {
+      "log": "review-focused.log",
+      "suites": [
+        {
+          "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.BindingDependencyWorkTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.CheapFirstConjunctTest",
+          "tests": 23,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.ConjunctInputTest",
+          "tests": 28,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.HashMembershipStageTest",
+          "tests": 49,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 2
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.JoinKeyPreferenceStageTest",
+          "tests": 21,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.OpaqueConjunctTest",
+          "tests": 81,
+          "failures": 2,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "name": "io.sirix.query.compiler.optimizer.ScalarDependencyTest",
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "failure_cause": "Two scalar-constructor fixture expectations were invalid with the stage both off and on."
+    },
+    "corrected_fixture_run": {
+      "log": "review-provider-fixture.log",
+      "suite": {
+        "name": "io.sirix.query.compiler.optimizer.OpaqueConjunctTest",
+        "tests": 81,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "latest_results_per_class": [
+      {
+        "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.BindingDependencyWorkTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.CheapFirstConjunctTest",
+        "tests": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.ConjunctInputTest",
+        "tests": 28,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.HashMembershipStageTest",
+        "tests": 49,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.JoinKeyPreferenceStageTest",
+        "tests": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.OpaqueConjunctTest",
+        "tests": 81,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "io.sirix.query.compiler.optimizer.ScalarDependencyTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "passed": 218,
+    "skipped": 2,
+    "gradle_user_home": "build/cheap-first-let/gradle-home",
+    "maven_repository": "build/cheap-first-let/m2-private",
+    "test_heap_min": "512m",
+    "test_heap_max": "2g",
+    "limiter": "6 GiB available memory and either of two fm-heavy-jvm flock slots",
+    "full_suites_or_timing_oracles_rerun": false
+  }
+}

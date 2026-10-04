@@ -1,0 +1,11 @@
+gradle.projectsEvaluated {
+    def queryProject = rootProject.findProject(':sirix-query')
+    queryProject.tasks.register('cheapFirstProbeClasspath') {
+        dependsOn(queryProject.tasks.named('testClasses'))
+        doLast {
+            def output = new File(rootProject.projectDir, 'build/cheap-first-only')
+            output.mkdirs()
+            new File(output, 'probe.cp').text = queryProject.sourceSets.test.runtimeClasspath.asPath
+        }
+    }
+}

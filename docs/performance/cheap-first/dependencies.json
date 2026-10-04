@@ -1,0 +1,10 @@
+[
+  {
+    "sha256": "73f2bd0b8af967af51a0adab0593954d1fda0b20a3b000250e81258fe20757ce",
+    "artifact": "brackit-1.0-alpha10-SNAPSHOT.jar"
+  },
+  {
+    "sha256": "d410e2b1bf65d30c7d89c7fcd41ddeecfd8cdcdd49369e2ca76043785fab3560",
+    "artifact": "brackit-1.0-alpha10-SNAPSHOT-tests.jar"
+  }
+]

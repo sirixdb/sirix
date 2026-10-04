@@ -1,0 +1,150 @@
+baseline warm SETUP ms=1661.198
+baseline warm RUN q=1 rep=0 compile_ms=175.681 execute_ms=2737.272 serialize_ms=8.915 canonical_ms=16.168 total_ms=2921.868 rows=1
+baseline warm RUN q=1 rep=1 compile_ms=17.073 execute_ms=659.110 serialize_ms=0.093 canonical_ms=0.701 total_ms=676.277 rows=1
+baseline warm RUN q=1 rep=2 compile_ms=6.742 execute_ms=577.487 serialize_ms=0.121 canonical_ms=0.911 total_ms=584.350 rows=1
+baseline warm RUN q=1 rep=3 compile_ms=13.458 execute_ms=549.964 serialize_ms=0.110 canonical_ms=0.886 total_ms=563.532 rows=1
+baseline warm RUN q=1 rep=4 compile_ms=4.665 execute_ms=476.938 serialize_ms=0.093 canonical_ms=0.631 total_ms=481.696 rows=1
+baseline warm RUN q=1 rep=5 compile_ms=4.672 execute_ms=415.619 serialize_ms=0.087 canonical_ms=0.774 total_ms=420.377 rows=1
+baseline warm RUN q=1 rep=6 compile_ms=7.717 execute_ms=423.110 serialize_ms=0.118 canonical_ms=0.874 total_ms=430.945 rows=1
+baseline warm RUN q=1 rep=7 compile_ms=4.385 execute_ms=417.718 serialize_ms=0.094 canonical_ms=0.729 total_ms=422.197 rows=1
+baseline warm RUN q=1 rep=8 compile_ms=4.645 execute_ms=435.035 serialize_ms=0.101 canonical_ms=0.706 total_ms=439.782 rows=1
+baseline warm RUN q=1 rep=9 compile_ms=3.807 execute_ms=436.271 serialize_ms=0.114 canonical_ms=0.631 total_ms=440.191 rows=1
+baseline warm RUN q=2 rep=0 compile_ms=3.324 execute_ms=1154.916 serialize_ms=0.103 canonical_ms=0.732 total_ms=1158.344 rows=1
+baseline warm RUN q=2 rep=1 compile_ms=3.764 execute_ms=290.739 serialize_ms=0.092 canonical_ms=0.681 total_ms=294.594 rows=1
+baseline warm RUN q=2 rep=2 compile_ms=6.199 execute_ms=284.898 serialize_ms=0.308 canonical_ms=0.672 total_ms=291.405 rows=1
+baseline warm RUN q=2 rep=3 compile_ms=3.267 execute_ms=302.275 serialize_ms=0.113 canonical_ms=0.635 total_ms=305.654 rows=1
+baseline warm RUN q=2 rep=4 compile_ms=14.735 execute_ms=299.688 serialize_ms=0.102 canonical_ms=0.963 total_ms=314.524 rows=1
+baseline warm RUN q=2 rep=5 compile_ms=5.695 execute_ms=352.979 serialize_ms=0.097 canonical_ms=0.638 total_ms=358.771 rows=1
+baseline warm RUN q=2 rep=6 compile_ms=2.833 execute_ms=278.286 serialize_ms=0.080 canonical_ms=0.615 total_ms=281.199 rows=1
+baseline warm RUN q=2 rep=7 compile_ms=2.864 execute_ms=276.773 serialize_ms=0.068 canonical_ms=0.642 total_ms=279.704 rows=1
+baseline warm RUN q=2 rep=8 compile_ms=3.012 execute_ms=276.705 serialize_ms=0.499 canonical_ms=0.605 total_ms=280.216 rows=1
+baseline warm RUN q=2 rep=9 compile_ms=2.607 execute_ms=276.822 serialize_ms=0.120 canonical_ms=0.556 total_ms=279.548 rows=1
+baseline warm RUN q=3 rep=0 compile_ms=3.110 execute_ms=1433.453 serialize_ms=0.068 canonical_ms=0.643 total_ms=1436.631 rows=1
+baseline warm RUN q=3 rep=1 compile_ms=3.158 execute_ms=1339.553 serialize_ms=0.072 canonical_ms=0.779 total_ms=1342.783 rows=1
+baseline warm RUN q=3 rep=2 compile_ms=2.837 execute_ms=1327.766 serialize_ms=0.065 canonical_ms=0.571 total_ms=1330.669 rows=1
+baseline warm RUN q=3 rep=3 compile_ms=2.559 execute_ms=1464.750 serialize_ms=0.111 canonical_ms=0.971 total_ms=1467.419 rows=1
+baseline warm RUN q=3 rep=4 compile_ms=4.194 execute_ms=1568.825 serialize_ms=0.099 canonical_ms=0.823 total_ms=1573.118 rows=1
+baseline warm RUN q=3 rep=5 compile_ms=5.831 execute_ms=1790.965 serialize_ms=0.070 canonical_ms=0.593 total_ms=1796.866 rows=1
+baseline warm RUN q=3 rep=6 compile_ms=2.519 execute_ms=1920.606 serialize_ms=0.095 canonical_ms=0.591 total_ms=1923.220 rows=1
+baseline warm RUN q=3 rep=7 compile_ms=2.242 execute_ms=1581.715 serialize_ms=0.070 canonical_ms=0.631 total_ms=1584.027 rows=1
+baseline warm RUN q=3 rep=8 compile_ms=2.225 execute_ms=1298.010 serialize_ms=0.086 canonical_ms=0.607 total_ms=1300.321 rows=1
+baseline warm RUN q=3 rep=9 compile_ms=2.440 execute_ms=1280.784 serialize_ms=0.086 canonical_ms=0.558 total_ms=1283.310 rows=1
+baseline warm RUN q=10 rep=0 compile_ms=11.224 execute_ms=1276.021 serialize_ms=0.496 canonical_ms=2.104 total_ms=1287.742 rows=16
+baseline warm RUN q=10 rep=1 compile_ms=5.762 execute_ms=1209.871 serialize_ms=0.263 canonical_ms=1.155 total_ms=1215.896 rows=16
+baseline warm RUN q=10 rep=2 compile_ms=3.665 execute_ms=1098.128 serialize_ms=0.320 canonical_ms=1.757 total_ms=1102.113 rows=16
+baseline warm RUN q=10 rep=3 compile_ms=5.754 execute_ms=1095.988 serialize_ms=0.179 canonical_ms=0.970 total_ms=1101.922 rows=16
+baseline warm RUN q=10 rep=4 compile_ms=3.412 execute_ms=1077.458 serialize_ms=0.153 canonical_ms=0.922 total_ms=1081.023 rows=16
+baseline warm RUN q=10 rep=5 compile_ms=3.166 execute_ms=1066.486 serialize_ms=0.127 canonical_ms=0.863 total_ms=1069.778 rows=16
+baseline warm RUN q=10 rep=6 compile_ms=2.965 execute_ms=1104.009 serialize_ms=0.110 canonical_ms=0.773 total_ms=1107.084 rows=16
+baseline warm RUN q=10 rep=7 compile_ms=3.148 execute_ms=1223.585 serialize_ms=0.108 canonical_ms=0.775 total_ms=1226.842 rows=16
+baseline warm RUN q=10 rep=8 compile_ms=3.101 execute_ms=1105.181 serialize_ms=0.116 canonical_ms=1.084 total_ms=1108.398 rows=16
+baseline warm RUN q=10 rep=9 compile_ms=3.458 execute_ms=1215.006 serialize_ms=0.191 canonical_ms=0.909 total_ms=1218.654 rows=16
+baseline warm SETUP ms=1628.890
+baseline warm RUN q=5 rep=0 compile_ms=343.073 execute_ms=19601.328 serialize_ms=6.274 canonical_ms=16.032 total_ms=19950.675 rows=23
+baseline warm RUN q=5 rep=1 compile_ms=7.526 execute_ms=8880.135 serialize_ms=0.935 canonical_ms=2.507 total_ms=8888.596 rows=23
+baseline warm RUN q=5 rep=2 compile_ms=15.603 execute_ms=8183.070 serialize_ms=0.373 canonical_ms=1.763 total_ms=8199.045 rows=23
+baseline cold SETUP ms=1333.164
+baseline cold RUN q=1 rep=0 compile_ms=177.059 execute_ms=2871.891 serialize_ms=4.752 canonical_ms=12.832 total_ms=3053.702 rows=1
+baseline cold SETUP ms=1585.274
+baseline cold RUN q=1 rep=0 compile_ms=337.040 execute_ms=2465.237 serialize_ms=5.309 canonical_ms=12.639 total_ms=2807.585 rows=1
+baseline cold SETUP ms=1468.113
+baseline cold RUN q=1 rep=0 compile_ms=205.253 execute_ms=2200.623 serialize_ms=3.199 canonical_ms=7.595 total_ms=2409.074 rows=1
+baseline cold SETUP ms=1129.449
+baseline cold RUN q=2 rep=0 compile_ms=145.314 execute_ms=2287.428 serialize_ms=4.908 canonical_ms=12.838 total_ms=2437.650 rows=1
+baseline cold SETUP ms=1147.949
+baseline cold RUN q=2 rep=0 compile_ms=141.080 execute_ms=1937.664 serialize_ms=2.855 canonical_ms=7.086 total_ms=2081.599 rows=1
+baseline cold SETUP ms=1088.923
+baseline cold RUN q=2 rep=0 compile_ms=142.513 execute_ms=2170.982 serialize_ms=2.921 canonical_ms=8.251 total_ms=2316.415 rows=1
+baseline cold SETUP ms=1896.909
+baseline cold RUN q=3 rep=0 compile_ms=314.868 execute_ms=4828.889 serialize_ms=7.865 canonical_ms=15.208 total_ms=5151.622 rows=1
+baseline cold SETUP ms=1743.717
+baseline cold RUN q=3 rep=0 compile_ms=209.505 execute_ms=3598.582 serialize_ms=5.169 canonical_ms=10.293 total_ms=3813.256 rows=1
+baseline cold SETUP ms=1259.866
+baseline cold RUN q=3 rep=0 compile_ms=143.204 execute_ms=3326.045 serialize_ms=3.108 canonical_ms=15.187 total_ms=3472.358 rows=1
+baseline cold SETUP ms=1402.677
+baseline cold RUN q=5 rep=0 compile_ms=247.406 execute_ms=15909.357 serialize_ms=3.921 canonical_ms=15.408 total_ms=16160.684 rows=23
+baseline cold SETUP ms=1596.642
+baseline cold RUN q=5 rep=0 compile_ms=254.784 execute_ms=15591.658 serialize_ms=3.183 canonical_ms=8.390 total_ms=15849.625 rows=23
+baseline cold SETUP ms=1410.773
+baseline cold RUN q=5 rep=0 compile_ms=260.284 execute_ms=17349.955 serialize_ms=3.204 canonical_ms=9.189 total_ms=17613.444 rows=23
+baseline cold SETUP ms=1556.550
+baseline cold RUN q=10 rep=0 compile_ms=228.036 execute_ms=3040.380 serialize_ms=4.369 canonical_ms=14.927 total_ms=3272.785 rows=16
+baseline cold SETUP ms=1278.958
+baseline cold RUN q=10 rep=0 compile_ms=168.654 execute_ms=2979.880 serialize_ms=3.448 canonical_ms=8.879 total_ms=3151.981 rows=16
+baseline cold SETUP ms=1149.429
+baseline cold RUN q=10 rep=0 compile_ms=167.273 execute_ms=2747.783 serialize_ms=3.502 canonical_ms=9.609 total_ms=2918.558 rows=16
+after warm SETUP ms=1333.165
+after warm RUN q=1 rep=0 compile_ms=150.480 execute_ms=2393.664 serialize_ms=5.475 canonical_ms=14.577 total_ms=2549.618 rows=1
+after warm RUN q=1 rep=1 compile_ms=12.474 execute_ms=149.757 serialize_ms=0.090 canonical_ms=0.911 total_ms=162.321 rows=1
+after warm RUN q=1 rep=2 compile_ms=8.918 execute_ms=124.601 serialize_ms=0.087 canonical_ms=0.761 total_ms=133.607 rows=1
+after warm RUN q=1 rep=3 compile_ms=6.056 execute_ms=117.250 serialize_ms=0.192 canonical_ms=1.056 total_ms=123.499 rows=1
+after warm RUN q=1 rep=4 compile_ms=8.744 execute_ms=145.587 serialize_ms=0.144 canonical_ms=0.909 total_ms=154.476 rows=1
+after warm RUN q=1 rep=5 compile_ms=8.083 execute_ms=146.580 serialize_ms=0.135 canonical_ms=1.044 total_ms=154.798 rows=1
+after warm RUN q=1 rep=6 compile_ms=13.912 execute_ms=154.022 serialize_ms=0.133 canonical_ms=1.101 total_ms=168.067 rows=1
+after warm RUN q=1 rep=7 compile_ms=5.687 execute_ms=99.638 serialize_ms=0.099 canonical_ms=0.765 total_ms=105.423 rows=1
+after warm RUN q=1 rep=8 compile_ms=8.130 execute_ms=84.732 serialize_ms=0.092 canonical_ms=0.668 total_ms=92.954 rows=1
+after warm RUN q=1 rep=9 compile_ms=4.154 execute_ms=91.069 serialize_ms=0.099 canonical_ms=0.634 total_ms=95.322 rows=1
+after warm RUN q=2 rep=0 compile_ms=3.767 execute_ms=1301.527 serialize_ms=0.094 canonical_ms=0.897 total_ms=1305.388 rows=1
+after warm RUN q=2 rep=1 compile_ms=4.428 execute_ms=57.711 serialize_ms=0.087 canonical_ms=0.666 total_ms=62.226 rows=1
+after warm RUN q=2 rep=2 compile_ms=3.192 execute_ms=56.592 serialize_ms=0.100 canonical_ms=0.863 total_ms=59.884 rows=1
+after warm RUN q=2 rep=3 compile_ms=3.344 execute_ms=60.174 serialize_ms=0.122 canonical_ms=0.590 total_ms=63.640 rows=1
+after warm RUN q=2 rep=4 compile_ms=3.046 execute_ms=67.892 serialize_ms=0.069 canonical_ms=0.638 total_ms=71.007 rows=1
+after warm RUN q=2 rep=5 compile_ms=6.173 execute_ms=60.850 serialize_ms=0.213 canonical_ms=0.675 total_ms=67.236 rows=1
+after warm RUN q=2 rep=6 compile_ms=6.697 execute_ms=95.976 serialize_ms=0.117 canonical_ms=0.905 total_ms=102.790 rows=1
+after warm RUN q=2 rep=7 compile_ms=4.600 execute_ms=65.289 serialize_ms=0.086 canonical_ms=0.652 total_ms=69.975 rows=1
+after warm RUN q=2 rep=8 compile_ms=3.866 execute_ms=79.267 serialize_ms=0.156 canonical_ms=1.011 total_ms=83.289 rows=1
+after warm RUN q=2 rep=9 compile_ms=5.036 execute_ms=58.526 serialize_ms=0.334 canonical_ms=0.649 total_ms=63.896 rows=1
+after warm RUN q=3 rep=0 compile_ms=7.114 execute_ms=376.640 serialize_ms=0.091 canonical_ms=11.597 total_ms=383.845 rows=1
+after warm RUN q=3 rep=1 compile_ms=2.776 execute_ms=297.546 serialize_ms=0.067 canonical_ms=0.595 total_ms=300.389 rows=1
+after warm RUN q=3 rep=2 compile_ms=2.639 execute_ms=283.596 serialize_ms=0.068 canonical_ms=0.564 total_ms=286.304 rows=1
+after warm RUN q=3 rep=3 compile_ms=2.445 execute_ms=248.616 serialize_ms=0.092 canonical_ms=0.556 total_ms=251.153 rows=1
+after warm RUN q=3 rep=4 compile_ms=2.457 execute_ms=250.598 serialize_ms=0.070 canonical_ms=0.609 total_ms=253.125 rows=1
+after warm RUN q=3 rep=5 compile_ms=3.301 execute_ms=275.775 serialize_ms=0.085 canonical_ms=0.601 total_ms=279.161 rows=1
+after warm RUN q=3 rep=6 compile_ms=2.718 execute_ms=299.213 serialize_ms=0.141 canonical_ms=0.845 total_ms=302.071 rows=1
+after warm RUN q=3 rep=7 compile_ms=4.009 execute_ms=365.762 serialize_ms=0.071 canonical_ms=0.686 total_ms=369.843 rows=1
+after warm RUN q=3 rep=8 compile_ms=2.904 execute_ms=260.176 serialize_ms=0.108 canonical_ms=0.617 total_ms=263.189 rows=1
+after warm RUN q=3 rep=9 compile_ms=2.368 execute_ms=297.306 serialize_ms=0.091 canonical_ms=0.565 total_ms=299.765 rows=1
+after warm RUN q=10 rep=0 compile_ms=26.308 execute_ms=1522.564 serialize_ms=0.651 canonical_ms=12.350 total_ms=1549.522 rows=16
+after warm RUN q=10 rep=1 compile_ms=5.822 execute_ms=1212.665 serialize_ms=0.267 canonical_ms=1.518 total_ms=1218.754 rows=16
+after warm RUN q=10 rep=2 compile_ms=4.678 execute_ms=1327.786 serialize_ms=0.234 canonical_ms=1.399 total_ms=1332.698 rows=16
+after warm RUN q=10 rep=3 compile_ms=3.320 execute_ms=1105.081 serialize_ms=0.178 canonical_ms=0.888 total_ms=1108.580 rows=16
+after warm RUN q=10 rep=4 compile_ms=3.199 execute_ms=1103.160 serialize_ms=0.156 canonical_ms=0.825 total_ms=1106.516 rows=16
+after warm RUN q=10 rep=5 compile_ms=4.204 execute_ms=1147.183 serialize_ms=0.143 canonical_ms=0.832 total_ms=1151.530 rows=16
+after warm RUN q=10 rep=6 compile_ms=3.111 execute_ms=1185.324 serialize_ms=0.115 canonical_ms=0.810 total_ms=1188.550 rows=16
+after warm RUN q=10 rep=7 compile_ms=3.157 execute_ms=1266.323 serialize_ms=0.109 canonical_ms=0.744 total_ms=1269.589 rows=16
+after warm RUN q=10 rep=8 compile_ms=3.033 execute_ms=1150.210 serialize_ms=0.119 canonical_ms=0.730 total_ms=1153.361 rows=16
+after warm RUN q=10 rep=9 compile_ms=3.066 execute_ms=1209.444 serialize_ms=0.234 canonical_ms=1.226 total_ms=1212.743 rows=16
+after warm SETUP ms=1194.073
+after warm RUN q=5 rep=0 compile_ms=237.665 execute_ms=11736.270 serialize_ms=3.131 canonical_ms=18.443 total_ms=11977.066 rows=23
+after warm RUN q=5 rep=1 compile_ms=6.442 execute_ms=1439.175 serialize_ms=1.037 canonical_ms=1.679 total_ms=1446.653 rows=23
+after warm RUN q=5 rep=2 compile_ms=5.586 execute_ms=1429.993 serialize_ms=0.261 canonical_ms=1.341 total_ms=1435.840 rows=23
+after cold SETUP ms=1195.744
+after cold RUN q=1 rep=0 compile_ms=174.143 execute_ms=2012.184 serialize_ms=3.250 canonical_ms=7.737 total_ms=2189.577 rows=1
+after cold SETUP ms=1110.011
+after cold RUN q=1 rep=0 compile_ms=171.208 execute_ms=2034.275 serialize_ms=3.190 canonical_ms=6.696 total_ms=2208.672 rows=1
+after cold SETUP ms=1045.197
+after cold RUN q=1 rep=0 compile_ms=142.682 execute_ms=2123.469 serialize_ms=4.131 canonical_ms=9.184 total_ms=2270.282 rows=1
+after cold SETUP ms=1268.660
+after cold RUN q=2 rep=0 compile_ms=151.532 execute_ms=1869.024 serialize_ms=5.262 canonical_ms=12.343 total_ms=2025.817 rows=1
+after cold SETUP ms=1144.182
+after cold RUN q=2 rep=0 compile_ms=167.031 execute_ms=1849.267 serialize_ms=2.937 canonical_ms=8.258 total_ms=2019.235 rows=1
+after cold SETUP ms=1209.093
+after cold RUN q=2 rep=0 compile_ms=144.429 execute_ms=2100.514 serialize_ms=4.787 canonical_ms=10.938 total_ms=2249.730 rows=1
+after cold SETUP ms=1551.724
+after cold RUN q=3 rep=0 compile_ms=330.340 execute_ms=2888.791 serialize_ms=3.299 canonical_ms=7.288 total_ms=3222.431 rows=1
+after cold SETUP ms=1504.936
+after cold RUN q=3 rep=0 compile_ms=175.295 execute_ms=2526.736 serialize_ms=3.188 canonical_ms=7.944 total_ms=2705.218 rows=1
+after cold SETUP ms=1558.900
+after cold RUN q=3 rep=0 compile_ms=209.065 execute_ms=2611.720 serialize_ms=4.411 canonical_ms=7.298 total_ms=2825.195 rows=1
+after cold SETUP ms=1416.258
+after cold RUN q=5 rep=0 compile_ms=232.163 execute_ms=11766.559 serialize_ms=5.252 canonical_ms=9.031 total_ms=12003.973 rows=23
+after cold SETUP ms=1100.759
+after cold RUN q=5 rep=0 compile_ms=190.449 execute_ms=10786.592 serialize_ms=4.964 canonical_ms=11.034 total_ms=10982.006 rows=23
+after cold SETUP ms=1198.921
+after cold RUN q=5 rep=0 compile_ms=214.145 execute_ms=11399.992 serialize_ms=5.555 canonical_ms=10.305 total_ms=11619.693 rows=23
+after cold SETUP ms=1335.500
+after cold RUN q=10 rep=0 compile_ms=233.603 execute_ms=2988.962 serialize_ms=3.825 canonical_ms=10.225 total_ms=3226.390 rows=16
+after cold SETUP ms=1219.020
+after cold RUN q=10 rep=0 compile_ms=190.392 execute_ms=3058.861 serialize_ms=6.348 canonical_ms=11.517 total_ms=3255.601 rows=16
+after cold SETUP ms=1446.146
+after cold RUN q=10 rep=0 compile_ms=217.764 execute_ms=3371.682 serialize_ms=6.263 canonical_ms=12.079 total_ms=3595.709 rows=16
