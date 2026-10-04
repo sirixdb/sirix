@@ -211,3 +211,45 @@ source or portable URLs. This committed report records the verdicts and
 limitations; the pinned JSON keeps `targetsAllMeet: false` for the parent.
 The benchmark candidate's production-source hashes match this change. No
 production edits were made between the unpinned failure and pinned campaigns.
+
+## Focused latest-revision span test setup correction
+
+The pipeline's independent 129-slot, window-32 direct-blob test reported a
+revision-130 span p99 regression against immediate pre-fix `0700b54f3`: ratio
+1.976, bounds 1.192–3.157. An unchanged twelve-pair reproduction straddled
+(1.364, 0.688–3.190), with periodic slow samples despite improved medians.
+The original failed evidence remains separate; neither result is pooled below.
+
+The test used `-Xms256m -Xmx2g` without heap pre-touch. A Linux measuring-thread
+`getrusage` diagnostic associated 102 of 104 span samples exceeding 1.2 us
+with minor page faults, roughly one fault per twenty calls. This threshold is
+descriptive, not an acceptance bound. The corresponding diagnostic with a
+fixed, pre-touched heap recorded zero minor faults in that span. Warm lookup
+iterations had warmed the database pages without ensuring resident heap pages.
+
+The focused test now launches both arms through
+`bundles/sirix-query/bench/common/hot-history-jvm.sh`, which sets
+`-Xms2g -Xmx2g -XX:+AlwaysPreTouch`. Supply the remaining JVM flags, classpath
+and driver arguments through the same shared limiter and `taskset -c 0-11`;
+omit separate heap flags. This fixes the warm-test setup without HOT production
+edits. It applies only to this independent 2-GiB workload; the archived 6-GiB
+acceptance campaigns and the accepted SH1 numbers and conclusion are unchanged.
+
+Revalidation used the original `WarmBlobLatencyProbe` bytecode and databases,
+250,000 warm iterations per shape, 2,001 samples per shape, twelve alternating
+fresh-JVM pairs, and the unchanged 5,000-draw paired bootstrap with seed 29032.
+All 24 runs returned exact values. All 27 measured percentile cells met,
+including all six revision-65 max/span cells, against the immediate pre-fix baseline.
+The revised setup is assessed independently of the earlier samples.
+
+| Window-32 revision-130 span | Pre-fix us | Candidate us | Paired median ratio | 95% bounds | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| p50 | 0.461 | 0.301 | 0.670 | 0.611–0.680 | meets |
+| p95 | 0.827 | 0.332 | 0.682 | 0.506–0.719 | meets |
+| p99 | 0.887 | 0.444 | 0.685 | 0.512–0.726 | meets |
+
+These are median per-run percentiles and paired ratios, not a ratio of the two
+displayed medians. Fault instrumentation was used only for diagnosis; the
+paired verdict uses the original uninstrumented driver. This Test phase ran
+the focused workload, not full suites or new SH1 runs. Its generated databases,
+classes, build outputs and scratch samples were removed after recording results.
