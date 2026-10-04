@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
 
+import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,6 +50,65 @@ final class XmlNameIndexRemovalTest {
             Stream.of(NodeKind.ATTRIBUTE, NodeKind.PROCESSING_INSTRUCTION).flatMap(kind ->
                 Stream.of(false, true).flatMap(subtree ->
                     Stream.of(false, true).map(renamed -> Arguments.of(versioning, committed, kind, subtree, renamed))))));
+  }
+
+  private static Stream<Arguments> filteredRemovalCases() {
+    return Arrays.stream(VersioningType.values()).flatMap(versioning ->
+        Stream.of(false, true).flatMap(committed ->
+            Stream.of(false, true).flatMap(startingElement ->
+                Stream.of(false, true).map(subtree -> Arguments.of(versioning, committed, startingElement, subtree)))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("filteredRemovalCases")
+  void attributeRemovalWithFreshFilteredListenersPreservesPostings(final VersioningType versioning,
+      final boolean committed, final boolean startingElement, final boolean subtree) {
+    final Path path = directory.resolve("xml-filtered-removal");
+    final String attributePath = startingElement ? "/root/@a" : "/root/child/@a";
+    final Set<IndexDef> definitions = Set.of(IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML),
+        IndexDefs.createPathIdxDef(Set.of(parse(attributePath)), 0, IndexDef.DbType.XML),
+        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse(attributePath)), 0, IndexDef.DbType.XML));
+    final Map<IndexType, Set<Long>> expected = new EnumMap<>(IndexType.class);
+    Databases.createXmlDatabase(new DatabaseConfiguration(path));
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .build());
+      try (final XmlResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final long rootKey;
+        final long attributeKey;
+        try (final XmlNodeTrx trx = session.beginNodeTrx()) {
+          trx.insertElementAsFirstChild(new QNm("root"));
+          rootKey = trx.getNodeKey();
+          trx.insertElementAsFirstChild(new QNm("child"));
+          final long childKey = trx.getNodeKey();
+          assertTrue(trx.moveTo(startingElement ? rootKey : childKey));
+          trx.insertAttribute(new QNm("a"), "value");
+          attributeKey = trx.getNodeKey();
+          final var controller = session.getWtxIndexController(trx.getRevisionNumber());
+          controller.createIndexes(definitions, trx);
+          expected.put(IndexType.NAME, new TreeSet<>(Set.of(rootKey, childKey)));
+          expected.put(IndexType.PATH, new TreeSet<>(Set.of(attributeKey)));
+          expected.put(IndexType.CAS, new TreeSet<>(Set.of(attributeKey)));
+          assertPostings(controller, trx.getStorageEngineReader(), expected);
+          if (committed) {
+            trx.commit();
+          } else {
+            removeAndAssert(session, trx, rootKey, attributeKey, subtree, expected);
+          }
+        }
+        if (committed) {
+          try (final XmlNodeTrx trx = session.beginNodeTrx()) {
+            assertPostings(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+                expected);
+            removeAndAssert(session, trx, rootKey, attributeKey, subtree, expected);
+          }
+        }
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
   }
 
   @ParameterizedTest

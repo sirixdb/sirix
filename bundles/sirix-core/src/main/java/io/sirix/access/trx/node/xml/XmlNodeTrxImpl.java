@@ -1467,11 +1467,11 @@ final class XmlNodeTrxImpl extends
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
           final long currentNodeKey = axis.nextLong();
 
-          // Remove name.
-          removeName();
-
           // Remove namespaces and attributes.
           removeNonStructural();
+
+          // Remove name.
+          removeName();
 
           // Remove text value.
           removeValue();
@@ -1492,7 +1492,7 @@ final class XmlNodeTrxImpl extends
         // System.out.println("references: " + getPathSummary().getReferences());
         // }
 
-        // removeNonStructural();
+        removeNonStructural();
         removeName();
         removeValue();
 
@@ -1940,7 +1940,6 @@ final class XmlNodeTrxImpl extends
     final boolean hasLeft = oldNode.hasLeftSibling();
     final boolean hasRight = oldNode.hasRightSibling();
     final long oldNodeKey = oldNode.getNodeKey();
-    final NodeKind oldNodeKind = oldNode.getKind();
 
     // Concatenate neighbor text nodes if they exist (the right sibling is
     // deleted afterwards).
@@ -2035,12 +2034,6 @@ final class XmlNodeTrxImpl extends
         moveTo(rightSibKey);
       }
       storageEngineWriter.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
-    }
-
-    // Remove non-structural nodes of old node.
-    if (oldNodeKind == NodeKind.ELEMENT) {
-      moveTo(oldNodeKey);
-      removeNonStructural();
     }
 
     // Remove old node.
