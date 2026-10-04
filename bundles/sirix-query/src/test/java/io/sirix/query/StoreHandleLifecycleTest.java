@@ -307,6 +307,86 @@ final class StoreHandleLifecycleTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  @EnabledOnOs({OS.LINUX, OS.MAC})
+  void jsonRecreatesThroughDanglingAlias(final boolean relativeTarget) throws Exception {
+    final Path storePath = directory.resolve("store");
+    final Path targetDatabasePath = directory.resolve("other/orders");
+    final Path plainDatabasePath = storePath.resolve("plain");
+    final Path aliasPath = storePath.resolve("alias");
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(storePath).build();
+        final BasicJsonDBStore other = BasicJsonDBStore.newBuilder().location(targetDatabasePath.getParent()).build()) {
+      final JsonDBCollection plain = store.create("plain", "resource1", "[\"plain\"]");
+      assertEquals(plainDatabasePath.toRealPath(), plain.getDatabase().getDatabaseConfig().getDatabaseFile());
+      assertFalse(Files.isSymbolicLink(plainDatabasePath));
+      other.create("orders", "resource1", "[\"before\"]").close();
+      final Path linkTarget = relativeTarget
+          ? storePath.relativize(targetDatabasePath)
+          : targetDatabasePath;
+      Files.createSymbolicLink(aliasPath, linkTarget);
+      final JsonDBCollection original = requireNonNull(store.lookup("alias"));
+      store.drop("alias");
+      assertFalse(original.getDatabase().isOpen());
+      assertTrue(Files.isSymbolicLink(aliasPath));
+      assertFalse(Files.exists(aliasPath));
+      final JsonDBCollection replacement = store.create("alias", "resource1", "[\"after\"]");
+      assertEquals("alias", replacement.getName());
+      assertEquals(targetDatabasePath.toRealPath(), replacement.getDatabase().getDatabaseConfig().getDatabaseFile());
+      assertEquals(linkTarget, Files.readSymbolicLink(aliasPath));
+      assertEquals("after", jsonValue(replacement));
+      replacement.close();
+      final JsonDBCollection reopened = requireNonNull(store.lookup("alias"));
+      assertNotSame(replacement, reopened);
+      assertSame(reopened, store.lookup("alias"));
+      assertEquals("after", jsonValue(reopened));
+      assertEquals("plain", jsonValue(requireNonNull(store.lookup("plain"))));
+    } finally {
+      Databases.removeDatabase(plainDatabasePath);
+      Databases.removeDatabase(targetDatabasePath);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  @EnabledOnOs({OS.LINUX, OS.MAC})
+  void xmlRecreatesThroughDanglingAlias(final boolean relativeTarget) throws Exception {
+    final Path storePath = directory.resolve("store");
+    final Path targetDatabasePath = directory.resolve("other/orders");
+    final Path plainDatabasePath = storePath.resolve("plain");
+    final Path aliasPath = storePath.resolve("alias");
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(storePath).build();
+        final BasicXmlDBStore other = BasicXmlDBStore.newBuilder().location(targetDatabasePath.getParent()).build()) {
+      final XmlDBCollection plain = store.create("plain", xml("<plain/>"));
+      assertEquals(plainDatabasePath.toRealPath(), plain.getDatabase().getDatabaseConfig().getDatabaseFile());
+      assertFalse(Files.isSymbolicLink(plainDatabasePath));
+      other.create("orders", xml("<before/>")).close();
+      final Path linkTarget = relativeTarget
+          ? storePath.relativize(targetDatabasePath)
+          : targetDatabasePath;
+      Files.createSymbolicLink(aliasPath, linkTarget);
+      final XmlDBCollection original = requireNonNull(store.lookup("alias"));
+      store.drop("alias");
+      assertFalse(original.getDatabase().isOpen());
+      assertTrue(Files.isSymbolicLink(aliasPath));
+      assertFalse(Files.exists(aliasPath));
+      final XmlDBCollection replacement = store.create("alias", xml("<after/>"));
+      assertEquals("alias", replacement.getName());
+      assertEquals(targetDatabasePath.toRealPath(), replacement.getDatabase().getDatabaseConfig().getDatabaseFile());
+      assertEquals(linkTarget, Files.readSymbolicLink(aliasPath));
+      assertEquals("after", xmlValue(replacement));
+      replacement.close();
+      final XmlDBCollection reopened = requireNonNull(store.lookup("alias"));
+      assertNotSame(replacement, reopened);
+      assertSame(reopened, store.lookup("alias"));
+      assertEquals("after", xmlValue(reopened));
+      assertEquals("plain", xmlValue(requireNonNull(store.lookup("plain"))));
+    } finally {
+      Databases.removeDatabase(plainDatabasePath);
+      Databases.removeDatabase(targetDatabasePath);
+    }
+  }
+
   private static String jsonValue(final JsonDBCollection collection) {
     try (final JsonResourceSession session = collection.getDatabase().beginResourceSession("resource1");
         final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {

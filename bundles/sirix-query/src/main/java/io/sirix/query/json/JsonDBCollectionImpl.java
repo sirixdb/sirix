@@ -9,13 +9,11 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
-import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixIOException;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -202,14 +200,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
 
   @Override
   public void delete() {
-    try {
-      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
-      database.close();
-      jsonDbStore.removeDatabase(database);
-      Databases.removeDatabase(databaseFile);
-    } catch (final SirixIOException e) {
-      throw new DocumentException(e.getCause());
-    }
+    jsonDbStore.drop(database.getDatabaseConfig().getDatabaseFile().toString());
   }
 
   @Override

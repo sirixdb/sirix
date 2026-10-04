@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.query.StoreDatabasePaths.resolveForCreate;
 
 /**
  * Database storage.
@@ -457,7 +458,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       try {
         for (final var collection : collections.values()) {
           final var database = collection.getDatabase();
-          if (collection.getName().equals(name) && database.isOpen()
+          if (collection.getName().equals(name) && database.isOpen() && databases.contains(database)
               && database.getDatabaseConfig().getDatabaseFile().equals(dbPath)) {
             return collection;
           }
@@ -477,7 +478,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(databasePath(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (Databases.createJsonDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -665,7 +666,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
       final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
-    final Path dbPath = databasePath(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(collName, dbConf);
@@ -804,7 +805,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
-    final Path dbPath = databasePath(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(collName, dbConf);
@@ -858,7 +859,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public JsonDBStore removeDatabase(final Database<JsonResourceSession> database) {
     databases.remove(database);
-    collections.remove(database);
     return this;
   }
 
@@ -874,7 +874,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = databasePath(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(collName, dbConf);
@@ -924,7 +924,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       return null;
     }
 
-    final Path dbPath = databasePath(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(collName, dbConf);
@@ -996,8 +996,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
           }
         }
 
-        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
-            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> {
+          if (currDatabase.isOpen()) {
+            return currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+          }
+          final var collection = collections.get(currDatabase);
+          return collection != null && databasePath(collection.getName()).equals(dbConfig.getDatabaseFile());
+        };
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);

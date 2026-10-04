@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.query.StoreDatabasePaths.resolveForCreate;
 
 /**
  * Database storage.
@@ -358,7 +359,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(databasePath(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
@@ -399,7 +400,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   private XmlDBCollection createCollection(final String collName, final String optResName,
       final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
-    final Path dbPath = databasePath(collName);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       removeIfExisting(dbConf);
@@ -437,7 +438,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
     if (parsers != null) {
-      final Path dbPath = databasePath(collName);
+      final Path dbPath = resolveForCreate(location.resolve(collName));
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
         removeIfExisting(dbConf);

@@ -11,6 +11,7 @@ import io.sirix.query.compiler.optimizer.stats.HistogramCollector;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,6 +28,7 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,6 +51,151 @@ final class JsonStoreHistogramInvalidationTest {
   @ValueSource(strings = {"loader", "readers", "strings", "paths", "drop", "canonical-drop"})
   void lexicalAliasRemovalInvalidatesOnlyAffectedHistograms(final String operation) throws Exception {
     aliasRemovalInvalidatesOnlyAffectedHistograms(operation, false);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"loader", "readers", "strings", "paths", "drop", "canonical-drop"})
+  void closedAliasSurvivesUnrelatedReplacement(final String operation) throws Exception {
+    aliasStatisticsSurviveHandleRemoval("handle", operation);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"loader", "readers", "strings", "paths", "drop", "canonical-drop"})
+  void collectionClosePreservesAliasAssociation(final String operation) throws Exception {
+    aliasStatisticsSurviveHandleRemoval("collection", operation);
+  }
+
+  @Test
+  void unregisteredOpenAliasIsNotReused() throws Exception {
+    aliasStatisticsSurviveHandleRemoval("unregister", "loader");
+  }
+
+  @Test
+  void collectionDeleteInvalidatesEveryAliasBeforeRecreation() throws Exception {
+    final Path storePath = directory.resolve("store");
+    final Path otherPath = directory.resolve("other");
+    final Path localDatabasePath = storePath.resolve("orders");
+    final Path targetDatabasePath = otherPath.resolve("orders");
+    final String firstAlias = "../other/./orders";
+    final String secondAlias = "../other/orders";
+    final List<String> affectedNames = List.of(firstAlias, secondAlias);
+    final var catalog = StatisticsCatalog.getInstance();
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(storePath).buildPathSummary(true).build();
+        final BasicJsonDBStore other =
+            BasicJsonDBStore.newBuilder().location(otherPath).buildPathSummary(true).build()) {
+      final JsonDBCollection local = store.create("orders", RESOURCE, "{\"price\":[100,101],\"quantity\":[7,8]}");
+      advanceToRevisionTwo(local, 200);
+      final Histogram[] unrelatedHistograms = collectHistograms(store, "orders");
+      final JsonDBCollection target = other.create("orders", RESOURCE, "{\"price\":[10,11],\"quantity\":[3,4]}");
+      advanceToRevisionTwo(target, 20);
+      target.close();
+      for (final String name : affectedNames) {
+        assertHistogramValues(collectHistograms(store, name), 10, 20, 3);
+      }
+      requireNonNull(store.lookup(firstAlias)).delete();
+      assertFalse(Files.exists(targetDatabasePath));
+      assertMissingHistograms(affectedNames);
+      assertRegisteredHistograms("orders", unrelatedHistograms);
+      final JsonDBCollection replacement =
+          store.create(secondAlias, RESOURCE, "{\"price\":[900,901],\"quantity\":[9,10]}");
+      advanceToRevisionTwo(replacement, 901);
+      assertHistogramValues(collectHistograms(store, secondAlias), 900, 901, 9);
+      assertMissingHistograms(List.of(firstAlias));
+      assertRegisteredHistograms("orders", unrelatedHistograms);
+    } finally {
+      for (final String name : affectedNames) {
+        catalog.invalidateDatabase(name);
+      }
+      catalog.invalidateDatabase("orders");
+      Databases.removeDatabase(localDatabasePath);
+      Databases.removeDatabase(targetDatabasePath);
+    }
+  }
+
+  private void aliasStatisticsSurviveHandleRemoval(final String removal, final String operation) throws Exception {
+    final Path storePath = directory.resolve("store");
+    final Path otherPath = directory.resolve("other");
+    final Path localDatabasePath = storePath.resolve("orders");
+    final Path targetDatabasePath = otherPath.resolve("orders");
+    final String firstAlias = "../other/./orders";
+    final String secondAlias = "../other/orders";
+    final List<String> affectedNames = List.of(firstAlias, secondAlias);
+    final var catalog = StatisticsCatalog.getInstance();
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(storePath).buildPathSummary(true).build();
+        final BasicJsonDBStore other =
+            BasicJsonDBStore.newBuilder().location(otherPath).buildPathSummary(true).build()) {
+      final JsonDBCollection local = store.create("orders", RESOURCE, "{\"price\":[100,101],\"quantity\":[7,8]}");
+      advanceToRevisionTwo(local, 200);
+      final JsonDBCollection target = other.create("orders", RESOURCE, "{\"price\":[10,11],\"quantity\":[3,4]}");
+      advanceToRevisionTwo(target, 20);
+      target.close();
+      final JsonDBCollection alias = requireNonNull(store.lookup(firstAlias));
+      final Histogram[] aliasHistograms = collectHistograms(store, firstAlias);
+      assertHistogramValues(aliasHistograms, 10, 20, 3);
+      switch (removal) {
+        case "collection" -> alias.close();
+        case "handle" -> alias.getDatabase().close();
+        case "unregister" -> {
+          store.removeDatabase(alias.getDatabase());
+          assertNotSame(alias, store.lookup(firstAlias));
+          alias.getDatabase().close();
+        }
+        default -> throw new IllegalArgumentException(removal);
+      }
+      assertRegisteredHistograms(firstAlias, aliasHistograms);
+      if (removal.equals("handle")) {
+        final JsonDBCollection unrelated = store.create("orders", RESOURCE, "{\"price\":[400,401],\"quantity\":[7,8]}");
+        advanceToRevisionTwo(unrelated, 500);
+      }
+      final Histogram[] unrelatedHistograms = collectHistograms(store, "orders");
+      assertHistogramValues(unrelatedHistograms, removal.equals("handle")
+          ? 400
+          : 100,
+          removal.equals("handle")
+              ? 500
+              : 200,
+          7);
+      assertRegisteredHistograms(firstAlias, aliasHistograms);
+      assertHistogramValues(collectHistograms(store, secondAlias), 10, 20, 3);
+
+      final String replacementData = "{\"price\":[900,901],\"quantity\":[9,10]}";
+      final JsonDBCollection replacement;
+      switch (operation) {
+        case "readers" ->
+          replacement = store.create(secondAlias, Set.of(new JsonReader(new StringReader(replacementData))));
+        case "strings" -> replacement =
+            store.createFromJsonStrings(secondAlias, new ArrayStream<>(new Str[] {new Str(replacementData)}));
+        case "paths" -> replacement = store.createFromPaths(secondAlias,
+            new ArrayStream<>(new Path[] {Files.writeString(directory.resolve("replacement.json"), replacementData)}));
+        case "drop", "canonical-drop" -> {
+          store.drop(operation.equals("drop")
+              ? secondAlias
+              : targetDatabasePath.toRealPath().toString());
+          assertMissingHistograms(affectedNames);
+          assertRegisteredHistograms("orders", unrelatedHistograms);
+          replacement = store.create(secondAlias, RESOURCE, replacementData);
+        }
+        case "loader" -> replacement = store.create(secondAlias, RESOURCE, replacementData);
+        default -> throw new IllegalArgumentException(operation);
+      }
+      assertMissingHistograms(affectedNames);
+      assertRegisteredHistograms("orders", unrelatedHistograms);
+      assertEquals(secondAlias, replacement.getName());
+      assertSame(replacement, store.lookup(secondAlias));
+      advanceToRevisionTwo(replacement, 901);
+      assertHistogramValues(collectHistograms(store, secondAlias), 900, 901, 9);
+      assertMissingHistograms(List.of(firstAlias));
+      assertRegisteredHistograms("orders", unrelatedHistograms);
+    } finally {
+      for (final String name : affectedNames) {
+        catalog.invalidateDatabase(name);
+      }
+      catalog.invalidateDatabase("orders");
+      Databases.removeDatabase(localDatabasePath);
+      Databases.removeDatabase(targetDatabasePath);
+    }
   }
 
   private void aliasRemovalInvalidatesOnlyAffectedHistograms(final String operation, final boolean symbolic)
