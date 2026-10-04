@@ -624,11 +624,11 @@ public final class JsonShredder implements Callable<Long> {
   /**
    * Emit a single fused OBJECT_NAMED_* record for a primitive-value object field.
    *
-   * <p>After this returns, the transaction cursor is positioned on the fused node and the
-   * parents stack mirrors the state produced by the legacy OBJECT_KEY-based shredder path
-   * so downstream NAME / END_OBJECT handling stays unchanged — specifically, the fused node
-   * takes the slot formerly occupied by OBJECT_KEY as "left sibling anchor" for the next
-   * object field.
+   * <p>
+   * After this returns, the transaction cursor is positioned on the fused node and the parents stack
+   * mirrors the state produced by the legacy OBJECT_KEY-based shredder path so downstream NAME /
+   * END_OBJECT handling stays unchanged — specifically, the fused node takes the slot formerly
+   * occupied by OBJECT_KEY as "left sibling anchor" for the next object field.
    */
   private void addObjectRecordFused(final String name, final ObjectRecordValue<?> value) throws IOException {
     final long fusedKey;
@@ -646,8 +646,7 @@ public final class JsonShredder implements Callable<Long> {
     parents.popLong();
     parents.push(fusedKey);
 
-    final boolean isNextTokenParentToken =
-        reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT;
+    final boolean isNextTokenParentToken = reader.peek() == JsonToken.NAME || reader.peek() == JsonToken.END_OBJECT;
 
     if (isNextTokenParentToken) {
       // Next token is NAME/END_OBJECT: cursor needs to be on the anchor for right-sibling insert
@@ -658,9 +657,7 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private static boolean isPrimitiveValueKind(final NodeKind kind) {
-    return kind == NodeKind.BOOLEAN_VALUE
-        || kind == NodeKind.NUMBER_VALUE
-        || kind == NodeKind.STRING_VALUE
+    return kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
         || kind == NodeKind.NULL_VALUE;
   }
 
