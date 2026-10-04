@@ -322,7 +322,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   public XmlDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
-      if (Databases.createXmlDatabase(dbConf)) {
+      if (!Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
       }
 

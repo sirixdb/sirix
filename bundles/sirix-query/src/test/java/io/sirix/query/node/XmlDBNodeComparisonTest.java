@@ -2,6 +2,7 @@ package io.sirix.query.node;
 
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.node.parser.DocumentParser;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
@@ -197,6 +198,161 @@ class XmlDBNodeComparisonTest {
         }
       }
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false, true", "false, false", "true, true", "true, false"})
+  void attributesAndNamespacesHaveStructuralAncestors(final boolean storeDeweyIds, final boolean sharedCursor) {
+    try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
+      final XmlDBCollection collection = store.create("collection",
+          new DocumentParser("<r xmlns:p='urn:p' id='r'><a xmlns:q='urn:q' id='a'/></r>"));
+      try (final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1");
+          final XmlNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
+          final XmlNodeReadOnlyTrx otherTrx = session.beginNodeReadOnlyTrx()) {
+        final XmlDBNode document = new XmlDBNode(trx, collection);
+        final XmlDBNode root = document.getFirstChild();
+        final XmlDBNode child = root.getFirstChild();
+        final XmlDBNode[] ancestors = {document, root, child};
+        final XmlDBNode[] nonStructural = {root.getAttribute(new QNm("id")), namespace(root, 0),
+            child.getAttribute(new QNm("id")), namespace(child, 0)};
+        for (int index = 0; index < nonStructural.length; index++) {
+          assertNotNull(nonStructural[index]);
+          final XmlDBNode other;
+          if (sharedCursor) {
+            other = nonStructural[index];
+          } else {
+            assertTrue(otherTrx.moveTo(nonStructural[index].getNodeKey()));
+            other = new XmlDBNode(otherTrx, collection);
+          }
+          for (int ancestor = 0; ancestor < ancestors.length; ancestor++) {
+            final boolean expected = ancestor < 2 || index >= 2;
+            assertEquals(expected, ancestors[ancestor].isAncestorOf(other));
+            assertEquals(expected, ancestors[ancestor].isAncestorOrSelfOf(other));
+            assertFalse(other.isAncestorOf(ancestors[ancestor]));
+            assertFalse(other.isAncestorOrSelfOf(ancestors[ancestor]));
+            assertFalse(other.isDescendantOf(ancestors[ancestor]));
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false, true", "false, false", "true, true", "true, false"})
+  void documentOrderIncludesNamespacesAndAttributesAtEveryDepth(final boolean storeDeweyIds,
+      final boolean sharedCursor) {
+    try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
+      final XmlDBCollection collection = store.create("collection", new DocumentParser(
+          "<r xmlns:p='urn:p' xmlns:q='urn:q' id='r' other='x'>"
+              + "<a xmlns:s='urn:s' id='a' other='y'><d id='d'/></a><b/></r>"));
+      try (final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1");
+          final XmlNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
+          final XmlNodeReadOnlyTrx otherTrx = session.beginNodeReadOnlyTrx()) {
+        final XmlDBNode document = new XmlDBNode(trx, collection);
+        final XmlDBNode root = document.getFirstChild();
+        final XmlDBNode a = root.getFirstChild();
+        final XmlDBNode b = a.getNextSibling();
+        final XmlDBNode d = a.getFirstChild();
+        final XmlDBNode[] nodes = {document, root, namespace(root, 0), namespace(root, 1),
+            root.getAttribute(new QNm("id")), root.getAttribute(new QNm("other")), a, namespace(a, 0),
+            a.getAttribute(new QNm("id")), a.getAttribute(new QNm("other")), d, d.getAttribute(new QNm("id")), b};
+        for (final XmlDBNode node : nodes) {
+          assertNotNull(node);
+        }
+        for (int first = 0; first < nodes.length; first++) {
+          for (int second = 0; second < nodes.length; second++) {
+            final XmlDBNode other;
+            if (sharedCursor) {
+              other = nodes[second];
+            } else {
+              assertTrue(otherTrx.moveTo(nodes[second].getNodeKey()));
+              other = new XmlDBNode(otherTrx, collection);
+            }
+            assertEquals(Integer.signum(first - second), Integer.signum(nodes[first].cmp(other)),
+                first + " compared with " + second);
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"database", "resource", "revision"})
+  void orderingContextsMustBelongToTheSameDocument(final String difference) {
+    final String document = "<r xmlns:r='urn:r' id='r'>"
+        + "<a xmlns:p='urn:p' id='a'><d/></a><b xmlns:q='urn:q' id='b'/></r>";
+    try (final BasicXmlDBStore store = configuredStore(false)) {
+      final XmlDBCollection firstCollection = store.create("first", new DocumentParser(document));
+      final XmlDBCollection secondCollection = difference.equals("database")
+          ? store.create("second", new DocumentParser(document))
+          : firstCollection;
+      final String secondResource = difference.equals("resource") ? "second" : "resource1";
+      if (difference.equals("resource")) {
+        assertNotNull(secondCollection.add(secondResource, new DocumentParser(document)));
+      }
+      if (difference.equals("revision")) {
+        try (final XmlResourceSession session = firstCollection.getDatabase().beginResourceSession("resource1");
+            final XmlNodeTrx writer = session.beginNodeTrx()) {
+          writer.commit();
+        }
+      }
+      try (final XmlNodeReadOnlyTrx firstTrx =
+          firstCollection.getDatabase().beginResourceSession("resource1").beginNodeReadOnlyTrx(1);
+          final XmlNodeReadOnlyTrx secondTrx = secondCollection.getDatabase()
+                                                           .beginResourceSession(secondResource)
+                                                           .beginNodeReadOnlyTrx(difference.equals("revision") ? 2 : 1)) {
+        final XmlDBNode firstDocument = new XmlDBNode(firstTrx, firstCollection);
+        final XmlDBNode secondDocument = new XmlDBNode(secondTrx, secondCollection);
+        final ResourceConfiguration firstConfig = firstTrx.getResourceSession().getResourceConfig();
+        final ResourceConfiguration secondConfig = secondTrx.getResourceSession().getResourceConfig();
+        if (difference.equals("database")) {
+          assertNotEquals(firstConfig.getDatabaseId(), secondConfig.getDatabaseId());
+          assertEquals(firstConfig.getID(), secondConfig.getID());
+        } else {
+          assertEquals(firstConfig.getDatabaseId(), secondConfig.getDatabaseId());
+          if (difference.equals("resource")) {
+            assertNotEquals(firstConfig.getID(), secondConfig.getID());
+          } else {
+            assertEquals(firstConfig.getID(), secondConfig.getID());
+            assertNotEquals(firstTrx.getRevisionNumber(), secondTrx.getRevisionNumber());
+          }
+        }
+        final XmlDBNode[] firstNodes = orderingNodes(firstDocument);
+        final XmlDBNode[] secondNodes = orderingNodes(secondDocument);
+        final XmlDBNode[] firstContexts = orderingContexts(firstNodes);
+        final XmlDBNode[] secondContexts = orderingContexts(secondNodes);
+        for (int index = 0; index < firstNodes.length; index++) {
+          assertEquals(firstNodes[index].getNodeKey(), secondNodes[index].getNodeKey());
+          assertFalse(firstNodes[index].isSelfOf(secondNodes[index]));
+          assertFalse(secondNodes[index].isSelfOf(firstNodes[index]));
+          for (int context = 0; context < firstContexts.length; context++) {
+            assertEquals(firstContexts[context].getNodeKey(), secondContexts[context].getNodeKey());
+            assertFalse(firstNodes[index].isPrecedingOf(secondContexts[context]));
+            assertFalse(firstNodes[index].isFollowingOf(secondContexts[context]));
+            assertFalse(secondNodes[index].isPrecedingOf(firstContexts[context]));
+            assertFalse(secondNodes[index].isFollowingOf(firstContexts[context]));
+          }
+        }
+      }
+    }
+  }
+
+  private static XmlDBNode[] orderingNodes(final XmlDBNode document) {
+    final XmlDBNode root = document.getFirstChild();
+    final XmlDBNode a = root.getFirstChild();
+    return new XmlDBNode[] {root, a, a.getNextSibling(), a.getFirstChild()};
+  }
+
+  private static XmlDBNode[] orderingContexts(final XmlDBNode[] nodes) {
+    return new XmlDBNode[] {nodes[0].getAttribute(new QNm("id")), namespace(nodes[0], 0),
+        nodes[1].getAttribute(new QNm("id")), namespace(nodes[1], 0),
+        nodes[2].getAttribute(new QNm("id")), namespace(nodes[2], 0)};
+  }
+
+  private static XmlDBNode namespace(final XmlDBNode owner, final int index) {
+    final XmlNodeReadOnlyTrx trx = owner.getTrx();
+    assertTrue(trx.moveToNamespace(index));
+    return new XmlDBNode(trx, owner.getCollection());
   }
 
   private static void assertDistinctRootsAreNotAncestorOrSelf(final XmlDBNode first, final XmlDBNode second) {

@@ -2,6 +2,7 @@ package io.sirix.query.node;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.node.stream.ArrayStream;
@@ -23,6 +24,8 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class XmlCollectionResourceConfigurationTest {
@@ -87,6 +90,36 @@ class XmlCollectionResourceConfigurationTest {
       assertConfiguration(collection, "added", versioning, true, false);
       writeHistory(collection, "added");
       assertHistory(collection, "added");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void emptyCollectionsPreserveSettingsAndHistoryWhenDuplicatesAreRejected(final VersioningType versioning) {
+    for (final boolean pathSummary : new boolean[] {false, true}) {
+      final Path location = directory.resolve(Boolean.toString(pathSummary));
+      try (final BasicXmlDBStore store = configuredStore(location, versioning, pathSummary)) {
+        final XmlDBCollection collection = store.create("collection");
+        assertNotNull(collection);
+        assertEquals(0, collection.getDocumentCount());
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertSame(collection, store.lookup("collection"));
+        assertNotNull(collection.add("added", new DocumentParser("<value>one</value>")));
+        assertConfiguration(collection, "added", versioning, pathSummary, false);
+        writeHistory(collection, "added");
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertSame(collection, store.lookup("collection"));
+        assertEquals(1, collection.getDocumentCount());
+        assertHistory(collection, "added");
+      }
+      try (final BasicXmlDBStore store = configuredStore(location, versioning, pathSummary)) {
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        final XmlDBCollection collection = store.lookup("collection");
+        assertNotNull(collection);
+        assertEquals(1, collection.getDocumentCount());
+        assertConfiguration(collection, "added", versioning, pathSummary, false);
+        assertHistory(collection, "added");
+      }
     }
   }
 

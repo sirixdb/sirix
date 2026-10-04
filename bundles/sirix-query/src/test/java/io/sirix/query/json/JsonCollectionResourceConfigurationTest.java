@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.ResourceConfiguration;
@@ -24,6 +25,8 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonCollectionResourceConfigurationTest {
@@ -74,6 +77,39 @@ class JsonCollectionResourceConfigurationTest {
         assertConfiguration(collection, "reopened", versioning, pathSummary, false);
         writeHistory(collection, "reopened");
         assertHistory(collection, "reopened");
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void emptyCollectionsPreserveSettingsAndHistoryWhenDuplicatesAreRejected(final VersioningType versioning)
+      throws Exception {
+    for (final boolean pathSummary : new boolean[] {false, true}) {
+      final Path location = directory.resolve(Boolean.toString(pathSummary));
+      try (final BasicJsonDBStore store = configuredStore(location, versioning, pathSummary)) {
+        final JsonDBCollection collection = store.create("collection");
+        assertNotNull(collection);
+        assertEquals(0, collection.getDocumentCount());
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertSame(collection, store.lookup("collection"));
+        try (final JsonReader reader = new JsonReader(new StringReader("[\"one\"]"))) {
+          assertNotNull(collection.add("added", reader));
+        }
+        assertConfiguration(collection, "added", versioning, pathSummary, false);
+        writeHistory(collection, "added");
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertSame(collection, store.lookup("collection"));
+        assertEquals(1, collection.getDocumentCount());
+        assertHistory(collection, "added");
+      }
+      try (final BasicJsonDBStore store = configuredStore(location, versioning, pathSummary)) {
+        assertThrows(DocumentException.class, () -> store.create("collection"));
+        final JsonDBCollection collection = store.lookup("collection");
+        assertNotNull(collection);
+        assertEquals(1, collection.getDocumentCount());
+        assertConfiguration(collection, "added", versioning, pathSummary, false);
+        assertHistory(collection, "added");
       }
     }
   }

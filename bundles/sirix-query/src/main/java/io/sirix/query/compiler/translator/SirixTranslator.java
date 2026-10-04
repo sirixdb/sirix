@@ -24,6 +24,7 @@ import io.sirix.axis.filter.xml.TextFilter;
 import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
@@ -36,7 +37,6 @@ import io.brackit.query.function.FunctionExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.service.xml.xpath.expr.UnionAxis;
-import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
@@ -782,19 +782,21 @@ public class SirixTranslator extends TopDownTranslator {
     }
   }
 
-  private static int getLevel(XmlDBNode dbNode) {
-    if (dbNode.getDeweyID() != null) {
-      return dbNode.getDeweyID().getLevel();
-    } else {
-      var rtx = dbNode.getRtx();
-      int level = -1;
-      while (rtx.hasParent() && rtx.getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        if (!rtx.isAttribute() && !rtx.isNamespace()) {
-          level++;
-        }
-        rtx.moveToParent();
+  private static int getLevel(final XmlDBNode dbNode) {
+    final XmlNodeReadOnlyTrx rtx = dbNode.getRtx();
+    final SirixDeweyID deweyID = rtx.getDeweyID();
+    if (deweyID != null) {
+      return deweyID.getLevel();
+    }
+    final long nodeKey = rtx.getNodeKey();
+    int level = 0;
+    try {
+      while (rtx.moveToParent()) {
+        level++;
       }
       return level;
+    } finally {
+      rtx.moveTo(nodeKey);
     }
   }
 

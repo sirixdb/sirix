@@ -40,6 +40,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixException;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.service.InsertPosition;
@@ -131,12 +132,17 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       assert node.getNodeClassID() == this.getNodeClassID();
       // Compare node key, revision, and resource to ensure full identity
       // Same node key in different revisions or resources are NOT the same node
-      return node.nodeKey == this.nodeKey && node.rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && node.rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
-                                                                                  .getResourceConfig()
-                                                                                  .getID();
+      return node.nodeKey == nodeKey && isSameDocument(node);
     }
     return false;
+  }
+
+  private boolean isSameDocument(final XmlDBNode node) {
+    final ResourceConfiguration configuration = rtx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration otherConfiguration = node.rtx.getResourceSession().getResourceConfig();
+    return configuration.getDatabaseId() == otherConfiguration.getDatabaseId()
+        && configuration.getID() == otherConfiguration.getID()
+        && rtx.getRevisionNumber() == node.rtx.getRevisionNumber();
   }
 
   @Override
@@ -215,7 +221,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (deweyID != null) {
         return deweyID.isAncestorOf(node.deweyID);
       } else {
-        return other.isDescendantOf(this);
+        return isAncestorOfNode(node);
       }
     }
     return false;
@@ -233,11 +239,24 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (isSelfOf(other)) {
           retVal = true;
         } else {
-          retVal = other.isDescendantOf(this);
+          retVal = isAncestorOfNode(node);
         }
       }
     }
     return retVal;
+  }
+
+  private boolean isAncestorOfNode(final XmlDBNode node) {
+    if (!isSameDocument(node)) {
+      return false;
+    }
+    node.moveRtx();
+    while (node.rtx.moveToParent()) {
+      if (node.rtx.getNodeKey() == nodeKey) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
@@ -309,6 +328,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
+          if (!isSameDocument(node)) {
+            return false;
+          }
           final long otherNodeKey;
           if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
             node.moveRtx();
@@ -336,6 +358,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
+          if (!isSameDocument(node)) {
+            return false;
+          }
           final long otherNodeKey;
           if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
             node.moveRtx();
@@ -1614,13 +1639,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           throw new NullPointerException("Node order comparison - internal error");
         }
         if (par1.getNodeKey() == par2.getNodeKey()) {
-          if (p1.getKind() == Kind.ATTRIBUTE && p2.getKind() != Kind.ATTRIBUTE) {
-            return -1; // attributes first
-          }
-          if (p1.getKind() != Kind.ATTRIBUTE && p2.getKind() == Kind.ATTRIBUTE) {
-            return +1; // attributes first
-          }
-          return p1.getSiblingPosition() - p2.getSiblingPosition();
+          final int categoryOrder = nodeCategories(p1.getKind()) - nodeCategories(p2.getKind());
+          return categoryOrder != 0
+              ? categoryOrder
+              : p1.getSiblingPosition() - p2.getSiblingPosition();
         }
         p1 = par1;
         p2 = par2;

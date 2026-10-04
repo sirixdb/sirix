@@ -486,7 +486,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
-      if (Databases.createJsonDatabase(dbConf)) {
+      if (!Databases.createJsonDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
