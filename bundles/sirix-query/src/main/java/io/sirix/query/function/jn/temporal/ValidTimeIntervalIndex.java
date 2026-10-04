@@ -7,11 +7,12 @@ import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.index.IndexDef;
 import io.sirix.index.interval.IntervalDomain;
+import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.function.DateTimeToInstant;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
@@ -23,8 +24,8 @@ import java.util.function.Supplier;
 
 public final class ValidTimeIntervalIndex {
 
-  @SuppressWarnings("ArrayRecordComponent") // Internal primitive arrays avoid per-key boxing.
-  record Evidence(long[] members, LongOpenHashSet unverified, boolean ordered) {
+  @SuppressWarnings("ArrayRecordComponent")
+  record Evidence(long[] members, LongOpenHashSet unverified) {
   }
 
   private ValidTimeIntervalIndex() {}
@@ -39,8 +40,7 @@ public final class ValidTimeIntervalIndex {
     if (definition == null) {
       return null;
     }
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID(),
-        null);
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, residual, definition.getID());
   }
 
   public static @Nullable Sequence comparisonSequence(final JsonDBItem document, final Supplier<Sequence> point,
@@ -52,14 +52,15 @@ public final class ValidTimeIntervalIndex {
     if (definition == null) {
       return null;
     }
-    final Evidence evidence = readEvidence(document, definition.getID());
-    if (!evidence.ordered() || evidence.members().length != array.len()) {
+    final var reader = document.getTrx().getStorageEngineReader();
+    final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(reader, definition.getID());
+    final HotOrderedStore unverified =
+        ValidTimeIntervalIndexFactory.createVerificationStore(reader, definition.getID());
+    if (ValidTimeIntervalIndexFactory.createOrderStore(reader, definition.getID())
+                                     .hasReferences(document.getNodeKey(), 0)
+        || (unverified.hasReferences(0, 0) && members.intersects(document.getNodeKey(), 0, unverified, 0, 0))
+        || members.cardinality(document.getNodeKey(), 0) != array.len()) {
       return null;
-    }
-    for (final long member : evidence.members()) {
-      if (evidence.unverified().contains(member)) {
-        return null;
-      }
     }
     if (!(point.get() instanceof DateTime dateTime) || dateTime.getTimezone() == null) {
       return null;
@@ -68,8 +69,7 @@ public final class ValidTimeIntervalIndex {
     if (!new IntervalDomain().isExact(instant)) {
       return null;
     }
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID(),
-        evidence);
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID());
   }
 
   public static long[] keys(final JsonDBItem document, final Instant instant, final boolean strictEnd) {
@@ -81,20 +81,39 @@ public final class ValidTimeIntervalIndex {
     return ((ValidTimeKeySequence) sequence).matchingKeys();
   }
 
-  static Evidence readEvidence(final JsonDBItem document, final int indexId) {
+  static Evidence readEvidence(final JsonDBItem document, final int indexId, final LongOpenHashSet closed) {
     final var reader = document.getTrx().getStorageEngineReader();
-    final LongArrayList members = new LongArrayList();
-    final LongArrayList unordered = new LongArrayList(1);
-    if (document instanceof Array) {
-      ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
-                                   .scan(document.getNodeKey(), 0, 0, members::add);
-      ValidTimeIntervalIndexFactory.createOrderStore(reader, indexId).scan(document.getNodeKey(), 0, 0, unordered::add);
-    } else {
-      members.add(document.getNodeKey());
-    }
+    final HotOrderedStore members = document instanceof Array
+        ? ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
+        : null;
+    final HotOrderedStore verification = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+    final long[] sorted = closed.toLongArray();
+    Arrays.sort(sorted);
     final LongOpenHashSet unverified = new LongOpenHashSet();
-    ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId).scan(0, 0, 0, unverified::add);
-    return new Evidence(members.toLongArray(), unverified, unordered.isEmpty());
+    NodeReferences memberChunk = null;
+    NodeReferences verificationChunk = null;
+    long chunk = -1;
+    int count = 0;
+    for (final long key : sorted) {
+      if ((key >>> 16) != chunk) {
+        chunk = key >>> 16;
+        if (members != null) {
+          memberChunk = members.chunk(document.getNodeKey(), 0, key);
+        }
+        verificationChunk = verification.chunk(0, 0, key);
+      }
+      if (members == null
+          ? key == document.getNodeKey()
+          : memberChunk != null && memberChunk.contains(key & 0xFFFFL)) {
+        sorted[count++] = key;
+        if (verificationChunk != null && verificationChunk.contains(key & 0xFFFFL)) {
+          unverified.add(key);
+        }
+      }
+    }
+    return new Evidence(count == sorted.length
+        ? sorted
+        : Arrays.copyOf(sorted, count), unverified);
   }
 
   static LongOpenHashSet closedCandidates(final JsonDBItem document, final Instant instant, final int indexId) {

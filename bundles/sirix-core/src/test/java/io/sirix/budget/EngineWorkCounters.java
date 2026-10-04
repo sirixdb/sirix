@@ -37,6 +37,14 @@ public final class EngineWorkCounters {
       "one record reference emitted by a membership, verification or order posting scan",
       HotOrderedStore::postingRefsEmitted, "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
 
+  public static final WorkCounter VALID_TIME_POSTING_LOOKUPS =
+      WorkCounter.gated("validTime.postingLookups", "one membership, verification or order posting lookup",
+          HotOrderedStore::postingLookups, "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter VALID_TIME_POSTING_CHUNKS = WorkCounter.gated("validTime.postingChunks",
+      "one compressed posting chunk read without enumerating its references", HotOrderedStore::postingChunksRead,
+      "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
   // ===== HOT leaf pages =====================================================
 
   /**

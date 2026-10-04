@@ -32,7 +32,9 @@ accepted by the closed predicate’s `Instant.parse`, so they provide no candida
 Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
 FLWOR points. Computed field dereferences are not folded. Non-object array members evaluate the
 original comparisons with empty field dereferences. Plain-FLWOR points are evaluated only on row
-demand and at their original operand position; empty arrays never evaluate their point expression.
+demand and at their original operand position; empty documents, non-array roots, and empty arrays
+supply no unboxed rows and never evaluate their point expression. Direct temporal functions retain
+their original object-root and missing-resource semantics.
 Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the closed source's
 order, while plain FLWOR retains its document-order admission check.
 
@@ -77,13 +79,17 @@ object at all. Membership filters nested objects entirely from index postings. E
 run after the original closed predicate and only as each candidate is demanded. Iteration and
 positional access can stop before a later malformed cast; counting evaluates all candidates that
 need verification. Exact candidates require no field reads. A strict integer tie must not suppress
-an original cast error. Membership, verification and order evidence is collected once per evaluation
-and shared by plain-FLWOR admission and candidate filtering.
+an original cast error. Candidate membership and verification use the existing compressed HOT
+posting chunks and `NodeReferences.contains`, once per candidate chunk. Only matching candidate keys
+are retained; unrelated posting references are never enumerated or copied into query collections.
 
-Direct and folded sequences probe the closed candidate set before expanding posting evidence. An
-empty closed stab emits no interval or posting references. Nonempty strict slices reuse the closed
-set for rounded/clamped rescue. Plain-FLWOR coverage and document-order admission still read their
-evidence before considering a point stab.
+Direct and folded sequences probe the closed candidate set before reading posting evidence. An
+empty closed stab emits no interval or posting references and performs no posting lookups. Nonempty
+strict slices reuse the closed set for rounded/clamped rescue. Plain-FLWOR coverage uses posting
+cardinalities and compressed bitmap intersection without expanding references. Document-order
+admission stops at the first live guard chunk; exceptional-bound admission stops at the first
+intersection with the array's membership. Exceptional intervals in other cohorts do not prevent
+key-only counts over exact array members.
 
 ## Verification plan
 
@@ -116,8 +122,13 @@ references and posting references. `sirix.validTime.scanDiag` gates the emitted-
 behind a static-final flag; both module test tasks provide it, and captures require the gate to be on.
 Direct key and sequence consumers and folded bitemporal count/first-item queries use the decorated
 cursor. Positive probes inside the intervals and at a rounded end tie must still verify the records
-on demand in every mode and capture one membership plus one verification reference per record.
-Repeated demand reuses candidates and posting evidence without further enumeration. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
+on demand in every mode. Posting lookups and compressed chunks are counted separately from emitted
+references: candidate checks emit zero posting references. An explicit scan is the positive control
+for reference enumeration. Repeated demand reuses candidates and posting evidence without further
+posting reads. Selective positive-stab budgets place an exact match first and last among 31 or 127 expired
+inexact rows, exercising packed and bitmap postings, plus nested candidates outside the root cohort. Count performs zero object/timestamp
+reads; exists and first demand construct one object, with work bounded by the three candidates.
+Opt-in 100,000-row versions exercise both placements in the dedicated Test phase. A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
 mutation must fail this budget; ordinary result assertions alone cannot detect it.
 
 The small inexact fixture remains at 64 records. The dedicated Test phase must also execute the
