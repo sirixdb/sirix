@@ -89,7 +89,7 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final @Nullable StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 2 && args.length != 5) {
       throw new QueryException(new QNm("Expected 2 or 5 arguments for a valid-time index scan"));
     }
@@ -124,13 +124,13 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 
-  public static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx,
+  public static Sequence comparisonScan(final @Nullable StaticContext sctx, final QueryContext ctx,
       final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
       final int mode) {
     return comparisonScan(sctx, ctx, document, point, from, to, mode, true);
   }
 
-  private static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx,
+  private static Sequence comparisonScan(final @Nullable StaticContext sctx, final QueryContext ctx,
       final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
       final int mode, final boolean deferPoint) {
     if (mode < 0 || mode > 127) {

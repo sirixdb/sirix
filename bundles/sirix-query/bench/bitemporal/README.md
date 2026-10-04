@@ -95,7 +95,7 @@ raw results, and emit the same canonical TSV bytes.
 
 Q4, Q6-Q9, Q11 and Q12 express SH1's half-open model through `local:slice`, adding `valid < vt`
 to the closed `jn:open-bitemporal` source. Physical predicate folding, lazy evaluation, and dependency
-limitations are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
+requirements are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe logical query shapes, not physical plan
