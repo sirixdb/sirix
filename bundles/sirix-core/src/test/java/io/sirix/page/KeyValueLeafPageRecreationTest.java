@@ -31,8 +31,7 @@ final class KeyValueLeafPageRecreationTest {
     final var config = ResourceConfiguration.newBuilder("slot-recreation").useDeweyIDs(false).build();
     try (final var page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false)) {
       page.setRecord(new DeletedNode(new NodeDelegate(1, -1, null, -1, 1, (SirixDeweyID) null)));
-      final var array = new ArrayNode(1, 0, 0, -1, 1, -1, -1, 2, 2, 1, 1, 37, HASH_FUNCTION,
-          (SirixDeweyID) null);
+      final var array = new ArrayNode(1, 0, 0, -1, 1, -1, -1, 2, 2, 1, 1, 37, HASH_FUNCTION, (SirixDeweyID) null);
       if (direct) {
         final long offset = page.prepareHeapForDirectWrite(array.estimateSerializedSize(), 0);
         final int bytes = array.serializeToHeap(page.getSlottedPage(), offset);
@@ -42,7 +41,8 @@ final class KeyValueLeafPageRecreationTest {
       }
       assertNull(page.getRecord(1), "the replacement slot must have no cached tombstone");
       final var read = new ArrayNode(1, HASH_FUNCTION);
-      read.bind(page.getSlottedPage(), PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(page.getSlottedPage(), 1)), 1, 1);
+      read.bind(page.getSlottedPage(),
+          PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(page.getSlottedPage(), 1)), 1, 1);
       assertEquals(0, read.getParentKey());
       assertEquals(2, read.getFirstChildKey());
       assertEquals(2, read.getLastChildKey());

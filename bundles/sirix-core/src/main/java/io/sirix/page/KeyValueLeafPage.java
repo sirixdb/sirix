@@ -1240,6 +1240,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Update directory entry: [heapOffset][dataLength | nodeKindId]
     final int nodeKindId = ((NodeKind) fn.getKind()).getId();
     PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes, nodeKindId);
+    // Successful inline publication supersedes cached records just like a direct write.
+    if (records != null) {
+      records[offset] = null;
+    }
     clearSlotPreservation(offset);
 
     // Mark slot populated in bitmap and track last slot index (new slots only)
