@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 
 import org.junit.jupiter.api.io.TempDir;
@@ -150,6 +151,117 @@ final class ProjectionOpenRowGroupTailListenerTest {
     final int id = page.stringDictIdColumn(1)[row];
     return new String(page.stringDictionaryEntryBacking(1, id), page.stringDictionaryEntryOffset(1, id),
         page.stringDictionaryEntryLength(1, id), StandardCharsets.UTF_8);
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(VersioningType.class)
+  void middleInsertionThenTailAppendPreservesOrderExceptions(final VersioningType versioningType) {
+    final Path databasePath = temporaryDirectory.resolve("order-bitmap-" + versioningType.name().toLowerCase());
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
+    ProjectionOpenRowGroupTail.clearCacheForTesting();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .versioningApproach(versioningType)
+                                                              .maxNumberOfRevisionsToRestore(3)
+                                                              .build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final StringBuilder input = new StringBuilder(4096).append('[');
+        for (int row = 0; row < 63; row++) {
+          if (row > 0) {
+            input.append(',');
+          }
+          input.append("{\"kind\":\"commit\",\"did\":\"d")
+               .append(row)
+               .append("\",\"time\":")
+               .append(row)
+               .append('}');
+        }
+        input.append(']');
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.createProjectionIndexAtLoadStart(definition(), writer, 63L);
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(input.toString()), JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        final long[] loadedKeys = recordKeys(session, 63);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          assertTrue(writer.moveTo(loadedKeys[30]));
+          writer.insertSubtreeAsRightSibling(
+              JsonShredder.createStringReader("{\"kind\":\"commit\",\"did\":\"middle\",\"time\":1000}"),
+              JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        final Seen inserted = seen(session, 2);
+        assertMiddleInsertionRows(inserted, 64);
+        assertFalse(inserted.tailed());
+        assertEquals(1, inserted.page().orderExceptionBits().length);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          assertTrue(writer.moveToDocumentRoot());
+          assertTrue(writer.moveToFirstChild());
+          writer.insertSubtreeAsLastChild(
+              JsonShredder.createStringReader("{\"kind\":\"commit\",\"did\":\"rollback\",\"time\":9999}"),
+              JsonNodeTrx.Commit.NO);
+          final JsonIndexController controller =
+              (JsonIndexController) session.getWtxIndexController(writer.getRevisionNumber());
+          controller.applyPendingIndexMaintenance(true);
+          final byte[] raw = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX)
+              .getRowGroupFromColumnSegmentSlots(1);
+          assertNotNull(raw);
+          final ProjectionIndexRowGroupPage pending = ProjectionIndexRowGroupPage.deserialize(raw);
+          assertEquals(65, pending.getRowCount());
+          assertTrue(pending.orderExceptionAt(31));
+          assertFalse(pending.orderExceptionAt(64));
+          assertEquals(9999L, timeAt(pending, 64));
+          writer.rollback();
+        }
+        assertMiddleInsertionRows(seen(session, 2), 64);
+        appendRecord(session, "tail", 2000L);
+        final Seen appended = seen(session, 3);
+        assertMiddleInsertionRows(appended, 65);
+        assertTrue(appended.tailed());
+        assertArrayEquals(recordKeys(session, 65),
+            Arrays.copyOf(appended.page().recordKeys(), 65));
+        ProjectionOpenRowGroupTail.clearCacheForTesting();
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage =
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX);
+          assertArrayEquals(appended.page().serialize(), storage.getRowGroupFromColumnSegmentSlots(1));
+          writer.rollback();
+        }
+      }
+    }
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= 3; revision++) {
+        ProjectionOpenRowGroupTail.clearCacheForTesting();
+        final Seen state = seen(session, revision);
+        assertMiddleInsertionRows(state, 62 + revision);
+        assertEquals(revision == 3, state.tailed());
+      }
+    }
+  }
+
+  private static void assertMiddleInsertionRows(final Seen state, final int rows) {
+    assertEquals(rows, state.page().getRowCount());
+    for (int row = 0; row < rows; row++) {
+      if (rows >= 64 && row == 31) {
+        assertEquals("middle", state.didValues()[row]);
+        assertEquals(1000L, timeAt(state.page(), row));
+        assertTrue(state.page().orderExceptionAt(row));
+      } else if (row == 64) {
+        assertEquals("tail", state.didValues()[row]);
+        assertEquals(2000L, timeAt(state.page(), row));
+        assertFalse(state.page().orderExceptionAt(row));
+      } else {
+        final int originalRow = rows >= 64 && row > 31
+            ? row - 1
+            : row;
+        assertEquals("d" + originalRow, state.didValues()[row]);
+        assertEquals(originalRow, timeAt(state.page(), row));
+        assertFalse(state.page().orderExceptionAt(row));
+      }
+    }
   }
 
   @ParameterizedTest(name = "{0}")

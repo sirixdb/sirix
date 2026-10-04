@@ -1313,6 +1313,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     private byte @Nullable [] virtualDescriptor;
     private ProjectionOpenRowGroupTail.@Nullable Header tailHeader;
     private byte @Nullable [] materializedRaw;
+    private @Nullable ArrayList<PendingSegRef> pendingTailSegments;
   }
 
   /**
@@ -1905,8 +1906,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         accum.payloads[pos] = s.resolved();
       } else if (s.inlineValue() != null) {
         accum.payloads[pos] = s.inlineValue();
-      } else if (columnSegmentId < ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE) {
-        pendingSeg.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
+      } else if (isRawAssemblySegment(columnSegmentId)) {
+        if (accum.virtualDescriptor == null) {
+          pendingSeg.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
+        } else {
+          if (accum.pendingTailSegments == null) {
+            accum.pendingTailSegments = new ArrayList<>();
+          }
+          accum.pendingTailSegments.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
+        }
       }
       // A referenced DICT_HASHES segment is deliberately NOT fetched here: the raw scan form
       // reassembles from KEYS/BODY/DICT alone, so its bytes would be pages read and thrown away —
@@ -2142,6 +2150,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         : -1;
   }
 
+  private static boolean isRawAssemblySegment(final int columnSegmentId) {
+    return switch (ProjectionIndexColumnSegmentCodec.expectedSegmentKind(columnSegmentId)) {
+      case ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY,
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT -> true;
+      default -> false;
+    };
+  }
+
   /** Assemble each accumulated leaf (independent per leaf); fans out for large stores. */
   private static void assembleColumnSegmentSlotRowGroups(final ColumnSegmentSlotRowGroupAccum[] ordered,
       final byte[][] out, final boolean parallel) {
@@ -2217,13 +2233,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       accum.materializedRaw = ProjectionOpenRowGroupTail.cached(
           ProjectionOpenRowGroupTail.cacheKey(reader.getDatabaseId(), reader.getResourceId(), indexNumber, rowGroupId,
               virtualDescriptor),
-          () -> ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
-              readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
-                final int pos = indexOf(ids, columnSegmentId);
-                return pos < 0
-                    ? null
-                    : payloads[pos];
-              })).raw();
+          () -> {
+            if (accum.pendingTailSegments != null) {
+              resolvePending(reader, accum.pendingTailSegments);
+            }
+            return ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
+                readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
+                  final int pos = indexOf(ids, columnSegmentId);
+                  return pos < 0
+                      ? null
+                      : payloads[pos];
+                });
+          }).raw();
     }
   }
 
@@ -2282,48 +2303,53 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final RowGroupDirectory base = out[slot];
       final ProjectionOpenRowGroupTail.Header header = walk.tailHeaders[slot];
       final long rowGroupId = base.rowGroupId();
-      final int[] ids = base.columnSegmentIds();
-      final byte[][] payloads = new byte[ids.length][];
-      int referenced = 0;
-      for (int i = 0; i < ids.length; i++) {
-        final byte[] inline = base.inlineColumnSegmentBytes() == null
-            ? null
-            : base.inlineColumnSegmentBytes()[i];
-        if (inline != null) {
-          payloads[i] = inline;
-        } else {
-          referenced++;
-        }
-      }
-      if (referenced > 0) {
-        final long[] offsets = new long[referenced];
-        final int[] positions = new int[referenced];
-        int n = 0;
-        for (int i = 0; i < ids.length; i++) {
-          if (payloads[i] == null) {
-            offsets[n] = base.columnSegmentOffsets()[i];
-            positions[n++] = i;
-          }
-        }
-        final byte[][] pages = readSegmentBytesBatch(reader, offsets);
-        for (int k = 0; k < referenced; k++) {
-          if (pages == null || pages[k] == null) {
-            throw new IllegalStateException("projection row group " + rowGroupId + " base segment " + ids[positions[k]]
-                + " is missing (indexNumber=" + indexNumber + ")");
-          }
-          payloads[positions[k]] = pages[k];
-        }
-      }
       final ProjectionOpenRowGroupTail.Materialized merged = ProjectionOpenRowGroupTail.cached(
           ProjectionOpenRowGroupTail.cacheKey(reader.getDatabaseId(), reader.getResourceId(), indexNumber, rowGroupId,
               virtualDescriptor),
-          () -> ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
-              readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
-                final int pos = indexOf(ids, columnSegmentId);
-                return pos < 0
-                    ? null
-                    : payloads[pos];
-              }));
+          () -> {
+            final int[] ids = base.columnSegmentIds();
+            final byte[][] payloads = new byte[ids.length][];
+            int referenced = 0;
+            for (int i = 0; i < ids.length; i++) {
+              if (!isRawAssemblySegment(ids[i])) {
+                continue;
+              }
+              final byte[] inline = base.inlineColumnSegmentBytes() == null
+                  ? null
+                  : base.inlineColumnSegmentBytes()[i];
+              if (inline != null) {
+                payloads[i] = inline;
+              } else {
+                referenced++;
+              }
+            }
+            if (referenced > 0) {
+              final long[] offsets = new long[referenced];
+              final int[] positions = new int[referenced];
+              int n = 0;
+              for (int i = 0; i < ids.length; i++) {
+                if (isRawAssemblySegment(ids[i]) && payloads[i] == null) {
+                  offsets[n] = base.columnSegmentOffsets()[i];
+                  positions[n++] = i;
+                }
+              }
+              final byte[][] pages = readSegmentBytesBatch(reader, offsets);
+              for (int k = 0; k < referenced; k++) {
+                if (pages == null || pages[k] == null) {
+                  throw new IllegalStateException("projection row group " + rowGroupId + " base segment "
+                      + ids[positions[k]] + " is missing (indexNumber=" + indexNumber + ")");
+                }
+                payloads[positions[k]] = pages[k];
+              }
+            }
+            return ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
+                readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
+                  final int pos = indexOf(ids, columnSegmentId);
+                  return pos < 0
+                      ? null
+                      : payloads[pos];
+                });
+          });
       final int[] mergedIds = merged.encoded().columnSegmentIds();
       final long[] noOffsets = new long[mergedIds.length];
       Arrays.fill(noOffsets, Constants.NULL_ID_LONG);

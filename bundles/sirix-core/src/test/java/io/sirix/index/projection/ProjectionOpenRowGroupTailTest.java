@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -39,8 +41,10 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /**
  * Open-row-group row tail: appended rows are stored row-major and merged on read; every reader path
@@ -210,6 +214,254 @@ final class ProjectionOpenRowGroupTailTest {
       } else if (inline != null) {
         assertArrayEquals(expected.segments()[i], inline);
       }
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(VersioningType.class)
+  void persistedOrderExceptionsSurviveNormalAndExceptionalTailAppends(final VersioningType versioningType) {
+    final byte[] otherRaw = pageWithRows(2_000_000L, 5).serialize();
+    for (final boolean exceptional : new boolean[] {false, true}) {
+      final Path databasePath = create(versioningType, "bitmap-" + exceptional);
+      final ProjectionIndexRowGroupPage base = pageWithOrderExceptions(64, exceptional);
+      final ProjectionIndexRowGroupPage appended = pageWithOrderExceptions(65, exceptional);
+      final ProjectionOpenRowGroupTail.Row values = tailRow(10L, 64, 64);
+      final ProjectionOpenRowGroupTail.Row row = new ProjectionOpenRowGroupTail.Row(
+          appended.recordKeys()[64], exceptional, values.orderLabel(), values.longs(), values.bools(),
+          values.strings(), values.sets(), values.present(), values.unrepresentable(), values.nonIntegral(),
+          values.nonDoubleSource());
+      ProjectionOpenRowGroupTail.clearCacheForTesting();
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+          JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage =
+              new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX);
+          storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(base.serialize()));
+          storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(otherRaw));
+          writer.commit();
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+          try (JsonNodeTrx writer = session.beginNodeTrx()) {
+            final ProjectionIndexHOTStorage storage =
+                new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX);
+            final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(1);
+            assertNotNull(raw);
+            final ProjectionIndexRowGroupPage merged = ProjectionIndexRowGroupPage.deserialize(raw);
+            assertEquals(1, merged.orderExceptionBits().length);
+            ProjectionOpenRowGroupTail.appendRows(merged, List.of(row), 1);
+            assertTrue(merged.orderExceptionAt(31));
+            assertEquals(exceptional, merged.orderExceptionAt(64));
+            assertEquals(ageAt(64), merged.numericColumn(0)[64]);
+            assertArrayEquals(appended.serialize(), merged.serialize());
+            storage.putOpenRowGroupTailAppend(1, ProjectionIndexColumnSegmentCodec.encodePooled(merged),
+                ProjectionOpenRowGroupTail.encodeRows(KINDS, List.of(row)), 1, merged.serialize());
+            ProjectionOpenRowGroupTail.clearCacheForTesting();
+            assertArrayEquals(appended.serialize(), storage.getRowGroupFromColumnSegmentSlots(1),
+                "cold writer replay retains the persisted exception bits");
+            if (attempt == 0) {
+              writer.rollback();
+            } else {
+              writer.commit();
+            }
+          }
+          ProjectionOpenRowGroupTail.clearCacheForTesting();
+          try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+            assertEveryReaderSees(reader.getStorageEngineReader(), attempt == 0 ? base : appended,
+                otherRaw, attempt != 0);
+          }
+        }
+      }
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+          JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        for (int revision = 1; revision <= 2; revision++) {
+          ProjectionOpenRowGroupTail.clearCacheForTesting();
+          try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+            assertEveryReaderSees(reader.getStorageEngineReader(), revision == 1 ? base : appended,
+                otherRaw, revision == 2);
+          }
+        }
+      }
+    }
+  }
+
+  private static ProjectionIndexRowGroupPage pageWithOrderExceptions(final int rows, final boolean tailException) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
+    for (int row = 0; row < rows; row++) {
+      final ProjectionOpenRowGroupTail.Row values = tailRow(10L, row, row);
+      final boolean exceptional = row == 31 || (row == 64 && tailException);
+      final long key = exceptional ? 1_000_000L + row : values.recordKey();
+      assertTrue(page.appendExtractedUtf8Row(key, values.longs(), values.bools(), values.strings(), null,
+          values.sets(), values.present(), values.unrepresentable(), values.nonIntegral(),
+          values.nonDoubleSource(), exceptional, values.orderLabel()));
+    }
+    return page;
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(VersioningType.class)
+  void memoHitsSkipBasePayloadsAndColdRoutesSkipDictionaryHashes(final VersioningType versioningType) {
+    final Path databasePath = create(versioningType, "memo-read-work");
+    final int groups = 512;
+    final byte[] otherRaw = pageWithRows(2_000_000L, 5).serialize();
+    final ProjectionIndexRowGroupPage expected = pageWithUniqueStrings(601);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedEncoded =
+        ProjectionIndexColumnSegmentCodec.encode(expected.serialize());
+    final int[] physicalOrder = new int[groups];
+    for (int group = 0; group < groups; group++) {
+      physicalOrder[group] = group + 1;
+    }
+    ProjectionOpenRowGroupTail.clearCacheForTesting();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX);
+        storage.putRowGroupAsColumnSegmentSlots(1,
+            ProjectionIndexColumnSegmentCodec.encode(pageWithUniqueStrings(600).serialize()));
+        for (int group = 2; group <= groups; group++) {
+          storage.putRowGroupAsColumnSegmentSlots(group, ProjectionIndexColumnSegmentCodec.encode(otherRaw));
+        }
+        writer.commit();
+        final ProjectionIndexRowGroupPage merged = pageWithUniqueStrings(601);
+        final ProjectionOpenRowGroupTail.Row values = tailRow(10L, 600, 600);
+        final ProjectionOpenRowGroupTail.Row row = new ProjectionOpenRowGroupTail.Row(values.recordKey(), false,
+            values.orderLabel(), values.longs(), values.bools(),
+            new byte[][] {null, null, uniqueString(600).getBytes(StandardCharsets.UTF_8)}, values.sets(),
+            values.present(), values.unrepresentable(), values.nonIntegral(), values.nonDoubleSource());
+        new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX).putOpenRowGroupTailAppend(1,
+            ProjectionIndexColumnSegmentCodec.encodePooled(merged),
+            ProjectionOpenRowGroupTail.encodeRows(KINDS, List.of(row)), 1, merged.serialize());
+        writer.commit();
+      }
+      try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader storage = reader.getStorageEngineReader();
+        final int revision = reader.getRevisionNumber();
+        final ProjectionOpenRowGroupTail.Header header = ProjectionOpenRowGroupTail.Header.decode(
+            ProjectionIndexHOTStorage.readBlob(storage, INDEX, ProjectionOpenRowGroupTail.headerSlot(1)), 1);
+        final byte[] baseDescriptor = header.baseDescriptor();
+        final LongOpenHashSet baseOffsets = new LongOpenHashSet(RowGroupDescriptor.columnSegmentCount(baseDescriptor));
+        for (int entry = 0; entry < RowGroupDescriptor.columnSegmentCount(baseDescriptor); entry++) {
+          final int id = RowGroupDescriptor.entryColumnSegmentId(baseDescriptor, entry);
+          final long offset = bodyOffset(storage, id);
+          if (offset >= 0) {
+            baseOffsets.add(offset);
+          }
+        }
+        final long hashesOffset = bodyOffset(storage, ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(2));
+        assertTrue(hashesOffset >= 0, "the fixture must persist dictionary hashes by reference");
+        assertTrue(bodyOffset(storage, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(2)) >= 0,
+            "the fixture must persist unused raw-assembly Bloom bytes by reference");
+        final LongOpenHashSet requiredOffsets = new LongOpenHashSet(KINDS.length + 2);
+        final int[] requiredIds = {ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+            BODY_0, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(1), BODY_2,
+            ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(2)};
+        for (final int id : requiredIds) {
+          final long offset = bodyOffset(storage, id);
+          if (offset >= 0) {
+            requiredOffsets.add(offset);
+          }
+        }
+        assertFalse(requiredOffsets.isEmpty(), "required base payloads must also be referenced");
+        final int routes = Runtime.getRuntime().availableProcessors() >= 2 ? 5 : 4;
+        for (final boolean cold : new boolean[] {false, true}) {
+          for (int route = 0; route < routes; route++) {
+            if (cold) {
+              ProjectionOpenRowGroupTail.clearCacheForTesting();
+            }
+            final AtomicInteger baseReads = new AtomicInteger();
+            final AtomicInteger hashReads = new AtomicInteger();
+            final StorageEngineReader counted = countPayloadReads(storage, baseOffsets, hashesOffset,
+                baseReads, hashReads);
+            List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = null;
+            switch (route) {
+              case 0 -> assertArrayEquals(expected.serialize(),
+                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(counted, INDEX, 1));
+              case 1 -> {
+                final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+                    counted, INDEX, groups, physicalOrder);
+                assertEquals(groups, all.size());
+                assertArrayEquals(expected.serialize(), all.get(0));
+                for (int group = 1; group < groups; group++) {
+                  assertArrayEquals(otherRaw, all.get(group));
+                }
+              }
+              case 2 -> directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                  counted, INDEX, groups, physicalOrder);
+              case 3 -> directories = Arrays.asList(ProjectionIndexHOTStorage.readDirectoryWindow(
+                  counted, INDEX, new int[] {1, groups}, 0, 2));
+              case 4 -> {
+                final AtomicInteger workers = new AtomicInteger();
+                directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
+                    counted, INDEX, groups, physicalOrder, worker -> {
+                      try (JsonNodeReadOnlyTrx workerTrx = session.beginNodeReadOnlyTrx(revision)) {
+                        worker.accept(countPayloadReads(workerTrx.getStorageEngineReader(), baseOffsets,
+                            hashesOffset, baseReads, hashReads));
+                        workers.incrementAndGet();
+                      }
+                    }, true);
+                assertTrue(workers.get() > 0, "the directory route must engage worker readers");
+              }
+              default -> throw new AssertionError(route);
+            }
+            if (route >= 2) {
+              assertNotNull(directories);
+              assertEquals(route == 3 ? 2 : groups, directories.size());
+              assertDirectory(directories.get(0), expectedEncoded, true);
+              for (int group = 1; group < directories.size(); group++) {
+                assertFalse(RowGroupDescriptor.isTailed(directories.get(group).descriptor()));
+                assertEquals(route == 3 ? groups : group + 1, directories.get(group).rowGroupId());
+              }
+            }
+            assertEquals(cold ? requiredOffsets.size() : 0, baseReads.get(),
+                "base payload reads for route " + route + ", cold=" + cold);
+            assertEquals(0, hashReads.get(), "raw assembly never consumes base dictionary hashes");
+          }
+        }
+      }
+    }
+  }
+
+  private static String uniqueString(final int row) {
+    return "department-with-a-distinct-dictionary-entry-" + row;
+  }
+
+  private static ProjectionIndexRowGroupPage pageWithUniqueStrings(final int rows) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
+    for (int row = 0; row < rows; row++) {
+      assertTrue(page.appendRow(keyAt(10L, row), new long[] {ageAt(row), 0L, 0L},
+          new boolean[] {false, flagAt(row), false}, new String[] {null, null, uniqueString(row)}));
+    }
+    return page;
+  }
+
+  private static StorageEngineReader countPayloadReads(final StorageEngineReader delegate,
+      final LongOpenHashSet baseOffsets, final long hashesOffset, final AtomicInteger baseReads,
+      final AtomicInteger hashReads) {
+    return (StorageEngineReader) Proxy.newProxyInstance(StorageEngineReader.class.getClassLoader(),
+        new Class<?>[] {StorageEngineReader.class}, (proxy, method, arguments) -> {
+          if ("readSideOverflowPageBatch".equals(method.getName())) {
+            for (final long offset : (long[]) arguments[0]) {
+              countPayloadOffset(offset, baseOffsets, hashesOffset, baseReads, hashReads);
+            }
+          } else if ("readSideOverflowPage".equals(method.getName())) {
+            countPayloadOffset(((PageReference) arguments[0]).getKey(), baseOffsets, hashesOffset,
+                baseReads, hashReads);
+          }
+          try {
+            return method.invoke(delegate, arguments);
+          } catch (final InvocationTargetException failure) {
+            throw failure.getCause();
+          }
+        });
+  }
+
+  private static void countPayloadOffset(final long offset, final LongOpenHashSet baseOffsets,
+      final long hashesOffset, final AtomicInteger baseReads, final AtomicInteger hashReads) {
+    if (baseOffsets.contains(offset)) {
+      baseReads.incrementAndGet();
+    }
+    if (offset == hashesOffset) {
+      hashReads.incrementAndGet();
     }
   }
 

@@ -124,9 +124,9 @@ matches the historical pre-A old-design control. The current implementation fold
 tail blobs; the historical prototype used the full-row-group bound.
 
 The replay has no persisted order exceptions from middle inserts and does not cover the reported
-bitmap-growth defect. It also does not resolve the reported eager base-payload reads on merge-memo
-hits. Those correctness/read-path findings remain unaddressed by this documentation update; the
-captured measurements do not waive them or validate a later production fix.
+bitmap-growth defect. Its production artifacts also predate the repair of eager base-payload reads
+on merge-memo hits. The captured measurements describe the artifacts identified below and do not
+validate either subsequent correctness/read-path repair or measure the resulting production head.
 
 ## Supplementary generated-fixture single-record commits
 

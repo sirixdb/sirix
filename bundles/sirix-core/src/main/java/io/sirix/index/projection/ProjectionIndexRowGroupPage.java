@@ -1116,6 +1116,9 @@ public final class ProjectionIndexRowGroupPage {
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
   private void ensureCapacity() {
     ensureCapacity(true);
+    if (orderExceptionBits != null && orderExceptionBits.length <= (rowCount >>> 6)) {
+      orderExceptionBits = Arrays.copyOf(orderExceptionBits, (MAX_ROWS + 63) >>> 6);
+    }
   }
 
   /**
