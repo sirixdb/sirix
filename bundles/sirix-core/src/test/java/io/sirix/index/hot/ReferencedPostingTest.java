@@ -171,11 +171,11 @@ final class ReferencedPostingTest {
       final List<PageReference> refs = seed(source, 2);
       assertTrue(left.put(source.getKey(0), source.copyStoredValue(0)));
       assertTrue(right.put(source.getKey(1), source.copyStoredValue(1)));
-      final Class<?>[] types = {HOTLeafPage.class, HOTLeafPage.class, HOTLeafPage.class};
-      invoke(writer, "rehomeSplitLeafSideReferences", types, source, left, right);
+      final Class<?>[] types = {HOTLeafPage.class, HOTLeafPage.class, HOTLeafPage.class, byte[].class};
+      invoke(writer, "rehomeSplitLeafSideReferences", types, source, left, right, null);
       assertOwners(List.of(left, right), refs);
       assertThrows(IllegalStateException.class,
-          () -> invoke(writer, "rehomeSplitLeafSideReferences", types, source, left, null));
+          () -> invoke(writer, "rehomeSplitLeafSideReferences", types, source, left, null, null));
     }
   }
 

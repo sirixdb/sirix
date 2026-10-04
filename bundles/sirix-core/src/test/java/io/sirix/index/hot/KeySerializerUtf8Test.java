@@ -11,10 +11,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -73,6 +77,44 @@ final class KeySerializerUtf8Test {
       final byte[] tooSmall = new byte[CAS_HEADER_BYTES + expected.length - 1];
       assertThrows(IndexOutOfBoundsException.class, () -> CASKeySerializer.INSTANCE.serialize(key, tooSmall, 0));
     }
+  }
+
+  @Test
+  @DisplayName("CAS MemorySegment serialization matches byte arrays, including long escaped values")
+  void casStringValuesSerializeToMemorySegments() {
+    try (final Arena arena = Arena.ofConfined()) {
+      for (final String value : samples()) {
+        final CASValue key = new CASValue(new Str(value), Type.STR, 7);
+        final byte[] serialized = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(key)];
+        final int length = CASKeySerializer.INSTANCE.serialize(key, serialized, 0);
+        for (final int offset : new int[] {0, 7}) {
+          final byte[] expected = new byte[offset + length + 1];
+          Arrays.fill(expected, (byte) 0x5A);
+          System.arraycopy(serialized, 0, expected, offset, length);
+          for (final MemorySegment dest : new MemorySegment[] {MemorySegment.ofArray(new byte[expected.length]),
+              arena.allocate(expected.length)}) {
+            dest.fill((byte) 0x5A);
+            assertEquals(length, CASKeySerializer.INSTANCE.serializeTo(key, dest, offset));
+            assertArrayEquals(expected, dest.toArray(ValueLayout.JAVA_BYTE));
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("CAS MemorySegment serialization preserves argument and bounds validation")
+  void casMemorySegmentSerializationRejectsInvalidArguments() {
+    final CASValue key = new CASValue(new Str("x".repeat(CAS_MAX_VALUE_BYTES)), Type.STR, 7);
+    final byte[] serialized = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(key)];
+    final int length = CASKeySerializer.INSTANCE.serialize(key, serialized, 0);
+    final MemorySegment dest = MemorySegment.ofArray(new byte[length]);
+    assertThrows(NullPointerException.class, () -> CASKeySerializer.INSTANCE.serializeTo(null, dest, 0));
+    assertThrows(NullPointerException.class, () -> CASKeySerializer.INSTANCE.serializeTo(key, null, 0));
+    assertThrows(IndexOutOfBoundsException.class, () -> CASKeySerializer.INSTANCE.serializeTo(key, dest, -1));
+    assertThrows(IndexOutOfBoundsException.class, () -> CASKeySerializer.INSTANCE.serializeTo(key, dest, 1));
+    assertThrows(IndexOutOfBoundsException.class,
+        () -> CASKeySerializer.INSTANCE.serializeTo(key, dest.asSlice(0, length - 1), 0));
   }
 
   @Test

@@ -154,8 +154,8 @@ public interface HOTKeySerializer<K> {
    */
   default int serializeTo(K key, MemorySegment dest, long offset) {
     // Default: use byte array intermediary
-    byte[] temp = new byte[256];
-    int len = serialize(key, temp, 0);
+    final byte[] temp = new byte[maxSerializedLength(key)];
+    final int len = serialize(key, temp, 0);
     MemorySegment.copy(temp, 0, dest, ValueLayout.JAVA_BYTE, offset, len);
     return len;
   }
@@ -228,4 +228,3 @@ public interface HOTKeySerializer<K> {
     dest[offset + 3] = (byte) chunkIdx;
   }
 }
-
