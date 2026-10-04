@@ -8,7 +8,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Resolves XML names from authoritative dictionary keys.
+ * Resolves XML expanded names for NAME indexes from authoritative dictionary keys.
  *
  * <p>
  * Page-backed views may lack a cached name, and rebinding a write singleton can retain a cached
@@ -17,20 +17,19 @@ import static java.util.Objects.requireNonNull;
 public final class XmlNameResolver {
   private XmlNameResolver() {}
 
-  public static QNm resolveName(final ImmutableNameNode node, final StorageEngineReader reader) {
+  public static QNm resolveExpandedName(final ImmutableNameNode node, final StorageEngineReader reader) {
     requireNonNull(node);
     requireNonNull(reader);
     final NodeKind kind = node.getKind();
     final int uriKey = node.getURIKey();
-    final int prefixKey = node.getPrefixKey();
     final int localNameKey = node.getLocalNameKey();
-    final String uri = reader.getName(uriKey, NodeKind.NAMESPACE);
-    final String prefix = prefixKey == -1
+    final String uri = uriKey == -1
         ? ""
-        : reader.getName(prefixKey, kind);
+        : reader.getName(uriKey, NodeKind.NAMESPACE);
     final String localName = localNameKey == -1
         ? ""
         : reader.getName(localNameKey, kind);
-    return new QNm(uri, prefix, localName);
+    // Prefix aliases have the same identity; avoid their dictionary lookup on every posting.
+    return new QNm(uri, "", localName);
   }
 }

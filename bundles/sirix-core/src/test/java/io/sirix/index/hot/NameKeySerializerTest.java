@@ -50,7 +50,7 @@ class NameKeySerializerTest {
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
 
-      assertEquals("ns", result.getPrefix());
+      assertEquals("", result.getPrefix());
       assertEquals("element", result.getLocalName());
     }
 
@@ -73,10 +73,10 @@ class NameKeySerializerTest {
   class OrderPreservationTests {
 
     @Test
-    @DisplayName("QNm ordering by prefix first")
+    @DisplayName("QNm ordering by namespace URI first")
     void testOrderByPrefix() {
-      QNm a = new QNm(null, "aaa", "name");
-      QNm b = new QNm(null, "bbb", "name");
+      QNm a = new QNm("urn:aaa", "same", "name");
+      QNm b = new QNm("urn:bbb", "same", "name");
 
       byte[] bufA = new byte[256];
       byte[] bufB = new byte[256];
@@ -84,7 +84,7 @@ class NameKeySerializerTest {
       int lenA = serializer.serialize(a, bufA, 0);
       int lenB = serializer.serialize(b, bufB, 0);
 
-      assertTrue(compareBytes(bufA, lenA, bufB, lenB) < 0, "aaa:name < bbb:name");
+      assertTrue(compareBytes(bufA, lenA, bufB, lenB) < 0, "urn:aaa precedes urn:bbb");
     }
 
     @Test
@@ -103,10 +103,10 @@ class NameKeySerializerTest {
     }
 
     @Test
-    @DisplayName("Empty prefix sorts before non-empty")
+    @DisplayName("Empty namespace sorts before non-empty")
     void testEmptyPrefixOrder() {
       QNm noPrefix = new QNm(null, "", "name");
-      QNm withPrefix = new QNm(null, "a", "name");
+      QNm withPrefix = new QNm("urn:a", "", "name");
 
       byte[] bufNo = new byte[256];
       byte[] bufWith = new byte[256];
@@ -114,7 +114,7 @@ class NameKeySerializerTest {
       int lenNo = serializer.serialize(noPrefix, bufNo, 0);
       int lenWith = serializer.serialize(withPrefix, bufWith, 0);
 
-      assertTrue(compareBytes(bufNo, lenNo, bufWith, lenWith) < 0, "empty prefix < 'a' prefix");
+      assertTrue(compareBytes(bufNo, lenNo, bufWith, lenWith) < 0, "empty namespace precedes urn:a");
     }
   }
 
@@ -149,8 +149,7 @@ class NameKeySerializerTest {
 
       // First bytes should differ: 'a' (0x61) vs 'b' (0x62)
       assertTrue(bufA[0] != bufB[0], "JSON keys should differ at byte 0 (not have a shared 0x00 prefix)");
-      int discBit = DiscriminativeBitComputer.computeDifferingBit(
-          Arrays.copyOf(bufA, 5), Arrays.copyOf(bufB, 4));
+      int discBit = DiscriminativeBitComputer.computeDifferingBit(Arrays.copyOf(bufA, 5), Arrays.copyOf(bufB, 4));
       assertTrue(discBit < 8, "Discriminative bit should be in byte 0, not pushed past a separator byte");
     }
   }
@@ -180,7 +179,7 @@ class NameKeySerializerTest {
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
 
-      assertEquals("前缀", result.getPrefix());
+      assertEquals("", result.getPrefix());
       assertEquals("名称", result.getLocalName());
     }
 
@@ -225,7 +224,7 @@ class NameKeySerializerTest {
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
 
-      assertEquals(longPrefix, result.getPrefix());
+      assertEquals("", result.getPrefix());
       assertEquals(longLocal, result.getLocalName());
     }
   }

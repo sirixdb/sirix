@@ -77,20 +77,17 @@ final class KeySerializerUtf8Test {
   }
 
   @Test
-  @DisplayName("NAME prefixes encode exactly as getBytes(UTF_8)")
-  void namePrefixesMatchReferenceEncoding() {
-    for (final String prefix : new String[] {"ns", "nsÜ", "🚀", "unpaired \uD800"}) {
+  @DisplayName("NAME namespace URIs encode as UTF-8 independently of the prefix")
+  void nameUrisMatchReferenceEncoding() {
+    for (final String uri : new String[] {"urn:ns", "urn:nsÜ", "urn:🚀", "unpaired \uD800"}) {
       final byte[] dest = new byte[2048];
-      final int length = NameKeySerializer.INSTANCE.serialize(new QNm("http://example.org", prefix, "local"), dest, 0);
-
-      final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
-      final byte[] expected = new byte[2 + prefixBytes.length + "local".length()];
+      final int length = NameKeySerializer.INSTANCE.serialize(new QNm(uri, "ignored", "local"), dest, 0);
+      final byte[] uriBytes = uri.getBytes(StandardCharsets.UTF_8);
+      final byte[] expected = new byte[3 + uriBytes.length + "local".length()];
       expected[0] = (byte) 0xFF;
-      expected[1] = (byte) prefixBytes.length;
-      System.arraycopy(prefixBytes, 0, expected, 2, prefixBytes.length);
-      System.arraycopy("local".getBytes(StandardCharsets.UTF_8), 0, expected, 2 + prefixBytes.length, "local".length());
-
-      assertArrayEquals(expected, Arrays.copyOf(dest, length), "prefixed name bytes for \"" + prefix + '"');
+      System.arraycopy(uriBytes, 0, expected, 1, uriBytes.length);
+      System.arraycopy("local".getBytes(StandardCharsets.UTF_8), 0, expected, 3 + uriBytes.length, "local".length());
+      assertArrayEquals(expected, Arrays.copyOf(dest, length), "URI bytes for \"" + uri + '\"');
     }
   }
 }

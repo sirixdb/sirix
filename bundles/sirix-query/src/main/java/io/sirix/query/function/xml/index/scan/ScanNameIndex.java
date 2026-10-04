@@ -8,6 +8,8 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.type.AnyNodeType;
@@ -22,6 +24,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.name.NameFilter;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -41,9 +44,8 @@ public final class ScanNameIndex extends AbstractScanIndex {
    * Constructor.
    */
   public ScanNameIndex() {
-    super(DEFAULT_NAME,
-        new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), SequenceType.NODE,
-            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.QNM, Cardinality.ZeroOrOne)),
+    super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), SequenceType.NODE,
+        new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.QNM, Cardinality.ZeroOrMany)),
         true);
   }
 
@@ -72,10 +74,16 @@ public final class ScanNameIndex extends AbstractScanIndex {
           doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
-    final String names = FunUtil.getString(args, 2, "$names", null, null, false);
-    final NameFilter filter = (names != null)
-        ? controller.createNameFilter(Set.of(names.split(";")))
-        : null;
+    final Set<QNm> names = new HashSet<>();
+    if (args.length > 2 && args[2] != null) {
+      try (final Iter iterator = args[2].iterate()) {
+        Item name;
+        while ((name = iterator.next()) != null) {
+          names.add((QNm) name);
+        }
+      }
+    }
+    final NameFilter filter = new NameFilter(names, Set.of());
 
     return getSequence(doc, controller.openNameIndex(doc.getTrx().getStorageEngineReader(), indexDef, filter));
   }
