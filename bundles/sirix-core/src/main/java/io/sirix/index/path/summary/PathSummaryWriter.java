@@ -33,6 +33,9 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import io.sirix.node.json.ArrayNode;
 
 import javax.xml.namespace.QName;
 import java.util.ArrayDeque;
@@ -587,6 +590,124 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
+   * Re-attribute a moved subtree under its new structural ancestry. Resolve parents before their
+   * children, and acquire every destination reference before releasing old references in reverse
+   * order. The destination may be an old path class (same-parent or shared-path moves), so deleting
+   * old records first would invalidate records still needed by the move.
+   *
+   * @param rootNodeKey document key of the moved subtree, after pointer surgery
+   */
+  public void adaptPathForMovedSubtree(final long rootNodeKey) {
+    if (!nodeRtx.moveTo(rootNodeKey)) {
+      throw new IllegalArgumentException("Moved subtree does not exist: " + rootNodeKey);
+    }
+    final LongArrayList oldPaths = new LongArrayList();
+    final Long2IntOpenHashMap oldReferences = new Long2IntOpenHashMap();
+    final DescendantAxis descendants = new DescendantAxis(nodeRtx, IncludeSelf.YES);
+    while (descendants.hasNext()) {
+      descendants.nextLong();
+      final long nodeKey = nodeRtx.getNodeKey();
+      final NodeKind kind = nodeRtx.getKind();
+      if (kind == NodeKind.ELEMENT || kind == NodeKind.PROCESSING_INSTRUCTION || kind.playsObjectKeyRole()
+          || kind == NodeKind.ARRAY) {
+        remapMovedPath(oldPaths, oldReferences);
+      }
+      if (kind == NodeKind.ELEMENT) {
+        final XmlNodeReadOnlyTrx xml = (XmlNodeReadOnlyTrx) nodeRtx;
+        final int namespaces = xml.getNamespaceCount();
+        final int attributes = xml.getAttributeCount();
+        for (int i = 0; i < namespaces; i++) {
+          xml.moveToNamespace(i);
+          remapMovedPath(oldPaths, oldReferences);
+          xml.moveTo(nodeKey);
+        }
+        for (int i = 0; i < attributes; i++) {
+          xml.moveToAttribute(i);
+          remapMovedPath(oldPaths, oldReferences);
+          xml.moveTo(nodeKey);
+        }
+      }
+    }
+    for (int i = oldPaths.size() - 1; i >= 0; i--) {
+      final long oldPath = oldPaths.getLong(i);
+      if (!pathSummaryReader.moveTo(oldPath)) {
+        throw new IllegalStateException("Old path class disappeared during move: " + oldPath);
+      }
+      final int removedReferences = oldReferences.get(oldPath);
+      final int references = pathSummaryReader.getReferences();
+      if (references < removedReferences) {
+        throw new IllegalStateException("Insufficient references for old path class: " + oldPath);
+      }
+      if (references == removedReferences) {
+        removePathSummaryNode(RemoveSubtreePath.NO);
+      } else {
+        final PathNode pathNode = storageEngineWriter.prepareRecordForModification(oldPath, IndexType.PATH_SUMMARY, 0);
+        pathNode.setReferenceCount(references - removedReferences);
+        persistPathSummaryRecord(pathNode);
+        pathSummaryReader.putMapping(oldPath, pathNode);
+      }
+    }
+    nodeRtx.moveTo(rootNodeKey);
+    if (nodeRtx.getPathNodeKey() >= 0) {
+      pathSummaryReader.moveTo(nodeRtx.getPathNodeKey());
+    }
+  }
+
+  private static void rememberOldPath(final LongArrayList oldPaths, final Long2IntOpenHashMap oldReferences,
+      final long oldPath) {
+    // Aggregate repeated classes: a move of millions of identically shaped records needs memory
+    // and old-record modifications proportional to distinct paths, rather than document size.
+    if (oldReferences.addTo(oldPath, 1) == 0) {
+      oldPaths.add(oldPath);
+    }
+  }
+
+  private void remapMovedPath(final LongArrayList oldPaths, final Long2IntOpenHashMap oldReferences) {
+    final long nodeKey = nodeRtx.getNodeKey();
+    final long oldPath = nodeRtx.getPathNodeKey();
+    final NodeKind kind = nodeRtx.getKind();
+    final QNm name = kind == NodeKind.ARRAY
+        ? ARRAY_PATH_QNM
+        : nodeRtx.getName();
+    final NodeKind pathKind = kind.isFusedAnyNamed()
+        ? NodeKind.OBJECT_NAMED_OBJECT
+        : kind;
+    nodeRtx.moveToParent();
+    // Anonymous objects contribute no path step. Arrays do, including the virtual array layer
+    // represented by a fused named-array record's pathNodeKey.
+    while (nodeRtx.getKind() == NodeKind.OBJECT) {
+      nodeRtx.moveToParent();
+    }
+    final long parentPath = nodeRtx.getKind() == NodeKind.XML_DOCUMENT || nodeRtx.getKind() == NodeKind.JSON_DOCUMENT
+        ? 0
+        : nodeRtx.getPathNodeKey();
+    nodeRtx.moveTo(nodeKey);
+    final long oldFieldPath = kind == NodeKind.OBJECT_NAMED_ARRAY
+        ? getParentPathNodeKey(oldPath)
+        : oldPath;
+    if (getParentPathNodeKey(oldFieldPath) == parentPath) {
+      // Sibling reordering and moving between instances of the same path change no path classes.
+      return;
+    }
+    final long newFieldPath = getPathNodeKey(parentPath, name, pathKind);
+    rememberOldPath(oldPaths, oldReferences, oldFieldPath);
+    final long newPath;
+    if (kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      newPath = getArrayChildPathNodeKey(newFieldPath);
+      rememberOldPath(oldPaths, oldReferences, oldPath);
+    } else {
+      newPath = newFieldPath;
+    }
+    if (kind == NodeKind.ARRAY) {
+      final ArrayNode array = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      array.setPathNodeKey(newPath);
+    } else {
+      final NameNode named = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      named.setPathNodeKey(newPath);
+    }
+  }
+
+  /**
    * Adapt path summary either for moves or {@code setQName(QName)}.
    *
    * @param node the node for which the path node needs to be adapted
@@ -597,6 +718,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   public void adaptPathForChangedNode(final ImmutableNameNode node, final QNm name, final int uriKey,
       final int prefixKey, final int localNameKey, final OPType type) {
+    if (type != OPType.SETNAME) {
+      adaptPathForMovedSubtree(node.getNodeKey());
+      return;
+    }
     // Possibly either reset a path node or decrement its reference counter
     // and search for the new path node or insert it.
     movePathSummary();

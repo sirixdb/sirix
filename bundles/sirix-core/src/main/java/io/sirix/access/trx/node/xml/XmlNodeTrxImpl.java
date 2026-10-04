@@ -198,6 +198,7 @@ final class XmlNodeTrxImpl extends
         if (nodeAnchor.getFirstChildKey() != nodeToMove.getNodeKey()) {
           final StructNode toMove = (StructNode) nodeToMove;
           final long movedNodeKey = toMove.getNodeKey();
+          final long originalParentKey = toMove.getParentKey();
           pendingStructuralChange = movedNodeKey;
           indexController.notifyBeforeStructuralChange(movedNodeKey);
           structuralSurgeryStarted = true;
@@ -219,7 +220,7 @@ final class XmlNodeTrxImpl extends
             nodeHashing.adaptHashesWithAdd();
 
             // Adapt path summary.
-            if (buildPathSummary && toMove instanceof NameNode moved) {
+            if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey() && toMove instanceof NameNode moved) {
               pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
                   moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
             }
@@ -346,6 +347,14 @@ final class XmlNodeTrxImpl extends
     }
 
     try {
+      if (fromKey < 0 || fromKey > getMaxNodeKey() || fromKey == getNodeKey()) {
+        throw new IllegalArgumentException("Argument must identify a different existing node!");
+      }
+      // Already immediately to the left: delegating through the left sibling would address the
+      // source itself and make the right-sibling move reject this valid no-op.
+      if (hasLeftSibling() && getLeftSiblingKey() == fromKey) {
+        return this;
+      }
       if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
         moveToLeftSibling();
         return moveSubtreeToRightSibling(fromKey);
@@ -396,6 +405,7 @@ final class XmlNodeTrxImpl extends
           indexController.notifyBeforeStructuralChange(movedNodeKey);
           structuralSurgeryStarted = true;
           final long parentKey = nodeAnchor.getParentKey();
+          final long originalParentKey = toMove.getParentKey();
 
           // Compound operation: adaptForMove internally calls remove()/setValue(), whose
           // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
@@ -417,7 +427,7 @@ final class XmlNodeTrxImpl extends
 
             // Adapt path summary.
             if (buildPathSummary && toMove instanceof NameNode moved) {
-              final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
+              final PathSummaryWriter.OPType type = originalParentKey == parentKey
                   ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
                   : PathSummaryWriter.OPType.MOVED;
 

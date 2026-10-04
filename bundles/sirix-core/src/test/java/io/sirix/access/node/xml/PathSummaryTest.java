@@ -1324,150 +1324,29 @@ public final class PathSummaryTest {
     assertNull(summary);
   }
 
+  private record MovedPath(NodeKind kind, int level, int references, long children) {
+  }
+
   private void testSecondMoveToFirstChildAfterMoveHelper(final PathSummaryReader summaryReader) {
+    // Path record IDs and sibling order are allocation details. Check the path classes themselves:
+    // the moved b's attribute and c must be below /p:a/b/b, and its foo/bar merge with that branch.
+    final Map<String, MovedPath> expected = Map.of("/p:a", new MovedPath(NodeKind.ELEMENT, 1, 1, 3), "/p:a/b",
+        new MovedPath(NodeKind.ELEMENT, 2, 1, 2), "/p:a/b/b", new MovedPath(NodeKind.ELEMENT, 3, 2, 3), "/p:a/b/b/c",
+        new MovedPath(NodeKind.ELEMENT, 4, 1, 0), "/p:a/b/b/@p:x", new MovedPath(NodeKind.ATTRIBUTE, 4, 1, 0),
+        "/p:a/b/b/foo", new MovedPath(NodeKind.ELEMENT, 4, 2, 1), "/p:a/b/b/foo/bar",
+        new MovedPath(NodeKind.ELEMENT, 5, 2, 0), "/p:a/b/c", new MovedPath(NodeKind.ELEMENT, 3, 1, 0), "/p:a/@i",
+        new MovedPath(NodeKind.ATTRIBUTE, 2, 1, 0), "/p:a/p:", new MovedPath(NodeKind.NAMESPACE, 2, 1, 0));
+    summaryReader.moveToDocumentRoot();
+    final Map<String, MovedPath> actual = new HashMap<>();
     final Axis axis = new DescendantAxis(summaryReader);
-    PathSummaryReader summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(1L, summary.getNodeKey());
-    assertEquals(4L, summary.getFirstChildKey());
-    assertEquals(-1L, summary.getLeftSiblingKey());
-    assertEquals(-1L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
-    assertEquals(1, summary.getLevel());
-    assertEquals(3, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(4L, summary.getNodeKey());
-    assertEquals(13L, summary.getFirstChildKey());
-    assertEquals(-1L, summary.getLeftSiblingKey());
-    assertEquals(3L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
-    assertEquals(2, summary.getLevel());
-    assertEquals(4, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/b", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(13L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(-1L, summary.getLeftSiblingKey());
-    assertEquals(12L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
-    assertEquals(3, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/b/c", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ATTRIBUTE, summary.getPathKind());
-    assertEquals(12L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(13L, summary.getLeftSiblingKey());
-    assertEquals(9L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
-    assertEquals(3, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/b/@p:x", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(9L, summary.getNodeKey());
-    assertEquals(10L, summary.getFirstChildKey());
-    assertEquals(12L, summary.getLeftSiblingKey());
-    assertEquals(5L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
-    assertEquals(3, summary.getLevel());
-    assertEquals(1, summary.getChildCount());
-    assertEquals(2, summary.getReferences());
-    assertEquals("/p:a/b/b", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(10L, summary.getNodeKey());
-    assertEquals(11L, summary.getFirstChildKey());
-    assertEquals(-1L, summary.getLeftSiblingKey());
-    assertEquals(-1L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "foo"), axis.asPathSummary().getName());
-    assertEquals(4, summary.getLevel());
-    assertEquals(1, summary.getChildCount());
-    assertEquals(2, summary.getReferences());
-    assertEquals("/p:a/b/b/foo", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(11L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(-1L, summary.getLeftSiblingKey());
-    assertEquals(-1L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "bar"), axis.asPathSummary().getName());
-    assertEquals(5, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(2, summary.getReferences());
-    assertEquals("/p:a/b/b/foo/bar", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ELEMENT, summary.getPathKind());
-    assertEquals(5L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(9L, summary.getLeftSiblingKey());
-    assertEquals(-1L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
-    assertEquals(3, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/b/c", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.ATTRIBUTE, summary.getPathKind());
-    assertEquals(3L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(4L, summary.getLeftSiblingKey());
-    assertEquals(2L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("", "", "i"), axis.asPathSummary().getName());
-    assertEquals(2, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/@i", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNotNull(summary);
-    assertEquals(NodeKind.NAMESPACE, summary.getPathKind());
-    assertEquals(2L, summary.getNodeKey());
-    assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(3L, summary.getLeftSiblingKey());
-    assertEquals(-1L, summary.getRightSiblingKey());
-    checkInMemoryNodes(summary);
-    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
-    assertEquals(2, summary.getLevel());
-    assertEquals(0, summary.getChildCount());
-    assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/p:", summary.getPath().toString());
-
-    summary = next(axis);
-    assertNull(summary);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      assertNull(
+          actual.put(summaryReader.getPath().toString(), new MovedPath(summaryReader.getPathKind(),
+              summaryReader.getLevel(), summaryReader.getReferences(), summaryReader.getChildCount())),
+          "duplicate path class");
+    }
+    assertEquals(expected, actual);
   }
 
   private static void checkInMemoryNodes(PathSummaryReader summary) {
