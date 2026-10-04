@@ -97,10 +97,12 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   long getPathNodeKey();
 
   /**
-   * Get key for given name. This is used for efficient name testing.
+   * Returns the hash used to probe the name dictionary. Hash collisions can give a stored name a
+   * different key. For exact matching, resolve the stored key with {@link #nameForKey(int)} and
+   * compare the name.
    *
    * @param name name, i.e., local part, URI, or prefix
-   * @return internal key assigned to given name
+   * @return initial dictionary probe hash for the given name
    */
   int keyForName(String name);
 

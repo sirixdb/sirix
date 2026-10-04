@@ -184,6 +184,7 @@ public class SirixTranslator extends TopDownTranslator {
                 Boolean.TRUE.equals(node.getProperty(CheapFirstConjunctStage.NATIVE_STORE))));
   }
 
+  @Override
   protected Expr derefDescendantExpr(AST node) throws QueryException {
     Expr object = expr(node.getChild(0), true);
     Expr field = expr(node.getChild(1), true);
@@ -275,7 +276,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Last(final Axis axis) {
+    private Last(final Axis axis) {
       super(axis);
     }
 
@@ -310,7 +311,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public First(final Axis axis) {
+    private First(final Axis axis) {
       super(axis);
     }
 
@@ -345,7 +346,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Next(final Axis axis) {
+    private Next(final Axis axis) {
       super(axis);
     }
 
@@ -380,7 +381,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Previous(final Axis axis) {
+    private Previous(final Axis axis) {
       super(axis);
     }
 
@@ -417,7 +418,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public AllTime(final Axis axis) {
+    private AllTime(final Axis axis) {
       super(axis);
     }
 
@@ -459,7 +460,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Past(final Axis axis) {
+    private Past(final Axis axis) {
       super(axis);
       mSelf = axis == Axis.PAST
           ? IncludeSelf.NO
@@ -504,7 +505,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Future(final Axis axis) {
+    private Future(final Axis axis) {
       super(axis);
       includeSelf = axis == Axis.FUTURE
           ? IncludeSelf.NO
@@ -544,7 +545,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Preceding(final Axis axis) {
+    private Preceding(final Axis axis) {
       super(axis);
     }
 
@@ -577,7 +578,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public PrecedingSibling(final Axis axis) {
+    private PrecedingSibling(final Axis axis) {
       super(axis);
     }
 
@@ -611,7 +612,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public FollowingSibling(final Axis axis) {
+    private FollowingSibling(final Axis axis) {
       super(axis);
     }
 
@@ -645,7 +646,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Following(final Axis axis) {
+    private Following(final Axis axis) {
       super(axis);
     }
 
@@ -683,7 +684,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public AncestorOrSelf(final Axis axis) {
+    private AncestorOrSelf(final Axis axis) {
       super(axis);
       includeSelf = axis == Axis.ANCESTOR
           ? IncludeSelf.NO
@@ -720,7 +721,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Parent(final Axis axis) {
+    private Parent(final Axis axis) {
       super(axis);
     }
 
@@ -753,7 +754,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Attribute(final Axis axis) {
+    private Attribute(final Axis axis) {
       super(axis);
     }
 
@@ -791,7 +792,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public Child(final Axis axis) {
+    private Child(final Axis axis) {
       super(axis);
       filterMap = new Long2ObjectOpenHashMap<>();
     }
@@ -859,7 +860,7 @@ public class SirixTranslator extends TopDownTranslator {
      *
      * @param axis the axis to evaluate
      */
-    public DescOrSelf(final Axis axis) {
+    private DescOrSelf(final Axis axis) {
       super(axis);
       self = axis == Axis.DESCENDANT_OR_SELF
           ? IncludeSelf.YES
@@ -1053,9 +1054,10 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   private static boolean isSimpleNodeTest(final NodeType test) {
+    // Partial wildcards, type restrictions and nested document tests require NodeType.matches.
     return test.getType() == null && (test instanceof ElementType || test instanceof AttributeType
         || test instanceof TextType || test instanceof CommentType
-        || test instanceof DocumentType documentType && documentType.getElementType() == null);
+        || (test instanceof DocumentType documentType && documentType.getElementType() == null));
   }
 
   private static AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getTemporalAxis(final NodeType test,

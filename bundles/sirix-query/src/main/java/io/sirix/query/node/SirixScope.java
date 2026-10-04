@@ -13,8 +13,9 @@ import javax.xml.XMLConstants;
 
 /**
  * Namespace scope anchored to a stored XML element. Nodes share the transaction cursor, so scope
- * operations must reposition it to the owning element even when other node accesses have moved it.
- * Prefix resolution searches local declarations before ancestors and restores the owning element.
+ * operations reposition it to the owning element even when other node accesses have moved it.
+ * Prefix resolution searches local declarations before ancestors. Namespace reads preserve the
+ * caller's transaction cursor.
  *
  * @author Johannes Lichtenberger
  *
@@ -53,7 +54,7 @@ public final class SirixScope implements Scope {
       private int index;
 
       @Override
-      public String next() throws DocumentException {
+      public @Nullable String next() throws DocumentException {
         if (index < namespaces) {
           final long currentNodeKey = rtx.getNodeKey();
           try {
@@ -76,6 +77,7 @@ public final class SirixScope implements Scope {
   }
 
   @Override
+  @SuppressWarnings("NullAway") // The empty prefix always resolves to a URI, possibly the empty URI.
   public String defaultNS() {
     return resolvePrefix("");
   }
@@ -95,7 +97,7 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String resolvePrefix(final @Nullable String prefix) {
+  public @Nullable String resolvePrefix(final @Nullable String prefix) {
     if ("xml".equals(prefix)) {
       return XMLConstants.XML_NS_URI;
     }

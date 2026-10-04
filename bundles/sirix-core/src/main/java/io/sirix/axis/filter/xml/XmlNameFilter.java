@@ -22,7 +22,6 @@
 package io.sirix.axis.filter.xml;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.axis.filter.PathNameFilter;
 import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.AbstractFilter;
 import org.jspecify.annotations.Nullable;
@@ -30,12 +29,7 @@ import org.jspecify.annotations.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * //todo duplicate description as to that of
- * 
- * @see PathNameFilter
- *      <p>
- *      Match qname of ELEMENT or ATTRIBUTE.
- *      </p>
+ * Matches XML names with expanded-name or lexical-name semantics, depending on the constructor.
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
@@ -49,10 +43,10 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
   private final @Nullable String mNamespaceURI;
 
   /**
-   * Default constructor.
+   * Creates an expanded-name test. Prefix aliases do not affect matching.
    *
    * @param rtx the node trx/node cursor this filter is bound to
-   * @param name name to check
+   * @param name namespace URI and local name to match
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
@@ -65,10 +59,10 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
   }
 
   /**
-   * Default constructor.
+   * Creates a lexical-name test without resolving a namespace context.
    *
    * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
+   * @param name local name with an optional prefix; both must match literally
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
