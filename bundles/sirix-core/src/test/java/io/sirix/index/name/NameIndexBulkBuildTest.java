@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,23 +75,23 @@ final class NameIndexBulkBuildTest {
   private void assertXmlBuilds(final VersioningType versioning, final QNm root, final QNm child, final BuildMode mode) {
     final List<QNm> names = List.of(root, child, MISSING);
     final Set<IndexDef> definitions = definitions(IndexDef.DbType.XML, child);
-    final Map<QNm, TreeSet<Long>> expected =
+    final Map<QNm, Set<Long>> expected =
         Map.of(root, new TreeSet<>(Set.of(1L)), child, new TreeSet<>(Set.of(2L, 3L)), MISSING, new TreeSet<>());
-    final Map<Integer, Map<QNm, TreeSet<Long>>> bulk =
+    final Map<Integer, Map<QNm, Set<Long>>> bulk =
         xmlPostings(versioning, mode, root, child, names, definitions, expected);
     assertEquals(xmlPostings(versioning, BuildMode.INCREMENTAL, root, child, names, definitions, expected), bulk,
         "XML name lookups must agree for " + mode);
   }
 
-  private Map<Integer, Map<QNm, TreeSet<Long>>> xmlPostings(final VersioningType versioning, final BuildMode mode,
+  private Map<Integer, Map<QNm, Set<Long>>> xmlPostings(final VersioningType versioning, final BuildMode mode,
       final QNm root, final QNm child, final List<QNm> names, final Set<IndexDef> definitions,
-      final Map<QNm, TreeSet<Long>> expected) {
+      final Map<QNm, Set<Long>> expected) {
     final Path path = directory.resolve("xml-" + mode);
     Databases.createXmlDatabase(new DatabaseConfiguration(path));
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
       database.createResource(configuration(versioning));
       try (final XmlResourceSession session = database.beginResourceSession(RESOURCE)) {
-        final Map<Integer, Map<QNm, TreeSet<Long>>> live;
+        final Map<Integer, Map<QNm, Set<Long>>> live;
         try (final XmlNodeTrx trx = session.beginNodeTrx()) {
           if (mode == BuildMode.INCREMENTAL) {
             session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
@@ -125,23 +126,22 @@ final class NameIndexBulkBuildTest {
   void jsonFusedObjectKeysResolveEveryValueKindBeforeAndAfterCommit(final VersioningType versioning) {
     final QNm selected = new QNm("object");
     final Set<IndexDef> definitions = definitions(IndexDef.DbType.JSON, selected);
-    final Map<Integer, Map<QNm, TreeSet<Long>>> incremental =
-        jsonPostings(versioning, BuildMode.INCREMENTAL, definitions);
+    final Map<Integer, Map<QNm, Set<Long>>> incremental = jsonPostings(versioning, BuildMode.INCREMENTAL, definitions);
     for (final BuildMode mode : List.of(BuildMode.UNCOMMITTED, BuildMode.COMMITTED)) {
       assertEquals(incremental, jsonPostings(versioning, mode, definitions),
           "JSON name lookups must agree for " + mode);
     }
   }
 
-  private Map<Integer, Map<QNm, TreeSet<Long>>> jsonPostings(final VersioningType versioning, final BuildMode mode,
+  private Map<Integer, Map<QNm, Set<Long>>> jsonPostings(final VersioningType versioning, final BuildMode mode,
       final Set<IndexDef> definitions) {
     final Path path = directory.resolve("json-" + mode);
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       database.createResource(configuration(versioning));
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-        final Map<Integer, Map<QNm, TreeSet<Long>>> live;
-        final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+        final Map<Integer, Map<QNm, Set<Long>>> live;
+        final Map<QNm, Set<Long>> expected = new HashMap<>();
         for (final QNm name : JSON_NAMES) {
           expected.put(name, new TreeSet<>());
         }
@@ -156,13 +156,13 @@ final class NameIndexBulkBuildTest {
             final long key = axis.nextLong();
             final QNm name = trx.getName();
             if (name != null) {
-              expected.get(name).add(key);
+              requireNonNull(expected.get(name)).add(key);
             }
           }
           for (final QNm name : JSON_NAMES) {
             assertEquals(name.equals(MISSING)
                 ? 0
-                : 2, expected.get(name).size(), "fixture field count: " + name);
+                : 2, requireNonNull(expected.get(name)).size(), "fixture field count: " + name);
           }
           if (mode == BuildMode.COMMITTED) {
             trx.commit();
@@ -211,7 +211,7 @@ final class NameIndexBulkBuildTest {
           final var controller = session.getWtxIndexController(trx.getRevisionNumber());
           assertTrue(trx.moveTo(childKey));
           trx.setName(renamed);
-          final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+          final Map<QNm, Set<Long>> expected = new HashMap<>();
           expected.put(ROOT, new TreeSet<>(Set.of(rootKey)));
           expected.put(CHILD, new TreeSet<>());
           expected.put(renamed, new TreeSet<>(Set.of(childKey)));
@@ -255,7 +255,7 @@ final class NameIndexBulkBuildTest {
         controller.createIndexes(definitions, trx);
         assertTrue(trx.moveTo(rootKey));
         trx.setName(renamed);
-        final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+        final Map<QNm, Set<Long>> expected = new HashMap<>();
         expected.put(ROOT, new TreeSet<>());
         expected.put(CHILD, new TreeSet<>(Set.of(childKey)));
         expected.put(renamed, new TreeSet<>(Set.of(rootKey)));
@@ -308,7 +308,7 @@ final class NameIndexBulkBuildTest {
           final long targetKey = trx.getNodeKey();
           final var controller = session.getWtxIndexController(trx.getRevisionNumber());
           controller.createIndexes(definitions, trx);
-          final Map<QNm, TreeSet<Long>> expected = new HashMap<>();
+          final Map<QNm, Set<Long>> expected = new HashMap<>();
           expected.put(ROOT, new TreeSet<>(Set.of(rootKey)));
           expected.put(CHILD, new TreeSet<>(Set.of(childKey)));
           expected.put(target, new TreeSet<>(Set.of(targetKey)));
@@ -317,7 +317,7 @@ final class NameIndexBulkBuildTest {
             case REMOVE_ROOT -> {
               assertTrue(trx.moveTo(rootKey));
               trx.remove();
-              for (final TreeSet<Long> keys : expected.values()) {
+              for (final Set<Long> keys : expected.values()) {
                 keys.clear();
               }
             }
@@ -343,20 +343,24 @@ final class NameIndexBulkBuildTest {
                 trx.moveSubtreeToRightSibling(childKey);
               }
               assertTrue(trx.moveTo(childKey));
-              assertEquals(mutation == NamespaceMutation.MOVE_FIRST_CHILD ? targetKey : containerKey,
-                  trx.getParentKey());
+              assertEquals(mutation == NamespaceMutation.MOVE_FIRST_CHILD
+                  ? targetKey
+                  : containerKey, trx.getParentKey());
               assertEquals(1, trx.getNamespaceCount());
             }
           }
           lookups(controller, trx.getStorageEngineReader(), definitions, names, expected);
-          final TreeSet<Long> allExpected = new TreeSet<>();
-          for (final TreeSet<Long> keys : expected.values()) {
+          final Set<Long> allExpected = new TreeSet<>();
+          for (final Set<Long> keys : expected.values()) {
             allExpected.addAll(keys);
           }
-          final IndexDef allNames = definitions.stream().filter(definition -> definition.getIncluded().isEmpty()
-              && definition.getExcluded().isEmpty()).findFirst().orElseThrow();
-          assertEquals(allExpected, collect(controller.openNameIndex(trx.getStorageEngineReader(), allNames,
-              new NameFilter(Set.of(), Set.of()))));
+          final IndexDef allNames =
+              definitions.stream()
+                         .filter(definition -> definition.getIncluded().isEmpty() && definition.getExcluded().isEmpty())
+                         .findFirst()
+                         .orElseThrow();
+          assertEquals(allExpected, collect(
+              controller.openNameIndex(trx.getStorageEngineReader(), allNames, new NameFilter(Set.of(), Set.of()))));
           trx.commit();
           try (final var reader = session.beginNodeReadOnlyTrx()) {
             lookups(session.getRtxIndexController(reader.getRevisionNumber()), reader.getStorageEngineReader(),
@@ -381,14 +385,14 @@ final class NameIndexBulkBuildTest {
         IndexDefs.createFilteredNameIdxDef(Set.of(selected), 2, type));
   }
 
-  private static Map<Integer, Map<QNm, TreeSet<Long>>> lookups(final IndexController<?, ?> controller,
+  private static Map<Integer, Map<QNm, Set<Long>>> lookups(final IndexController<?, ?> controller,
       final StorageEngineReader reader, final Set<IndexDef> definitions, final List<QNm> names,
-      final Map<QNm, TreeSet<Long>> expected) {
-    final Map<Integer, Map<QNm, TreeSet<Long>>> result = new HashMap<>();
+      final Map<QNm, Set<Long>> expected) {
+    final Map<Integer, Map<QNm, Set<Long>>> result = new HashMap<>();
     for (final IndexDef definition : definitions) {
-      final Map<QNm, TreeSet<Long>> postings = new HashMap<>();
+      final Map<QNm, Set<Long>> postings = new HashMap<>();
       for (final QNm name : names) {
-        final TreeSet<Long> keys =
+        final Set<Long> keys =
             collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(name), Set.of())));
         final boolean included = definition.getIncluded().isEmpty() || definition.getIncluded().contains(name);
         final boolean excluded = definition.getExcluded().contains(name);
@@ -402,8 +406,8 @@ final class NameIndexBulkBuildTest {
     return result;
   }
 
-  private static TreeSet<Long> collect(final Iterator<NodeReferences> hits) {
-    final TreeSet<Long> keys = new TreeSet<>();
+  private static Set<Long> collect(final Iterator<NodeReferences> hits) {
+    final Set<Long> keys = new TreeSet<>();
     while (hits.hasNext()) {
       final LongIterator postings = hits.next().getNodeKeys().getLongIterator();
       while (postings.hasNext()) {

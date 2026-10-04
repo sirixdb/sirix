@@ -14,10 +14,12 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.cas.CASFilter;
+import io.sirix.index.path.PathFilter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.io.StorageType;
 import io.sirix.node.NodeKind;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -45,18 +47,38 @@ final class XmlNameIndexRemovalTest {
   Path directory;
 
   private static Stream<Arguments> removalCases() {
-    return Arrays.stream(VersioningType.values()).flatMap(versioning ->
-        Stream.of(false, true).flatMap(committed ->
-            Stream.of(NodeKind.ATTRIBUTE, NodeKind.PROCESSING_INSTRUCTION).flatMap(kind ->
-                Stream.of(false, true).flatMap(subtree ->
-                    Stream.of(false, true).map(renamed -> Arguments.of(versioning, committed, kind, subtree, renamed))))));
+    return Arrays.stream(VersioningType.values())
+                 .flatMap(
+                     versioning -> Stream.of(false, true)
+                                         .flatMap(
+                                             committed -> Stream.of(NodeKind.ATTRIBUTE, NodeKind.PROCESSING_INSTRUCTION)
+                                                                .flatMap(
+                                                                    kind -> Stream.of(false, true)
+                                                                                  .flatMap(
+                                                                                      subtree -> Stream.of(false, true)
+                                                                                                       .map(
+                                                                                                           renamed -> Arguments.of(
+                                                                                                               versioning,
+                                                                                                               committed,
+                                                                                                               kind,
+                                                                                                               subtree,
+                                                                                                               renamed))))));
   }
 
   private static Stream<Arguments> filteredRemovalCases() {
-    return Arrays.stream(VersioningType.values()).flatMap(versioning ->
-        Stream.of(false, true).flatMap(committed ->
-            Stream.of(false, true).flatMap(startingElement ->
-                Stream.of(false, true).map(subtree -> Arguments.of(versioning, committed, startingElement, subtree)))));
+    return Arrays.stream(VersioningType.values())
+                 .flatMap(
+                     versioning -> Stream.of(false, true)
+                                         .flatMap(
+                                             committed -> Stream.of(false, true)
+                                                                .flatMap(
+                                                                    startingElement -> Stream.of(false, true)
+                                                                                             .map(
+                                                                                                 subtree -> Arguments.of(
+                                                                                                     versioning,
+                                                                                                     committed,
+                                                                                                     startingElement,
+                                                                                                     subtree)))));
   }
 
   @ParameterizedTest
@@ -64,7 +86,9 @@ final class XmlNameIndexRemovalTest {
   void attributeRemovalWithFreshFilteredListenersPreservesPostings(final VersioningType versioning,
       final boolean committed, final boolean startingElement, final boolean subtree) {
     final Path path = directory.resolve("xml-filtered-removal");
-    final String attributePath = startingElement ? "/root/@a" : "/root/child/@a";
+    final String attributePath = startingElement
+        ? "/root/@a"
+        : "/root/child/@a";
     final Set<IndexDef> definitions = Set.of(IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML),
         IndexDefs.createPathIdxDef(Set.of(parse(attributePath)), 0, IndexDef.DbType.XML),
         IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse(attributePath)), 0, IndexDef.DbType.XML));
@@ -83,7 +107,9 @@ final class XmlNameIndexRemovalTest {
           rootKey = trx.getNodeKey();
           trx.insertElementAsFirstChild(new QNm("child"));
           final long childKey = trx.getNodeKey();
-          assertTrue(trx.moveTo(startingElement ? rootKey : childKey));
+          assertTrue(trx.moveTo(startingElement
+              ? rootKey
+              : childKey));
           trx.insertAttribute(new QNm("a"), "value");
           attributeKey = trx.getNodeKey();
           final var controller = session.getWtxIndexController(trx.getRevisionNumber());
@@ -181,7 +207,9 @@ final class XmlNameIndexRemovalTest {
 
   private static void removeAndAssert(final XmlResourceSession session, final XmlNodeTrx trx, final long rootKey,
       final long namedKey, final boolean subtree, final Map<IndexType, Set<Long>> expected) {
-    assertTrue(trx.moveTo(subtree ? rootKey : namedKey));
+    assertTrue(trx.moveTo(subtree
+        ? rootKey
+        : namedKey));
     trx.remove();
     assertFalse(trx.moveTo(namedKey));
     for (final Set<Long> keys : expected.values()) {
@@ -202,11 +230,15 @@ final class XmlNameIndexRemovalTest {
 
   private static void assertPostings(final IndexController<?, ?> controller, final StorageEngineReader reader,
       final Map<IndexType, Set<Long>> expected) {
+    final @Nullable PathFilter pathFilter = null;
+    final @Nullable CASFilter casFilter = null;
     for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+      // PATH/CAS implementations accept null for full scans; the controller signatures omit @Nullable.
+      @SuppressWarnings("NullAway")
       final Iterator<NodeReferences> postings = switch (definition.getType()) {
         case NAME -> controller.openNameIndex(reader, definition, new NameFilter(Set.of(), Set.of()));
-        case PATH -> controller.openPathIndex(reader, definition, null);
-        case CAS -> controller.openCASIndex(reader, definition, (CASFilter) null);
+        case PATH -> controller.openPathIndex(reader, definition, pathFilter);
+        case CAS -> controller.openCASIndex(reader, definition, casFilter);
         default -> throw new AssertionError(definition.getType());
       };
       final Set<Long> actual = new TreeSet<>();
