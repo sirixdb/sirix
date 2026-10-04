@@ -8,7 +8,8 @@ import io.sirix.node.NodeKind;
  * to the child's path node key, replacing the {@code Long2LongOpenHashMap} that was keyed on a
  * LOSSY pack of that triple.
  *
- * <p>The old key was {@code (parentNodeKey << 32) | ((name.hashCode() & 0xFFFFFF) << 8) | kind} and
+ * <p>
+ * The old key was {@code (parentNodeKey << 32) | ((name.hashCode() & 0xFFFFFF) << 8) | kind} and
  * the value it found was returned as the authoritative child with no verification, so two sibling
  * names colliding in those 24 bits merged into a single path node. {@code "Aa"} and {@code "BB"}
  * both hash to 2112: on {@code {"Aa":1,"BB":2}} the summary held ONE node (name {@code Aa},
@@ -16,12 +17,19 @@ import io.sirix.node.NodeKind;
  * filed under {@code Aa}'s path class. A hash-keyed map cannot fix that by hashing harder — the
  * table has to hold the real key.
  *
- * <p>So it does: each slot stores the full triple, and a probe compares it. Both directions are
- * then exact — a hit is the child that was actually inserted, and a miss really means the parent has
- * no such child, which a lossy key could not promise either (removing one of two colliding names
+ * <p>
+ * So it does: each slot stores the full triple, and a probe compares it. Both directions are then
+ * exact — a hit is the child that was actually inserted, and a miss really means the parent has no
+ * such child, which a lossy key could not promise either (removing one of two colliding names
  * dropped the shared entry and orphaned the survivor).
  *
- * <p>Layout and probing are chosen for the lookup, which runs once per named record shredded:
+ * <p>
+ * Name identity includes the namespace URI and, for namespace bindings, the prefix; other kinds use
+ * the local name and ignore prefix aliases. Lookup, insertion, reload and removal all use this same
+ * identity, so distinct prefixes bound to one URI remain distinct namespace paths.
+ *
+ * <p>
+ * Layout and probing are chosen for the lookup, which runs once per named record shredded:
  * <ul>
  * <li>parallel primitive arrays plus one reference array, so a probe touches contiguous memory and
  * boxes nothing;</li>
@@ -33,7 +41,8 @@ import io.sirix.node.NodeKind;
  * short probe chains are worth far more than the halved footprint.</li>
  * </ul>
  *
- * <p><b>Thread safety:</b> none, exactly like the map it replaces. It is owned by a single
+ * <p>
+ * <b>Thread safety:</b> none, exactly like the map it replaces. It is owned by a single
  * {@code PathSummaryReader} and by the {@link PathSummaryData} snapshot that reader shares.
  */
 public final class PathSummaryChildIndex {
@@ -100,7 +109,7 @@ public final class PathSummaryChildIndex {
         return NO_VALUE; // An empty slot ends the probe chain: the key is not present.
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && sameName(childName, slotName)) {
+          && sameName(childName, slotName, childKind)) {
         return values[slot];
       }
       slot = (slot + 1) & mask;
@@ -115,8 +124,7 @@ public final class PathSummaryChildIndex {
    * @param childKind the child node kind, never {@code null}
    * @param childNodeKey the child's path node key
    */
-  public void put(final long parentNodeKey, final QNm childName, final NodeKind childKind,
-      final long childNodeKey) {
+  public void put(final long parentNodeKey, final QNm childName, final NodeKind childKind, final long childNodeKey) {
     final long hash = hash(parentNodeKey, childName, childKind);
     final byte kindOrdinal = (byte) childKind.ordinal();
     int slot = (int) hash & mask;
@@ -126,7 +134,7 @@ public final class PathSummaryChildIndex {
         break;
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && sameName(childName, slotName)) {
+          && sameName(childName, slotName, childKind)) {
         values[slot] = childNodeKey; // Overwrite in place; size is unchanged.
         return;
       }
@@ -160,7 +168,7 @@ public final class PathSummaryChildIndex {
         return;
       }
       if (hashes[slot] == hash && parentKeys[slot] == parentNodeKey && kinds[slot] == kindOrdinal
-          && sameName(childName, slotName)) {
+          && sameName(childName, slotName, childKind)) {
         shiftKeys(slot);
         return;
       }
@@ -176,22 +184,21 @@ public final class PathSummaryChildIndex {
   /**
    * Mix a triple into the 64-bit value the table probes on.
    *
-   * <p>Covers exactly the fields {@code QNm.hashCode()} covers — nsURI and localName. The prefix is
-   * deliberately excluded: were it included, two names that are EQUAL but spelled with different
-   * prefixes would land in different chains and the second would read as absent. Slot identity may
-   * be coarser than equality (that is just a collision, resolved against the stored key), never
-   * finer.
-   *
-   * <p>Built from {@code String.hashCode}, which {@code String} caches, rather than from a
-   * stronger hash over the characters. This runs once per named record shredded, so paying to walk
-   * the name is not free, and hash QUALITY is not what makes this table correct — the slot holds
-   * the real key and is compared against it. A weak hash costs at most an extra probe step. What
-   * String.hashCode does need is the fmix64 avalanche below, because short ASCII names cluster
-   * heavily in the low bits that select the slot.
+   * <p>
+   * Built from {@code String.hashCode}, which {@code String} caches, rather than from a stronger hash
+   * over the characters. This runs once per named record shredded, so paying to walk the name is not
+   * free, and hash QUALITY is not what makes this table correct — the slot holds the real key and is
+   * compared against it. A weak hash costs at most an extra probe step. What String.hashCode does
+   * need is the fmix64 avalanche below, because short ASCII names cluster heavily in the low bits
+   * that select the slot.
    */
   private static long hash(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
-    final String localName = childName.getLocalName();
-    long hash = localName == null ? 0L : localName.hashCode();
+    final String name = childKind == NodeKind.NAMESPACE
+        ? childName.getPrefix()
+        : childName.getLocalName();
+    long hash = name == null
+        ? 0L
+        : name.hashCode();
     final String nsUri = childName.getNamespaceURI();
     if (nsUri != null && !nsUri.isEmpty()) {
       hash = (hash + nsUri.hashCode()) * MIX;
@@ -209,17 +216,11 @@ public final class PathSummaryChildIndex {
 
   /**
    * Value equality of two names, without {@code QNm.equals}.
-   *
-   * <p>{@code QNm} inherits a final {@code equals} from {@code AbstractAtomic} that goes
-   * {@code instanceof Atomic} -> {@code atomicCmp} -> {@code atomicCmpInternal}, and only there
-   * compares nsURI and localName with {@code String.compareTo}. Both sides here are always a
-   * {@code QNm}, so the dispatch decides nothing; comparing the two fields directly is the same
-   * predicate with the chain removed, and {@code String.equals} short-circuits on reference
-   * equality — which is the common case when a shredder hands back the same key instance.
    */
-  private static boolean sameName(final QNm left, final QNm right) {
-    return left.getLocalName().equals(right.getLocalName())
-        && left.getNamespaceURI().equals(right.getNamespaceURI());
+  private static boolean sameName(final QNm left, final QNm right, final NodeKind kind) {
+    return (kind == NodeKind.NAMESPACE
+        ? left.getPrefix().equals(right.getPrefix())
+        : left.getLocalName().equals(right.getLocalName())) && left.getNamespaceURI().equals(right.getNamespaceURI());
   }
 
   /**

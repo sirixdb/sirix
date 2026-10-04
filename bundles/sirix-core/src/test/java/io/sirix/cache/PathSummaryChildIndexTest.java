@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 /**
  * Unit coverage for the open-addressed {@code (parent, name, kind) -> child path node key} table.
  *
- * <p>It replaced a {@code Long2LongOpenHashMap} keyed on a LOSSY pack of the triple — 24 bits of
+ * <p>
+ * It replaced a {@code Long2LongOpenHashMap} keyed on a LOSSY pack of the triple — 24 bits of
  * {@code String.hashCode} plus the low 32 bits of the parent key — whose value was returned as the
  * authoritative child with no verification. The cases below pin the two properties that key could
  * not offer: a hit is the child that was actually inserted, and a miss really means absent.
@@ -77,6 +78,57 @@ final class PathSummaryChildIndexTest {
   }
 
   @Test
+  void namespaceBindingsUsePrefixAndUri() {
+    final PathSummaryChildIndex index = index();
+    final QNm firstNamespace = new QNm("urn:shared", "Aa", "");
+    final QNm secondNamespace = new QNm("urn:shared", "BB", "");
+    final QNm defaultNamespace = new QNm("urn:shared", "", "");
+    final QNm otherUri = new QNm("urn:other", "Aa", "");
+    assertEquals(firstNamespace.getPrefix().hashCode(), secondNamespace.getPrefix().hashCode());
+    index.put(1L, firstNamespace, NodeKind.NAMESPACE, 11L);
+    index.put(1L, secondNamespace, NodeKind.NAMESPACE, 22L);
+    index.put(1L, defaultNamespace, NodeKind.NAMESPACE, 33L);
+    index.put(1L, otherUri, NodeKind.NAMESPACE, 44L);
+
+    assertEquals(4, index.size());
+    assertEquals(11L, index.get(1L, new QNm("urn:shared", "Aa", ""), NodeKind.NAMESPACE));
+    assertEquals(22L, index.get(1L, secondNamespace, NodeKind.NAMESPACE));
+    assertEquals(33L, index.get(1L, defaultNamespace, NodeKind.NAMESPACE));
+    assertEquals(44L, index.get(1L, otherUri, NodeKind.NAMESPACE));
+    assertEquals(PathSummaryChildIndex.NO_VALUE, index.get(2L, firstNamespace, NodeKind.NAMESPACE));
+    assertEquals(PathSummaryChildIndex.NO_VALUE, index.get(1L, firstNamespace, NodeKind.ELEMENT));
+
+    index.remove(1L, new QNm("urn:shared", "Aa", ""), NodeKind.NAMESPACE);
+    assertEquals(3, index.size());
+    assertEquals(PathSummaryChildIndex.NO_VALUE, index.get(1L, firstNamespace, NodeKind.NAMESPACE));
+    assertEquals(22L, index.get(1L, secondNamespace, NodeKind.NAMESPACE));
+    assertEquals(33L, index.get(1L, defaultNamespace, NodeKind.NAMESPACE));
+    assertEquals(44L, index.get(1L, otherUri, NodeKind.NAMESPACE));
+
+    index.put(1L, firstNamespace, NodeKind.NAMESPACE, 55L);
+    index.put(1L, new QNm("urn:shared", "Aa", ""), NodeKind.NAMESPACE, 66L);
+    assertEquals(4, index.size());
+    assertEquals(66L, index.get(1L, firstNamespace, NodeKind.NAMESPACE));
+  }
+
+  @Test
+  void elementAndAttributePrefixAliasesShareEntries() {
+    for (final NodeKind kind : new NodeKind[] {NodeKind.ELEMENT, NodeKind.ATTRIBUTE}) {
+      final PathSummaryChildIndex index = index();
+      final QNm firstName = new QNm("urn:shared", "p", "name");
+      final QNm alias = new QNm("urn:shared", "q", "name");
+      index.put(1L, firstName, kind, 11L);
+      assertEquals(11L, index.get(1L, alias, kind));
+      index.put(1L, alias, kind, 22L);
+      assertEquals(1, index.size());
+      assertEquals(22L, index.get(1L, firstName, kind));
+      index.remove(1L, firstName, kind);
+      assertEquals(0, index.size());
+      assertEquals(PathSummaryChildIndex.NO_VALUE, index.get(1L, alias, kind));
+    }
+  }
+
+  @Test
   @DisplayName("re-putting a triple overwrites in place")
   void putOverwrites() {
     final PathSummaryChildIndex index = index();
@@ -118,7 +170,7 @@ final class PathSummaryChildIndexTest {
       final String name = "field" + i;
       final long parent = i % 7;
       assertEquals(expected.get(parent + "/" + name), index.get(parent, new QNm(name), KIND),
-                   "entry lost or moved across a rehash: " + parent + "/" + name);
+          "entry lost or moved across a rehash: " + parent + "/" + name);
     }
   }
 

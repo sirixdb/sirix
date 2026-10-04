@@ -205,6 +205,10 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * moved node is a text-node the value of the current node is prepended to the moved node and
    * deleted afterwards. In this case the transaction is moved to the moved node.
    *
+   * <p>
+   * If the subtree is already the immediate left sibling, no move is performed and the cursor stays
+   * on the current node.
+   *
    * @param fromKey root node key of the subtree to move
    * @return the transaction instance
    * @throws SirixException if move adaption fails

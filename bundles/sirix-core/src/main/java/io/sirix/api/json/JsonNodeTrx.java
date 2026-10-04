@@ -76,23 +76,22 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertObjectRecordAsRightSibling(String key, ObjectRecordValue<?> value);
 
   /**
-   * Insert a fused {@code OBJECT_NAMED_*} record representing an object key paired with a
-   * primitive scalar value, as the first child of the current {@link
-   * io.sirix.node.NodeKind#OBJECT} node. Emits a single slotted-page record (instead of
-   * OBJECT_KEY + primitive child pair). Replaces the need for two-step
-   * {@link #insertObjectRecordAsFirstChild(String, ObjectRecordValue)} calls on primitives.
+   * Insert a fused {@code OBJECT_NAMED_*} record representing an object key paired with a primitive
+   * scalar value, as the first child of the current {@link io.sirix.node.NodeKind#OBJECT} node. Emits
+   * a single slotted-page record (instead of OBJECT_KEY + primitive child pair). Replaces the need
+   * for two-step {@link #insertObjectRecordAsFirstChild(String, ObjectRecordValue)} calls on
+   * primitives.
    *
-   * @param key   the field name
+   * @param key the field name
    * @param value the primitive value — must be {@link ObjectRecordValue} wrapping one of
-   *              {@code BooleanValue}, {@code NumberValue}, {@code StringValue} or
-   *              {@code NullValue}. Nested object / array values are rejected with
-   *              {@link IllegalArgumentException}.
+   *        {@code BooleanValue}, {@code NumberValue}, {@code StringValue} or {@code NullValue}.
+   *        Nested object / array values are rejected with {@link IllegalArgumentException}.
    */
   JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(String key, ObjectRecordValue<?> value);
 
   /**
-   * Insert a fused {@code OBJECT_NAMED_*} record as the right sibling of the current node.
-   * See {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)}.
+   * Insert a fused {@code OBJECT_NAMED_*} record as the right sibling of the current node. See
+   * {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)}.
    */
   JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(String key, ObjectRecordValue<?> value);
 
@@ -138,6 +137,10 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   /**
    * Move a subtree rooted at {@code fromKey} to be the left sibling of the current node.
+   *
+   * <p>
+   * If the subtree is already the immediate left sibling, no move is performed and the cursor stays
+   * on the current node.
    *
    * @param fromKey root node key of the subtree to move
    * @return this transaction instance
@@ -308,7 +311,7 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * Result of an LDJSON ingestion operation.
    *
    * @param documentCount the number of top-level documents ingested
-   * @param arrayNodeKey  the node key of the wrapper array that contains all documents
+   * @param arrayNodeKey the node key of the wrapper array that contains all documents
    */
   record LdjsonResult(long documentCount, long arrayNodeKey) {
   }
@@ -317,8 +320,9 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * Ingest a stream of LDJSON (line-delimited JSON) documents, wrapping them in a single array
    * inserted as the first child of the current node.
    *
-   * <p>The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level
-   * value in the parser must be an object or array (scalars are rejected with
+   * <p>
+   * The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level value in
+   * the parser must be an object or array (scalars are rejected with
    * {@link io.sirix.exception.SirixUsageException}).
    *
    * @param parser the Jackson parser positioned before the first token
@@ -334,8 +338,9 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * Ingest a stream of LDJSON (line-delimited JSON) documents, wrapping them in a single array
    * inserted as the last child of the current node.
    *
-   * <p>The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level
-   * value in the parser must be an object or array (scalars are rejected with
+   * <p>
+   * The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level value in
+   * the parser must be an object or array (scalars are rejected with
    * {@link io.sirix.exception.SirixUsageException}).
    *
    * @param parser the Jackson parser positioned before the first token

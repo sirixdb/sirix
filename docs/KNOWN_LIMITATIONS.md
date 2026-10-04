@@ -94,17 +94,9 @@ else falls back to the generic (always correct) pipeline.
 ### Fixed gaps (no longer limitations)
 
 - **Moved subtree kept its old pathNodeKey when the target path already
-  existed (path summary).** `PathSummaryWriter#processFoundPathNode` (the
-  merge branch of `adaptPathForChangedNode`, shared by XML renames and JSON
-  subtree moves) bumped reference counts and adapted DESCENDANT NameNodes but
-  never reset the moved/renamed node's own `pathNodeKey` — only the
-  create-new-path branch did. First move to a fresh path: correct; second
-  move to the now-existing path: the moved record still claimed the OLD
-  record set's path, so path-scoped scans attributed it to the wrong root
-  (reference counts were right, node attribution wasn't). The merge branch
-  now resets the root's `pathNodeKey` like the create branch. Caught by the
-  `ProjectionIndexStressTest` drop/recreate fresh-id cycles (cycle 1's fallback
-  answered 54 instead of 52).
+  existed (path summary).** The move-maintenance contract is documented at
+  [`PathSummaryWriter#adaptPathForMovedSubtree`](../bundles/sirix-core/src/main/java/io/sirix/index/path/summary/PathSummaryWriter.java).
+  Regression coverage: [`PathSummaryMoveTest`](../bundles/sirix-core/src/test/java/io/sirix/index/path/summary/PathSummaryMoveTest.java).
 - **Unscoped name sweep after re-open (generic aggregate path).** The
   path-scoped aggregate resolves its target path node by matching named
   ancestors, but read `PathNode#getName()` directly — which is only populated

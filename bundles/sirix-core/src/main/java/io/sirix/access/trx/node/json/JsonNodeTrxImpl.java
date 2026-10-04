@@ -2839,15 +2839,9 @@ final class JsonNodeTrxImpl extends
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
           nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            // Re-points the moved records at their new path classes; the statistics follow in the
-            // re-attach pass below, which reads the pathNodeKeys this leaves behind.
-            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
-          } else if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey()) {
-            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
-            adaptDescendantNameNodePaths(toMove);
+          // Re-attribute every path-bearing record, including anonymous and fused arrays.
+          if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey()) {
+            pathSummaryWriter.adaptPathForMovedSubtree(movedNodeKey);
           }
 
           // Adapt index-structures (after move).
@@ -2952,21 +2946,9 @@ final class JsonNodeTrxImpl extends
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
           nodeHashing.adaptHashesWithAdd();
 
-          // Adapt path summary.
-          if (buildPathSummary && toMove instanceof NameNode moved) {
-            final PathSummaryWriter.OPType type = originalParentKey == parentKey
-                ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
-                : PathSummaryWriter.OPType.MOVED;
-
-            if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
-              // Re-points the moved records at their new path classes; the statistics follow in
-              // the re-attach pass below, which reads the pathNodeKeys this leaves behind.
-              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(), moved.getPrefixKey(),
-                  moved.getLocalNameKey(), type);
-            }
-          } else if (buildPathSummary && originalParentKey != parentKey) {
-            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
-            adaptDescendantNameNodePaths(toMove);
+          // Re-attribute every path-bearing record, including anonymous and fused arrays.
+          if (buildPathSummary && originalParentKey != parentKey) {
+            pathSummaryWriter.adaptPathForMovedSubtree(movedNodeKey);
           }
 
           // Adapt index-structures (after move).
@@ -3019,6 +3001,14 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
+      if (fromKey < 0 || fromKey > getMaxNodeKey() || fromKey == getNodeKey()) {
+        throw new IllegalArgumentException("Argument must identify a different existing node!");
+      }
+      // Already immediately to the left: delegating through the left sibling would address the
+      // source itself and make the right-sibling move reject this valid no-op.
+      if (hasLeftSibling() && getLeftSiblingKey() == fromKey) {
+        return this;
+      }
       if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
         moveToLeftSibling();
         return moveSubtreeToRightSibling(fromKey);
@@ -3094,55 +3084,6 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Adapts path summary for descendant NameNode children when a non-NameNode (OBJECT or ARRAY) is
-   * moved to a different parent. Without this, nested OBJECT_KEY nodes would retain stale pathNodeKey
-   * references after the container node moves.
-   *
-   * <p>
-   * Only processes the <b>shallowest</b> NameNode descendants (first OBJECT_KEY layer reached in each
-   * branch), because {@code adaptPathForChangedNode} internally handles deeper descendants via its
-   * own descendant traversal.
-   * </p>
-   *
-   * @param movedNode the non-NameNode that was moved
-   */
-  private void adaptDescendantNameNodePaths(final StructNode movedNode) {
-    final long savedKey = getNodeKey();
-    moveTo(movedNode.getNodeKey());
-    collectAndAdaptShallowNameNodes(movedNode.getNodeKey());
-    moveTo(savedKey);
-  }
-
-  /**
-   * Recursively finds the shallowest NameNode descendants under a non-NameNode container and adapts
-   * their path summary entries. Stops recursing once a NameNode is found (because
-   * {@code adaptPathForChangedNode} handles deeper descendants).
-   */
-  private void collectAndAdaptShallowNameNodes(final long parentKey) {
-    moveTo(parentKey);
-    if (!hasFirstChild()) {
-      return;
-    }
-    moveToFirstChild();
-    do {
-      final long childKey = getNodeKey();
-      final ImmutableNode childNode = nodeReadOnlyTrx.getNode();
-      if (childNode instanceof NameNode nameNode) {
-        // Found a NameNode — adapt its path (which also fixes all its descendants).
-        // No need to recurse deeper.
-        moveTo(childKey);
-        pathSummaryWriter.adaptPathForChangedNode(nameNode, getName(), nameNode.getURIKey(), nameNode.getPrefixKey(),
-            nameNode.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
-        moveTo(childKey);
-      } else if (childNode instanceof StructNode structChild && structChild.hasFirstChild()) {
-        // Non-NameNode with children (e.g., OBJECT inside ARRAY) — recurse to find NameNodes.
-        collectAndAdaptShallowNameNodes(childKey);
-      }
-      moveTo(childKey);
-    } while (hasRightSibling() && moveToRightSibling());
-  }
-
-  /**
    * Insert position for move operations.
    */
   private enum MovePosition {
@@ -3184,6 +3125,9 @@ final class JsonNodeTrxImpl extends
     if (parent.getFirstChildKey() == fromNode.getNodeKey()) {
       parent.setFirstChildKey(fromNode.getRightSiblingKey());
     }
+    if (!fromNode.hasRightSibling()) {
+      parent.setLastChildKey(fromNode.getLeftSiblingKey());
+    }
     persistUpdatedRecord(parent);
 
     // Adapt left sibling key of former right sibling.
@@ -3220,6 +3164,10 @@ final class JsonNodeTrxImpl extends
         storageEngineWriter.prepareRecordForModification(toNode.getNodeKey(), IndexType.DOCUMENT, -1);
     if (fromNode.getParentKey() != toNode.getNodeKey() && storeChildCount) {
       newParent.incrementChildCount();
+    }
+
+    if (!newParent.hasFirstChild()) {
+      newParent.setLastChildKey(fromNode.getNodeKey());
     }
 
     if (toNode.hasFirstChild()) {
@@ -3283,6 +3231,13 @@ final class JsonNodeTrxImpl extends
           storageEngineWriter.prepareRecordForModification(rightSiblKey, IndexType.DOCUMENT, -1);
       oldRightSibling.setLeftSiblingKey(fromNode.getNodeKey());
       persistUpdatedRecord(oldRightSibling);
+    }
+
+    if (rightSiblKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      final StructNode parent =
+          storageEngineWriter.prepareRecordForModification(toNode.getParentKey(), IndexType.DOCUMENT, -1);
+      parent.setLastChildKey(fromNode.getNodeKey());
+      persistUpdatedRecord(parent);
     }
 
     // Adapt right- and left-sibling key of moved node.
