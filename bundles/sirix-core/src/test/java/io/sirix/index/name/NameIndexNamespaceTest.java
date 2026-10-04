@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -88,7 +89,7 @@ final class NameIndexNamespaceTest {
           trx.moveToFirstChild();
           final long itemKey = trx.getNodeKey();
           do {
-            expected.get(trx.getName()).add(trx.getNodeKey());
+            Objects.requireNonNull(expected.get(trx.getName())).add(trx.getNodeKey());
           } while (trx.moveToRightSibling());
           if (mode == BuildMode.COMMITTED) {
             trx.commit();
@@ -99,8 +100,8 @@ final class NameIndexNamespaceTest {
           assertJsonCheckpoint(session, trx, definitions, probes, expected);
           trx.moveTo(itemKey);
           trx.setObjectKeyName("renamed");
-          expected.get(item).remove(itemKey);
-          expected.get(renamed).add(itemKey);
+          Objects.requireNonNull(expected.get(item)).remove(itemKey);
+          Objects.requireNonNull(expected.get(renamed)).add(itemKey);
           assertJsonCheckpoint(session, trx, definitions, probes, expected);
           trx.moveTo(secondObject);
           trx.moveSubtreeToRightSibling(firstObject);
@@ -165,15 +166,15 @@ final class NameIndexNamespaceTest {
           }
           trx.insertElementAsFirstChild(root);
           final long rootKey = trx.getNodeKey();
-          expected.get(root).add(rootKey);
+          Objects.requireNonNull(expected.get(root)).add(rootKey);
           trx.insertElementAsFirstChild(a);
           final long aKey = trx.getNodeKey();
-          expected.get(a).add(aKey);
+          Objects.requireNonNull(expected.get(a)).add(aKey);
           trx.insertElementAsRightSibling(b);
           final long bKey = trx.getNodeKey();
-          expected.get(b).add(bKey);
+          Objects.requireNonNull(expected.get(b)).add(bKey);
           trx.insertElementAsRightSibling(plain);
-          expected.get(plain).add(trx.getNodeKey());
+          Objects.requireNonNull(expected.get(plain)).add(trx.getNodeKey());
           if (mode == BuildMode.COMMITTED) {
             trx.commit();
           }
