@@ -65,6 +65,7 @@ import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
+import io.sirix.utils.XmlNameResolver;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
 import org.jspecify.annotations.Nullable;
@@ -318,7 +319,7 @@ final class XmlNodeTrxImpl extends
     final QNm name;
     if (indexController.hasNameIndex() && node instanceof NameNode nameNode) {
       name = switch (kind) {
-        case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION -> nameNode.getName();
+        case ELEMENT, ATTRIBUTE, PROCESSING_INSTRUCTION -> XmlNameResolver.resolveName(nameNode, storageEngineWriter);
         default -> null;
       };
     } else {
@@ -1430,27 +1431,25 @@ final class XmlNodeTrxImpl extends
         final AttributeNode node =
             storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
-        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
+        removeName();
         final ElementNode parent =
             storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeAttribute(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
-        removeName();
         moveToParent();
       } else if (kind == NodeKind.NAMESPACE) {
         final NamespaceNode node =
             storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
-        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
+        removeName();
         final ElementNode parent =
             storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeNamespace(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
-        removeName();
         moveToParent();
       } else {
         final StructNode node = nodeReadOnlyTrx.getStructuralNode();
@@ -1467,11 +1466,12 @@ final class XmlNodeTrxImpl extends
         for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
           final long currentNodeKey = axis.nextLong();
 
+          // De-index attributes before removing their owner's path-summary subtree, so filtered
+          // PATH/CAS listeners can still resolve the attribute paths.
+          removeNonStructural();
+
           // Remove name.
           removeName();
-
-          // Remove namespaces and attributes.
-          removeNonStructural();
 
           // Remove text value.
           removeValue();
@@ -1492,7 +1492,8 @@ final class XmlNodeTrxImpl extends
         // System.out.println("references: " + getPathSummary().getReferences());
         // }
 
-        // removeNonStructural();
+        // The starting element needs the same cleanup order as its descendants.
+        removeNonStructural();
         removeName();
         removeValue();
 
@@ -1562,6 +1563,10 @@ final class XmlNodeTrxImpl extends
     }
   }
 
+  /**
+   * Remove value postings without resolving names: named-node deletion has already been delivered by
+   * {@link #removeName()} before dictionary release.
+   */
   private void removeValue() throws SirixIOException {
     final NodeKind kind = getKind();
     final ValueNode valueNode;
@@ -1578,7 +1583,12 @@ final class XmlNodeTrxImpl extends
         ? getPathNodeKey()
         : -1;
     moveTo(nodeKey);
-    notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) valueNode, pathNodeKey);
+    if (indexController.hasAnyPrimitiveIndex()) {
+      final Str value = indexController.hasCASIndex()
+          ? new Str(valueNode.getValue())
+          : null;
+      indexController.notifyChange(IndexController.ChangeType.DELETE, nodeKey, kind, pathNodeKey, null, value);
+    }
     removeXmlValueStat(pathNodeKey, valueNode.getRawValue());
   }
 
@@ -1717,12 +1727,15 @@ final class XmlNodeTrxImpl extends
               ? pathSummaryWriter.getNodeKey()
               : 0);
 
+          final long newPathNodeKey = node2.getPathNodeKey();
           nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node2);
           persistUpdatedRecord(node2);
           nodeHashing.adaptHashedWithUpdate(oldHash);
 
-          // Re-index under the NEW name/path (see the DELETE above).
-          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node2, node2.getPathNodeKey());
+          // Hash propagation rebinds the write singleton to ancestors. The restored read cursor
+          // still addresses the renamed node; node2 may now address its parent.
+          notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(),
+              newPathNodeKey);
           if (pendingStructuralChange >= 0) {
             indexController.notifyAfterStructuralChange(pendingStructuralChange);
             pendingStructuralChange = -1L;
@@ -1932,7 +1945,6 @@ final class XmlNodeTrxImpl extends
     final boolean hasLeft = oldNode.hasLeftSibling();
     final boolean hasRight = oldNode.hasRightSibling();
     final long oldNodeKey = oldNode.getNodeKey();
-    final NodeKind oldNodeKind = oldNode.getKind();
 
     // Concatenate neighbor text nodes if they exist (the right sibling is
     // deleted afterwards).
@@ -2027,12 +2039,6 @@ final class XmlNodeTrxImpl extends
         moveTo(rightSibKey);
       }
       storageEngineWriter.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
-    }
-
-    // Remove non-structural nodes of old node.
-    if (oldNodeKind == NodeKind.ELEMENT) {
-      moveTo(oldNodeKey);
-      removeNonStructural();
     }
 
     // Remove old node.

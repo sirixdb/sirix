@@ -193,23 +193,14 @@ existing recovery, construction, retention, catalogue-budget and projection-line
 guards. This focused evidence does not replace final-head original-workload,
 full-suite, all-work-budget or SH1 latency verification by the outer pipeline.
 
-## Separate XML NAME bulk-builder follow-up
+## XML NAME bulk-builder follow-up
 
-Building a NAME index after inserting existing XML elements (`root/value` with a
-text child) failed during round 1 fixture setup with `NullPointerException: key`.
-The concrete path is `XmlNameIndexBuilder.visit(ImmutableElement)` reading
-`node.getName()`, then `NameIndexBuilder.build` / `addPosting`, then
-`HOTBulkIndexLoader.add`, which rejects the null key. The visited element's cached
-name can be null even though the transaction can resolve its dictionary-backed
-name. A bulk NAME build must resolve and index that actual name.
-
-This production defect remains unresolved and is separate from catalogue recovery.
-The round 1 retention fixture creates its NAME index before inserting elements;
-that exercises incremental maintenance and does not demonstrate that building over
-existing elements works. The original failing log and stack are retained in
-`build/writer-retention/focused-review.log.attempt-2` and
-`fixed-results-attempt-2/`. Follow-up verification must build over existing XML
-and assert NAME lookups for those elements.
+The follow-up is implemented; see [NAME index usage](../README.md#indexes) and
+[NameIndexBulkBuildTest](../bundles/sirix-core/src/test/java/io/sirix/index/name/NameIndexBulkBuildTest.java).
+The round 1 retention fixture creates its NAME index before inserting elements,
+so its evidence covers incremental maintenance. The original failing bulk-build
+log and stack are retained in `build/writer-retention/focused-review.log.attempt-2`
+and `fixed-results-attempt-2/`.
 
 ## Original workload verification
 

@@ -430,7 +430,8 @@ Three secondary index types, all updated **synchronously** inside the writing tr
 
 - **Path index** — index specific JSON paths for faster navigation.
 - **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and range predicates, optionally `unique` for constraint enforcement.
-- **Name index** — index object-key / element names.
+- **Name index** — index object-key / element names. Create it before inserting nodes or over a
+  populated resource, including XML elements inserted in the current uncommitted transaction.
 
 All three use one canonical [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index)
 representation over off-heap leaf pages. Initial creation may bulk-build a virgin tree, while every

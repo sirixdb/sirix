@@ -1,5 +1,6 @@
 package io.sirix.index;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -8,9 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
-import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.xml.XmlIndexController;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
@@ -38,14 +42,58 @@ final class IndexDefPersistedDefinitionTest {
 
   /** Persist through the catalogue exactly as a resource does and read the definition back. */
   private static IndexDef roundTrip(final IndexDef definition) {
-    final Indexes indexes = new Indexes();
-    indexes.add(definition);
-    final Node<?> persisted = indexes.materialize();
+    final XmlIndexController controller = new XmlIndexController();
+    controller.getIndexes().add(definition);
+    final ByteArrayOutputStream serialized = new ByteArrayOutputStream();
+    controller.serialize(serialized);
     final Indexes reloaded = new Indexes();
-    reloaded.init(persisted);
+    reloaded.init(IndexController.deserialize(new ByteArrayInputStream(serialized.toByteArray())).getFirstChild());
     final IndexDef reread = reloaded.getIndexDef(definition.getID(), definition.getType());
     assertNotNull(reread, "the persisted catalogue lost definition " + definition.getID());
     return reread;
+  }
+
+  @Test
+  void nameFiltersPreserveXmlSensitiveComponentsInSerializedCatalogue() {
+    final String sensitive = "\"&<>\t\n\r,\u0000chîld\uD83D\uDE80";
+    final QNm xmlName = new QNm("urn:" + sensitive, sensitive, sensitive);
+    final QNm jsonName = new QNm(sensitive);
+    for (final IndexDef definition : List.of(
+        IndexDefs.createSelectiveNameIdxDef(Set.of(xmlName), 0, IndexDef.DbType.XML),
+        IndexDefs.createFilteredNameIdxDef(Set.of(xmlName), 1, IndexDef.DbType.XML),
+        IndexDefs.createSelectiveNameIdxDef(Set.of(jsonName), 0, IndexDef.DbType.JSON),
+        IndexDefs.createFilteredNameIdxDef(Set.of(jsonName), 1, IndexDef.DbType.JSON))) {
+      final IndexDef reloaded = roundTrip(definition);
+      assertTrue(definition.hasSameDefinition(reloaded));
+      assertNameComponents(definition.getIncluded(), reloaded.getIncluded());
+      assertNameComponents(definition.getExcluded(), reloaded.getExcluded());
+    }
+  }
+
+  @Test
+  void nameFiltersPreserveNamespacePrefixUnicodeAndCommas() {
+    final QNm xmlName = new QNm("urn:names,with-comma", "p", "chîld");
+    final QNm jsonName = new QNm("field,with-comma");
+    for (final IndexDef definition : List.of(
+        IndexDefs.createSelectiveNameIdxDef(Set.of(xmlName), 0, IndexDef.DbType.XML),
+        IndexDefs.createFilteredNameIdxDef(Set.of(xmlName), 1, IndexDef.DbType.XML),
+        IndexDefs.createSelectiveNameIdxDef(Set.of(jsonName), 0, IndexDef.DbType.JSON),
+        IndexDefs.createFilteredNameIdxDef(Set.of(jsonName), 1, IndexDef.DbType.JSON))) {
+      final IndexDef reloaded = roundTrip(definition);
+      assertTrue(definition.hasSameDefinition(reloaded), "NAME definition must accept its persisted copy");
+      assertNameComponents(definition.getIncluded(), reloaded.getIncluded());
+      assertNameComponents(definition.getExcluded(), reloaded.getExcluded());
+    }
+  }
+
+  private static void assertNameComponents(final Set<QNm> expected, final Set<QNm> actual) {
+    assertEquals(expected, actual);
+    for (final QNm name : expected) {
+      final QNm reloaded = actual.stream().filter(name::equals).findFirst().orElseThrow();
+      assertEquals(name.getNamespaceURI(), reloaded.getNamespaceURI());
+      assertEquals(name.getPrefix(), reloaded.getPrefix());
+      assertEquals(name.getLocalName(), reloaded.getLocalName());
+    }
   }
 
   @Test

@@ -305,7 +305,7 @@ resource at the desired revision number or timestamp via
 | **Concurrency** | many concurrent readers, exactly one writer per resource, within a single JVM | the writer lock is a `Semaphore(1)` per resource path, shared process-wide; a second process is not excluded — see §10.1 |
 | **Bitemporality** | system-time (revisions), valid-time (configurable paths via `validTimePaths`) | both queryable via `jn:all-times`, `jn:open-bitemporal`, `sdb:timestamp`, `sdb:valid-from` |
 | **Versioning strategies** | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | choose at resource creation; `SLIDING_SNAPSHOT` is the production default |
-| **Indexes** | name index, path index, CAS index, HOT (height-optimized trie) | configured at resource creation |
+| **Indexes** | name index, path index, CAS index | creation and storage: [README indexes](../README.md#indexes) |
 | **Query language** | JSONiq via Brackit; XQuery via Brackit | the cost-based optimizer (M1–M5) is wired in for JSONiq |
 
 ---

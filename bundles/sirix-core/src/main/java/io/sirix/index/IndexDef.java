@@ -15,8 +15,10 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -32,6 +34,14 @@ public final class IndexDef implements Materializable {
   private static final QNm EXCLUDING_TAG = new QNm("excluding");
 
   private static final QNm INCLUDING_TAG = new QNm("including");
+
+  private static final QNm NAME_TAG = new QNm("name");
+
+  private static final QNm NAME_URI_ATTRIBUTE = new QNm("uri");
+
+  private static final QNm NAME_PREFIX_ATTRIBUTE = new QNm("prefix");
+
+  private static final QNm NAME_LOCAL_ATTRIBUTE = new QNm("local");
 
   private static final QNm PATH_TAG = new QNm("path");
 
@@ -299,31 +309,8 @@ public final class IndexDef implements Materializable {
       tmp.closeElement();
     }
 
-    if (!excluded.isEmpty()) {
-      tmp.openElement(EXCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm s : excluded) {
-        buf.append(s).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
-
-    if (!included.isEmpty()) {
-      tmp.openElement(INCLUDING_TAG);
-
-      final StringBuilder buf = new StringBuilder();
-      for (final QNm incl : included) {
-        buf.append(incl).append(",");
-      }
-      // remove trailing ","
-      buf.deleteCharAt(buf.length() - 1);
-      tmp.content(buf.toString());
-      tmp.closeElement();
-    }
+    materializeNames(tmp, EXCLUDING_TAG, excluded);
+    materializeNames(tmp, INCLUDING_TAG, included);
     //
     // if (indexStatistics != null) {
     // tmp.insert(indexStatistics.materialize());
@@ -331,6 +318,47 @@ public final class IndexDef implements Materializable {
 
     tmp.closeElement();
     return tmp.getRoot();
+  }
+
+  /**
+   * Persist each filter QName as a name child with UTF-8/Base64 {@code uri}, {@code prefix}, and
+   * {@code local} attributes. Separate components preserve URIs and names containing commas; Base64
+   * protects XML-sensitive characters from serialization and attribute-normalization losses.
+   */
+  private static void materializeNames(final FragmentHelper fragment, final QNm tag, final Set<QNm> names) {
+    if (names.isEmpty()) {
+      return;
+    }
+    fragment.openElement(tag);
+    for (final QNm name : names) {
+      fragment.openElement(NAME_TAG);
+      fragment.attribute(NAME_URI_ATTRIBUTE, new Una(encodeNameComponent(name.getNamespaceURI())));
+      fragment.attribute(NAME_PREFIX_ATTRIBUTE, new Una(encodeNameComponent(name.getPrefix())));
+      fragment.attribute(NAME_LOCAL_ATTRIBUTE, new Una(encodeNameComponent(name.getLocalName())));
+      fragment.closeElement();
+    }
+    fragment.closeElement();
+  }
+
+  private static String encodeNameComponent(final String value) {
+    return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String readNameComponent(final Node<?> name, final QNm attribute) {
+    return new String(Base64.getDecoder().decode(name.getAttribute(attribute).getValue().stringValue()),
+        StandardCharsets.UTF_8);
+  }
+
+  private static void readNames(final Node<?> parent, final Set<QNm> names) {
+    try (final Stream<? extends Node<?>> children = parent.getChildren()) {
+      Node<?> child;
+      while ((child = children.next()) != null) {
+        if (NAME_TAG.equals(child.getName())) {
+          names.add(new QNm(readNameComponent(child, NAME_URI_ATTRIBUTE),
+              readNameComponent(child, NAME_PREFIX_ATTRIBUTE), readNameComponent(child, NAME_LOCAL_ATTRIBUTE)));
+        }
+      }
+    }
   }
 
   @Override
@@ -409,20 +437,9 @@ public final class IndexDef implements Materializable {
               ? PathParser.Type.JSON
               : PathParser.Type.XML));
         } else if (childName.equals(INCLUDING_TAG)) {
-          for (final String s : value.split(",")) {
-            if (s.length() > 0) {
-              included.add(new QNm(s));
-              // String includeString = s;
-              // String[] tmp = includeString.split("@");
-              // included.put(new QNm(tmp[0]),
-              // Cluster.valueOf(tmp[1]));
-            }
-          }
+          readNames(child, included);
         } else if (childName.equals(EXCLUDING_TAG)) {
-          for (final String s : value.split(",")) {
-            if (s.length() > 0)
-              excluded.add(new QNm(s));
-          }
+          readNames(child, excluded);
         } else if (childName.equals(PROJECTION_FIELDS_TAG)) {
           try (Stream<? extends Node<?>> fieldNodes = child.getChildren()) {
             Node<?> fieldNode;
