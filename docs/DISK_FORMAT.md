@@ -450,7 +450,17 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     slotKey 2^42+2^20: PIXB blob, payload = the 32-byte PIFO order header
                   { magic; u8 ver=0 + padding; i32 baseCount; i32 physicalCount; i32 liveCount;
                     i32 freeHead; i32 documentHead; i32 documentTail }.
-    slotKey 2^43+(column<<16)+chunk: PIXB blob, payload = one 256-row-group Bloom chunk.
+    slotKey 16+column: PIXB blob, payload = the 21-byte PBMF Bloom manifest
+                  { u32 magic=0x464D4250; u8 ver=1; i32 liveRowGroupCount;
+                    i32 physicalRowGroupCount; i32 chunkLeaves=256; i32 chunkCount }.
+                  Version 1 is the only accepted manifest version; chunkCount is
+                  ceil(physicalRowGroupCount / 256), including any open chunk.
+    slotKey 2^43+(column<<16)+chunk: PIXB blob, payload = one sealed 256-row-group Bloom block
+                  { u32 magic=0x50424C4D; u8 ver=0; i32 leafCount=256;
+                    i32 offsets[257]; concatenated STRING_BLOOM segments }.
+                  Offsets are relative to the concatenated payload; an empty slice supplies no evidence.
+    slotKey 2^44+2^43+(column<<24)+rowGroupId: PIXB blob, payload = one open row group's raw
+                  PIXS STRING_BLOOM segment (including its segment header, not a block wrapper).
     slotKey 2^44+column: PIXB blob, payload = one bounded set-summary column; an empty payload body
                   is an explicit capability and can be revived by incremental maintenance.
   HOT leaf side map (serialized behind envelope flag 0x01, complete map per fragment):
@@ -498,6 +508,15 @@ Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
   STRING_BLOOM: int bitCount; u64 words[bitCount/64]
   DICT_HASHES: int dictSize; u64 fnv1a64[dictSize] in dictionary-id order
 ```
+
+Bloom blocks and tails are indexed by physical row-group id. For a manifest's physical count P,
+there are floor(P / 256) sealed blocks; its open chunk has P mod 256 per-row-group tails and no
+block. At an exact boundary there are no open tails. The manifest is published after its blobs;
+revision-bound readers derive the split from that manifest. A missing, malformed or unsupported
+manifest disables manifest-backed pruning for its column. An unusable sealed block keeps its
+span eligible, and an unusable tail keeps its one row group eligible. Entirely empty blocks and
+tails need not occupy slots. See [Bloom maintenance](SEGMENT_PROJECTION_INDEXES.md#64-bloom-chunks)
+for folding and recovery ownership.
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
 order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;

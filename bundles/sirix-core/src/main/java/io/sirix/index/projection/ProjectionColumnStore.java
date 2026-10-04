@@ -493,20 +493,20 @@ public final class ProjectionColumnStore {
   private volatile byte[][] @Nullable [] bloomBytes;
 
   /**
-   * Per-column fingerprint BLOCKS (the contiguous acceleration; {@code null} per column when absent).
-   * Attached once by the catalog right after construction, before the handle escapes.
+   * Per-column manifest-backed fingerprint evidence ({@code null} per column when absent). Attached
+   * once by the catalog right after construction, before the handle escapes.
    */
   private ProjectionBloomChunks.ColumnEvidence @Nullable [] bloomBlocks;
 
-  /** Attach manifest-backed chunks loaded by the catalog. */
+  /** Attach manifest-backed fingerprint evidence loaded by the catalog. */
   public void attachBloomBlocks(final ProjectionBloomChunks.ColumnEvidence @Nullable [] blocks) {
     this.bloomBlocks = blocks;
   }
 
   /**
    * Clear {@code keep} bits for leaves whose string-column fingerprint PROVES the literal absent.
-   * Evidence order: chunk-manifest blocks, else the per-leaf chain (cached after the first fetch),
-   * else nothing — leaves without evidence stay kept.
+   * Evidence order: manifest-backed blocks and tails, else the per-leaf chain (cached after the first
+   * fetch), else nothing — leaves without evidence stay kept.
    *
    * @return number of leaves newly dropped
    */
@@ -584,11 +584,13 @@ public final class ProjectionColumnStore {
         return block.pruneMany(hashes, keeps, n, fetcher, 0, chunkCount);
       }
       final long[] droppedByRange = new long[ranges];
-      final int rangeLen = (chunkCount + ranges - 1) / ranges;
+      // Cut on work, not on chunk index: the open chunk is one indivisible fetch of up to one page per
+      // tail, so an index-even split loads its range far more heavily than a sibling range of blocks.
+      final int[] bounds = block.weightedRangeBounds(ranges);
       final AtomicReference<RuntimeException> failed = new AtomicReference<>();
       IntStream.range(0, ranges).parallel().forEach(r -> {
-        final int from = r * rangeLen;
-        final int to = Math.min(from + rangeLen, chunkCount);
+        final int from = bounds[r];
+        final int to = bounds[r + 1];
         if (from >= to || failed.get() != null) {
           return;
         }

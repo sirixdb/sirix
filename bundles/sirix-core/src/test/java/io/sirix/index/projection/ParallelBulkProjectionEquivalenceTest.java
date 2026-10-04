@@ -54,12 +54,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * "Identical" is taken literally here rather than at the row-group level the sequential gate
  * settled for: {@link ProjectionStorageSnapshot} sweeps every slot family the projection sub-tree
  * owns — metadata, row-group descriptors, column-segment slots, the assembled leaves, fence chunks
- * including the physical-order header, per-column Bloom manifests and chunks, set-summary chunks,
- * the sparse record locator, the structural-order directory and the value-dictionary blobs — and
- * compares the raw bytes of each. The one field deliberately excluded is the metadata's
- * {@code buildRevision}: it records WHICH revision built the index, and a post-pass build cannot
- * run in the load's own revision by construction (it walks a resource that must already be
- * committed). Every byte that encodes DATA is compared.
+ * including the physical-order header, per-column Bloom manifests, sealed Bloom chunk blocks and
+ * open-chunk Bloom tail blobs, set-summary chunks, the sparse record locator, the structural-order
+ * directory and the value-dictionary blobs — and compares the raw bytes of each. The one field
+ * deliberately excluded is the metadata's {@code buildRevision}: it records WHICH revision built
+ * the index, and a post-pass build cannot run in the load's own revision by construction (it walks
+ * a resource that must already be committed). Every byte that encodes DATA is compared.
  */
 final class ParallelBulkProjectionEquivalenceTest {
 
@@ -378,6 +378,10 @@ final class ParallelBulkProjectionEquivalenceTest {
           put(slots, "bloomChunk[" + column + "][" + chunk + "]",
               blob(storage, ProjectionBloomChunks.chunkSlotKey(column, chunk)));
         }
+        for (int rowGroup = 1; rowGroup <= tailSweep(rowGroups); rowGroup++) {
+          put(slots, "bloomTail[" + column + "][" + rowGroup + "]",
+              blob(storage, ProjectionBloomChunks.tailSlotKey(column, rowGroup)));
+        }
       }
 
       // Value dictionaries: the header blobs the metadata points at, plus a window above each in
@@ -417,6 +421,15 @@ final class ParallelBulkProjectionEquivalenceTest {
   /** Fence and Bloom chunks each cover a fixed window of leaves; sweep generously past the last. */
   private static int chunkSweep(final int rowGroupCount) {
     return Math.max(8, rowGroupCount / 8 + 8);
+  }
+
+  /**
+   * Bloom tail blobs are keyed by row group, one per row group of the open chunk. Sweeping the whole
+   * high-water span plus one chunk past it catches a tail written under a wrong chunk base as well as
+   * a tail the folded (sealed) span should no longer own.
+   */
+  private static int tailSweep(final int rowGroupCount) {
+    return Math.min(ProjectionIndexHOTStorage.MAX_ROW_GROUPS, rowGroupCount + ProjectionBloomChunks.CHUNK_LEAVES);
   }
 
   /**
@@ -514,6 +527,15 @@ final class ParallelBulkProjectionEquivalenceTest {
     }
     assertTrue(census.containsKey("fenceChunk") || onePass.slots().containsKey("fenceOrderHeader"),
         "the sweep found no fence slots: " + census);
+    // Bloom fingerprints live in sealed blocks AND in the open chunk's per-row-group tails. A sweep
+    // that compared neither family compares no fingerprint byte at all, which is how the tail
+    // namespace could be introduced without the differential noticing.
+    assertTrue(census.containsKey("bloomChunk") || census.containsKey("bloomTail"),
+        "the sweep compared no Bloom fingerprint bytes: " + census);
+    final int openLeaves = ProjectionBloomChunks.openLeafCount(onePass.rowGroupCount());
+    assertTrue(census.getOrDefault("bloomTail", 0) >= openLeaves,
+        "the open chunk spans " + openLeaves + " row groups, so at least that many bloomTail slots must have been "
+            + "compared; found " + census.getOrDefault("bloomTail", 0) + " in " + census);
   }
 
   @SuppressWarnings("unused")

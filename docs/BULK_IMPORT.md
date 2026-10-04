@@ -102,8 +102,8 @@ anywhere on the feed path. The rows are then PACKED by exactly the machinery the
 uses — leaves, dictionary election, fences, Bloom chunks, metadata — which is what makes the two
 indexes identical rather than merely equivalent: `ParallelBulkProjectionEquivalenceTest` compares
 them slot for slot (row-group descriptors and leaves, fence chunks and the physical-order header,
-per-column Bloom manifests and chunks, set-summary chunks, the record locator, the structural-order
-directory and the dictionary blobs) and fails on a single differing byte.
+per-column Bloom manifests, sealed blocks and open tails, set-summary chunks, the record locator,
+the structural-order directory and the dictionary blobs) and fails on a single differing byte.
 
 The in-flight representation is bounded in the same units as the storage path. Raw JSON chunks keep
 the 4 MiB scheduling target but are chains of reusable 256 KiB slabs, decoded through a streaming

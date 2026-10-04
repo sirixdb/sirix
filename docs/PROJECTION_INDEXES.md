@@ -144,8 +144,9 @@ wholesale, and descendant-pattern record sets appearing or disappearing.
 
 Maintenance has no dirty-record cliff and never scans or rebuilds the complete projection.
 It updates only touched row groups, 32-physical-leaf order/fence and flag-summary chunks,
-256-leaf Bloom chunks, bounded per-column set summaries, sparse locators, immutable
-global-dictionary radix paths and, when the projection declares a sorted view, the touched
+Bloom units (see [maintenance and recovery](SEGMENT_PROJECTION_INDEXES.md#64-bloom-chunks)),
+bounded per-column set summaries, sparse locators, immutable global-dictionary radix paths and,
+when the projection declares a sorted view, the touched
 sorted leaves with their group summaries and bounds chunks. The exception is a sorted view,
 where finding a record's prior key may take an ordered scan of that view: when the view was built
 earlier in the same, still-open transaction, or when its persisted key layout no longer matches

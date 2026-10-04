@@ -16,7 +16,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Fixed-corpus sweeps | Adversarial shapes (control chars, astral pairs, 2^128 numbers, …) round-trip and serialize valid metadata | `JsonCorrectnessSweepTest`, `JsonUnicodeTest`, `JsonNumberEdgeCaseTest` |
 | Concurrency invariant harnesses | Eviction watermark safety, slot-allocation exclusivity, guard/close protocol, cache weight accounting and page-to-key cache ownership under contention | `RevisionEpochTrackerWatermarkSafetyTest`, `ShardedPageCacheInvariantStressTest` |
 | Crash injection / soak | Durability across simulated crashes; leak-free long-running bitemporal workloads | `crash/CrashRecoveryInjectionTest`, `stress/BitemporalSoakStressTest`, `stress.yml` workflow |
-| Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/BatchedSegmentReadWorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
+| Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/*WorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
 | Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
@@ -129,7 +129,7 @@ in CI via the `Deep verification` workflow.
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
-                           --tests 'io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest'
+                           --tests 'io.sirix.index.projection.*WorkBudgetTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest

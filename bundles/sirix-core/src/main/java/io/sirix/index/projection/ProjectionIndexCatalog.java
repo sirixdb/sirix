@@ -1001,9 +1001,9 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * The per-string-column fingerprint blocks, or {@code null} when this store carries none worth
-   * attaching. A block covering fewer leaves than the store has is ignored rather than trusted: it
-   * predates leaves that were added since, and a filter that has not seen a value cannot exclude it.
+   * Manifest-backed fingerprints in logical row order, or {@code null} when none can be attached. The
+   * manifest's live count must match this store: evidence predating newly added leaves cannot exclude
+   * their values. Physical-slot gaps are mapped before any logical keep bits are cleared.
    */
   private static ProjectionBloomChunks.ColumnEvidence @Nullable [] readBloomBlocks(final StorageEngineReader reader,
       final IndexDef def, final byte[] columnKinds, final int rowGroupCount, final int[] physicalOrder) {
