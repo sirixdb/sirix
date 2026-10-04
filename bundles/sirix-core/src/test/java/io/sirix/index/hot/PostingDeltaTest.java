@@ -67,7 +67,7 @@ final class PostingDeltaTest {
         IndexDef.DbType.JSON);
   }
 
-  private static TreeSet<Long> postings(final JsonIndexController controller, final JsonNodeReadOnlyTrx trx) {
+  private static Set<Long> postings(final JsonIndexController controller, final JsonNodeReadOnlyTrx trx) {
     final IndexDef def = controller.getIndexes().getIndexDef(0, IndexType.CAS);
     final Iterator<NodeReferences> hits = controller.openCASIndex(trx.getStorageEngineReader(), def,
         controller.createCASFilter(Set.of(CATEGORY_PATH), new Str(HOT), SearchMode.EQUAL, new JsonPCRCollector(trx)));
@@ -91,7 +91,7 @@ final class PostingDeltaTest {
   }
 
   /** The postings gained exactly one key belonging to the inserted object; returns that key. */
-  private static long gainedKey(final TreeSet<Long> before, final TreeSet<Long> after, final JsonNodeTrx trx,
+  private static long gainedKey(final Set<Long> before, final Set<Long> after, final JsonNodeTrx trx,
       final long objectKey) {
     final TreeSet<Long> gained = new TreeSet<>(after);
     gained.removeAll(before);
@@ -107,7 +107,7 @@ final class PostingDeltaTest {
   @EnumSource(VersioningType.class)
   void hotPostingsStayExact(final VersioningType versioningType) {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-    final List<TreeSet<Long>> snapshots = new ArrayList<>(); // index = revision
+    final List<Set<Long>> snapshots = new ArrayList<>(); // index = revision
     snapshots.add(new TreeSet<>()); // revision 0
     final List<Long> insertedObjects = new ArrayList<>();
     final List<Long> insertedKeys = new ArrayList<>();
@@ -138,13 +138,13 @@ final class PostingDeltaTest {
         final JsonIndexController controller = session.getWtxIndexController(trx.getRevisionNumber());
         controller.createIndexes(Set.of(casDef()), trx);
         trx.commit(); // revision 1: the base chunk, hot from the start
-        TreeSet<Long> expected = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
+        Set<Long> expected = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
         assertEquals(BASE_ROWS - BASE_ROWS / 5, expected.size(), "base postings");
         snapshots.add(new TreeSet<>(expected));
         for (int i = 0; i < SINGLE_INSERTS; i++) {
           final long objectKey = insertHot(trx);
           trx.commit();
-          final TreeSet<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
+          final Set<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
           final long key = gainedKey(expected, now, trx, objectKey);
           insertedObjects.add(objectKey);
           insertedKeys.add(key);
@@ -162,7 +162,7 @@ final class PostingDeltaTest {
           assertTrue(trx.moveTo(objectKey));
           trx.remove();
           trx.commit();
-          final TreeSet<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
+          final Set<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
           final TreeSet<Long> want = new TreeSet<>(expected);
           assertTrue(want.remove(key), "removed key was expected");
           assertEquals(want, now, "postings after removing object " + i);
@@ -178,7 +178,7 @@ final class PostingDeltaTest {
             "postings after rollback");
         final long objectKey = insertHot(trx);
         trx.commit();
-        final TreeSet<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
+        final Set<Long> now = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
         gainedKey(expected, now, trx, objectKey);
         expected = now;
         snapshots.add(new TreeSet<>(expected));
@@ -196,7 +196,7 @@ final class PostingDeltaTest {
     }
   }
 
-  private static void assertRevisions(final JsonResourceSession session, final List<TreeSet<Long>> snapshots) {
+  private static void assertRevisions(final JsonResourceSession session, final List<Set<Long>> snapshots) {
     final int last = snapshots.size() - 1;
     for (int revision = 1; revision <= last; revision++) {
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {

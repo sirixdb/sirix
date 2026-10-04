@@ -19,7 +19,6 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -222,7 +222,7 @@ final class HOTValidTimeCorrectionStreamTest {
         final long[] keys = expected.get(entry.getKey());
         assertNotNull(keys, "unexpected logical group at revision " + revision);
         assertArrayEquals(keys, entry.getValue().toSortedArray());
-        assertArrayEquals(keys, reader.get(entry.getKey(), SearchMode.EQUAL).toSortedArray());
+        assertArrayEquals(keys, requireNonNull(reader.get(entry.getKey(), SearchMode.EQUAL)).toSortedArray());
         groups++;
       }
       assertEquals(expected.size(), groups, "logical groups at revision " + revision);

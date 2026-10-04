@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.zip.GZIPInputStream;
 
@@ -108,8 +109,8 @@ final class HOTBranchSpineOrderTest {
 
   private void replay(final VersioningType versioningType) {
     final List<List<String>> transactions = transactions();
-    final Map<ValidTimeKey, TreeSet<Long>> expected = new HashMap<>();
-    final Map<Integer, Map<ValidTimeKey, TreeSet<Long>>> checkpoints = new HashMap<>();
+    final Map<ValidTimeKey, Set<Long>> expected = new HashMap<>();
+    final Map<Integer, Map<ValidTimeKey, Set<Long>>> checkpoints = new HashMap<>();
 
     final Path databasePath = temporaryDirectory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
@@ -134,7 +135,7 @@ final class HOTBranchSpineOrderTest {
                                    .assertOk();
               assertExact(rtx, expected, committed);
             }
-            final Map<ValidTimeKey, TreeSet<Long>> snapshot = new HashMap<>();
+            final Map<ValidTimeKey, Set<Long>> snapshot = new HashMap<>();
             expected.forEach((key, postings) -> snapshot.put(key, new TreeSet<>(postings)));
             checkpoints.put(committed, snapshot);
           }
@@ -144,7 +145,7 @@ final class HOTBranchSpineOrderTest {
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-      for (final Map.Entry<Integer, Map<ValidTimeKey, TreeSet<Long>>> checkpoint : checkpoints.entrySet()) {
+      for (final Map.Entry<Integer, Map<ValidTimeKey, Set<Long>>> checkpoint : checkpoints.entrySet()) {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(checkpoint.getKey())) {
           HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER)
                                .assertOk();
@@ -154,9 +155,9 @@ final class HOTBranchSpineOrderTest {
     }
   }
 
-  private static void apply(final HOTIndexWriter<ValidTimeKey> writer, final Map<ValidTimeKey, TreeSet<Long>> expected,
+  private static void apply(final HOTIndexWriter<ValidTimeKey> writer, final Map<ValidTimeKey, Set<Long>> expected,
       final String op) {
-    final String[] fields = op.split(" ");
+    final String[] fields = op.split(" ", 0);
     assertEquals(5, fields.length, "op " + op);
     final ValidTimeKey key =
         new ValidTimeKey(Byte.parseByte(fields[1]), Long.parseLong(fields[2]), Long.parseLong(fields[3]));
@@ -167,7 +168,7 @@ final class HOTBranchSpineOrderTest {
         expected.computeIfAbsent(key, k -> new TreeSet<>()).add(nodeKey);
       }
       case "r" -> {
-        final TreeSet<Long> postings = expected.get(key);
+        final Set<Long> postings = expected.get(key);
         if (postings == null || !postings.remove(nodeKey)) {
           // The reduction dropped this posting's registration; the writer must see it as absent too.
           assertFalse(writer.remove(key, nodeKey), "removal of an unregistered posting must report absence: " + op);
@@ -182,11 +183,11 @@ final class HOTBranchSpineOrderTest {
     }
   }
 
-  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, TreeSet<Long>> expected,
+  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, Set<Long>> expected,
       final int committed) {
     final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
-    for (final Map.Entry<ValidTimeKey, TreeSet<Long>> entry : expected.entrySet()) {
+    for (final Map.Entry<ValidTimeKey, Set<Long>> entry : expected.entrySet()) {
       final NodeReferences postings = reader.get(entry.getKey(), SearchMode.EQUAL);
       assertNotNull(postings, "postings of " + entry.getKey() + " after commit " + committed);
       final long[] nodeKeys = entry.getValue().stream().mapToLong(Long::longValue).toArray();

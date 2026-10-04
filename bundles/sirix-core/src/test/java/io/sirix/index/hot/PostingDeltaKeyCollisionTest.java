@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -73,8 +74,9 @@ final class PostingDeltaKeyCollisionTest {
         JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
       final HOTIndexReader<CASValue> reader =
           HOTIndexReader.create(trx.getStorageEngineReader(), CASKeySerializer.INSTANCE, IndexType.CAS, 0);
-      assertArrayEquals(new long[] {highNodeKey}, reader.get(longKey, SearchMode.EQUAL).toSortedArray());
-      assertEquals(401, reader.get(shortKey, SearchMode.EQUAL).getNodeKeys().getLongCardinality());
+      assertArrayEquals(new long[] {highNodeKey},
+          requireNonNull(reader.get(longKey, SearchMode.EQUAL)).toSortedArray());
+      assertEquals(401, requireNonNull(reader.get(shortKey, SearchMode.EQUAL)).getNodeKeys().getLongCardinality());
     }
   }
 
@@ -133,7 +135,7 @@ final class PostingDeltaKeyCollisionTest {
             }
             final long[] keys = expected.stream().mapToLong(Long::longValue).toArray();
             for (final String value : values) {
-              assertArrayEquals(keys, writer.get(key(value), SearchMode.EQUAL).toSortedArray());
+              assertArrayEquals(keys, requireNonNull(writer.get(key(value), SearchMode.EQUAL)).toSortedArray());
             }
             snapshots.add(keys);
             trx.commit();
@@ -166,7 +168,7 @@ final class PostingDeltaKeyCollisionTest {
       assertEntries(reader.iterator(), values, 0, values.length, expected);
       for (int i = 0; i < values.length; i++) {
         final CASValue key = key(values[i]);
-        assertArrayEquals(expected, reader.get(key, SearchMode.EQUAL).toSortedArray());
+        assertArrayEquals(expected, requireNonNull(reader.get(key, SearchMode.EQUAL)).toSortedArray());
         assertEntries(reader.iteratorFrom(key, true), values, i, values.length, expected);
         assertEntries(reader.iteratorFrom(key, false), values, i + 1, values.length, expected);
         assertEntries(reader.iteratorTo(key, true), values, 0, i + 1, expected);

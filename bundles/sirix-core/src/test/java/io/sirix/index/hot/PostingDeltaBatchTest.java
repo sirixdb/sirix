@@ -69,7 +69,7 @@ final class PostingDeltaBatchTest {
         IndexDef.DbType.JSON);
   }
 
-  private static TreeSet<Long> postings(final JsonIndexController controller, final JsonNodeReadOnlyTrx trx,
+  private static Set<Long> postings(final JsonIndexController controller, final JsonNodeReadOnlyTrx trx,
       final String value) {
     final IndexDef def = controller.getIndexes().getIndexDef(0, IndexType.CAS);
     final Iterator<NodeReferences> hits = controller.openCASIndex(trx.getStorageEngineReader(), def,
@@ -103,7 +103,7 @@ final class PostingDeltaBatchTest {
   @EnumSource(VersioningType.class)
   void batchedDeltasStayExact(final VersioningType versioningType) {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-    final List<TreeSet<Long>[]> snapshots = new ArrayList<>(); // per revision, per value
+    final List<Set<Long>[]> snapshots = new ArrayList<>(); // per revision, per value
     final long writesBefore = HOTIndexWriter.postingDeltaWrites();
     final long foldsBefore = HOTIndexWriter.postingDeltaFolds();
     final long referencedBefore = AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES.get();
@@ -114,7 +114,7 @@ final class PostingDeltaBatchTest {
                                                    .storeDiffs(false)
                                                    .build());
       @SuppressWarnings("unchecked")
-      final TreeSet<Long>[] expected = new TreeSet[VALUES.length];
+      final Set<Long>[] expected = new Set[VALUES.length];
       @SuppressWarnings("unchecked")
       final List<Long>[] objects = new List[VALUES.length];
       for (int v = 0; v < VALUES.length; v++) {
@@ -190,15 +190,15 @@ final class PostingDeltaBatchTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static TreeSet<Long>[] copy(final TreeSet<Long>[] sets) {
-    final TreeSet<Long>[] out = new TreeSet[sets.length];
+  private static Set<Long>[] copy(final Set<Long>[] sets) {
+    final Set<Long>[] out = new Set[sets.length];
     for (int i = 0; i < sets.length; i++) {
       out[i] = new TreeSet<>(sets[i]);
     }
     return out;
   }
 
-  private static void assertRevisions(final JsonResourceSession session, final List<TreeSet<Long>[]> snapshots) {
+  private static void assertRevisions(final JsonResourceSession session, final List<Set<Long>[]> snapshots) {
     for (int i = 0; i < snapshots.size(); i++) {
       final int revision = i + 1;
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {

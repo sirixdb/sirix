@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -125,7 +126,7 @@ final class ReferencedPostingChecksumTest {
       try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
           HOTTrieReader trie = new HOTTrieReader(trx.getStorageEngineReader())) {
         final HOTIndexReader<K> reader = HOTIndexReader.create(trx.getStorageEngineReader(), serializer, indexType, 0);
-        final HOTLeafPage leaf = trie.navigateToLeaf(reader.getRootReference(), composite);
+        final HOTLeafPage leaf = trie.navigateToLeaf(requireNonNull(reader.getRootReference()), composite);
         assertNotNull(leaf);
         final int slot = leaf.findEntry(composite);
         assertTrue(slot >= 0);
@@ -136,7 +137,8 @@ final class ReferencedPostingChecksumTest {
         assertNotNull(reference);
         assertFalse(reference.hasHash(), "cold side references persist only an offset");
         sidePageOffset = reference.getKey();
-        assertArrayEquals(payload, trx.getStorageEngineReader().readSideOverflowPage(reference).getDataBytes());
+        assertArrayEquals(payload,
+            requireNonNull(trx.getStorageEngineReader().readSideOverflowPage(reference)).getDataBytes());
       }
     }
     Databases.clearGlobalCaches();
@@ -195,7 +197,7 @@ final class ReferencedPostingChecksumTest {
       if (corrupted) {
         assertThrows(SirixCorruptionException.class, () -> reader.get(key, SearchMode.EQUAL));
       } else {
-        assertArrayEquals(expected, reader.get(key, SearchMode.EQUAL).toSortedArray());
+        assertArrayEquals(expected, requireNonNull(reader.get(key, SearchMode.EQUAL)).toSortedArray());
       }
       final List<Supplier<Iterator<Map.Entry<K, NodeReferences>>>> scans = List.of(reader::iterator,
           () -> reader.iteratorFrom(key, true), () -> reader.iteratorTo(key, true), () -> reader.range(key, key));
@@ -242,7 +244,7 @@ final class ReferencedPostingChecksumTest {
           if (action == 1 || action == 4) {
             result[result.length - 1] = 64;
           }
-          assertArrayEquals(result, writer.get(key, SearchMode.EQUAL).toSortedArray());
+          assertArrayEquals(result, requireNonNull(writer.get(key, SearchMode.EQUAL)).toSortedArray());
         }
         trx.rollback();
       }
