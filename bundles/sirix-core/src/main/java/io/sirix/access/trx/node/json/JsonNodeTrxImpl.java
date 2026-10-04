@@ -635,10 +635,8 @@ final class JsonNodeTrxImpl extends
   private SkipRootToken validateSubtreePosition(final InsertPosition insertionPosition,
       final CheckParentNode checkParentNode, final SkipRootToken skipRootToken, final InputShape inputShape) {
     final NodeKind nodeKind = getKind();
-    switch (insertionPosition) {
-      case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-        return validateSubtreeChildPosition(nodeKind, skipRootToken, inputShape);
-      }
+    return switch (insertionPosition) {
+      case AS_FIRST_CHILD, AS_LAST_CHILD -> validateSubtreeChildPosition(nodeKind, skipRootToken, inputShape);
       case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
         if (checkParentNode == CheckParentNode.YES) {
           final NodeKind parentKind = getParentKind();
@@ -646,10 +644,10 @@ final class JsonNodeTrxImpl extends
             throw new IllegalStateException("Current parent node must be an array node.");
           }
         }
-        return skipRootToken;
+        yield skipRootToken;
       }
       default -> throw new UnsupportedOperationException();
-    }
+    };
   }
 
   private static SkipRootToken validateSubtreeChildPosition(final NodeKind nodeKind, final SkipRootToken skipRootToken,

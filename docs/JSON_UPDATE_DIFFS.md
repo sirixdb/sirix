@@ -12,9 +12,10 @@ order, payload, or integrity metadata.
 
 ## Revision stability and lifetime
 
-Each `serialize` call with operations to emit opens separate read-only transactions for its old
-and new revisions and creates one cache for each. Calls with no emitted operations return without
-opening readers. `AbstractResourceSession.createStorageEngineReader(revision)` passes
+After the empty/equal-diff fast paths, each `serialize` call opens separate read-only transactions
+for its old and new revisions and creates one cache for each. Those fast paths return without
+opening readers; later stale-tuple or no-op filtering may still leave the emitted array empty.
+`AbstractResourceSession.createStorageEngineReader(revision)` passes
 that explicit revision to `NodeStorageEngineReader`, whose revision number and revision root are
 final fields and whose epoch ticket protects its reads. Moving a cursor does not mutate a node.
 Later writes create a new revision; the old reader continues to follow its own revision root.

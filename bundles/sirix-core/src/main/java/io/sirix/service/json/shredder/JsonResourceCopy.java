@@ -180,7 +180,8 @@ public final class JsonResourceCopy implements Callable<Void> {
   }
 
   /**
-   * Stack for reading end element.
+   * Parent pairs with the destination key above the source key; snapshot copies may allocate
+   * different destination keys.
    */
   private final LongArrayList stack = new LongArrayList();
 

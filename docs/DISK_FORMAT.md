@@ -380,6 +380,9 @@ that fragment. When ingestion skips the input root, each inserted sibling subtre
 root entry, exactly once. No entry for the skipped root is emitted. The emission lifecycle and
 bulk revision baseline are documented in [JSON_UPDATE_DIFFS.md](JSON_UPDATE_DIFFS.md#which-resources-pay-the-cost).
 
+Insert anchors name the parent or left sibling in the new revision; serialization does not
+rebase them. Revision replay allocates source keys before ordering dependent placements.
+
 The digest covers a canonical typed representation of the complete `diffs` array, including
 object-field order, names, values, and numeric lexical forms; it is computed incrementally from the
 Gson tree without creating another whole-file string or byte array. The writer first creates a
@@ -393,6 +396,10 @@ revision diff, while `getUpdateOperations()` and multi-revision resource copy us
 fragments. Public `BasicJsonDiff.generateDiff` keeps hash-based equal-subtree skips and compact
 inserted-subtree traversal. Files without these version-1 integrity fields are not accepted by
 this build.
+
+`jn:diff` uses a sidecar only for adjacent revisions with stored Dewey IDs. The REST `/diff`
+endpoint can use an adjacent-revision sidecar without Dewey IDs for an unfiltered request;
+sidecar filtering requires Dewey IDs. Other revision pairs use the computed diff.
 
 ## Projection indexes (segment ⇔ slot layout)
 
