@@ -303,7 +303,84 @@ final class PostingDeltaLongCasKeyTest {
             ? Set.of()
             : Set.of(expected), actual, "exact value at revision " + revision + " for row " + index);
       }
+      assertPublicRanges(trx, controller, def, revision, valueKeys);
     }
+  }
+
+  private static void assertPublicRanges(final JsonNodeReadOnlyTrx trx, final JsonIndexController controller,
+      final IndexDef def, final int revision, final long[] valueKeys) {
+    // These short raw values share an escaped prefix that exhausts the stored-key budget.
+    final CASValue first = key(value(0));
+    final CASValue last = key(value(ROWS - 1));
+    final byte[] firstKey = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(first)];
+    final byte[] lastKey = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(last)];
+    assertEquals(CASKeySerializer.INSTANCE.serialize(first, firstKey, 0),
+        CASKeySerializer.INSTANCE.serialize(last, lastKey, 0));
+    assertArrayEquals(firstKey, lastKey);
+    final String[][] bounds = {{value(0), value(ROWS - 1)}, {value(REMOVED - 1), value(REMOVED + 1)},
+        {value(REMOVED), value(REMOVED)}, {PREFIX + "1990", PREFIX + "2010"}, {"\0".repeat(118), PREFIX},
+        {"\0".repeat(118), value(REMOVED)}, {PREFIX, value(REMOVED)}, {BOUNDARY, BOUNDARY + '\0'},
+        {BOUNDARY, BOUNDARY + '\1'}, {PREFIX, "z"}, {null, value(REMOVED)}, {value(REMOVED), null}};
+    for (int range = 0; range < bounds.length; range++) {
+      final String min = bounds[range][0];
+      final String max = bounds[range][1];
+      for (final boolean includeMin : new boolean[] {false, true}) {
+        for (final boolean includeMax : new boolean[] {false, true}) {
+          final TreeSet<Long> expected = new TreeSet<>();
+          for (int row = 0; row < valueKeys.length; row++) {
+            if (valueKeys[row] < 0) {
+              continue;
+            }
+            final String original = value(row);
+            final int lower = min == null
+                ? 1
+                : original.compareTo(min);
+            final int upper = max == null
+                ? -1
+                : original.compareTo(max);
+            if ((lower > 0 || includeMin && lower == 0) && (upper < 0 || includeMax && upper == 0)) {
+              expected.add(valueKeys[row]);
+            }
+          }
+          final Iterator<NodeReferences> hits = controller.openCASIndex(trx.getStorageEngineReader(), def,
+              controller.createCASFilterRange(Set.of(CATEGORY_PATH), min == null
+                  ? null
+                  : new Str(min),
+                  max == null
+                      ? null
+                      : new Str(max),
+                  includeMin, includeMax, new JsonPCRCollector(trx)));
+          assertEquals(expected, rangePostings(hits), "public range " + range + " at revision " + revision
+              + " inclusive [" + includeMin + ", " + includeMax + ']');
+          if (min == null || max == null) {
+            final SearchMode mode = min == null
+                ? includeMax
+                    ? SearchMode.LOWER_OR_EQUAL
+                    : SearchMode.LOWER
+                : includeMin
+                    ? SearchMode.GREATER_OR_EQUAL
+                    : SearchMode.GREATER;
+            final Iterator<NodeReferences> comparisonHits = controller.openCASIndex(trx.getStorageEngineReader(), def,
+                controller.createCASFilter(Set.of(CATEGORY_PATH), new Str(min == null
+                    ? max
+                    : min), mode, new JsonPCRCollector(trx)));
+            assertEquals(expected, rangePostings(comparisonHits),
+                "public comparison " + mode + " at revision " + revision);
+          }
+        }
+      }
+    }
+  }
+
+  private static TreeSet<Long> rangePostings(final Iterator<NodeReferences> hits) {
+    final TreeSet<Long> actual = new TreeSet<>();
+    while (hits.hasNext()) {
+      final LongIterator nodeKeys = hits.next().nodeKeyIterator();
+      while (nodeKeys.hasNext()) {
+        assertTrue(actual.add(nodeKeys.next()), "duplicate range posting");
+      }
+    }
+    return actual;
   }
 
   private static CASValue key(final String value) {

@@ -69,42 +69,24 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    if (filter != null && (hasLossyStringBound(filter.getMin(), indexDef.getContentType())
-        || hasLossyStringBound(filter.getMax(), indexDef.getContentType()))) {
+    final Type contentType = indexDef.getContentType();
+    if (filter != null && (requiresStringRangeResidual(filter.getMin(), contentType)
+        || requiresStringRangeResidual(filter.getMax(), contentType))) {
       return openStringRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
           filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
 
-    // Bounded-cursor fast path. Bound inclusivity is enforced INSIDE the cursor, on each group's
-    // logical key bytes: index keys are not prefix-free (a string value is raw UTF-8 with no
-    // terminator), so the composite byte window is wider than the logical range — "carpet" sorts
-    // below the ceiling built for "car" — and trimming positionally here would both admit those
-    // extensions and miss an equal group that is not first or last.
+    // Bounded-cursor fast path. Bound inclusivity is enforced inside the cursor, on each group's
+    // logical key bytes. Capped or unencodable string bounds take the residual path above: their
+    // shared posting groups need the original document values to enforce the requested bounds.
     // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
     // order over the serialized key, which is the value order only for the families
     // CASKeySerializer encodes deliberately. Types for which isByteOrderPreserving reports false
     // fall through to the full scan below, which compares typed atomics via CASFilterRange#inRange.
     //
-    // For losslessly encodable bounds, the cursor is not gated on losesInformation. The ordinary
-    // full scan below is not a more accurate answer for a capped or narrowed bound — it is the
-    // SAME answer at O(index) cost, because
-    // CASKeySerializer#decodeAtomic rebuilds its comparison value out of the very key the cursor
-    // already compared. A decimal key decodes to Dec(BigDecimal.valueOf(d)) — the same double; a
-    // truncated string key decodes to the truncated string. So the scan compares narrowed values
-    // exactly as the cursor does, only after materializing a CASValue for every entry in the index.
-    //
-    // Worse, for a truncating bound the scan is strictly WORSE than the cursor. With a 247-byte bound
-    // V, the stored key for V and the bound's key are byte-identical, so an inclusive cursor returns
-    // V; the scan deserializes the stored key to its 246-byte prefix, finds that prefix < V, and
-    // DROPS V — a missing row where the cursor merely over-matched.
-    //
-    // Truncation still has to be handled, because it does break the cursor in one direction: a bound
-    // at or past the cap collapses onto the same key as every stored value sharing its 246-byte
-    // prefix, so an EXCLUSIVE bound drops that whole group, matching records included. The remedy is
-    // to relax that bound to inclusive rather than to abandon the cursor — it keeps the scan O(result)
-    // and turns the drop into an over-match, which is the direction this index errs in everywhere
-    // else. Numeric narrowing needs no such relaxation: its encoder is monotone and the collapsed
-    // group is one ULP wide, so relaxing would pull every `= bound` row into a `> bound` query.
+    // Numeric narrowing is separate from lexical truncation. Its encoder is monotone, and a scan
+    // over decoded keys would recover the same narrowed values at O(index) cost. Preserve the
+    // existing bounded numeric path rather than gating it on losesInformation.
     if (filter != null && filter.getPCRs().size() == 1 && (filter.getMin() != null || filter.getMax() != null)
         && CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
       final Set<Long> pcrsRequested = filter.getPCRs();
@@ -204,6 +186,10 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
+  private static boolean requiresStringRangeResidual(final @Nullable Atomic bound, final Type type) {
+    return type.instanceOf(Type.STR) && (CASKeySerializer.truncates(bound, type) || hasLossyStringBound(bound, type));
+  }
+
   private static boolean hasLossyStringBound(final @Nullable Atomic bound, final Type type) {
     if (bound == null || !type.instanceOf(Type.STR)) {
       return false;
@@ -222,8 +208,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  // Replacement encoding would change the range. Open only the unencodable side and keep both
-  // original bounds as residuals; capped stored keys require document values to decide exactly.
+  // Open only an unencodable side; keep encodable bounds on the cursor, including capped bounds
+  // relaxed to inclusive. Original bounds and inclusivity remain the document-value residual.
   private static Iterator<NodeReferences> openStringRangeWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min,
       final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
@@ -239,9 +225,14 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       final long pcr = pcrs.iterator().next();
       final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
       final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
-      entries = scanMin == null
-          ? reader.iteratorTo(new CASValue(scanMax, type, pcr), includeMax)
-          : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
+      if (scanMin != null && scanMax != null) {
+        entries =
+            reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
+      } else {
+        entries = scanMin == null
+            ? reader.iteratorTo(new CASValue(scanMax, type, pcr), includeMax)
+            : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
+      }
     } else {
       entries = reader.iterator();
     }
@@ -699,7 +690,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         : filter.getPCRs();
 
     if (filter != null && filter.getMode() != SearchMode.EQUAL
-        && hasLossyStringBound(filter.getKey(), indexDef.getContentType())) {
+        && requiresStringRangeResidual(filter.getKey(), indexDef.getContentType())) {
       return openLossyStringComparison(storageEngineReader, reader, indexDef, filter, pcrsRequested);
     }
 
@@ -817,20 +808,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // content-type gate as the range-filter path: byte order decides these bounds, so a type whose
       // key bytes are its raw lexical form must use the typed comparison in the full scan instead.
       //
-      // A TRUNCATING bound is handled by relaxing the bound, not by abandoning the cursor — the same
-      // reversal as in openHOTIndexWithRangeFilter, for the same reason. The full scan below is not
-      // the more accurate answer for such a bound: CASFilterRange#inRange judges the atomic that
-      // CASKeySerializer#decodeAtomic rebuilt out of the stored key, and for a truncated value that
-      // is its 246-byte prefix. So the scan compares the bound against the prefix, finds the prefix
-      // below it, and DROPS the record the cursor would have returned — a missing row bought with an
-      // O(index) scan. Once the bound reaches the cap it collapses onto the same key as every stored
-      // value sharing that prefix, and only the EXCLUSIVE cursors mishandle the collapsed group (they
-      // drop it whole, matching records included); making the bound inclusive keeps the group and
-      // errs towards the superset, which is the direction this index errs in everywhere else.
-      //
-      // Note this is NOT a consequence of relaxing the pcrsAvailable gate above; a SINGLE-path index
-      // has always reached this cursor. The relaxation extended the exposure to multi-path indexes,
-      // which is what made the pre-existing hole worth closing at the same time.
+      // Capped string bounds already took the residual path above. Relaxing a cursor alone would
+      // keep the shared posting group but also return values outside the requested comparison.
       if (CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
         final boolean inclusive = mode == SearchMode.GREATER_OR_EQUAL || mode == SearchMode.LOWER_OR_EQUAL
             || CASKeySerializer.truncates(atomic, indexDef.getContentType());
