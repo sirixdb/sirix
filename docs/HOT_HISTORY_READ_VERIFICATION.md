@@ -138,15 +138,18 @@ Ratios below are fix/baseline; bounds use unrounded values for verdicts.
 | w32/latency/65/span/p95 | 0.806 | 0.717–1.003 | meets | 0.759 | 0.689–0.875 |
 | w32/latency/65/span/p99 | 0.849 | 0.695–0.917 | meets | 0.797 | 0.697–0.869 |
 
-## SH1 against the parent
+## SH1 conclusion
 
 All eight pinned alternating t25k runs match all twelve oracle answers exactly.
-None of the thirteen measured cells confirms a slowdown. The prior SH1 lean
-remains **unconfirmed**, including load, q3 and q7 with slower medians and wide
-intervals; this does not prove equivalence. q2 meets the bound. q12's large
+Under the campaign rule, regression is confirmed only when the 95% lower bound
+exceeds 1.05. The pinned P-core matched pairs show **no confirmed SH1 regression
+against either the parent or current main**, so the earlier unpinned lean is
+not reproduced under that rule. Cells whose 95% interval straddles 1.05 are
+**not claimed equivalent within 5%**, including parent load, q3 and q7 with
+slower medians and wide intervals. q2 meets the parent bound. q12's large
 artifact improvement includes intervening query changes and is not attributed
 to this HOT fix. The separate earlier unpinned eight-run campaign likewise
-confirmed no SH1 slowdown.
+confirmed no SH1 slowdown. The parent comparison is shown below.
 
 | Cell | Median ratio | 95% bounds | Verdict |
 | --- | ---: | --- | --- |
