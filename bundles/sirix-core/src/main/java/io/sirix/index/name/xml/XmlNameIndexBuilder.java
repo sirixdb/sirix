@@ -17,7 +17,7 @@ final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor implements IndexB
 
   @Override
   public VisitResult visit(final ImmutableElement node) {
-    final QNm name = XmlNameResolver.resolveName(node, builder.storageEngineReader);
+    final QNm name = XmlNameResolver.resolveExpandedName(node, builder.storageEngineReader);
 
     return builder.build(name, node);
   }

@@ -101,7 +101,7 @@ backend selector.
 |---|---|---|---|---|---|
 | PATH | `HOTLongIndexWriter` (PATH only, `hot/HOTLongIndexWriter.java:62`, `:95`) | `HOTLongIndexReader` | path class reference (PCR), `long` | posting list of node keys | `idx/path/PathIndexListenerFactory.java:24`, `idx/path/PathIndexBuilderFactory.java:24` |
 | CAS (content-and-structure, "value index") | `HOTIndexWriter<CASValue>` + `CASKeySerializer` | `HOTIndexReader<CASValue>` | (PCR, typed atomic value) | posting list | `idx/cas/CASIndexListenerFactory.java:27`, `idx/cas/CASIndexBuilderFactory.java:27` |
-| NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | qualified name | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
+| NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | [expanded name](../README.md#indexes) | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
 | VALIDTIME | `HOTIndexWriter<ValidTimeKey>` + `ValidTimeKeySerializer` | `HOTIndexReader<ValidTimeKey>` | (store, fork node, endpoint) of an RI-tree | posting list | `idx/interval/ValidTimeIntervalIndexFactory.java:48-53`, `idx/interval/HotOrderedStore.java:66-97` |
 | PROJECTION | `ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long>` (`proj/ProjectionIndexHOTStorage.java:100`) | same class, via `HOTTrieReader` | 8-byte slot key | opaque bytes, last writer wins, zero length = tombstone | `proj/ProjectionIndexBuilder.java:942` |
 
@@ -270,23 +270,27 @@ owner keys (`hot/AbstractHOTIndexWriter.java:5643`, `:6738`; `hot/HOTIncremental
 
 #### 2.3.2 NAME (`hot/NameKeySerializer.java`)
 
-Unprefixed name (the JSON case): the local name as raw UTF-8, no terminator (`:49-50`, `:130-139`).
+Namespace-free name (including every JSON field): the local name as raw UTF-8, no terminator
+or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
+apply to both lookups and scans.
 
-Prefixed name (non-empty XML namespace prefix):
+Namespaced name (with either an empty or non-empty prefix):
 
 | Offset | Width | Field |
 |---|---|---|
-| 0 | 1 | sentinel `0xFF` (`:84`, `:115`, `:123`) |
-| 1 | 1 | prefix length in bytes, `≤ 255` else `IllegalArgumentException` (`:112-116`, `:120-124`) |
-| 2 | N | prefix, UTF-8 |
-| 2+N | M | local name, UTF-8 |
+| 0 | 1 | sentinel `0xFF` |
+| 1 | N | namespace URI, UTF-8; escape each NUL as `0x00,0xFF` |
+| 1+N | 2 | URI terminator `0x00,0x00` |
+| 3+N | M | local name, UTF-8 |
 
-- `0xFF` never occurs in valid UTF-8, so all unprefixed keys sort before all prefixed keys (`:55-60`).
-- Among prefixed keys the order is (prefix *length*, prefix bytes, local name), which is not
-  lexicographic order on the prefix. Whether this matches Brackit's `QNm.compareTo` could not be
-  checked (the class is not in the repository).
-- An empty local name throws (`:100-102`). The old `[0x00][localName]` format was dropped because
-  its constant first byte wasted discriminative bits (`:62-68`).
+- `0xFF` never occurs in valid UTF-8, so namespace-free keys sort before namespaced keys.
+- Namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
+  extensions of the URI. Escaping makes component boundaries unambiguous.
+- Deserialization reconstructs the URI and local name with an empty prefix.
+- An empty local name is rejected. URI and local-name lengths are not truncated. ASCII components
+  write directly into the reusable destination; namespace-free names still discriminate at byte 0.
+- This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
+  old-format reader.
 
 #### 2.3.3 CAS (`hot/CASKeySerializer.java`)
 
@@ -360,7 +364,7 @@ Byte order equals key order within each serializer, except:
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
-| NAME keys with a prefix | length-first order on the prefix (§2.3.2) | none needed: NAME lookups are EQUAL or full scans (`idx/name/NameIndex.java:29-81`) |
+| NAME Unicode strings containing supplementary code points | UTF-8 byte order can differ from the UTF-16 order used by `QNm.cmp` | NAME lookups use EQUAL or filtered full scans, never ordered bounds |
 | VALIDTIME store byte | raw byte vs. `Byte.compare` agree only for 0..127 (`idx/interval/ValidTimeKey.java:59-69`); only 0 and 1 are used | none needed |
 
 CAS keys are designed "INJECTIVE first and order-preserving second" (`hot/CASKeySerializer.java:150-151`).
