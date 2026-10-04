@@ -134,7 +134,8 @@ final class HOTBranchLeafPairIdentityTest {
       final HOTIncrementalInsert.BiNode pair =
           new HOTIncrementalInsert.BiNode(0, 1, copiedSourceReference, rightReference);
       final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(new HOTIndirectPage[0],
-          new PageReference[] {sourceReference}, new int[0], 0, pair, 2, new AtomicLong(2_100L)::getAndIncrement);
+          new PageReference[] {sourceReference}, new int[0], 0, pair, 2,
+          IndexType.PROJECTION, new AtomicLong(2_100L)::getAndIncrement);
 
       log.put(copiedSourceReference, PageContainer.getInstance(copiedSource, copiedSource));
       log.put(rightReference, PageContainer.getInstance(right, right));

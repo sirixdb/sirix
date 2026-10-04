@@ -113,7 +113,7 @@ final class HOTSplitHalfPublicationGuardTest {
     try (HOTLeafPage inserted = new HOTLeafPage(30_000, revision, IndexType.PATH)) {
       assertTrue(inserted.put(insertedKey, key(3)));
       final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirectWithEntry(original, info, 1, 1,
-          reference(inserted), revision, new AtomicLong(30_001)::getAndIncrement);
+          reference(inserted), revision, IndexType.PATH, new AtomicLong(30_001)::getAndIncrement);
       final PageReference badHalf = upperHalf
           ? split.right()
           : split.left();

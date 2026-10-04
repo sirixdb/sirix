@@ -177,7 +177,7 @@ final class HOTConsolidationPrefixShrinkTest {
       assertTrue(fourth.put(new byte[] {(byte) 0x80}, LIGHT_VALUE));
       final PageReference[] references = {swizzle(heavy), swizzle(light), swizzle(third), swizzle(fourth)};
       final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
-          references, 1, 1, allocator::getAndIncrement);
+          references, 1, 1, IndexType.VALIDTIME, allocator::getAndIncrement);
       return new Fixture(parent, heavy, light);
     } catch (final RuntimeException | Error failure) {
       for (final HOTLeafPage leaf : leaves) {

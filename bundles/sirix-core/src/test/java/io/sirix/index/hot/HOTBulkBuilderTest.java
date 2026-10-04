@@ -71,9 +71,11 @@ final class HOTBulkBuilderTest {
           () -> HOTBulkBuilder.build(entries, 1, type, allocator::getAndIncrement));
     }
     final PageReference[] children = {new PageReference(), new PageReference()};
-    assertThrows(IllegalArgumentException.class,
-        () -> HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 256 * Byte.SIZE}, new int[] {0, 1},
-            children, 1, 1, allocator::getAndIncrement));
+    for (final IndexType type : new IndexType[] {IndexType.CAS, IndexType.VALIDTIME}) {
+      assertThrows(IllegalArgumentException.class,
+          () -> HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 256 * Byte.SIZE}, new int[] {0, 1},
+              children, 1, 1, type, allocator::getAndIncrement));
+    }
     assertEquals(1, allocator.get());
   }
 
@@ -81,7 +83,7 @@ final class HOTBulkBuilderTest {
   void singleMaskRoutesPositionsBeyondUnsignedByteRange() {
     final PageReference[] children = {new PageReference(), new PageReference()};
     try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {300 * Byte.SIZE},
-        new int[] {0, 1}, children, 1, 1, () -> 1)) {
+        new int[] {0, 1}, children, 1, 1, IndexType.NAME, () -> 1)) {
       final byte[] key = new byte[301];
       assertEquals(300, node.getInitialBytePos());
       assertEquals(0, node.findChildIndex(key, key.length));
@@ -93,15 +95,17 @@ final class HOTBulkBuilderTest {
   @Test
   void multiMaskRoutesTheLastUnsignedBytePosition() {
     final PageReference[] children = {new PageReference(), new PageReference(), new PageReference()};
-    try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 255 * Byte.SIZE},
-        new int[] {0, 1, 2}, children, 1, 1, () -> 1)) {
-      final byte[] key = new byte[1 << Byte.SIZE];
-      assertEquals(0, node.findChildIndex(key, key.length));
-      key[255] = (byte) 0x80;
-      assertEquals(1, node.findChildIndex(key, key.length));
-      key[255] = 0;
-      key[10] = (byte) 0x80;
-      assertEquals(2, node.findChildIndex(key, key.length));
+    for (final IndexType type : new IndexType[] {IndexType.CAS, IndexType.VALIDTIME}) {
+      try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 255 * Byte.SIZE},
+          new int[] {0, 1, 2}, children, 1, 1, type, () -> 1)) {
+        final byte[] key = new byte[1 << Byte.SIZE];
+        assertEquals(0, node.findChildIndex(key, key.length));
+        key[255] = (byte) 0x80;
+        assertEquals(1, node.findChildIndex(key, key.length));
+        key[255] = 0;
+        key[10] = (byte) 0x80;
+        assertEquals(2, node.findChildIndex(key, key.length));
+      }
     }
   }
 

@@ -26,7 +26,7 @@ final class HOTIncrementalHeightResolutionTest {
 
     try {
       assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.splitIndirect(node, 2, new AtomicLong(10)::getAndIncrement));
+          () -> HOTIncrementalInsert.splitIndirect(node, 2, IndexType.PATH, new AtomicLong(10)::getAndIncrement));
     } finally {
       rightLeaf.close();
     }
@@ -45,7 +45,8 @@ final class HOTIncrementalHeightResolutionTest {
 
     try {
       assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2, new AtomicLong(30)::getAndIncrement));
+          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2,
+          IndexType.PATH, new AtomicLong(30)::getAndIncrement));
     } finally {
       first.close();
       second.close();

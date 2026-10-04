@@ -487,7 +487,7 @@ public final class HOTBulkBuilder {
           }
         }
         final HOTIndirectPage result =
-            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType, pageKeyAllocator);
         indirectCount++;
         return result;
       } catch (final RuntimeException | Error failure) {
@@ -567,11 +567,13 @@ public final class HOTBulkBuilder {
    * @return a freshly allocated compound node
    */
   static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials, final PageReference[] children,
-      final int height, final int revision, final LongSupplier pageKeyAllocator) {
+      final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(indexType, "indexType");
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
-    if (lastByte - firstByte >= 8 && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
+    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
+        && lastByte - firstByte >= 8 && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
       throw new IllegalArgumentException("HOT discriminative bit exceeds maximum key length");
     }
     final long pageKey = pageKeyAllocator.getAsLong();

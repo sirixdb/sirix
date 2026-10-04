@@ -393,7 +393,7 @@ public final class HOTIncrementalInsert {
    * @return the split result — a {@code BiNode} on {@code node.MSB}
    */
   public static BiNode splitIndirect(final HOTIndirectPage node, final int revision,
-      final LongSupplier pageKeyAllocator) {
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     final int[] discBits = discriminativeBits(node);
@@ -417,9 +417,9 @@ public final class HOTIncrementalInsert {
     }
 
     final PageReference left = compressHalf(sliceChildren(node, 0, s), Arrays.copyOfRange(partials, 0, s), discBits,
-        revision, pageKeyAllocator);
+        revision, indexType, pageKeyAllocator);
     final PageReference right = compressHalf(sliceChildren(node, s, n - s), Arrays.copyOfRange(partials, s, n),
-        discBits, revision, pageKeyAllocator);
+        discBits, revision, indexType, pageKeyAllocator);
     final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
     return new BiNode(discBits[0], height, left, right);
   }
@@ -466,7 +466,7 @@ public final class HOTIncrementalInsert {
    * @return the assembled half (a fresh swizzled compound node, or the lone child reference)
    */
   private static PageReference compressHalf(final PageReference[] halfChildren, final int[] halfPartials,
-      final int[] discBits, final int revision, final LongSupplier pageKeyAllocator) {
+      final int[] discBits, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     final int n = halfChildren.length;
     if (n == 1) {
       return halfChildren[0]; // 1:31 — a lone child is pulled up bare, no compound wrapper.
@@ -518,7 +518,7 @@ public final class HOTIncrementalInsert {
       maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
     }
     return swizzle(HOTBulkBuilder.assembleIndirect(liveDiscBits, newPartials, halfChildren, maxChildHeight + 1,
-        revision, pageKeyAllocator));
+        revision, indexType, pageKeyAllocator));
   }
 
   /**
@@ -556,7 +556,8 @@ public final class HOTIncrementalInsert {
    * @return the split result — a {@code BiNode} on {@code node.MSB}
    */
   public static BiNode splitIndirectWithEntry(final HOTIndirectPage node, final InsertInfo info, final int beta,
-      final int betaValue, final PageReference newChildRef, final int revision, final LongSupplier pageKeyAllocator) {
+      final int betaValue, final PageReference newChildRef, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(info, "info");
     Objects.requireNonNull(newChildRef, "newChildRef");
@@ -588,14 +589,14 @@ public final class HOTIncrementalInsert {
     final PageReference right;
     if (info.firstAffected() >= splitPoint) {
       left = compressHalf(sliceChildren(node, 0, splitPoint), Arrays.copyOfRange(partials, 0, splitPoint), discBits,
-          revision, pageKeyAllocator);
+          revision, indexType, pageKeyAllocator);
       right = compressRangeWithEntry(discBits, partials, node, splitPoint, n - splitPoint, info, beta, betaValue,
-          newChildRef, revision, pageKeyAllocator);
+          newChildRef, revision, indexType, pageKeyAllocator);
     } else {
       left = compressRangeWithEntry(discBits, partials, node, 0, splitPoint, info, beta, betaValue, newChildRef,
-          revision, pageKeyAllocator);
+          revision, indexType, pageKeyAllocator);
       right = compressHalf(sliceChildren(node, splitPoint, n - splitPoint), Arrays.copyOfRange(partials, splitPoint, n),
-          discBits, revision, pageKeyAllocator);
+          discBits, revision, indexType, pageKeyAllocator);
     }
     final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
     return new BiNode(nodeMsb, height, left, right);
@@ -621,7 +622,7 @@ public final class HOTIncrementalInsert {
   private static PageReference compressRangeWithEntry(final int[] discBits, final int[] partials,
       final HOTIndirectPage node, final int firstIndexInRange, final int rangeLength, final InsertInfo info,
       final int beta, final int betaValue, final PageReference newChildRef, final int revision,
-      final LongSupplier pageKeyAllocator) {
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     if (rangeLength == 1) {
       // 1:31 — the half is the lone affected child; pair it with the new child under beta.
       final PageReference existing = node.getChildReference(firstIndexInRange);
@@ -721,7 +722,7 @@ public final class HOTIncrementalInsert {
       maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
     }
     return swizzle(HOTBulkBuilder.assembleIndirect(finalDiscBits, newPartials, newChildren, maxChildHeight + 1,
-        revision, pageKeyAllocator));
+        revision, indexType, pageKeyAllocator));
   }
 
   /**
@@ -875,11 +876,12 @@ public final class HOTIncrementalInsert {
    * @return the rebuilt node (or, if it collapses to one child, that lone child reference)
    */
   public static PageReference mergeBiNodePairedLeaves(final HOTIndirectPage node, final int leftIndex,
-      final HOTLeafPage mergedLeaf, final int revision, final LongSupplier pageKeyAllocator) {
+      final HOTLeafPage mergedLeaf, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(mergedLeaf, "mergedLeaf");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
-    return replaceAdjacentPairAndCompress(node, leftIndex, swizzle(mergedLeaf), revision, pageKeyAllocator);
+    return replaceAdjacentPairAndCompress(node, leftIndex, swizzle(mergedLeaf), revision, indexType, pageKeyAllocator);
   }
 
   /**
@@ -905,14 +907,16 @@ public final class HOTIncrementalInsert {
    * @return a recompressed parent, or the replacement itself if it is the lone survivor
    */
   static PageReference replaceAdjacentPairAndCompress(final HOTIndirectPage node, final int leftIndex,
-      final PageReference replacementRef, final int revision, final LongSupplier pageKeyAllocator) {
+      final PageReference replacementRef, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     final int n = node.getNumChildren();
     Objects.checkIndex(leftIndex, n - 1);
     if (!biNodePairs(node)[leftIndex]) {
       throw new IllegalArgumentException("children " + leftIndex + " and " + (leftIndex + 1)
           + " are not BiNode-paired — their union is not a single complete R(S)-subtree");
     }
-    return replaceChildRangeAndCompress(node, leftIndex, leftIndex + 2, replacementRef, revision, pageKeyAllocator);
+    return replaceChildRangeAndCompress(node, leftIndex, leftIndex + 2, replacementRef, revision,
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -928,7 +932,7 @@ public final class HOTIncrementalInsert {
    */
   static PageReference replaceChildRangeAndCompress(final HOTIndirectPage node, final int fromInclusive,
       final int toExclusive, final PageReference replacementRef, final int revision,
-      final LongSupplier pageKeyAllocator) {
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(replacementRef, "replacementRef");
     Objects.requireNonNull(replacementRef.getPage(), "replacementRef.page");
@@ -961,7 +965,7 @@ public final class HOTIncrementalInsert {
       newChildren[target] = node.getChildReference(source);
       newPartials[target++] = partials[source];
     }
-    return compressHalf(newChildren, newPartials, discBits, revision, pageKeyAllocator);
+    return compressHalf(newChildren, newPartials, discBits, revision, indexType, pageKeyAllocator);
   }
 
   /**
@@ -970,7 +974,7 @@ public final class HOTIncrementalInsert {
    * untouched. This is the extraction half of a bounded reference-only frontier splice.
    */
   static PageReference compressChildRange(final HOTIndirectPage node, final int fromInclusive, final int toExclusive,
-      final int revision, final LongSupplier pageKeyAllocator) {
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     final int childCount = node.getNumChildren();
@@ -987,7 +991,7 @@ public final class HOTIncrementalInsert {
     final int count = toExclusive - fromInclusive;
     return compressHalf(sliceChildren(node, fromInclusive, count),
         Arrays.copyOfRange(node.getPartialKeysRef(), fromInclusive, toExclusive), discriminativeBits(node), revision,
-        pageKeyAllocator);
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -1002,7 +1006,7 @@ public final class HOTIncrementalInsert {
    */
   static @Nullable PageReference compressChildSliceReplacing(final HOTIndirectPage node, final int fromInclusive,
       final int toExclusive, final int replacedChildIndex, final @Nullable PageReference replacement,
-      final int revision, final LongSupplier pageKeyAllocator) {
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.checkFromToIndex(fromInclusive, toExclusive, node.getNumChildren());
@@ -1032,7 +1036,7 @@ public final class HOTIncrementalInsert {
         partials[target++] = sourcePartials[source];
       }
     }
-    return compressHalf(children, partials, discriminativeBits(node), revision, pageKeyAllocator);
+    return compressHalf(children, partials, discriminativeBits(node), revision, indexType, pageKeyAllocator);
   }
 
   /**
@@ -1105,7 +1109,7 @@ public final class HOTIncrementalInsert {
           }
 
           final PageReference mergedNodeRef =
-              mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, pageKeyAllocator);
+              mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, indexType, pageKeyAllocator);
           final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
           final PageReference mergedLeafRef = next.getChildReference(i);
           if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
@@ -1196,7 +1200,7 @@ public final class HOTIncrementalInsert {
    * @return a fresh compound node with one more child and one more discriminative bit
    */
   public static HOTIndirectPage addEntry(final HOTIndirectPage node, final BiNode biNode, final int affectedChildIndex,
-      final int revision, final LongSupplier pageKeyAllocator) {
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(biNode, "biNode");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
@@ -1250,7 +1254,7 @@ public final class HOTIncrementalInsert {
         maxChildHeight = h;
     }
     return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren, maxChildHeight + 1, revision,
-        pageKeyAllocator);
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -1391,7 +1395,8 @@ public final class HOTIncrementalInsert {
    *         slot
    */
   public static HOTIndirectPage mergeBiNodeAtExistingDiscBit(final HOTIndirectPage node, final BiNode biNode,
-      final int affectedChildIndex, final int revision, final LongSupplier pageKeyAllocator) {
+      final int affectedChildIndex, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(biNode, "biNode");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
@@ -1487,7 +1492,7 @@ public final class HOTIncrementalInsert {
     }
 
     return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren, maxChildHeight + 1, revision,
-        pageKeyAllocator);
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -1601,7 +1606,8 @@ public final class HOTIncrementalInsert {
    */
   public static HOTIndirectPage addEntryWithInsertInfo(final HOTIndirectPage node, final int beta,
       final int newChildBetaValue, final int firstAffected, final int affectedCount, final int subtreePrefix,
-      final PageReference newChildRef, final int height, final int revision, final LongSupplier pageKeyAllocator) {
+      final PageReference newChildRef, final int height, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(newChildRef, "newChildRef");
     final int[] discBits = discriminativeBits(node);
@@ -1648,7 +1654,8 @@ public final class HOTIncrementalInsert {
       newChildren[i + 1] = node.getChildReference(i);
       newPartials[i + 1] = reencodeWithNewBit(oldPartials[i], m, betaColumn, 0);
     }
-    return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren, height, revision, pageKeyAllocator);
+    return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren, height, revision,
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -1677,7 +1684,8 @@ public final class HOTIncrementalInsert {
    * @return a fresh compound node with one more child, same discriminative bits
    */
   public static HOTIndirectPage addChildAtCombination(final HOTIndirectPage node, final int sparsePartialKey,
-      final PageReference newChildRef, final int height, final int revision, final LongSupplier pageKeyAllocator) {
+      final PageReference newChildRef, final int height, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(newChildRef, "newChildRef");
     final int[] discBits = discriminativeBits(node);
@@ -1701,7 +1709,8 @@ public final class HOTIncrementalInsert {
     newChildren[pos] = newChildRef;
     System.arraycopy(oldPartials, pos, newPartials, pos + 1, n - pos);
     System.arraycopy(oldChildren, pos, newChildren, pos + 1, n - pos);
-    return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren, height, revision, pageKeyAllocator);
+    return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren, height, revision,
+        indexType, pageKeyAllocator);
   }
 
   /**
@@ -1753,7 +1762,7 @@ public final class HOTIncrementalInsert {
    */
   public static BiNode splitIndirectWithSlotReplaceAndInsertion(final HOTIndirectPage node, final int slotToReplace,
       final PageReference newL0Ref, final int comboPartial, final PageReference newL1Ref, final int revision,
-      final LongSupplier pageKeyAllocator) {
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(newL0Ref, "newL0Ref");
     Objects.requireNonNull(newL1Ref, "newL1Ref");
@@ -1821,9 +1830,9 @@ public final class HOTIncrementalInsert {
     }
 
     final PageReference leftHalf = compressHalf(Arrays.copyOfRange(wideChildren, 0, s),
-        Arrays.copyOfRange(widePartials, 0, s), discBits, revision, pageKeyAllocator);
+        Arrays.copyOfRange(widePartials, 0, s), discBits, revision, indexType, pageKeyAllocator);
     final PageReference rightHalf = compressHalf(Arrays.copyOfRange(wideChildren, s, wideN),
-        Arrays.copyOfRange(widePartials, s, wideN), discBits, revision, pageKeyAllocator);
+        Arrays.copyOfRange(widePartials, s, wideN), discBits, revision, indexType, pageKeyAllocator);
     final int height = 1 + Math.max(heightOf(leftHalf.getPage()), heightOf(rightHalf.getPage()));
     return new BiNode(discBits[0], height, leftHalf, rightHalf);
   }
@@ -2082,7 +2091,7 @@ public final class HOTIncrementalInsert {
    */
   public static IntegrationResult integrate(final HOTIndirectPage[] spineNodes, final PageReference[] spineRefs,
       final int[] childSlots, final int currentDepth, final BiNode biNode, final int revision,
-      final LongSupplier pageKeyAllocator) {
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(biNode, "biNode");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
 
@@ -2120,8 +2129,8 @@ public final class HOTIncrementalInsert {
       // accumulation): use mergeBiNodeAtExistingDiscBit to fold the two halves into
       // parent's existing β-aligned slots without extending the mask.
       final HOTIndirectPage folded = betaInParentMask
-          ? mergeBiNodeAtExistingDiscBit(parent, biNode, affectedChildIndex, revision, pageKeyAllocator)
-          : addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator);
+          ? mergeBiNodeAtExistingDiscBit(parent, biNode, affectedChildIndex, revision, indexType, pageKeyAllocator)
+          : addEntry(parent, biNode, affectedChildIndex, revision, indexType, pageKeyAllocator);
       final IntegrationResult result = new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
       spineRefs[parentDepth].setPage(folded);
       return result;
@@ -2150,18 +2159,18 @@ public final class HOTIncrementalInsert {
           : biNode.left();
       final int straddlePartial = oldPartial ^ columnBit;
       cascaded = splitIndirectWithSlotReplaceAndInsertion(parent, affectedChildIndex, canonicalHalf, straddlePartial,
-          straddleHalf, revision, pageKeyAllocator);
+          straddleHalf, revision, indexType, pageKeyAllocator);
     } else {
       if (parent.getMostSignificantBitIndex() >= biNode.discriminativeBitIndex()) {
         throw new IllegalStateException("trie condition violated at depth " + parentDepth + ": parent.MSB="
             + parent.getMostSignificantBitIndex() + " >= beta=" + biNode.discriminativeBitIndex());
       }
       final int splitPoint = indirectSplitPoint(parent);
-      final BiNode parentSplit = splitIndirect(parent, revision, pageKeyAllocator);
+      final BiNode parentSplit = splitIndirect(parent, revision, indexType, pageKeyAllocator);
       cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(), affectedChildIndex, biNode, revision,
-          pageKeyAllocator);
+          indexType, pageKeyAllocator);
     }
-    return integrate(spineNodes, spineRefs, childSlots, parentDepth, cascaded, revision, pageKeyAllocator);
+    return integrate(spineNodes, spineRefs, childSlots, parentDepth, cascaded, revision, indexType, pageKeyAllocator);
   }
 
   /**
@@ -2173,7 +2182,8 @@ public final class HOTIncrementalInsert {
    * exactly that child — replaces it directly.
    */
   private static BiNode foldIntoHalf(final BiNode parentSplit, final int splitPoint, final int parentChildCount,
-      final int affectedChildIndex, final BiNode biNode, final int revision, final LongSupplier pageKeyAllocator) {
+      final int affectedChildIndex, final BiNode biNode, final int revision,
+      final IndexType indexType, final LongSupplier pageKeyAllocator) {
     final boolean inLeftHalf = affectedChildIndex < splitPoint;
     final int halfChildCount = inLeftHalf
         ? splitPoint
@@ -2194,7 +2204,7 @@ public final class HOTIncrementalInsert {
       final int indexInHalf = inLeftHalf
           ? affectedChildIndex
           : affectedChildIndex - splitPoint;
-      rebuiltRef = swizzle(addEntry(half, biNode, indexInHalf, revision, pageKeyAllocator));
+      rebuiltRef = swizzle(addEntry(half, biNode, indexInHalf, revision, indexType, pageKeyAllocator));
     }
     final PageReference left = inLeftHalf
         ? rebuiltRef

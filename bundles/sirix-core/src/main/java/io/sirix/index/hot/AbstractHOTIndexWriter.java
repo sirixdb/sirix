@@ -4276,7 +4276,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIndirectPage newN;
     try {
       newN = HOTIncrementalInsert.addChildAtCombination(parentN, comboPartial, biNode.right(), parentN.getHeight(),
-          storageEngineWriter.getRevisionNumber(), pageKeyAllocator);
+          storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
     } catch (final RuntimeException | Error constructionFailure) {
       try {
         parentN.setChildReference(slotOfL, originalLeafRef);
@@ -4378,13 +4378,13 @@ public abstract class AbstractHOTIndexWriter<K> {
       return OffPathOverflow.INTEGRATE;
     }
     final HOTIncrementalInsert.BiNode parentSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(
-        parentN, slotOfL, biNode.left(), comboPartial, biNode.right(), revision, pageKeyAllocator);
+        parentN, slotOfL, biNode.left(), comboPartial, biNode.right(), revision, indexType, pageKeyAllocator);
 
     final int currentDepth = pathDepth - 1;
     try {
       final HOTIncrementalInsert.IntegrationResult result =
           HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-              currentDepth, parentSplit, revision, pageKeyAllocator);
+              currentDepth, parentSplit, revision, indexType, pageKeyAllocator);
       lastDispatchHandler = "h:merge-offpath";
       registerFreshSubtree(result.touchedRef());
       retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
@@ -4507,7 +4507,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         // bug. integrate allocates first and re-points exactly one spine reference as its final step.
         final HOTIncrementalInsert.IntegrationResult result =
             HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
-                navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+                navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, indexType, pageKeyAllocator);
         lastDispatchHandler = "h:merge-offpath-fullN";
         registerFreshSubtree(result.touchedRef());
         retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_LEAF_SPLIT);
@@ -4678,7 +4678,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         final HOTIndirectPage newNode;
         try {
           newNode = HOTIncrementalInsert.addChildAtCombination(node, comboPartial, swizzle(comboLeaf), node.getHeight(),
-              revision, pageKeyAllocator);
+              revision, indexType, pageKeyAllocator);
         } catch (final RuntimeException | Error constructionFailure) {
           final int collisionSlot = findChildSlotByPartial(node, comboPartial);
           if (!(constructionFailure instanceof IllegalArgumentException) || collisionSlot < 0) {
@@ -4795,7 +4795,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         try {
           ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
           final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-              buildSpineRefs(navResult), childSlots, insertDepth, biNode, revision, pageKeyAllocator);
+              buildSpineRefs(navResult), childSlots, insertDepth, biNode, revision, indexType, pageKeyAllocator);
           published = true;
           lastDispatchHandler = "h:integrate-existing-bit";
           registerFreshSubtree(result.touchedRef());
@@ -4840,7 +4840,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         final HOTIndirectPage newChild;
         try {
           newChild = HOTIncrementalInsert.addChildAtCombination(child, comboPartial, swizzle(comboLeaf),
-              child.getHeight(), revision, pageKeyAllocator);
+              child.getHeight(), revision, indexType, pageKeyAllocator);
         } catch (final RuntimeException | Error constructionFailure) {
           final int collisionSlot = findChildSlotByPartial(child, comboPartial);
           if (!(constructionFailure instanceof IllegalArgumentException) || collisionSlot < 0) {
@@ -5002,7 +5002,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         try {
           ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
           final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-              buildSpineRefs(navResult), childSlots, pathDepth, biNode, revision, pageKeyAllocator);
+              buildSpineRefs(navResult), childSlots, pathDepth, biNode, revision, indexType, pageKeyAllocator);
           published = true;
           lastDispatchHandler = "h:pair-leaf";
           registerFreshSubtree(result.touchedRef());
@@ -5040,7 +5040,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           boolean published = false;
           try {
             final HOTIndirectPage newChild = HOTIncrementalInsert.addEntryWithInsertInfo(child, beta, betaValue, 0,
-                child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision, pageKeyAllocator);
+                child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision, indexType, pageKeyAllocator);
             if (branchAddStrandsExisting(child, newChild, keySlice)) {
               keyLeaf.close();
               return dischargeStrandViaLeafFrontier(navResult, child, newChild, childDepth, keySlice, valueSlice);
@@ -5093,7 +5093,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         try {
           ensurePathChildrenLoaded(pathNodes, navResult.pathDepth());
           final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(pathNodes,
-              buildSpineRefs(navResult), childSlots, childDepth, biNode, revision, pageKeyAllocator);
+              buildSpineRefs(navResult), childSlots, childDepth, biNode, revision, indexType, pageKeyAllocator);
           published = true;
           lastDispatchHandler = "h:wrap-full";
           registerFreshSubtree(result.touchedRef());
@@ -5113,7 +5113,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       try {
         final HOTIndirectPage newNode =
             HOTIncrementalInsert.addEntryWithInsertInfo(node, beta, betaValue, info.firstAffected(),
-                info.affectedCount(), info.subtreePrefix(), newLeafRef, node.getHeight(), revision, pageKeyAllocator);
+                info.affectedCount(), info.subtreePrefix(), newLeafRef, node.getHeight(), revision,
+                indexType, pageKeyAllocator);
         if (branchAddStrandsExisting(node, newNode, keySlice)) {
           keyLeaf.close();
           return dischargeStrandViaLeafFrontier(navResult, node, newNode, insertDepth, keySlice, valueSlice);
@@ -5178,7 +5179,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     try {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
       final HOTIncrementalInsert.BiNode biNode = HOTIncrementalInsert.splitIndirectWithEntry(node, info, beta,
-          betaValue, swizzle(keyLeaf), revision, pageKeyAllocator);
+          betaValue, swizzle(keyLeaf), revision, indexType, pageKeyAllocator);
       // Sparse partials order subtree paths, not every key in a multi-entry leaf. Folding K into
       // a compressed half can place it inside a retained leaf's range, or lift the half's MSB past
       // an indirect child's. Validate the actual halves before integrate publishes either one.
@@ -5188,7 +5189,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         return false;
       }
       final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, biNode, revision, pageKeyAllocator);
+          buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, biNode, revision,
+          indexType, pageKeyAllocator);
       published = true;
       lastDispatchHandler = "h:branch-integrate";
       registerFreshSubtree(result.touchedRef());
@@ -5408,7 +5410,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       ensurePathChildrenLoaded(navResult.pathNodes(), navResult.pathDepth());
 
       // 1. Split the full node at its own MSB into BiNode(node.MSB, leftHalf, rightHalf).
-      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision, pageKeyAllocator);
+      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision,
+          indexType, pageKeyAllocator);
 
       // 2. K routes by node.MSB into one half.
       final int nodeMsb = node.getMostSignificantBitIndex();
@@ -5490,7 +5493,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           return declineFoldIntoFullHalf(keyLeaf);
         }
         foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef, half.getHeight(),
-            revision, pageKeyAllocator);
+            revision, indexType, pageKeyAllocator);
       } else {
         // beta was dropped from the half (constant across it) — beta is genuinely new to the
         // half; addEntryWithInsertInfo folds it as a new disc bit.
@@ -5499,7 +5502,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
         foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue, halfInfo.firstAffected(),
             halfInfo.affectedCount(), halfInfo.subtreePrefix(), keyLeafRef, half.getHeight(), revision,
-            pageKeyAllocator);
+            indexType, pageKeyAllocator);
       }
       // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): the fold added K's
       // single-key leaf to the half; if an existing key in the half would now route to it, the half
@@ -5550,7 +5553,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
     final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
-        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision, pageKeyAllocator);
+        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, foldedSplit, revision,
+        indexType, pageKeyAllocator);
     try {
       lastDispatchHandler = "h:combo-site2-fold";
       registerFreshSubtree(result.touchedRef());
@@ -5602,10 +5606,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       // the original full node's now-current child references so their heights and masks describe the
       // post-insert structure exactly. The first speculative split was never published or registered.
       final HOTIncrementalInsert.BiNode refreshedSplit =
-          HOTIncrementalInsert.splitIndirect(originalNode, revision, pageKeyAllocator);
+          HOTIncrementalInsert.splitIndirect(originalNode, revision, indexType, pageKeyAllocator);
       final HOTIncrementalInsert.IntegrationResult result =
           HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-              insertDepth, refreshedSplit, revision, pageKeyAllocator);
+              insertDepth, refreshedSplit, revision, indexType, pageKeyAllocator);
       lastDispatchHandler = "h:combo-site2-d1";
       registerFreshSubtree(result.touchedRef());
       DIRECTION_ONE_SUBINSERT.incrementAndGet();
@@ -5960,7 +5964,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       lastDispatchHandler = "h:strand-split-integrate";
       final HOTIncrementalInsert.IntegrationResult result =
           HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-              navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+              navResult.pathDepth(), biNode, revision, indexType, pageKeyAllocator);
       published = true;
       registerFreshSubtree(result.touchedRef());
       retireReplacedLeaf(navResult.leafRef(), result.touchedRef(), TransactionIntentLog.RELEASE_SITE_STRAND_SPLIT);
@@ -6136,7 +6140,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int[] partials = newNode.getPartialKeysRef().clone();
       final int[] discBits = HOTIncrementalInsert.discriminativeBits(newNode);
       final HOTIndirectPage candidate =
-          HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+          HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+              indexType, pageKeyAllocator);
       // From this point on candidateRef is the single cleanup owner for both replacement roots.
       // registerFreshSubtree transfers those roots to the TIL one leaf at a time, so a later
       // failure must stop at every child reference whose durable/log identity proves that transfer
@@ -6333,7 +6338,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       final PageReference sourceRef = frontier.size() == 1
           ? node.getChildReference(frontier.fromInclusive())
           : HOTIncrementalInsert.compressChildRange(node, frontier.fromInclusive(), frontier.toExclusive(), revision,
-              pageKeyAllocator);
+              indexType, pageKeyAllocator);
       if (sourceRef == null) {
         throw new IllegalStateException("HOT incremental frontier has a null source reference");
       }
@@ -6355,7 +6360,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         candidateRef = replaceSingleChildAndReencode(node, frontier.fromInclusive(), replacementRef, revision);
       } else {
         candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node, frontier.fromInclusive(),
-            frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+            frontier.toExclusive(), replacementRef, revision, indexType, pageKeyAllocator);
       }
       candidatePage = candidateRef.getPage();
       if (!frontierCandidatePublishable(navResult, nodeDepth, candidateRef, candidatePage, keySlice)) {
@@ -6583,7 +6588,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           sliceKeepsTrieCondition(indirect, discBits, partials, 0, target + 1, target, childSplit.left());
       left = leftIsPlain
           ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, 0, target + 1, target, childSplit.left(),
-              revision, pageKeyAllocator)
+              revision, indexType, pageKeyAllocator)
           : recanonicalizeChildSlice(indirect, 0, target + 1, target, childSplit.left(), revision, replacedLeafRefs);
       if (!leftIsPlain && left == null) {
         // The join retired every fresh part of that slice, childSplit.left() among them. The other
@@ -6595,7 +6600,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           sliceKeepsTrieCondition(indirect, discBits, partials, target, childCount, target, childSplit.right());
       right = rightIsPlain
           ? HOTIncrementalInsert.compressChildSliceReplacing(indirect, target, childCount, target, childSplit.right(),
-              revision, pageKeyAllocator)
+              revision, indexType, pageKeyAllocator)
           : recanonicalizeChildSlice(indirect, target, childCount, target, childSplit.right(), revision,
               replacedLeafRefs);
       if (!rightIsPlain && right == null) {
@@ -6962,7 +6967,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       partials[i] = partial;
     }
     return HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
-        pageKeyAllocator);
+        indexType, pageKeyAllocator);
   }
 
   private FrontierPart frontierPart(final PageReference ref) {
@@ -7075,7 +7080,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       maxChildHeight = Math.max(maxChildHeight, structuralHeight(child));
     }
     final HOTIndirectPage candidate = HOTBulkBuilder.assembleIndirect(HOTIncrementalInsert.discriminativeBits(node),
-        Arrays.copyOf(node.getPartialKeysRef(), childCount), children, maxChildHeight + 1, revision, pageKeyAllocator);
+        Arrays.copyOf(node.getPartialKeysRef(), childCount), children, maxChildHeight + 1, revision,
+        indexType, pageKeyAllocator);
     return swizzle(candidate);
   }
 
@@ -7333,7 +7339,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     final int revision = storageEngineWriter.getRevisionNumber();
     final PageReference rangeRef = HOTIncrementalInsert.compressChildRange(node, frontier.fromInclusive(),
-        frontier.toExclusive(), revision, pageKeyAllocator);
+        frontier.toExclusive(), revision, indexType, pageKeyAllocator);
     final Page rangePage = rangeRef.getPage();
     if (rangePage == null || rangePage instanceof HOTIndirectPage rangeIndirect
         && (rangeIndirect.getMostSignificantBitIndex() <= beta || nodeStructurallyMalformed(rangeIndirect))) {
@@ -7368,7 +7374,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           rangeHeight + 1);
       final PageReference replacementRef = swizzle(miniRoot);
       final PageReference candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node,
-          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, indexType, pageKeyAllocator);
       final Page candidatePage = candidateRef.getPage();
       candidateRoot = candidatePage;
       if (candidatePage == null || nodeStructurallyMalformed(miniRoot)) {
@@ -7483,7 +7489,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       miniRoot = HOTBulkBuilder.build(entries, revision, indexType, pageKeyAllocator).rootPage();
       final PageReference replacementRef = swizzle(miniRoot);
       final PageReference candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node,
-          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, indexType, pageKeyAllocator);
       final Page candidatePage = candidateRef.getPage();
       candidateRoot = candidatePage;
       if (candidatePage == null) {
@@ -8016,7 +8022,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         children[i] = ancestor.getChildReference(i);
       }
       final HOTIndirectPage rebuiltAncestor =
-          HOTBulkBuilder.assembleIndirect(discBits, partials, children, newAncestorHeight, revision, pageKeyAllocator);
+          HOTBulkBuilder.assembleIndirect(discBits, partials, children, newAncestorHeight, revision,
+              indexType, pageKeyAllocator);
       pathRefs[ancestorDepth].setPage(rebuiltAncestor);
       registerFreshSubtree(pathRefs[ancestorDepth]);
       STRUCTURAL_HEIGHT_REENCODE.incrementAndGet();
