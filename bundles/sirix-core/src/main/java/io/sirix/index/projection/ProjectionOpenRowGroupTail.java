@@ -496,7 +496,7 @@ final class ProjectionOpenRowGroupTail {
         ProjectionIndexColumnSegmentCodec.contentHash(virtualDescriptor), virtualDescriptor.length);
   }
 
-  /** The memoized merge for {@code key}, computing it once through {@code merge}. */
+  /** Memoize merges by published descriptor; concurrent misses may compute independently. */
   static Materialized cached(final CacheKey key, final Supplier<Materialized> merge) {
     final Materialized hit = MERGES.getIfPresent(key);
     if (hit != null) {

@@ -33,9 +33,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * helper owns no persisted row-group envelope; this class owns the one supported format, in which
  *
  * <ul>
- * <li>a query reading column {@code c} fetches {@code BODY(c)} (+ {@code DICT(c)} for string
- * predicates) and nothing else;</li>
- * <li>a single-column update re-encodes only that column's changed segments;</li>
+ * <li>a query reading column {@code c} from an untailed group fetches {@code BODY(c)} (+
+ * {@code DICT(c)} for string predicates) and nothing else;</li>
+ * <li>a single-column update re-encodes only that column's changed segments after folding any open
+ * tail;</li>
  * <li>{@link #assembleRaw} reconstructs the raw scan form <b>byte-identically</b>, including
  * presence, unrepresentable, and integrality provenance.</li>
  * </ul>

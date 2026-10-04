@@ -48,6 +48,11 @@ This gives every segment one logical address and one authoritative byte source:
   segment slot;
 - the descriptor never contains a second copy.
 
+These placement rules describe persisted base segments. Open-row-group tail
+storage is defined in [DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
+its append, merge and fold lifecycle is owned by the
+[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
+
 ## 2. Why small segments should be inline
 
 A projection divides a row group of at most 1024 rows into independently encoded
@@ -98,7 +103,7 @@ silently accepted.
 
 ## 4. Read path
 
-To read a segment:
+To read a segment of an untailed group:
 
 1. Read and validate the zone-map-only descriptor entry for its expected
    length, hash, and provenance.
@@ -115,8 +120,9 @@ and must fail closed.
 
 ## 5. Incremental write path
 
-For a touched row group, encode the affected logical segments and compare each
-result with the previous descriptor entry:
+For a segment write, encode the affected logical segments and compare each
+result with the previous base descriptor entry. Tail handling follows the
+maintenance contract linked above.
 
 ```text
 same encoded length and content hash

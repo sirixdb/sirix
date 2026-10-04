@@ -277,8 +277,12 @@ price:          10  25  30
 exception:       0   0   0
 ```
 
-The value-only path must not materialize, copy, or rewrite an order-exception
-bitmap. It only needs the already encoded `KEYS` metadata for validation.
+For an untailed group, the value-only path must not materialize, copy, or rewrite
+an order-exception bitmap. It only needs the already encoded `KEYS` metadata for
+validation. A group with an open row tail first folds as specified in
+[§9](#9-tail-insert); the selected-column patch then uses the folded descriptor
+and `KEYS`. That fold may rewrite sibling segments while preserving their
+logical values and order exceptions.
 
 Re-extracting the whole selected column is intentional in V0. Zone maps and
 aggregate provenance flags describe the complete segment, and V0 has no
@@ -466,8 +470,12 @@ zone maps and segment hashes. Single-group reads, batch assembly, directory
 walks and writer segment reads all merge the base with the tail before using
 segment bytes. Cold merges verify the re-encoded descriptor. The writer seeds
 a merge memo with its own encoding after each append, so its next commit can
-reuse those bytes without replaying the tail. The memo is bounded to 64 MiB;
-eviction falls back to the verified cold merge. The persisted tail layout is
+reuse those bytes without replaying the tail. Directory and batch routes retain
+structural slot checks but resolve the memo before fetching referenced base
+payloads. On a miss, raw assembly fetches only `KEYS`, `BODY` and `DICT` base
+segments; it does not fetch unused `DICT_HASHES` or other acceleration segments.
+The memo is bounded to 64 MiB; eviction falls back to the verified cold merge.
+The persisted tail layout is
 described in `DISK_FORMAT.md`. Public row and directory reads return detached
 arrays so callers cannot alter the memo; internal maintenance borrows read-only
 bytes. The four-versioning-type tests and matched byte/latency measurements are
@@ -714,7 +722,8 @@ trie cannot become a committed revision.
 The intended persistent work, in phone-readable form, is:
 
 - **Value update:** selected column segments, one descriptor, slot-0 metadata,
-  and bounded derived column units when applicable.
+  and bounded derived column units when applicable, after folding any open tail
+  as specified in §9.
 - **Delete:** each affected source row group, its changed local fence/link unit,
   an exception locator if applicable, and slot-0/derived metadata.
 - **Insert without split:** each target row group, its changed local fence/link

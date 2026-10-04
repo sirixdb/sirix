@@ -17,6 +17,9 @@ resolved it with a fresh private `-Dmaven.repo.local` directory, leaving `~/.m2`
 
 ## Correctness and work
 
+The suite counts below are the captured campaign results before the subsequent
+order-exception bitmap and memo-hit base-payload repairs; they are not current-head test counts.
+
 - Full core suite: 12,327 tests, zero failures/errors, 77 skipped.
 - Full query suite: 2,068 tests, two known external failures, seven skipped. The current Brackit
   snapshot changed array-navigation semantics; the maintainer identified
@@ -39,6 +42,13 @@ resolved it with a fresh private `-Dmaven.repo.local` directory, leaving `~/.m2`
 - Temporarily removing the writer's memo seed makes all four versioning cases fail `append seeds the
   writer memo` (expected zero cold merges, observed one). The observer is temporary test state and
   is restored; production maintains no diagnostic counter.
+
+The subsequent repairs add regression coverage in
+[`ProjectionIndexRowGroupPageTest`](../bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionIndexRowGroupPageTest.java),
+[`ProjectionOpenRowGroupTailListenerTest`](../bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionOpenRowGroupTailListenerTest.java)
+and [`ProjectionOpenRowGroupTailTest`](../bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionOpenRowGroupTailTest.java).
+Those cases cover hydrated bitmap growth across row 64, middle insertion followed by tail append,
+and memo-hit/cold-route payload read work. They do not alter the frozen benchmark provenance below.
 
 ## SH1 t25k
 

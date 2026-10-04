@@ -204,7 +204,7 @@ RevisionRootPage
 | catalog caches | process-wide Caffeine: `DEFS` by (resource, revision) max 8192; `PROBES` of slot 0 max 65 536; `DATA` decoded handles keyed by (resource, defId, **build** revision), weighed in KiB with `sirix.projection.cacheBytes` (8 GiB); expected non-usability cached, corruption logged and cached as unusable, transient failures not cached | `:67-84`, `:120-180` |
 | write-transaction access | `lookupCoveringUncommitted`/`loadUncommitted`: uncached read-your-writes | `:91-101`, `:551` |
 | `ProjectionIndexRegistry` | "BENCH/TEST wiring" pool for uncatalogued stores; its `Handle` is also the runtime object the catalog returns (field chains, payloads, column store, defId, projected weight, set counts, dictionary anchors) | `proj/ProjectionIndexRegistry.java:36-57`, `:104-281` |
-| `ProjectionColumnStore` | column-lazy view built from one descriptor walk with zero segment reads; a column's BODY segments are fetched and decoded on first touch; "segment truth": every slice decodes from BODY bytes after length and XXH3-64 verification; double-checked per-column fill, first publish wins; corruption memoized as permanent, fetch failures not | `proj/ProjectionColumnStore.java:27-60`, `:124-140` |
+| `ProjectionColumnStore` | column-lazy view built from one descriptor walk; open-tail resolution follows the [maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert); a column's BODY segments are decoded on first touch; "segment truth": every slice decodes from BODY bytes after length and XXH3-64 verification; double-checked per-column fill, first publish wins; corruption memoized as permanent, fetch failures not | `proj/ProjectionColumnStore.java:27-60`, `:124-140` |
 | eager vs windowed | above `eagerMaterializeBytes` = `min(cacheBytes/2, maxMemory/4)` a handle serves through `ProjectionWindowedRowGroupPayloads`, windows of 128 row groups, CLOCK eviction | `proj/ProjectionIndexCatalog.java:1101-1107`, `:1162-1230`; `proj/ProjectionWindowedRowGroupPayloads.java:19-253` |
 
 ---
@@ -327,22 +327,10 @@ STRING_GLOBAL and STRING_SEGMENT arise by conversion (§4).
 
 ### 3.5 Row-group descriptor (PIXD)
 
-`proj/RowGroupDescriptor.java:29-121`, `:192-485`:
-
-| Off | Size | Field |
-|---|---|---|
-| 0 | 4 | magic `0x44584950` "PIXD" |
-| 4 | 1 | version 0 (anything else refused) |
-| 5 | 4 | rowCount (0..1024) |
-| 9 | 2 | columnCount |
-| 11 | 8 | firstRecordKey |
-| 19 | 8 | lastRecordKey |
-| 27 | C | kinds |
-| 27+C | 2 | segment entry count n |
-| 29+C | 31·n | entries |
-
-Entry (31 bytes): u16 segmentId, i32 byteLen (6 .. 16 MiB), i64 XXH3-64 contentHash, u8 colFlags,
-i64 min, i64 max.
+The authoritative [disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout)
+defines the fields, base/tailed descriptor states and row-tail slots. The implementation is
+`proj/RowGroupDescriptor.java`; append and merge rules are owned by the
+[incremental maintenance guide](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
 
 - Entry ids ascend strictly and fit 16 bits; total length must match exactly.
 - flags/min/max mirror the BODY segment's zone map. **The BODY segment is authoritative**: pruning may use
@@ -721,10 +709,9 @@ array child produced a row, then replaces the tombstone (`proj/ProjectionBulkLoa
 
 ### 5.4 Cost of maintenance, as documented
 
-"No projection-relevant rows changed → zero bytes"; "A value-only update rewrites the row-group descriptor and only the
-selected column segments whose length/hash changed"; "An insert/delete/move rebuilds only its bounded affected row group(s)" (`proj/ProjectionIndexRowGroupPage.java:113-122`). The
-normative contract is [PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md),
-which was found consistent with the code except that its descriptor key formula holds only for `ROW_GROUP_MAJOR`.
+The normative cost and write-unit contract is owned by
+[PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
+Its descriptor key formula holds only for `ROW_GROUP_MAJOR`.
 
 ---
 

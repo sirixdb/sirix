@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Primitive-column leaf page for a projection index. Each page holds up to {@link #MAX_ROWS}
@@ -115,10 +116,11 @@ import java.util.Arrays;
  *
  * <ul>
  * <li>No projection-relevant rows changed → zero bytes.</li>
- * <li>A value-only update rewrites the row-group descriptor and only the selected column segments
- * whose length/hash changed; all other segment slots are true no-ops.</li>
- * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Even there, the
- * descriptor diff carries byte-identical segments forward instead of writing them again.</li>
+ * <li>A value-only update to an untailed group rewrites the row-group descriptor and only the
+ * selected column segments whose length/hash changed; an open tail must fold first.</li>
+ * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Proven appends may use
+ * {@link ProjectionOpenRowGroupTail}; full segment writes carry byte-identical base segments
+ * forward instead of writing them again.</li>
  * </ul>
  *
  * <p>
@@ -1116,6 +1118,7 @@ public final class ProjectionIndexRowGroupPage {
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
   private void ensureCapacity() {
     ensureCapacity(true);
+    // Hydration sizes this bitmap to persisted rows; an append may cross its final word.
     if (orderExceptionBits != null && orderExceptionBits.length <= (rowCount >>> 6)) {
       orderExceptionBits = Arrays.copyOf(orderExceptionBits, (MAX_ROWS + 63) >>> 6);
     }
@@ -1424,7 +1427,7 @@ public final class ProjectionIndexRowGroupPage {
    * not by dictionary id). Page-level sticky flags are not compared. The open-row-group tail path
    * uses this to prove that a maintenance rewrite is a pure append over the persisted rows.
    */
-  boolean rowsEqualPrefix(final ProjectionIndexRowGroupPage other, final int rows) {
+  boolean rowsEqualPrefix(final @Nullable ProjectionIndexRowGroupPage other, final int rows) {
     if (other == null || rows < 0 || rows > rowCount || rows > other.rowCount || columnCount != other.columnCount
         || !Arrays.equals(columnKinds, other.columnKinds)) {
       return false;
@@ -1853,7 +1856,7 @@ public final class ProjectionIndexRowGroupPage {
    *
    * @param dictionaries per-column writers, index-aligned with the column kinds
    */
-  void setGlobalDictionaries(final GlobalValueDictionaryEncoder[] dictionaries) {
+  void setGlobalDictionaries(final GlobalValueDictionaryEncoder @Nullable [] dictionaries) {
     this.globalDicts = dictionaries;
   }
 

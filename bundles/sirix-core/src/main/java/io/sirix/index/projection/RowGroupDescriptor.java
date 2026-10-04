@@ -40,10 +40,11 @@ import java.util.Objects;
  * </pre>
  *
  * <p>
- * Segment bytes live in exactly one adjacent segment slot. That slot keeps payloads up to the
+ * Persisted base segment bytes live in exactly one segment slot. That slot keeps payloads up to the
  * storage threshold inline in the HOT leaf and spills larger payloads to an {@link OverflowPage};
- * the descriptor never carries segment bytes. Consequently there is one descriptor shape and one
- * mutation path, while the slot layer remains free to choose its physical inline/overflow encoding.
+ * the descriptor never carries segment bytes. A {@link #VERSION_TAILED} descriptor instead names
+ * the merged segments resolved through its open row tail. Both states use the same descriptor
+ * shape.
  *
  * <p>
  * A zero-length slot value is the leaf tombstone; a descriptor with {@code rowCount == 0} is a live
