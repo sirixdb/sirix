@@ -271,7 +271,7 @@ final class ValidTimeSliceWorkBudgetTest {
     assertPlainAdmissionBudget(100_000, false);
   }
 
-  private void assertPlainAdmissionBudget(final int count, final boolean matchFirst) throws Exception {
+  private static String plainAdmissionRows(final int count, final boolean matchFirst) {
     final int padding = count == 32
         ? 2200
         : count == 128
@@ -299,7 +299,11 @@ final class ValidTimeSliceWorkBudgetTest {
           .append('}');
     }
     json.append(']');
-    shredRows(json.toString());
+    return json.toString();
+  }
+
+  private void assertPlainAdmissionBudget(final int count, final boolean matchFirst) throws Exception {
+    shredRows(plainAdmissionRows(count, matchFirst));
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
@@ -474,7 +478,7 @@ final class ValidTimeSliceWorkBudgetTest {
     assertSelectiveStabBudget(100_000, false);
   }
 
-  private void assertSelectiveStabBudget(final int count, final boolean matchFirst) throws Exception {
+  private static String selectiveStabRows(final int count, final boolean matchFirst) {
     final String match = """
         {"id":-1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
          "nested":{"id":-2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
@@ -497,7 +501,11 @@ final class ValidTimeSliceWorkBudgetTest {
       }
     }
     json.append(']');
-    shredRows(json.toString());
+    return json.toString();
+  }
+
+  private void assertSelectiveStabBudget(final int count, final boolean matchFirst) throws Exception {
+    shredRows(selectiveStabRows(count, matchFirst));
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
