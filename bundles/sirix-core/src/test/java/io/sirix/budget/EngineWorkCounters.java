@@ -7,6 +7,7 @@ import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.ChunkedBodyConfig;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 
 import java.util.List;
@@ -50,6 +51,16 @@ public final class EngineWorkCounters {
 
   /** The HOT leaf counters. Gated: the module's {@code test} block must provide the property. */
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);
+
+  /** Native lane reads during a HOT suffix comparison, excluding its fixed length header. */
+  public static final WorkCounter HOT_SUFFIX_PROBE_READS =
+      WorkCounter.gated("hot.suffixProbeReads", "one native suffix lane inspected during binary search",
+          HOTLeafPage::suffixProbeReads, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /** Side-reference map accesses, including absent overflow references of inline slots. */
+  public static final WorkCounter HOT_SIDE_REFERENCE_READS =
+      WorkCounter.gated("hot.sideReferenceReads", "one overflow-reference map probe", HOTLeafPage::sideReferenceReads,
+          "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
 
   // ===== Batched page reads (FILE_CHANNEL) ==================================
 

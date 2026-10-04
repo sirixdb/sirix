@@ -69,6 +69,11 @@ A decoder-only image is never published as a canonical complete leaf: the comple
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
 ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
 
+Eight-byte projection keys use a masked unsigned word comparison for native suffix searches.
+The probe word is prepared once per binary search; mixed key lengths and an exact-size segment
+tail retain the bounded generic comparison. Inline blob results skip the side-reference map,
+while referenced blobs and opaque slot callers retain their durable side-page provenance.
+
 Read intent controls cache admission:
 
 - `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
@@ -115,7 +120,8 @@ Existing work-budget bounds are unchanged.
 
 Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
 `HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
-`ProjectionBlobHistoryReadTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
+`ProjectionBlobHistoryReadTest`, `HOTLongSuffixSearchTest`,
+`HOTHistoricalBlobReadWorkBudgetTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
 `docs/VERIFICATION.md` remains the required load/query work check.
 
 ## Projection execution

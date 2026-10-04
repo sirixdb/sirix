@@ -44,6 +44,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
 /**
@@ -120,6 +121,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** 8-byte scratch for encoding slot keys. */
   /** Serialized slot-key length ({@link PathKeySerializer}); sizes every slot-key buffer here. */
   private static final int SLOT_KEY_BYTES = Long.BYTES;
+  private static final Predicate<byte[]> BLOB_SIDE_REFERENCE_NEEDED =
+      value -> value.length != 0 && !isInlineBlob(value);
+
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[SLOT_KEY_BYTES]);
 
   private final PathKeySerializer keySerializer = PathKeySerializer.INSTANCE;
@@ -4139,7 +4143,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent) {
     final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
-    final HOTLeafEntry entry = trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent);
+    final HOTLeafEntry entry =
+        trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, BLOB_SIDE_REFERENCE_NEEDED);
     if (entry == null || entry.value().length == 0) {
       return null;
     }
