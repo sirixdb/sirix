@@ -99,7 +99,7 @@ final class ValidTimeIndexRebuildTest {
         final IntervalDomain domain = new IntervalDomain();
         final LongOpenHashSet matches = new LongOpenHashSet();
         ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), 0, domain)
-            .stabHalfOpen(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
+                                     .stabHalfOpen(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
         assertEquals(LongOpenHashSet.of(objectKey), matches);
       }
       try (var writer = session.beginNodeTrx()) {
