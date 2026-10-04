@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ValidTimeIndexRebuildTest {
@@ -61,6 +62,7 @@ final class ValidTimeIndexRebuildTest {
   @Test
   void revertingToRevisionWithoutIndexesPersistsEmptyCatalogue() {
     final Path databasePath = directory.resolve("database");
+    final long objectKey;
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("rows")
@@ -73,6 +75,10 @@ final class ValidTimeIndexRebuildTest {
             """), JsonNodeTrx.Commit.NO);
         writer.commit();
         final int originalRevision = session.getMostRecentRevisionNumber();
+        writer.moveToDocumentRoot();
+        assertTrue(writer.moveToFirstChild());
+        assertTrue(writer.moveToFirstChild());
+        objectKey = writer.getNodeKey();
         final IndexDef definition = IndexDefs.createValidTimeIdxDef(
             Set.of(parse("/[]/vf", PathParser.Type.JSON), parse("/[]/vt", PathParser.Type.JSON)), 0,
             IndexDef.DbType.JSON);
@@ -88,6 +94,14 @@ final class ValidTimeIndexRebuildTest {
     try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
       assertEquals(3, session.getMostRecentRevisionNumber());
       assertTrue(session.getRtxIndexController(3).getIndexes().getIndexDefs().isEmpty());
+      assertNotNull(session.getRtxIndexController(2).getIndexes().getIndexDef(0, IndexType.VALIDTIME));
+      try (var reader = session.beginNodeReadOnlyTrx(2)) {
+        final IntervalDomain domain = new IntervalDomain();
+        final LongOpenHashSet matches = new LongOpenHashSet();
+        ValidTimeIntervalIndexFactory.createReaderTree(reader.getStorageEngineReader(), 0, domain)
+            .stabHalfOpen(domain.point(Instant.parse("2024-01-01T00:00:00Z")), matches::add);
+        assertEquals(LongOpenHashSet.of(objectKey), matches);
+      }
       try (var writer = session.beginNodeTrx()) {
         assertTrue(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
       }
