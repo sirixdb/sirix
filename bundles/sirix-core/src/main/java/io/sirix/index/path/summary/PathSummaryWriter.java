@@ -37,7 +37,6 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.node.json.ArrayNode;
 
-import javax.xml.namespace.QName;
 import java.util.ArrayDeque;
 
 import static java.util.Objects.requireNonNull;
@@ -51,8 +50,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     extends AbstractForwardingPathSummaryReader {
 
   /**
-   * Operation type to determine behavior of path summary updates during {@code setQName(QName)} and
-   * the move-operations.
+   * Operation type to determine behavior of path summary updates during renames and subtree moves.
    */
   public enum OPType {
     /**
@@ -67,7 +65,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     MOVED,
 
     /**
-     * A new {@link QName} is set.
+     * A new {@link QNm} is set.
      */
     SETNAME,
   }
@@ -390,6 +388,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     return getArrayChildPathNodeKey(newObjectKeyEntry);
   }
 
+  /**
+   * Remove the old lookup identity before changing the name, then publish the new identity and
+   * invalidate cached paths, including descendants whose path text includes the renamed step.
+   */
   private void renamePathNode(final PathNode pathNode, final QNm name, final int uriKey, final int prefixKey,
       final int localNameKey) {
     final QNm oldName = pathSummaryReader.getName();
@@ -718,13 +720,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Adapt path summary either for moves or {@code setQName(QName)}.
+   * Adapt the path summary for a rename or delegate a move to {@link #adaptPathForMovedSubtree}.
    *
    * @param node the node for which the path node needs to be adapted
-   * @param name the new {@link QName} in case of a new one is set, the old {@link QName} otherwise
-   * @param uriKey uriKey of the new node
+   * @param name the new name for a rename; ignored for moves
+   * @param uriKey namespace URI key for a rename; ignored for moves
+   * @param prefixKey prefix key for a rename; ignored for moves
+   * @param localNameKey local name key for a rename; ignored for moves
+   * @param type whether the operation is a rename or a move
    * @throws SirixException if a Sirix operation fails
-   * @throws NullPointerException if {@code pNode} or {@code pQName} is null
+   * @throws NullPointerException if {@code node} is null, or {@code name} is null for a rename
    */
   public void adaptPathForChangedNode(final ImmutableNameNode node, final QNm name, final int uriKey,
       final int prefixKey, final int localNameKey, final OPType type) {
@@ -738,15 +743,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long oldPathNodeKey = pathSummaryReader.getNodeKey();
 
-    // Only one path node is referenced (after a setQName(QName) the
-    // reference-counter would be 0).
+    // An exclusively referenced path class can be renamed in place if no destination class exists.
     // Fused OBJECT_NAMED_* records are represented as OBJECT_KEY entries in the path summary, so
     // the filter needs the logical path kind, not the physical record kind.
     final NodeKind nodeKind = node.getKind();
     final NodeKind pathFilterKind = nodeKind.isFusedAnyNamed()
         ? NodeKind.OBJECT_NAMED_OBJECT
         : nodeKind;
-    if (type == OPType.SETNAME && pathSummaryReader.getReferences() == 1) {
+    if (pathSummaryReader.getReferences() == 1) {
       moveSummaryGetLevel(node);
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
@@ -1098,7 +1102,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * {@code sirix.json.fuseNamedPrimitives=true} moved a primitive-valued field.
    *
    * @param nodeKey the nodeKey of the node to adapt
-   * @param nodeKind reserved for diagnostics; all current callers pass a NameNode-bearing kind
    * @throws SirixException if anything fails
    */
   @SuppressWarnings("unused")

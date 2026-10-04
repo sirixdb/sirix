@@ -131,11 +131,11 @@ public final class PathNode implements StructNode, NameNode {
   // Path-node-specific accessors.
   // ---------------------------------------------------------------------
 
-  public Path<QNm> getPath() {
+  public @Nullable Path<QNm> getPath() {
     return path;
   }
 
-  public PathNode setPath(final Path<QNm> path) {
+  public PathNode setPath(final @Nullable Path<QNm> path) {
     this.path = path;
     return this;
   }
