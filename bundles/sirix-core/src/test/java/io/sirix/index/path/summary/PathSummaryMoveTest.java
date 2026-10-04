@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,6 +69,27 @@ final class PathSummaryMoveTest {
           for (final boolean shared : new boolean[] {false, true}) {
             cases.add(Arguments.of(versioning, position, acrossParents, shared));
           }
+        }
+      }
+    }
+    return cases.stream();
+  }
+
+  static Stream<Arguments> xmlRenameMoves() {
+    return renameMoves(NodeKind.ELEMENT, NodeKind.ATTRIBUTE, NodeKind.NAMESPACE, NodeKind.PROCESSING_INSTRUCTION);
+  }
+
+  static Stream<Arguments> jsonRenameMoves() {
+    return renameMoves(NodeKind.OBJECT_NAMED_OBJECT, NodeKind.OBJECT_NAMED_ARRAY, NodeKind.OBJECT_NAMED_STRING,
+        NodeKind.OBJECT_NAMED_NUMBER, NodeKind.OBJECT_NAMED_BOOLEAN, NodeKind.OBJECT_NAMED_NULL);
+  }
+
+  private static Stream<Arguments> renameMoves(final NodeKind... kinds) {
+    final List<Arguments> cases = new ArrayList<>();
+    for (final VersioningType versioning : VersioningType.values()) {
+      for (final Position position : Position.values()) {
+        for (final NodeKind kind : kinds) {
+          cases.add(Arguments.of(versioning, position, kind));
         }
       }
     }
@@ -262,6 +284,134 @@ final class PathSummaryMoveTest {
     } finally {
       Databases.removeDatabase(path);
     }
+  }
+
+  @ParameterizedTest
+  @MethodSource("xmlRenameMoves")
+  void xmlRenameThenMoveMatchesFreshSummary(final VersioningType versioning, final Position position,
+      final NodeKind kind) throws Exception {
+    final Path path = directory.resolve("xml-rename-move");
+    Databases.createXmlDatabase(new DatabaseConfiguration(path));
+    try (final var database = Databases.openXmlDatabase(path)) {
+      database.createResource(configuration("data", versioning));
+      try (final var session = database.beginResourceSession("data"); final XmlNodeTrx trx = session.beginNodeTrx()) {
+        final String subtree = switch (kind) {
+          case ELEMENT -> "<x><leaf/></x>";
+          case ATTRIBUTE -> "<child x=\"value\"><leaf/></child>";
+          case NAMESPACE -> "<child xmlns:p=\"urn:x\"><leaf/></child>";
+          case PROCESSING_INSTRUCTION -> "<child><?x value?><leaf/></child>";
+          default -> throw new AssertionError(kind);
+        };
+        trx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(
+            "<root><a>" + subtree + "</a><b>" + subtree + "<target/><last/></b></root>"), XmlNodeTrx.Commit.No);
+        trx.commit();
+        snapshot(trx.getPathSummary());
+        final long sourceParent = namedKeys(trx, "a").getFirst();
+        final long destinationParent = namedKeys(trx, "b").getFirst();
+        final String rootName = kind == NodeKind.ELEMENT
+            ? "x"
+            : "child";
+        final long source = child(trx, sourceParent, rootName);
+        child(trx, destinationParent, rootName);
+        switch (kind) {
+          case ATTRIBUTE -> assertTrue(trx.moveToAttribute(0));
+          case NAMESPACE -> assertTrue(trx.moveToNamespace(0));
+          case PROCESSING_INSTRUCTION -> assertTrue(trx.moveToFirstChild());
+          default -> {
+          }
+        }
+        assertEquals(kind, trx.getKind());
+        final QNm oldName = trx.getName();
+        final QNm newName = kind == NodeKind.NAMESPACE
+            ? new QNm("urn:y", "q", "")
+            : new QNm("y");
+        final long renamedPath = trx.getPathNodeKey();
+        trx.setName(newName);
+        assertRenamedPath(trx.getPathSummary(), renamedPath, oldName, newName, kind);
+        final long anchor = position == Position.FIRST_CHILD
+            ? destinationParent
+            : child(trx, destinationParent, position == Position.LEFT_SIBLING
+                ? "target"
+                : "last");
+        assertTrue(trx.moveTo(anchor));
+        switch (position) {
+          case FIRST_CHILD -> trx.moveSubtreeToFirstChild(source);
+          case LEFT_SIBLING -> trx.moveSubtreeToLeftSibling(source);
+          case RIGHT_SIBLING -> trx.moveSubtreeToRightSibling(source);
+        }
+        assertTrue(trx.moveTo(source));
+        assertEquals(destinationParent, trx.getParentKey());
+        assertXmlMatchesFresh(database, session, trx, versioning);
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("jsonRenameMoves")
+  void jsonRenameThenMoveMatchesFreshSummary(final VersioningType versioning, final Position position,
+      final NodeKind kind) throws Exception {
+    final Path path = directory.resolve("json-rename-move");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final var database = Databases.openJsonDatabase(path)) {
+      database.createResource(configuration("data", versioning));
+      try (final var session = database.beginResourceSession("data"); final JsonNodeTrx trx = session.beginNodeTrx()) {
+        final String value = switch (kind) {
+          case OBJECT_NAMED_OBJECT -> "{\"leaf\":1}";
+          case OBJECT_NAMED_ARRAY -> "[{\"leaf\":1}]";
+          case OBJECT_NAMED_STRING -> "\"value\"";
+          case OBJECT_NAMED_NUMBER -> "1";
+          case OBJECT_NAMED_BOOLEAN -> "true";
+          case OBJECT_NAMED_NULL -> "null";
+          default -> throw new AssertionError(kind);
+        };
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "[{\"a\":{\"x\":" + value + "}},{\"b\":{\"x\":" + value + ",\"target\":{},\"last\":{}}}]"),
+            JsonNodeTrx.Commit.NO);
+        trx.commit();
+        snapshot(trx.getPathSummary());
+        final long sourceParent = namedKeys(trx, "a").getFirst();
+        final long destinationParent = namedKeys(trx, "b").getFirst();
+        final long source = child(trx, sourceParent, "x");
+        child(trx, destinationParent, "x");
+        assertEquals(kind, trx.getKind());
+        final PathSummaryReader summary = trx.getPathSummary();
+        assertTrue(summary.moveTo(trx.getPathNodeKey()));
+        final long renamedPath = kind == NodeKind.OBJECT_NAMED_ARRAY
+            ? summary.getParentKey()
+            : summary.getNodeKey();
+        trx.setObjectKeyName("y");
+        assertRenamedPath(summary, renamedPath, new QNm("x"), new QNm("y"), NodeKind.OBJECT_NAMED_OBJECT);
+        final long anchor = position == Position.FIRST_CHILD
+            ? destinationParent
+            : child(trx, destinationParent, position == Position.LEFT_SIBLING
+                ? "target"
+                : "last");
+        assertTrue(trx.moveTo(anchor));
+        switch (position) {
+          case FIRST_CHILD -> trx.moveSubtreeToFirstChild(source);
+          case LEFT_SIBLING -> trx.moveSubtreeToLeftSibling(source);
+          case RIGHT_SIBLING -> trx.moveSubtreeToRightSibling(source);
+        }
+        assertTrue(trx.moveTo(source));
+        assertEquals(destinationParent, trx.getParentKey());
+        assertJsonMatchesFresh(database, session, trx, versioning);
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  private static void assertRenamedPath(final PathSummaryReader summary, final long pathNodeKey, final QNm oldName,
+      final QNm newName, final NodeKind kind) {
+    assertTrue(summary.moveTo(pathNodeKey));
+    final long parentPath = summary.getParentKey();
+    assertEquals(newName, summary.getName());
+    assertEquals(-1L, summary.findChild(parentPath, oldName, kind));
+    assertEquals(pathNodeKey, summary.findChild(parentPath, newName, kind));
+    assertFalse(summary.match(oldName, 0, kind).get((int) pathNodeKey));
+    assertTrue(summary.match(newName, 0, kind).get((int) pathNodeKey));
   }
 
   @ParameterizedTest
