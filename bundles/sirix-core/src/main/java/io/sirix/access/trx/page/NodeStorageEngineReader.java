@@ -37,6 +37,8 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
@@ -226,6 +228,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Transaction intent log.
    */
   private final TransactionIntentLog trxIntentLog;
+
+  private StorageEngineReader transactionView = this;
 
   /**
    * The transaction-ID.
@@ -462,6 +466,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public boolean hasTrxIntentLog() {
     return trxIntentLog != null;
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    assertNotClosed();
+    return transactionView;
+  }
+
+  void bindTransactionView(final StorageEngineWriter writer) {
+    transactionView = requireNonNull(writer);
   }
 
   @Nullable
@@ -3551,6 +3565,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return currentPageGuard != null
         ? currentPageGuard.page()
         : null;
+  }
+
+  @Override
+  public RecordPageGuard preserveRecordPageGuard() {
+    assertNotClosed();
+    final PageGuard saved = currentPageGuard;
+    currentPageGuard = null;
+    return () -> {
+      try {
+        closeCurrentPageGuard();
+      } finally {
+        currentPageGuard = saved;
+      }
+    };
   }
 
   @Override

@@ -117,6 +117,15 @@ public interface StorageEngineReader extends AutoCloseable {
 
   boolean hasTrxIntentLog();
 
+  StorageEngineReader getTransactionView();
+
+  interface RecordPageGuard extends AutoCloseable {
+    @Override
+    void close();
+  }
+
+  RecordPageGuard preserveRecordPageGuard();
+
   /**
    * Get the transaction-ID.
    *

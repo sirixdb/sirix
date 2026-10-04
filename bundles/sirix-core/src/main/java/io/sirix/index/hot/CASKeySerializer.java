@@ -890,6 +890,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     return (policyOf(type) & BYTE_ORDERED) != 0;
   }
 
+  public static boolean isLexicalFamily(final Type type) {
+    return (policyOf(requireNonNull(type, "type")) & LEXICAL) != 0;
+  }
+
   /**
    * Whether a numeric probe survives its encoder unchanged.
    *

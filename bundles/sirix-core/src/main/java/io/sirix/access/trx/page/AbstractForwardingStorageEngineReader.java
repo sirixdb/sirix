@@ -3,6 +3,7 @@ package io.sirix.access.trx.page;
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
@@ -53,6 +54,16 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public boolean hasTrxIntentLog() {
     return delegate().hasTrxIntentLog();
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    return delegate().getTransactionView();
+  }
+
+  @Override
+  public RecordPageGuard preserveRecordPageGuard() {
+    return delegate().preserveRecordPageGuard();
   }
 
   @Override
