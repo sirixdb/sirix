@@ -22,6 +22,7 @@
 package io.sirix.diff;
 
 import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -51,7 +52,7 @@ public final class DiffTuple implements Serializable {
   private final long oldNodeKey;
 
   /** {@link DiffDepth} instance. */
-  private final DiffDepth depth;
+  private final @Nullable DiffDepth depth;
 
   /** Key of index in a Map (used for move-detection). */
   private int index;
@@ -65,7 +66,7 @@ public final class DiffTuple implements Serializable {
    * @param depth current {@link DiffDepth} instance
    */
   public DiffTuple(final DiffFactory.DiffType diff, final long newNodeKey, final long oldNodeKey,
-      final DiffDepth depth) {
+      final @Nullable DiffDepth depth) {
     checkArgument(newNodeKey >= 0);
     checkArgument(oldNodeKey >= 0);
 
@@ -128,7 +129,7 @@ public final class DiffTuple implements Serializable {
    *
    * @return the depth
    */
-  public DiffDepth getDepth() {
+  public @Nullable DiffDepth getDepth() {
     return depth;
   }
 
