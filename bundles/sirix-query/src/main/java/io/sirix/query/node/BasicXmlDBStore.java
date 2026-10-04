@@ -6,7 +6,6 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -66,9 +65,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final ConcurrentMap<Database<XmlResourceSession>, XmlDBCollection> collections;
 
   /**
-   * {@link StorageType} instance.
+   * Store defaults for every resource created directly or through a collection.
    */
-  private final StorageType storageType;
+  private final XmlResourceOptions resourceOptions;
 
   /**
    * The location to store created collections/databases.
@@ -76,43 +75,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final Path location;
 
   /**
-   * Determines if a path summary should be built.
-   */
-  private final boolean buildPathSummary;
-
-  /**
-   * Determines if per-path value statistics (count, sum, min, max, HLL) should be maintained on
-   * PathSummary nodes for this store's resources. Requires {@link #buildPathSummary} to be
-   * {@code true}.
-   */
-  private final boolean buildPathStatistics;
-
-  /**
-   * Determines the hash type.
-   */
-  private final HashType hashType;
-
-  /**
-   * Determines if DeweyIDs should be stored or not.
-   */
-  private final boolean storeDeweyIds;
-
-  /**
-   * Number of inserted nodes during an import of an XML document, after which an auto-commit is
-   * issued.
+   * Number of inserted nodes before an auto-commit during a direct import.
    */
   private final int numberOfNodesBeforeAutoCommit;
-
-  /**
-   * Whether the record-to-revisions index should be maintained on insert. Off by default only matters
-   * for write-heavy, single-revision workloads.
-   */
-  private final boolean storeNodeHistory;
-
-  /**
-   * Determines the versioning type.
-   */
-  private final VersioningType versioningType;
 
   /**
    * Get a new builder instance.
@@ -278,7 +243,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
      * @return this builder instance
      */
     public Builder versioningType(final VersioningType versioningType) {
-      this.versioningType = versioningType;
+      this.versioningType = requireNonNull(versioningType);
       return this;
     }
 
@@ -301,6 +266,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
     public BasicXmlDBStore build() {
       return new BasicXmlDBStore(this);
     }
+
+    XmlResourceOptions resourceOptions() {
+      return new XmlResourceOptions(storageType, buildPathSummary, buildPathStatistics, storeDeweyIds, hashType,
+          versioningType, storeNodeHistory);
+    }
   }
 
   /**
@@ -311,15 +281,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private BasicXmlDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
-    storageType = builder.storageType;
+    resourceOptions = builder.resourceOptions();
     location = builder.location;
-    buildPathSummary = builder.buildPathSummary;
-    buildPathStatistics = builder.buildPathStatistics;
-    hashType = builder.hashType;
-    storeDeweyIds = builder.storeDeweyIds;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
-    storeNodeHistory = builder.storeNodeHistory;
-    versioningType = builder.versioningType;
   }
 
   /**
@@ -344,7 +308,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
         final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
-        final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
+        final XmlDBCollection collection = new XmlDBCollectionImpl(name, database, resourceOptions);
         collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -365,7 +329,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
-      final XmlDBCollection collection = new XmlDBCollectionImpl(name, database);
+      final XmlDBCollection collection = new XmlDBCollectionImpl(name, database, resourceOptions);
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -407,18 +371,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final String resName = optResName != null
           ? optResName
           : "resource" + (database.listResources().size() + 1);
-      database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useDeweyIDs(storeDeweyIds)
-                                                   .useTextCompression(false)
-                                                   .buildPathSummary(buildPathSummary)
-                                                   .buildPathStatistics(buildPathStatistics)
-                                                   .storageType(storageType)
-                                                   .customCommitTimestamps(commitTimestamp != null)
-                                                   .hashKind(hashType)
-                                                   .versioningApproach(versioningType)
-                                                   .storeNodeHistory(storeNodeHistory)
-                                                   .build());
-      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
+      database.createResource(resourceOptions.create(resName, commitTimestamp));
+      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       collections.put(database, collection);
 
       try (final XmlResourceSession resourceSession = database.beginResourceSession(resName);
@@ -449,7 +403,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
-      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
+      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       final var imports = new ArrayList<Future<?>>();
       int i = database.listResources().size() + 1;
       // Resources close in reverse order: workers must finish before their source stream closes.
@@ -460,16 +414,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
           final NodeSubtreeParser nextParser = parser;
           final String resourceName = "resource" + i++;
           imports.add(importPool.submit(() -> {
-            database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                         .useDeweyIDs(storeDeweyIds)
-                                                         .useTextCompression(false)
-                                                         .buildPathSummary(buildPathSummary)
-                                                         .buildPathStatistics(buildPathStatistics)
-                                                         .storageType(storageType)
-                                                         .hashKind(hashType)
-                                                         .versioningApproach(versioningType)
-                                                         .storeNodeHistory(storeNodeHistory)
-                                                         .build());
+            database.createResource(resourceOptions.create(resourceName, null));
             try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               nextParser.parse(

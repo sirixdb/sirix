@@ -10,8 +10,6 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.node.stream.ArrayStream;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -62,6 +60,8 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
    */
   private final Database<XmlResourceSession> database;
 
+  private final XmlResourceOptions resourceOptions;
+
   /**
    * Unique ID.
    */
@@ -84,8 +84,14 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
    * @param database Sirix {@link Database} reference
    */
   public XmlDBCollectionImpl(final String name, final Database<XmlResourceSession> database) {
+    this(name, database, BasicXmlDBStore.newBuilder().resourceOptions());
+  }
+
+  XmlDBCollectionImpl(final String name, final Database<XmlResourceSession> database,
+      final XmlResourceOptions resourceOptions) {
     super(requireNonNull(name));
     this.database = requireNonNull(database);
+    this.resourceOptions = requireNonNull(resourceOptions);
     id = ID_SEQUENCE.incrementAndGet();
     documentDataToXmlDBNodes = new HashMap<>();
     instantDocumentDataToXmlDBNodes = new HashMap<>();
@@ -286,13 +292,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
 
   private XmlDBNode createResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,
       final Instant commitTimestamp) {
-    database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                 .useDeweyIDs(true)
-                                                 .useTextCompression(true)
-                                                 .buildPathSummary(true)
-                                                 .customCommitTimestamps(commitTimestamp != null)
-                                                 .hashKind(HashType.ROLLING)
-                                                 .build());
+    database.createResource(resourceOptions.create(resourceName, commitTimestamp));
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx;
     try {
