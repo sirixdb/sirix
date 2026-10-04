@@ -802,7 +802,7 @@ graph TB
 
     subgraph "Secondary Indexes"
         PATH[Path Index<br/>PCR → NodeKeys]
-        NAME[Name Index<br/>NameHash → NodeKeys]
+        NAME[Name Index<br/>Name → NodeKeys]
         CAS[CAS Index<br/>Value+Path → NodeKeys]
     end
 
@@ -854,14 +854,15 @@ Document:                          Path Index (for /users/[]/name):
 
 **Purpose**: Accelerates queries that search for elements/fields by name regardless of path.
 
-**Key Mapping**: `QNm (Qualified Name hash) → Set<NodeKey>`
+**Key Mapping**: `Serialized name → Set<NodeKey>`; see [NAME key encoding](HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava)
+and [matching semantics and query usage](../README.md#indexes).
 
 **Use Case**: "Find all nodes named 'email' anywhere in the document"
 
 ```
 Document:                          Name Index (for "email"):
 ─────────                          ──────────────────────────
-{                                  hash("email") → {8, 15, 22}
+{                                  "email" → {8, 15, 22}
   "user": {
     "email": "a@test.com"          ← nodeKey=8
   },
@@ -877,7 +878,7 @@ Document:                          Name Index (for "email"):
 ```
 
 **When to Use**:
-- Wildcard path queries (`//*:email`, `..$email`)
+- Name-based queries without path restrictions (for example JSONiq `..$email`)
 - Schema-agnostic searches across heterogeneous documents
 - When the same field name appears at different paths
 
@@ -1158,7 +1159,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │  Index Types:                                                           │
 │  ────────────                                                           │
 │  • PATH Index:  key = pathNodeKey (long)  → NodeReferences (bitmap)     │
-│  • NAME Index:  key = nameHash (bytes)    → NodeReferences (bitmap)     │
+│  • NAME Index:  key = nameKey (bytes)     → NodeReferences (bitmap)     │
 │  • CAS Index:   key = value+path (bytes)  → NodeReferences (bitmap)     │
 │                                                                         │
 │  HOT Node Types:                                                        │

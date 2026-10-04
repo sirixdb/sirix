@@ -28,7 +28,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Scan the name index.
+ * NAME matching semantics and QName scan arguments are documented in the README's Indexes section.
  *
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger

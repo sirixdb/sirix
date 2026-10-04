@@ -35,19 +35,16 @@ import static java.util.Objects.checkFromIndexSize;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Canonical NAME keys identify expanded names: namespace URI plus local name, never the prefix.
+ * The durable NAME key format is specified in {@code docs/HOT_INDEX_SPECIFICATION.md}, section
+ * 2.3.2; matching semantics are documented in the README's Indexes section.
  *
  * <p>
- * Namespace-free keys (including JSON field names) remain raw UTF-8 local names, with no overhead.
- * Namespaced keys are {@code [0xFF][uri UTF-8][0x00,0x00][local UTF-8]}. Within the URI, a NUL byte
- * is escaped as {@code [0x00,0xFF]}, so component boundaries are unambiguous even for
- * programmatically supplied URIs. The sentinel cannot occur in valid UTF-8. URI terminators sort
- * before extensions, preserving namespace/local byte ordering. Prefix aliases serialize
- * identically.
+ * The sentinel cannot occur in valid UTF-8. URI escaping keeps component boundaries unambiguous
+ * even for programmatically supplied URIs; terminators sort before URI extensions.
  *
  * <p>
- * ASCII components write directly into the caller's reusable buffer. Deserialization returns an
- * empty prefix because prefixes are not part of the index's identity or durable key format.
+ * ASCII components write directly into the caller's reusable buffer to avoid temporary arrays on
+ * the per-posting serialization path.
  */
 public final class NameKeySerializer implements HOTKeySerializer<QNm> {
   private static final byte NAMESPACE_SENTINEL = (byte) 0xFF;

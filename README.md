@@ -430,8 +430,9 @@ Three secondary index types, all updated **synchronously** inside the writing tr
 
 - **Path index** — index specific JSON paths for faster navigation.
 - **CAS index** (Content-And-Structure) — index values with type awareness; supports equality and range predicates, optionally `unique` for constraint enforcement.
-- **Name index** — index object-key / element names. Create it before inserting nodes or over a
-  populated resource, including XML elements inserted in the current uncommitted transaction.
+- **Name index** — index literal JSON object keys and XML element expanded names. Create it before
+  inserting nodes or over a populated resource, including XML elements inserted in the current
+  uncommitted transaction.
 
 All three use one canonical [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index)
 representation over off-heap leaf pages. Initial creation may bulk-build a virgin tree, while every
@@ -442,6 +443,26 @@ Like the rest of the engine, indexes are **fully versioned**: opening an index a
 returns the index state as of *N*—never a later commit's. This is verified across point and range
 reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see
 `HOTMultiVersionInvariantsTest`).
+
+XML NAME indexes match by namespace URI and local name. Different namespaces have separate
+postings; prefix aliases share a posting. Selective index definitions, exact lookups, and
+include/exclude filters all use this identity. JSON field names remain literal, including colons
+or braces in a key.
+
+`xml:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
+namespaced name with `fn:QName('urn:a', 'item')`, or use `xs:QName('a:item')` with prefix `a`
+declared. A QName with an empty namespace matches only namespace-free elements. Pass `()` to
+scan all names covered by the index. With an index covering both namespaces:
+
+```xquery
+let $doc := xml:doc('mydb', 'resource1')
+let $index := xml:find-name-index($doc, fn:QName('urn:a', 'item'))
+return xml:scan-name-index($doc, $index,
+    (fn:QName('urn:a', 'item'), fn:QName('urn:b', 'item')))
+```
+
+The [NAME key format](docs/HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava)
+documents storage compatibility and encoding.
 
 ### Projection indexes (experimental, analytical)
 

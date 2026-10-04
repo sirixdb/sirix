@@ -101,7 +101,7 @@ backend selector.
 |---|---|---|---|---|---|
 | PATH | `HOTLongIndexWriter` (PATH only, `hot/HOTLongIndexWriter.java:62`, `:95`) | `HOTLongIndexReader` | path class reference (PCR), `long` | posting list of node keys | `idx/path/PathIndexListenerFactory.java:24`, `idx/path/PathIndexBuilderFactory.java:24` |
 | CAS (content-and-structure, "value index") | `HOTIndexWriter<CASValue>` + `CASKeySerializer` | `HOTIndexReader<CASValue>` | (PCR, typed atomic value) | posting list | `idx/cas/CASIndexListenerFactory.java:27`, `idx/cas/CASIndexBuilderFactory.java:27` |
-| NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | qualified name | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
+| NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | [expanded name](../README.md#indexes) | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
 | VALIDTIME | `HOTIndexWriter<ValidTimeKey>` + `ValidTimeKeySerializer` | `HOTIndexReader<ValidTimeKey>` | (store, fork node, endpoint) of an RI-tree | posting list | `idx/interval/ValidTimeIntervalIndexFactory.java:48-53`, `idx/interval/HotOrderedStore.java:66-97` |
 | PROJECTION | `ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long>` (`proj/ProjectionIndexHOTStorage.java:100`) | same class, via `HOTTrieReader` | 8-byte slot key | opaque bytes, last writer wins, zero length = tombstone | `proj/ProjectionIndexBuilder.java:942` |
 
@@ -271,7 +271,8 @@ owner keys (`hot/AbstractHOTIndexWriter.java:5643`, `:6738`; `hot/HOTIncremental
 #### 2.3.2 NAME (`hot/NameKeySerializer.java`)
 
 Namespace-free name (including every JSON field): the local name as raw UTF-8, no terminator
-or overhead. The prefix is never stored: QNm identity is namespace URI plus local name.
+or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
+apply to both lookups and scans.
 
 Namespaced name (with either an empty or non-empty prefix):
 
@@ -285,8 +286,7 @@ Namespaced name (with either an empty or non-empty prefix):
 - `0xFF` never occurs in valid UTF-8, so namespace-free keys sort before namespaced keys.
 - Namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
   extensions of the URI. Escaping makes component boundaries unambiguous.
-- Prefix aliases share one posting list. Deserialization reconstructs the URI and local name
-  with an empty prefix, so exact lookups and include/exclude scans use the same expanded identity.
+- Deserialization reconstructs the URI and local name with an empty prefix.
 - An empty local name is rejected. URI and local-name lengths are not truncated. ASCII components
   write directly into the reusable destination; namespace-free names still discriminate at byte 0.
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
