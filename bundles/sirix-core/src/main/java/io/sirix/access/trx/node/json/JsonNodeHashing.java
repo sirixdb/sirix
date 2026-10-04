@@ -10,6 +10,7 @@ import io.sirix.access.trx.node.AbstractNodeHashing;
 final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> {
 
   private final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx;
+  private final JsonHashingMutation mutation;
 
   /**
    * Constructor.
@@ -22,6 +23,12 @@ final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeR
       final StorageEngineWriter storageEngineWriter) {
     super(resourceConfiguration, nodeReadOnlyTrx, storageEngineWriter);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
+    mutation =
+        new JsonHashingMutation(storageEngineWriter, nodeReadOnlyTrx, resourceConfiguration.hashType, getBytes());
+  }
+
+  JsonHashingMutation mutation() {
+    return mutation;
   }
 
   @Override

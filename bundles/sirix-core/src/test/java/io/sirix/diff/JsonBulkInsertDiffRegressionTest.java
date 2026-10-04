@@ -1933,7 +1933,7 @@ final class JsonBulkInsertDiffRegressionTest {
           assertEquals(Set.of(removed), operationKeys(diff, "delete"));
           assertEquals(Set.of(first, first + 1), operationKeys(diff, "insert"));
           final String expectedContent = position == InsertPosition.AS_LEFT_SIBLING
-              ? "[2,1,99]"
+              ? "[1,2,99]"
               : position == InsertPosition.AS_RIGHT_SIBLING
                   ? "[0,1,2]"
                   : "[1,2]";

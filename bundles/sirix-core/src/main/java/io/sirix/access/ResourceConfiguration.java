@@ -275,21 +275,10 @@ public final class ResourceConfiguration {
   public final boolean withPathStatistics;
 
   /**
-   * Selects the hash/descendant-count maintenance mode for AUTO-COMMITTING bulk inserts.
-   *
-   * <p>
-   * {@code false} (default): incremental per-insert adaptation — the upstream behavior. Correct for
-   * imports that fit within the first auto-commit epoch ({@code maxNodes}); for larger imports, nodes
-   * inserted after the first intermediate commit are unmaintained (hash 0, descendant counts missing
-   * from ancestors).
-   *
-   * <p>
-   * {@code true}: per-insert adaptation is skipped uniformly and ONE postorder repair runs over the
-   * entire imported subtree at the end — correct for any import size, at the cost of a full subtree
-   * walk after the import (which for large files can rival the import itself).
-   *
-   * <p>
-   * Non-auto-committing bulk inserts always repair at the end (single-trx scope).
+   * Retained bulk-loader tuning request. JSON auto-committing imports now maintain hashes and
+   * descendant counts incrementally at every publication boundary regardless of this flag: a final
+   * repair cannot fix already-published intermediate revisions. Non-auto-committing JSON imports
+   * repair the complete newly inserted forest once, without walking unchanged sibling subtrees.
    */
   public final boolean repairBulkInsertHashes;
 
@@ -698,7 +687,7 @@ public final class ResourceConfiguration {
       }
       // Path statistics.
       jsonWriter.name(JSONNAMES[24]).value(config.withPathStatistics);
-      // Bulk-insert hash repair (opt-in).
+      // Retained bulk-loader tuning request.
       jsonWriter.name(JSONNAMES[25]).value(config.repairBulkInsertHashes);
       // Resource identity UUID (cross-linked to both superblocks).
       if (config.resourceUuid != null) {
@@ -1006,7 +995,7 @@ public final class ResourceConfiguration {
      */
     private boolean pathStatistics;
 
-    /** Opt-in postorder hash repair after auto-committing bulk inserts (costly: full subtree walk). */
+    /** Retained tuning request; JSON hashes/counts are maintained regardless of this value. */
     private boolean repairBulkInsertHashes = false;
 
     /**
@@ -1249,10 +1238,9 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Opt in to the postorder hash/descendant-count repair at the END of auto-committing bulk inserts.
-     * The repair walks the ENTIRE imported subtree — for large imports that can rival the import itself
-     * — so it defaults to {@code false}: bulk-imported nodes then carry hash 0 in the final revision.
-     * Enable for resources where hash integrity over bulk-loaded data matters more than import speed.
+     * Retains the former final-repair preference in the resource configuration. JSON imports always
+     * maintain the configured hash/count invariants, including intermediate auto-commit revisions; this
+     * flag no longer defers that maintenance until the end of a JSON import.
      */
     public Builder repairBulkInsertHashes(final boolean repair) {
       this.repairBulkInsertHashes = repair;

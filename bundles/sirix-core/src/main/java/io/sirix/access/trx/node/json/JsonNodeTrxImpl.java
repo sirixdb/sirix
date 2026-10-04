@@ -555,6 +555,7 @@ final class JsonNodeTrxImpl extends
     assert insertionPosition != null;
 
     runLocked(() -> {
+      boolean mutationStarted = false;
       try {
         assertRunning();
 
@@ -567,21 +568,28 @@ final class JsonNodeTrxImpl extends
         if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
           beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
         }
+        // Every auto-commit boundary must have valid hashes/counts. A deferred final repair
+        // cannot repair already-published intermediate revisions, even when explicitly requested.
+        final boolean perInsertHashAdaptation = isAutoCommitting;
+        final long oldFrontier = getMaxNodeKey();
+        final JsonHashingMutation bulkHashes = ((JsonNodeHashing) nodeHashing).mutation();
+        final boolean repairForest = !perInsertHashAdaptation && bulkHashes.begin();
+        if (repairForest) {
+          bulkHashes.capturePath(getNodeKey());
+          bulkHashes.capturePath(switch (insertionPosition) {
+            case AS_FIRST_CHILD -> getFirstChildKey();
+            case AS_LAST_CHILD -> getLastChildKey();
+            case AS_LEFT_SIBLING -> getLeftSiblingKey();
+            case AS_RIGHT_SIBLING -> getRightSiblingKey();
+          });
+        }
+        mutationStarted = true;
         nodeHashing.setBulkInsert(true);
-        // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
-        // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
-        // - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
-        // upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
-        // - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
-        // repair over the imported subtree at the end. Correct for ANY import size; costs a
-        // full subtree walk after the import (opt-in for exactly that reason).
-        final boolean perInsertHashAdaptation =
-            isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes;
         if (perInsertHashAdaptation) {
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
-        final long siblingBoundary = storeDiffs && skipRootJsonToken == SkipRootToken.YES
+        final long siblingBoundary = (storeDiffs || repairForest) && skipRootJsonToken == SkipRootToken.YES
             ? switch (insertionPosition) {
               case AS_FIRST_CHILD -> getFirstChildKey();
               case AS_LAST_CHILD -> getLastChildKey();
@@ -608,11 +616,22 @@ final class JsonNodeTrxImpl extends
           collectBulkInsertDiffs(insertionPosition, skipRootJsonToken, nodeKey, siblingBoundary);
         }
 
-        // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
-        // during the shred, or one postorder repair at the end (always for non-auto-committing
-        // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
-        if (!perInsertHashAdaptation) {
-          adaptHashesInPostorderTraversal();
+        if (repairForest) {
+          final long selectedRoot = getNodeKey();
+          final boolean walkLeft =
+              insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+          if (selectedRoot > oldFrontier) {
+            do {
+              bulkHashes.addNewSubtree(getNodeKey());
+              if (skipRootJsonToken != SkipRootToken.YES) {
+                break;
+              }
+            } while ((walkLeft
+                ? moveToLeftSibling()
+                : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+            bulkHashes.finish();
+          }
+          moveTo(selectedRoot);
         }
 
         nodeHashing.setBulkInsert(false);
@@ -622,11 +641,24 @@ final class JsonNodeTrxImpl extends
         }
 
       } catch (final IOException e) {
+        if (mutationStarted) {
+          markRollbackOnly(e);
+        }
         throw new UncheckedIOException(e);
-      } catch (final RuntimeException e) {
+      } catch (final RuntimeException | Error e) {
+        if (mutationStarted) {
+          markRollbackOnly(e);
+        }
         throw e;
       } catch (final Exception e) {
+        if (mutationStarted) {
+          markRollbackOnly(e);
+        }
         throw new SirixException(e);
+      } finally {
+        if (mutationStarted) {
+          nodeHashing.setBulkInsert(false);
+        }
       }
     });
     return this;
@@ -2343,13 +2375,31 @@ final class JsonNodeTrxImpl extends
     // Old code did: moveTo(nodeKey) → adaptForInsert(getStructuralNodeView()) → moveTo(nodeKey) → hash.
     // New code: adaptForInsert(keys) → hash(nodeKey) → moveTo(nodeKey).
     // Net: eliminated 1 moveTo (the first one before adaptForInsert).
+    final JsonHashingMutation hashes = beginInsertHashes(parentKey, leftSibKey, rightSibKey);
     adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, false);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (hashes != null) {
+      hashes.addNewLeaf(nodeKey);
+      hashes.finish();
+    }
     // Restore cursor to new node only if hashing did not already do so (HashType.NONE path).
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       moveToJustInsertedNode(nodeKey);
     }
     markFreshlyInsertedCursor(nodeKey);
+  }
+
+  private @Nullable JsonHashingMutation beginInsertHashes(final long parent, final long left, final long right) {
+    if (nodeHashing.isBulkInsert() && !nodeHashing.isAutoCommit()) {
+      return null;
+    }
+    final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+    if (!hashes.begin()) {
+      return null;
+    }
+    hashes.capturePath(parent);
+    hashes.capturePath(left);
+    hashes.capturePath(right);
+    return hashes;
   }
 
   @Override
@@ -2455,9 +2505,13 @@ final class JsonNodeTrxImpl extends
     final boolean notifyPrimitiveIndexes = indexController.hasAnyPrimitiveIndex();
     final boolean resolveParentPathNodeKey =
         useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
+    final JsonHashingMutation hashes = beginInsertHashes(parentKey, leftSibKey, rightSibKey);
     final long parentPathNodeKey =
         adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (hashes != null) {
+      hashes.addNewLeaf(nodeKey);
+      hashes.finish();
+    }
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       moveToJustInsertedNode(nodeKey);
     }
@@ -2843,6 +2897,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
+          final JsonHashingMutation hashes = beginMoveHashes(toMove.getNodeKey(), nodeAnchor.getNodeKey());
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2864,13 +2919,9 @@ final class JsonNodeTrxImpl extends
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
-
           // Adapt pointers (no text node merging for JSON).
           adaptForMove(toMove, nodeAnchor, MovePosition.AS_FIRST_CHILD);
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
 
           // Re-attribute every path-bearing record, including anonymous and fused arrays.
           if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey()) {
@@ -2894,6 +2945,9 @@ final class JsonNodeTrxImpl extends
           // Record the move in the persisted update operations (#1074): DELETED at the old
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
+          if (hashes != null) {
+            hashes.finish();
+          }
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
               ? getDeweyID()
@@ -2951,6 +3005,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
+          final JsonHashingMutation hashes = beginMoveHashes(toMove.getNodeKey(), nodeAnchor.getNodeKey());
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2971,13 +3026,9 @@ final class JsonNodeTrxImpl extends
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
-
           // Adapt pointers (no text node merging for JSON).
           adaptForMove(toMove, nodeAnchor, MovePosition.AS_RIGHT_SIBLING);
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
 
           // Re-attribute every path-bearing record, including anonymous and fused arrays.
           if (buildPathSummary && originalParentKey != parentKey) {
@@ -3001,6 +3052,9 @@ final class JsonNodeTrxImpl extends
           // Record the move in the persisted update operations (#1074): DELETED at the old
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
+          if (hashes != null) {
+            hashes.finish();
+          }
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
               ? getDeweyID()
@@ -3105,15 +3159,18 @@ final class JsonNodeTrxImpl extends
     moveTo(beforeNodeKey);
   }
 
-  /**
-   * Adapt hashes for move operation ("remove" phase).
-   *
-   * @param nodeToMove node which implements {@link StructNode} and is moved
-   */
-  private void adaptHashesForMove(final StructNode nodeToMove) {
-    assert nodeToMove != null;
-    nodeReadOnlyTrx.setCurrentNode((ImmutableJsonNode) nodeToMove);
-    nodeHashing.adaptHashesWithRemove();
+  private @Nullable JsonHashingMutation beginMoveHashes(final long moved, final long anchor) {
+    if (nodeHashing.isBulkInsert() && !nodeHashing.isAutoCommit()) {
+      return null;
+    }
+    final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+    if (!hashes.begin()) {
+      return null;
+    }
+    hashes.captureNeighborhood(moved);
+    hashes.captureNeighborhood(anchor);
+    hashes.captureSubtree(moved);
+    return hashes;
   }
 
   /**
@@ -3326,6 +3383,11 @@ final class JsonNodeTrxImpl extends
         }
 
         canRemoveValue = false;
+        final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+        final boolean updateHashes = (!nodeHashing.isBulkInsert() || nodeHashing.isAutoCommit()) && hashes.begin();
+        if (updateHashes) {
+          hashes.captureNeighborhood(node.getNodeKey());
+        }
 
         // iter#32: Legacy `parentNodeKind != OBJECT_KEY` was meant to skip the DELETE
         // diff entry when callers asked to remove the inner value-record of an
@@ -3391,8 +3453,10 @@ final class JsonNodeTrxImpl extends
         // node.
         final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
         nodeReadOnlyTrx.setCurrentNode(jsonNode);
-        nodeHashing.adaptHashesWithRemove();
         adaptForRemove(node);
+        if (updateHashes) {
+          hashes.finish();
+        }
         nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
         if (storeNodeHistory) {
@@ -3722,15 +3786,20 @@ final class JsonNodeTrxImpl extends
       }
       checkAccessAndCommit();
 
-      final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
-      final NameNode nameNode = (NameNode) node;
       final QNm renamed = new QNm(key);
       if (renamed.equals(nodeReadOnlyTrx.getName())) {
         // No-op rename: nothing changes, so no listener may observe a structural episode —
         // notifying here would (correctly) reject the call during an append-only bulk load.
         return this;
       }
-      final long oldHash = node.computeHash(bytes);
+      final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+      final boolean updateHashes = (!nodeHashing.isBulkInsert() || nodeHashing.isAutoCommit()) && hashes.begin();
+      if (updateHashes) {
+        // A shared path class can split, changing descendant path keys as well as this name.
+        hashes.captureSubtree(getNodeKey());
+      }
+      final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
+      final NameNode nameNode = (NameNode) node;
 
       // A rename rewrites this node's path class and, for container kinds, its descendants' —
       // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
@@ -3798,7 +3867,9 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord((DataRecord) node);
-      nodeHashing.adaptHashedWithUpdate(oldHash);
+      if (updateHashes) {
+        hashes.finish();
+      }
 
       // Re-index under the NEW name/path (see the DELETE above).
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
