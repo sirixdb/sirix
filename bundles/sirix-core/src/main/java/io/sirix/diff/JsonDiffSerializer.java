@@ -89,22 +89,22 @@ public final class JsonDiffSerializer {
       }
     }
 
+    if (emitFromDiffAlgorithm) {
+      diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
+          || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
+          || diffTuple.getDiff() == DiffFactory.DiffType.REPLACEDOLD);
+    }
+
+    if (diffs.isEmpty()) {
+      return finish(json, includeIntegrityMetadata);
+    }
+
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
     try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
       final var oldArrayPositions = new ArrayPositionCache(null);
       final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions);
-
-      if (emitFromDiffAlgorithm) {
-        diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
-            || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
-            || diffTuple.getDiff() == DiffFactory.DiffType.REPLACEDOLD);
-      }
-
-      if (diffs.isEmpty()) {
-        return finish(json, includeIntegrityMetadata);
-      }
 
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
@@ -373,8 +373,8 @@ public final class JsonDiffSerializer {
     operations.addAll(ordered);
   }
 
-  private static long enclosingMove(long anchor, final JsonNodeReadOnlyTrx newRevision,
-      final LongSet retainedKeys, final Long2LongOpenHashMap ancestorMoves, final LongArrayList ancestorPath) {
+  private static long enclosingMove(long anchor, final JsonNodeReadOnlyTrx newRevision, final LongSet retainedKeys,
+      final Long2LongOpenHashMap ancestorMoves, final LongArrayList ancestorPath) {
     while (anchor != Fixed.NULL_NODE_KEY.getStandardProperty() && !retainedKeys.contains(anchor)) {
       final long cached = ancestorMoves.get(anchor);
       if (cached != Long.MIN_VALUE) {

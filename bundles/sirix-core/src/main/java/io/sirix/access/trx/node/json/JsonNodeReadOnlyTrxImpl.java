@@ -129,7 +129,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
   private JsonObject recomputeUpdateOperations(final int revisionNumber) {
     final Path resourcePath = resourceSession.getResourceConfig().getResource();
     final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
-    final String diff = new BasicJsonDiff(databaseName).generateDiff((JsonResourceSession) resourceSession,
+    final String diff = new BasicJsonDiff(databaseName).generateDiffForReplay((JsonResourceSession) resourceSession,
         revisionNumber - 1, revisionNumber);
     return JsonParser.parseString(diff).getAsJsonObject();
   }

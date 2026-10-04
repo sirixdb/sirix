@@ -230,12 +230,13 @@ public final class JsonResourceCopy implements Callable<Void> {
             final Path resourcePath = readResourceSession.getResourceConfig().getResource();
             final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
             sidecar = JsonParser
-                                .parseString(new BasicJsonDiff(databaseName).generateDiff(readResourceSession,
-                                    revision - 1, revision, 0, 0, false))
+                                .parseString(new BasicJsonDiff(databaseName).generateDiffForReplay(readResourceSession,
+                                    revision - 1, revision))
                                 .getAsJsonObject();
           }
 
-          replay(JsonDiffSidecar.normalizeReplacements(sidecar.getAsJsonArray("diffs"), previousRevision, rtxOnRevision),
+          replay(
+              JsonDiffSidecar.normalizeReplacements(sidecar.getAsJsonArray("diffs"), previousRevision, rtxOnRevision),
               previousRevision, rtxOnRevision);
           wtx.commit();
         }
@@ -361,9 +362,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void allocateFragments(final List<JsonObject> placements, final LongSet roots,
-      final LongSet retainedKeys, final JsonNodeReadOnlyTrx source, final long temporaryObject,
-      final long temporaryArray) {
+  private void allocateFragments(final List<JsonObject> placements, final LongSet roots, final LongSet retainedKeys,
+      final JsonNodeReadOnlyTrx source, final long temporaryObject, final long temporaryArray) {
     final var fragments = new PriorityQueue<FragmentCursor>(Math.max(1, placements.size()),
         Comparator.comparingLong(fragment -> fragment.key));
     for (final var placement : placements) {
@@ -392,7 +392,9 @@ public final class JsonResourceCopy implements Callable<Void> {
           temporaryParents = new Long2LongOpenHashMap();
           temporaryParents.defaultReturnValue(Fixed.NULL_NODE_KEY.getStandardProperty());
         }
-        final long cacheKey = kind.playsObjectKeyRole() ? parent : -parent - 1;
+        final long cacheKey = kind.playsObjectKeyRole()
+            ? parent
+            : -parent - 1;
         final long cached = temporaryParents.get(cacheKey);
         if (cached != Fixed.NULL_NODE_KEY.getStandardProperty()) {
           parent = cached;
@@ -404,7 +406,9 @@ public final class JsonResourceCopy implements Callable<Void> {
         parent = source.getParentKey();
       }
       if (parent == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        parent = kind.playsObjectKeyRole() ? temporaryObject : temporaryArray;
+        parent = kind.playsObjectKeyRole()
+            ? temporaryObject
+            : temporaryArray;
         requireMove(wtx.moveTo(parent), "temporary allocation parent", parent);
       }
       if (temporaryParents != null) {

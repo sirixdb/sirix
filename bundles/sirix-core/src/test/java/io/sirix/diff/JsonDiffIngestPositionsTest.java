@@ -139,6 +139,24 @@ final class JsonDiffIngestPositionsTest {
       wtx.revertTo(1);
       assertTrue(IngestArrayPositionProbe.snapshot(wtx).isEmpty());
       append(wtx, array, "[11]");
+      final int revertedRevision = wtx.getRevisionNumber();
+      wtx.commit();
+      assertTrue(IngestArrayPositionProbe.snapshot(wtx).isEmpty());
+      assertFalse(
+          Files.exists(config.getResource()
+                             .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                             .resolve("diffFromRev" + (revertedRevision - 1) + "toRev" + revertedRevision + ".json")));
+      try (final var reader = session.beginNodeReadOnlyTrx(revertedRevision)) {
+        assertTrue(reader.moveTo(array));
+        assertEquals(2, reader.getChildCount());
+        assertTrue(reader.moveToFirstChild());
+        assertEquals(0, reader.getNumberValue().intValue());
+        assertTrue(reader.moveToRightSibling());
+        assertEquals(11, reader.getNumberValue().intValue());
+        assertFalse(reader.moveToRightSibling());
+        assertTrue(reader.getUpdateOperations().stream().anyMatch(operation -> operation.has("delete")));
+      }
+      wtx.setNumberValue(12);
       assertCompatibleCommit(database.getName(), session, wtx);
     }
   }

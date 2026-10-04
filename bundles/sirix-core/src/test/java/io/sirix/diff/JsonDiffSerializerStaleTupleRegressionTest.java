@@ -11,13 +11,17 @@ import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.diff.DiffFactory.DiffType;
 import io.sirix.service.json.BasicJsonDiff;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +38,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code getName()} during commit — or, for other node kinds, silently wrote a corrupt diff file.
  */
 final class JsonDiffSerializerStaleTupleRegressionTest {
+
+  @ParameterizedTest
+  @EnumSource(value = DiffType.class, names = {"SAME", "SAMEHASH"})
+  void unchangedTupleSerializesWithoutMutatingItsInput(final DiffType type) {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var writer = session.beginNodeTrx()) {
+      writer.insertArrayAsFirstChild();
+      writer.commit();
+      writer.commit();
+      final var tuples = List.of(new DiffTuple(type, 1, 1, new DiffDepth(0, 0)));
+      final String diff = new JsonDiffSerializer(database.getName(), session, 1, 2, tuples).serialize(true);
+      assertEquals(0, JsonParser.parseString(diff).getAsJsonObject().getAsJsonArray("diffs").size());
+      assertEquals(1, tuples.size());
+    }
+  }
 
   @BeforeEach
   void setUp() {

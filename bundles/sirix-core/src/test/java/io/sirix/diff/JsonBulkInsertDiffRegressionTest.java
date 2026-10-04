@@ -98,8 +98,9 @@ final class JsonBulkInsertDiffRegressionTest {
       throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session);
         try (final var wtx = session.beginNodeTrx(5, afterCommitState)) {
@@ -131,8 +132,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void abortResetsThePendingBulkRevisionBase(final boolean revert) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session);
         try (final var wtx = session.beginNodeTrx(5)) {
@@ -150,7 +152,12 @@ final class JsonBulkInsertDiffRegressionTest {
           wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[42]"), JsonNodeTrx.Commit.NO);
           final InsertTuple root = tuple(wtx);
           wtx.commit();
-          assertEquals(Set.of(root), insertedTuples(readDiff(session, revision - 1, revision)));
+          if (revert) {
+            assertFalse(Files.exists(
+                diffDirectory(session).resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json")));
+          } else {
+            assertEquals(Set.of(root), insertedTuples(readDiff(session, revision - 1, revision)));
+          }
         }
       }
     }
@@ -158,8 +165,9 @@ final class JsonBulkInsertDiffRegressionTest {
 
   @Test
   void autoCommittingFirstLoadStillSuppressesSidecars() throws Exception {
-    try (final var database =
-        JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(false));
+    try (
+        final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(false));
         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx(5)) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5,6,7,8,9,10,11,12]"),
@@ -181,6 +189,125 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"KEEP_OPEN,true", "KEEP_OPEN,false", "KEEP_OPEN_ASYNC_FLUSH,true", "KEEP_OPEN_ASYNC_FLUSH,false",
+      "KEEP_OPEN_ASYNC_COMMIT,true", "KEEP_OPEN_ASYNC_COMMIT,false"})
+  void revertedRevisionCopiesTheCompleteTransition(final AfterCommitState afterCommitState, final boolean bulkEdit)
+      throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0]");
+        try (final var wtx = session.beginNodeTrx(5, afterCommitState)) {
+          assertTrue(wtx.moveTo(array));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[1,2]"), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+          assertEquals("[0,[1,2]]", serialize(session, 2));
+          wtx.revertTo(1);
+          assertTrue(wtx.moveTo(array));
+          if (bulkEdit) {
+            wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[42]"), JsonNodeTrx.Commit.NO);
+          } else {
+            wtx.insertNumberValueAsLastChild(42);
+          }
+          wtx.commit();
+          assertEquals(bulkEdit
+              ? "[0,[42]]"
+              : "[0,42]", serialize(session, 3));
+          assertTrue(wtx.moveTo(2));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals(Set.of(2L), operationKeys(readDiff(session, 3, 4), "update"));
+        }
+        try (
+            final var copyDatabase =
+                JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+            final var destination = copyDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+            final var firstRevision = session.beginNodeReadOnlyTrx(1);
+            final var writer = destination.beginNodeTrx()) {
+          new JsonResourceCopy.Builder(writer, firstRevision,
+              InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent().build().call();
+          assertEquals(4, destination.getMostRecentRevisionNumber());
+          assertEquals("[0]", serialize(destination, 1));
+          assertEquals("[0,[1,2]]", serialize(destination, 2));
+          assertEquals(bulkEdit
+              ? "[0,[42]]"
+              : "[0,42]", serialize(destination, 3));
+          assertEquals(bulkEdit
+              ? "[100,[42]]"
+              : "[100,42]", serialize(destination, 4));
+        }
+        assertFalse(Files.exists(diffDirectory(session).resolve("diffFromRev2toRev3.json")));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
+  void revertedBatchSuppressesSidecarsAcrossBulkCommitBoundaries(final AfterCommitState afterCommitState)
+      throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0]");
+        try (final var wtx = session.beginNodeTrx(5, afterCommitState)) {
+          assertTrue(wtx.moveTo(array));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[1,2]"), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+          wtx.revertTo(1);
+          assertTrue(wtx.moveTo(array));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[1,2,3,4,5,6,7,8,9,10,11,12]"),
+              JsonNodeTrx.Commit.NO);
+          final int revision = wtx.getRevisionNumber();
+          if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+            assertEquals(3, revision);
+          } else {
+            assertTrue(revision > 3);
+          }
+          wtx.commit();
+          assertEquals("[0,[1,2,3,4,5,6,7,8,9,10,11,12]]", serialize(session, revision));
+          try (final var files = Files.list(diffDirectory(session))) {
+            assertEquals(List.of("diffFromRev1toRev2.json"), files.map(path -> path.getFileName().toString()).toList());
+          }
+          assertTrue(wtx.moveTo(2));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals(Set.of(2L), operationKeys(readDiff(session, revision, revision + 1), "update"));
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void rollbackReleasesThePostRevertSidecarGuard(final boolean deweyIDs) throws Exception {
+    try (
+        final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final long array = seed(session, "[0]");
+      try (final var wtx = session.beginNodeTrx(5)) {
+        assertTrue(wtx.moveTo(array));
+        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[1,2]"), JsonNodeTrx.Commit.NO);
+        wtx.commit();
+        wtx.revertTo(1);
+        wtx.rollback();
+        assertTrue(wtx.moveTo(2));
+        wtx.setNumberValue(100);
+        wtx.commit();
+        assertEquals("[100,[1,2]]", serialize(session, 3));
+        assertEquals(Set.of(2L), operationKeys(readDiff(session, 2, 3), "update"));
+      }
+      assertCopiedRevisions(session, deweyIDs);
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"1", "true", "\"text\"", "null", "{\"nested\":2}", "[2]"})
   void gsonSkippedObjectRootHonorsChildPlacement(final String firstValue) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
@@ -188,8 +315,9 @@ final class JsonBulkInsertDiffRegressionTest {
         for (final InsertPosition position : new InsertPosition[] {InsertPosition.AS_FIRST_CHILD,
             InsertPosition.AS_LAST_CHILD}) {
           JsonTestHelper.deleteEverything();
-          try (final var database =
-              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          try (
+              final var database =
+                  JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
               final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
             final long root = seed(session, fusedParent
                 ? "{\"holder\":{\"existing\":0}}"
@@ -203,9 +331,11 @@ final class JsonBulkInsertDiffRegressionTest {
               final long previousMaxNodeKey = wtx.getMaxNodeKey();
               final String fields = "\"a\":" + firstValue + ",\"b\":2";
               if (position == InsertPosition.AS_LAST_CHILD) {
-                wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{" + fields + "}"), JsonNodeTrx.Commit.NO);
+                wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{" + fields + "}"),
+                    JsonNodeTrx.Commit.NO);
               } else {
-                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{" + fields + "}"), JsonNodeTrx.Commit.NO);
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{" + fields + "}"),
+                    JsonNodeTrx.Commit.NO);
               }
               wtx.commit();
               final List<String> names = new ArrayList<>();
@@ -243,8 +373,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void insertedSiblingDependenciesReplayAcrossRevisions(final InsertPosition position) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2,3,4,5,6,7,8,9,10,11]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -270,8 +401,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void laterInsertAnchorsCannotBeFixedBySortingKeysAlone(final InsertPosition position) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2,3,4,5,6,7,8,9,10,11]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -319,18 +451,19 @@ final class JsonBulkInsertDiffRegressionTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       for (final InsertPosition bulkPosition : InsertPosition.values()) {
         JsonTestHelper.deleteEverything();
-        try (final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+        try (
+            final var database =
+                JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
             final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
           final long array = seed(session, "[0,1,2]");
           final List<Integer> expected = new ArrayList<>(List.of(0, 1, 2));
           final int movedValue = switch (movePosition) {
             case AS_FIRST_CHILD -> 2;
             case AS_LEFT_SIBLING -> 1;
-            case AS_RIGHT_SIBLING -> bulkPosition == InsertPosition.AS_FIRST_CHILD
-                || bulkPosition == InsertPosition.AS_LEFT_SIBLING
-                    ? 2
-                    : 0;
+            case AS_RIGHT_SIBLING ->
+              bulkPosition == InsertPosition.AS_FIRST_CHILD || bulkPosition == InsertPosition.AS_LEFT_SIBLING
+                  ? 2
+                  : 0;
             default -> throw new AssertionError();
           };
           final long movedKey = movedValue + 2;
@@ -367,8 +500,9 @@ final class JsonBulkInsertDiffRegressionTest {
             wtx.commit();
             assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 2)));
             try (final var previousRevision = session.beginNodeReadOnlyTrx(1)) {
-              assertTrue(JsonDiffSidecar.retainedNodeKeys(readDiff(session, 1, 2).getAsJsonArray("diffs"), previousRevision)
-                                      .contains(movedKey));
+              assertTrue(
+                  JsonDiffSidecar.retainedNodeKeys(readDiff(session, 1, 2).getAsJsonArray("diffs"), previousRevision)
+                                 .contains(movedKey));
             }
             assertTrue(wtx.moveTo(5));
             wtx.setNumberValue(30);
@@ -391,8 +525,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedMovesReplayInDependencyOrderWithoutAllocatingKeys() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -422,8 +557,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedMoveThatReturnsToItsOriginalPositionKeepsTheReplayCursorOnItsKey() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -450,8 +586,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedContainerMovePreservesDescendantIdentity() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[[0],1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -479,8 +616,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedMoveUsesCurrentWriterAfterAbort(final boolean revert) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -512,8 +650,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedNamedMoveReplaysChangedNameAndInlineValue() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long object = seed(session, "{\"existing\":0,\"other\":1}");
         try (final var wtx = session.beginNodeTrx()) {
@@ -540,15 +679,16 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"reordered,false", "reordered,true", "removed,false", "removed,true", "replaced,false",
-      "replaced,true", "reparented,false", "reparented,true", "replaced_root,false", "replaced_root,true",
-      "empty,false", "empty,true", "empty_repeat,false", "empty_repeat,true"})
+  @CsvSource({"reordered,false", "reordered,true", "removed,false", "removed,true", "replaced,false", "replaced,true",
+      "reparented,false", "reparented,true", "replaced_root,false", "replaced_root,true", "empty,false", "empty,true",
+      "empty_repeat,false", "empty_repeat,true"})
   void initialRevisionCopyPreservesEditedAllocationIdentity(final String scenario, final boolean recompute)
       throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final String initial = switch (scenario) {
           case "reordered" -> "[0,1,2]";
@@ -638,7 +778,9 @@ final class JsonBulkInsertDiffRegressionTest {
             }
             wtx.moveToDocumentRoot();
             wtx.insertArrayAsFirstChild();
-            final long arrayKey = scenario.equals("empty_repeat") ? 4 : 3;
+            final long arrayKey = scenario.equals("empty_repeat")
+                ? 4
+                : 3;
             assertEquals(arrayKey, wtx.getNodeKey());
             wtx.commit();
             expected.add("[]");
@@ -687,7 +829,9 @@ final class JsonBulkInsertDiffRegressionTest {
               case "reparented" -> "[{}]";
               default -> throw new AssertionError(scenario);
             });
-            final long parent = scenario.equals("reparented") || scenario.equals("replaced_root") ? 4 : 1;
+            final long parent = scenario.equals("reparented") || scenario.equals("replaced_root")
+                ? 4
+                : 1;
             assertTrue(wtx.moveTo(parent));
             if (scenario.equals("replaced") || scenario.equals("reparented")) {
               wtx.insertObjectRecordAsFirstChild("new", new NumberValue(9));
@@ -729,13 +873,17 @@ final class JsonBulkInsertDiffRegressionTest {
         for (int revision = 2; revision <= expected.size(); revision++) {
           assertEquals(revision, readDiff(session, revision - 1, revision).get("new-revision").getAsInt());
           if (recompute) {
-            final JsonObject diff = JsonParser.parseString(new BasicJsonDiff(database.getName()).generateDiff(session,
-                revision - 1, revision, 0, 0, false)).getAsJsonObject();
+            final JsonObject diff = JsonParser
+                                              .parseString(new BasicJsonDiff(database.getName()).generateDiffForReplay(
+                                                  session, revision - 1, revision))
+                                              .getAsJsonObject();
             if (revision == 2 && scenario.equals("empty_repeat")) {
               assertEquals(0, diff.getAsJsonArray("diffs").size());
             }
             if (revision == 3 && (scenario.equals("reparented") || scenario.equals("replaced_root"))) {
-              assertEquals(Set.of(scenario.equals("reparented") ? 3L : 5L), operationKeys(diff, "delete"));
+              assertEquals(Set.of(scenario.equals("reparented")
+                  ? 3L
+                  : 5L), operationKeys(diff, "delete"));
             }
             if (revision == 5 && (scenario.equals("reordered") || scenario.equals("removed"))) {
               assertFalse(operationKeys(diff, "insert").isEmpty(), "a reorder must emit retained placements");
@@ -753,8 +901,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void singleSnapshotCopyKeepsAllocatingDestinationKeys(final InsertPosition position) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var sourceDatabase =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var sourceDatabase =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var source = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
           final var destinationDatabase =
               JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
@@ -766,13 +915,15 @@ final class JsonBulkInsertDiffRegressionTest {
           wtx.commit();
         }
         seed(destination, "[9,8]");
-        try (final var rtx = source.beginNodeReadOnlyTrx(1);
-            final var wtx = destination.beginNodeTrx()) {
+        try (final var rtx = source.beginNodeReadOnlyTrx(1); final var wtx = destination.beginNodeTrx()) {
           assertTrue(rtx.moveTo(1));
-          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD ? 1 : 2));
+          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD
+              ? 1
+              : 2));
           new JsonResourceCopy.Builder(wtx, rtx, position).commitAfterwards().build().call();
-          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING ? "[9,[1,2,0],8]" : "[[1,2,0],9,8]",
-              serialize(destination, 2));
+          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING
+              ? "[9,[1,2,0],8]"
+              : "[[1,2,0],9,8]", serialize(destination, 2));
           assertChildLinks(wtx, 4, 5, 6, 7);
           assertTrue(wtx.moveTo(1));
           wtx.insertNumberValueAsLastChild(42);
@@ -788,18 +939,20 @@ final class JsonBulkInsertDiffRegressionTest {
   void explicitCopyKeyRejectsCollisionsAndKeepsTheAllocationFrontier(final InsertPosition position) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var sourceDatabase =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var sourceDatabase =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var source = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
           final var destinationDatabase =
               JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
           final var destination = destinationDatabase.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(source, "[0,1,2]");
         seed(destination, "[9,8]");
-        try (final var rtx = source.beginNodeReadOnlyTrx(1);
-            final var wtx = destination.beginNodeTrx()) {
+        try (final var rtx = source.beginNodeReadOnlyTrx(1); final var wtx = destination.beginNodeTrx()) {
           assertTrue(rtx.moveTo(4));
-          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD ? 1 : 2));
+          assertTrue(wtx.moveTo(position == InsertPosition.AS_FIRST_CHILD
+              ? 1
+              : 2));
           wtx.copyNodeWithKey(rtx, position);
           assertEquals(4, wtx.getNodeKey());
           assertEquals(4, wtx.getMaxNodeKey());
@@ -810,16 +963,18 @@ final class JsonBulkInsertDiffRegressionTest {
           wtx.insertNumberValueAsRightSibling(42);
           assertEquals(5, wtx.getNodeKey());
           wtx.commit();
-          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING ? "[9,2,8,42]" : "[2,9,8,42]",
-              serialize(destination, 2));
+          assertEquals(position == InsertPosition.AS_RIGHT_SIBLING
+              ? "[9,2,8,42]"
+              : "[2,9,8,42]", serialize(destination, 2));
         }
       }
     }
   }
 
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
-    try (final var database =
-        JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+    try (
+        final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
         final var destination = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = source.beginNodeReadOnlyTrx(1);
         final var wtx = destination.beginNodeTrx()) {
@@ -829,8 +984,8 @@ final class JsonBulkInsertDiffRegressionTest {
         }
       });
       new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
-                                                                          .build()
-                                                                          .call();
+                                                                           .build()
+                                                                           .call();
       assertFalse(Files.exists(diffDirectory(destination).resolve("diffFromRev0toRev1.json")));
       assertEquals(source.getMostRecentRevisionNumber(), destination.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
@@ -871,8 +1026,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void compactNewRootSkipsRetainedSubtreesBeforeDeletingTheirOldParent() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[{\"field\":[0]},{\"existing\":1}]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -892,8 +1048,7 @@ final class JsonBulkInsertDiffRegressionTest {
             }
           }
           assertEquals(Set.of(3L, 7L), insertedKeys, "the new subtree remains one compact root tuple");
-          assertEquals("[{\"existing\":1},{\"left\":{\"nested\":1},\"field\":[0],\"right\":2}]",
-              serialize(session, 2));
+          assertEquals("[{\"existing\":1},{\"left\":{\"nested\":1},\"field\":[0],\"right\":2}]", serialize(session, 2));
           assertTrue(wtx.moveTo(10));
           wtx.setNumberValue(20);
           wtx.commit();
@@ -915,8 +1070,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedMoveWaitsForTheMoveOfItsAnchorsAncestor() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[[[0]],1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -946,8 +1102,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedOnlyChildDoesNotAddADestinationDescent(final String retained) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[" + retained + ",1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -975,8 +1132,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void retainedNamedOnlyChildDoesNotAddADestinationDescent(final String retained) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[{\"field\":" + retained + "},1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1005,8 +1163,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedRetainedFragmentIncludesDescendantEdits(final String retained) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[" + retained + ",1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1036,8 +1195,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedNewFragmentFindsRetainedRootsAndTheirEdits() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[[0],1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1068,8 +1228,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedNamedFragmentPreservesNameAndDescendantEdits() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[{\"field\":[0]},1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1098,10 +1259,10 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   private static void assertRecomputedRetainsNode(final JsonResourceSession source, final long nodeKey) {
-    final String databaseName = source.getResourceConfig().getResource().getParent().getParent().getFileName().toString();
-    final JsonObject diff = JsonParser
-                                    .parseString(new BasicJsonDiff(databaseName).generateDiff(source, 1, 2, 0, 0, false))
-                                    .getAsJsonObject();
+    final String databaseName =
+        source.getResourceConfig().getResource().getParent().getParent().getFileName().toString();
+    final JsonObject diff =
+        JsonParser.parseString(new BasicJsonDiff(databaseName).generateDiffForReplay(source, 1, 2)).getAsJsonObject();
     try (final var previousRevision = source.beginNodeReadOnlyTrx(1)) {
       assertTrue(JsonDiffSidecar.retainedNodeKeys(diff.getAsJsonArray("diffs"), previousRevision).contains(nodeKey),
           diff.toString());
@@ -1112,8 +1273,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedReplacementMovesRetainedChildrenBeforeRemovingTheirParent() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[[[0],1]]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1149,8 +1311,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedRetainedFragmentIncludesDescendantInsertionsAndRemovals() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[[0,1],2,3]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1184,8 +1347,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void pendingInsertLookupSurvivesMovesOfItsAncestor() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1217,23 +1381,37 @@ final class JsonBulkInsertDiffRegressionTest {
       for (final boolean withValues : new boolean[] {false, true}) {
         for (final boolean recompute : new boolean[] {false, true}) {
           JsonTestHelper.deleteEverything();
-          try (final var database =
-              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          try (
+              final var database =
+                  JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
               final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
             final long array = seed(session, "[0]");
-            final long laterRoot = withValues ? 5 : 4;
-            final long parent = earlierRootIsParent ? 3 : laterRoot;
-            final long child = earlierRootIsParent ? laterRoot : 3;
-            final int parentValue = earlierRootIsParent ? 10 : 20;
-            final int childValue = earlierRootIsParent ? 20 : 10;
+            final long laterRoot = withValues
+                ? 5
+                : 4;
+            final long parent = earlierRootIsParent
+                ? 3
+                : laterRoot;
+            final long child = earlierRootIsParent
+                ? laterRoot
+                : 3;
+            final int parentValue = earlierRootIsParent
+                ? 10
+                : 20;
+            final int childValue = earlierRootIsParent
+                ? 20
+                : 10;
             try (final var wtx = session.beginNodeTrx()) {
               assertTrue(wtx.moveTo(array));
-              insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, withValues ? "[[10],[20]]" : "[[],[]]");
+              insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, withValues
+                  ? "[[10],[20]]"
+                  : "[[],[]]");
               assertTrue(wtx.moveTo(parent));
               wtx.moveSubtreeToFirstChild(child);
               wtx.commit();
-              assertEquals(withValues ? "[0,[[" + childValue + "]," + parentValue + "]]" : "[0,[[]]]",
-                  serialize(session, 2));
+              assertEquals(withValues
+                  ? "[0,[[" + childValue + "]," + parentValue + "]]"
+                  : "[0,[[]]]", serialize(session, 2));
               if (withValues) {
                 assertTrue(wtx.moveTo(child + 1));
                 wtx.setNumberValue(100);
@@ -1245,8 +1423,9 @@ final class JsonBulkInsertDiffRegressionTest {
               assertTrue(wtx.moveTo(parent));
               wtx.insertNumberValueAsFirstChild(9);
               wtx.commit();
-              assertEquals(withValues ? "[0,[9,[100]," + parentValue + "]]" : "[0,[9,[100]]]",
-                  serialize(session, 4));
+              assertEquals(withValues
+                  ? "[0,[9,[100]," + parentValue + "]]"
+                  : "[0,[9,[100]]]", serialize(session, 4));
             }
             if (recompute) {
               Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
@@ -1265,24 +1444,35 @@ final class JsonBulkInsertDiffRegressionTest {
       for (final String childValue : new String[] {"{}", "[]"}) {
         for (final boolean recompute : new boolean[] {false, true}) {
           JsonTestHelper.deleteEverything();
-          try (final var database =
-              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          try (
+              final var database =
+                  JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
               final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
             seed(session, "{\"old\":0}");
-            final long parent = earlierRootIsParent ? 3 : 4;
-            final long child = earlierRootIsParent ? 4 : 3;
-            final String parentName = earlierRootIsParent ? "a" : "b";
-            final String childName = earlierRootIsParent ? "b" : "a";
+            final long parent = earlierRootIsParent
+                ? 3
+                : 4;
+            final long child = earlierRootIsParent
+                ? 4
+                : 3;
+            final String parentName = earlierRootIsParent
+                ? "a"
+                : "b";
+            final String childName = earlierRootIsParent
+                ? "b"
+                : "a";
             try (final var wtx = session.beginNodeTrx()) {
               assertTrue(wtx.moveTo(1));
-              insertSkipped(wtx, InsertPosition.AS_LAST_CHILD,
-                  earlierRootIsParent ? "{\"a\":{},\"b\":" + childValue + "}"
-                      : "{\"a\":" + childValue + ",\"b\":{}}");
+              insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, earlierRootIsParent
+                  ? "{\"a\":{},\"b\":" + childValue + "}"
+                  : "{\"a\":" + childValue + ",\"b\":{}}");
               assertTrue(wtx.moveTo(parent));
               wtx.moveSubtreeToFirstChild(child);
               wtx.commit();
-              assertEquals(JsonParser.parseString("{\"old\":0,\"" + parentName + "\":{\"" + childName
-                  + "\":" + childValue + "}}"), JsonParser.parseString(serialize(session, 2)));
+              assertEquals(
+                  JsonParser.parseString(
+                      "{\"old\":0,\"" + parentName + "\":{\"" + childName + "\":" + childValue + "}}"),
+                  JsonParser.parseString(serialize(session, 2)));
               assertTrue(wtx.moveTo(child));
               wtx.replaceObjectRecordValue(new NumberValue(100));
               assertEquals(5, wtx.getNodeKey());
@@ -1292,8 +1482,8 @@ final class JsonBulkInsertDiffRegressionTest {
               assertTrue(wtx.moveTo(2));
               wtx.setNumberValue(10);
               wtx.commit();
-              assertEquals(JsonParser.parseString("{\"old\":10,\"" + parentName + "\":{\"" + childName
-                  + "\":200}}"), JsonParser.parseString(serialize(session, 4)));
+              assertEquals(JsonParser.parseString("{\"old\":10,\"" + parentName + "\":{\"" + childName + "\":200}}"),
+                  JsonParser.parseString(serialize(session, 4)));
             }
             if (recompute) {
               Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
@@ -1310,8 +1500,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void replacementPreservesMovedChildrenAndAllocationIdentity(final boolean recompute) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "{\"a\":{\"x\":0},\"b\":{}}");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1347,8 +1538,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void compactFragmentsMergeInterleavedRootAllocations() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1376,8 +1568,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void replayPreservesUnusedAllocationKeysWithoutCreatingNodes() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1411,8 +1604,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void documentRootReplacementProtectsRetainedChildren(final boolean recompute) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[[0],1]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1452,8 +1646,9 @@ final class JsonBulkInsertDiffRegressionTest {
     }
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1481,8 +1676,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void movingOnlyChildSupportsLastChildAppendAndRemovalOfItsOldParent() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[[[0]]]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1513,13 +1709,14 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"[0,1,2]", "{\"a\":0,\"b\":1,\"c\":2}",
-      "{\"container\":[0,1,2]}", "{\"container\":{\"a\":0,\"b\":1,\"c\":2}}"})
+  @ValueSource(strings = {"[0,1,2]", "{\"a\":0,\"b\":1,\"c\":2}", "{\"container\":[0,1,2]}",
+      "{\"container\":{\"a\":0,\"b\":1,\"c\":2}}"})
   void movesMaintainBothEndsOfOrdinaryAndFusedChildChains(final String json) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, json);
         try (final var wtx = session.beginNodeTrx()) {
@@ -1559,29 +1756,37 @@ final class JsonBulkInsertDiffRegressionTest {
   private static void assertChildLinks(final JsonNodeTrx wtx, final long parent, final long... children) {
     assertTrue(wtx.moveTo(parent));
     assertEquals(children.length, wtx.getChildCount());
-    assertEquals(children.length == 0 ? -1 : children[0], wtx.getFirstChildKey());
-    assertEquals(children.length == 0 ? -1 : children[children.length - 1], wtx.getLastChildKey());
+    assertEquals(children.length == 0
+        ? -1
+        : children[0], wtx.getFirstChildKey());
+    assertEquals(children.length == 0
+        ? -1
+        : children[children.length - 1], wtx.getLastChildKey());
     for (int index = 0; index < children.length; index++) {
       assertTrue(wtx.moveTo(children[index]));
       assertEquals(parent, wtx.getParentKey());
-      assertEquals(index == 0 ? -1 : children[index - 1], wtx.getLeftSiblingKey());
-      assertEquals(index + 1 == children.length ? -1 : children[index + 1], wtx.getRightSiblingKey());
+      assertEquals(index == 0
+          ? -1
+          : children[index - 1], wtx.getLeftSiblingKey());
+      assertEquals(index + 1 == children.length
+          ? -1
+          : children[index + 1], wtx.getRightSiblingKey());
     }
   }
 
   @ParameterizedTest
-  @EnumSource(value = AfterCommitState.class,
-      names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
+  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
   void disabledDiffsDoNotAccumulatePendingOperations(final AfterCommitState afterCommitState) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-          .storageType(StorageType.FILE_CHANNEL)
-          .useDeweyIDs(deweyIDs)
-          .storeDiffs(false)
-          .build();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), configuration);
+                                                                       .storageType(StorageType.FILE_CHANNEL)
+                                                                       .useDeweyIDs(deweyIDs)
+                                                                       .storeDiffs(false)
+                                                                       .build();
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), configuration);
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx(5, afterCommitState)) {
@@ -1622,8 +1827,9 @@ final class JsonBulkInsertDiffRegressionTest {
     }
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[-1]");
         final List<Integer> expected = new ArrayList<>(count + 1);
@@ -1654,8 +1860,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void recomputedDiffRetainsMovedKeysAcrossLaterUpdates() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         final long array = seed(session, "[0,1,2]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1684,31 +1891,43 @@ final class JsonBulkInsertDiffRegressionTest {
   void vacatedDeweyPositionsRetainDeletesAndBulkInserts(final InsertPosition position) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        final boolean sibling = position == InsertPosition.AS_LEFT_SIBLING
-            || position == InsertPosition.AS_RIGHT_SIBLING;
-        seed(session, sibling ? "[0,99]" : "[0]");
-        final long removed = position == InsertPosition.AS_RIGHT_SIBLING ? 3 : 2;
-        final long first = sibling ? 4 : 3;
+        final boolean sibling =
+            position == InsertPosition.AS_LEFT_SIBLING || position == InsertPosition.AS_RIGHT_SIBLING;
+        seed(session, sibling
+            ? "[0,99]"
+            : "[0]");
+        final long removed = position == InsertPosition.AS_RIGHT_SIBLING
+            ? 3
+            : 2;
+        final long first = sibling
+            ? 4
+            : 3;
         try (final var wtx = session.beginNodeTrx()) {
           assertTrue(wtx.moveTo(removed));
           wtx.remove();
-          final long anchor = position == InsertPosition.AS_LEFT_SIBLING ? 3
-              : position == InsertPosition.AS_RIGHT_SIBLING ? 2 : 1;
+          final long anchor = position == InsertPosition.AS_LEFT_SIBLING
+              ? 3
+              : position == InsertPosition.AS_RIGHT_SIBLING
+                  ? 2
+                  : 1;
           assertTrue(wtx.moveTo(anchor));
           insertSkipped(wtx, position, "[1,2]");
           final Set<PendingOperation> expected = Set.of(new PendingOperation(DiffType.DELETED, 0, removed),
-              new PendingOperation(DiffType.INSERTED, first, 0),
-              new PendingOperation(DiffType.INSERTED, first + 1, 0));
+              new PendingOperation(DiffType.INSERTED, first, 0), new PendingOperation(DiffType.INSERTED, first + 1, 0));
           assertEquals(expected, pendingOperations(wtx));
           wtx.commit();
           final JsonObject diff = readDiff(session, 1, 2);
           assertEquals(Set.of(removed), operationKeys(diff, "delete"));
           assertEquals(Set.of(first, first + 1), operationKeys(diff, "insert"));
-          final String expectedContent = position == InsertPosition.AS_LEFT_SIBLING ? "[2,1,99]"
-              : position == InsertPosition.AS_RIGHT_SIBLING ? "[0,1,2]" : "[1,2]";
+          final String expectedContent = position == InsertPosition.AS_LEFT_SIBLING
+              ? "[2,1,99]"
+              : position == InsertPosition.AS_RIGHT_SIBLING
+                  ? "[0,1,2]"
+                  : "[1,2]";
           assertEquals(expectedContent, serialize(session, 2));
           assertTrue(wtx.moveTo(first));
           wtx.setNumberValue(10);
@@ -1727,8 +1946,9 @@ final class JsonBulkInsertDiffRegressionTest {
       throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[99,[0],98]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1764,7 +1984,8 @@ final class JsonBulkInsertDiffRegressionTest {
               pendingOperations(wtx));
           wtx.commit();
           assertEquals(movePosition == InsertPosition.AS_RIGHT_SIBLING
-              ? "[99,[10,11,12],98,[200,1,2]]" : "[[200,1,2],99,[10,11,12],98]", serialize(session, 2));
+              ? "[99,[10,11,12],98,[200,1,2]]"
+              : "[[200,1,2],99,[10,11,12],98]", serialize(session, 2));
           final JsonObject diff = readDiff(session, 1, 2);
           assertEquals(Set.of(3L, 6L, 7L, 8L, 9L, 10L, 11L), operationKeys(diff, "insert"));
           assertEquals(Set.of(3L), operationKeys(diff, "delete"));
@@ -1781,13 +2002,14 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"replace_twice", "replace_then_move", "replace_then_delete", "new_then_replace",
-      "move_then_replace"})
+  @ValueSource(
+      strings = {"replace_twice", "replace_then_move", "replace_then_delete", "new_then_replace", "move_then_replace"})
   void replacementAccumulationPreservesOriginalIdentity(final String action) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "{\"old\":{},\"keep\":1}");
         try (final var wtx = session.beginNodeTrx()) {
@@ -1844,13 +2066,13 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @EnumSource(value = AfterCommitState.class,
-      names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
+  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
   void collisionFreePendingDiffsSurviveBulkCommitBoundaries(final AfterCommitState state) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx(5, state)) {
@@ -1882,8 +2104,9 @@ final class JsonBulkInsertDiffRegressionTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       for (final boolean recompute : new boolean[] {false, true}) {
         JsonTestHelper.deleteEverything();
-        try (final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+        try (
+            final var database =
+                JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
             final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
           seed(session, "{\"holder\":{},\"keep\":1}");
           try (final var wtx = session.beginNodeTrx()) {
@@ -1925,8 +2148,9 @@ final class JsonBulkInsertDiffRegressionTest {
             assertEquals(Set.of(4L, 6L, 7L, 8L), operationKeys(diff, "insert"));
             assertTrue(pending.contains(new PendingOperation(DiffType.INSERTED, 6, 0)));
             assertEquals(Set.of(), operationKeys(diff, "delete"));
-            assertEquals(JsonParser.parseString("{\"holder\":{\"before\":0,\"x\":7,\"after\":1},"
-                + "\"keep\":1,\"a\":{}}"), JsonParser.parseString(serialize(session, 2)));
+            assertEquals(
+                JsonParser.parseString("{\"holder\":{\"before\":0,\"x\":7,\"after\":1}," + "\"keep\":1,\"a\":{}}"),
+                JsonParser.parseString(serialize(session, 2)));
             assertTrue(wtx.moveTo(6));
             wtx.setNumberValue(70);
             wtx.commit();
@@ -1944,19 +2168,20 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @EnumSource(value = AfterCommitState.class,
-      names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
+  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
   void compactDescendantReplacementUsesTheEarliestBulkRevision(final AfterCommitState state) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "{\"holder\":{},\"keep\":1}");
         try (final var wtx = session.beginNodeTrx(5, state)) {
           assertTrue(wtx.moveTo(1));
-          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(
-              "{\"a\":{\"x\":\"v\",\"padding\":[0,1,2,3,4,5,6]}}"), JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsLastChild(
+              JsonShredder.createStringReader("{\"a\":{\"x\":\"v\",\"padding\":[0,1,2,3,4,5,6]}}"),
+              JsonNodeTrx.Commit.NO);
           final int revision = wtx.getRevisionNumber();
           assertTrue(wtx.moveTo(5));
           wtx.replaceObjectRecordValue(new NumberValue(7));
@@ -1968,8 +2193,9 @@ final class JsonBulkInsertDiffRegressionTest {
           wtx.awaitPendingAsyncCommit();
           final JsonObject diff = readDiff(session, 1, revision);
           assertEquals(Set.of(4L, 14L), operationKeys(diff, "insert"));
-          assertEquals(JsonParser.parseString("{\"holder\":{\"x\":7},\"keep\":1,"
-              + "\"a\":{\"padding\":[0,1,2,3,4,5,6]}}"), JsonParser.parseString(serialize(session, revision)));
+          assertEquals(
+              JsonParser.parseString("{\"holder\":{\"x\":7},\"keep\":1," + "\"a\":{\"padding\":[0,1,2,3,4,5,6]}}"),
+              JsonParser.parseString(serialize(session, revision)));
           assertTrue(wtx.moveTo(14));
           wtx.setNumberValue(70);
           wtx.commit();
@@ -1984,14 +2210,14 @@ final class JsonBulkInsertDiffRegressionTest {
   void compactDescendantReplacementChainRemainsAnInsertion(final boolean recompute) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "{\"holder\":{},\"keep\":1}");
         try (final var wtx = session.beginNodeTrx()) {
           assertTrue(wtx.moveTo(1));
-          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"a\":{\"x\":\"v\"}}"),
-              JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"a\":{\"x\":\"v\"}}"), JsonNodeTrx.Commit.NO);
           assertTrue(wtx.moveTo(5));
           wtx.replaceObjectRecordValue(new NumberValue(7));
           wtx.replaceObjectRecordValue(new StringValue("again"));
@@ -2022,8 +2248,9 @@ final class JsonBulkInsertDiffRegressionTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       for (final boolean recompute : new boolean[] {false, true}) {
         JsonTestHelper.deleteEverything();
-        try (final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+        try (
+            final var database =
+                JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
             final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
           final boolean retained = action.equals("retained_descendant");
           seed(session, switch (action) {
@@ -2032,7 +2259,9 @@ final class JsonBulkInsertDiffRegressionTest {
             case "retained_descendant" -> "{\"a\":{\"x\":{\"kept\":0,\"removed\":1}},\"b\":{}}";
             default -> throw new AssertionError(action);
           });
-          final long replacementKey = retained ? 7 : 5;
+          final long replacementKey = retained
+              ? 7
+              : 5;
           try (final var wtx = session.beginNodeTrx()) {
             if (action.equals("replacement_under_deleted_ancestor")) {
               assertTrue(wtx.moveTo(3));
@@ -2043,7 +2272,9 @@ final class JsonBulkInsertDiffRegressionTest {
               wtx.remove();
               assertChildLinks(wtx, 1, 4, 5);
             } else {
-              assertTrue(wtx.moveTo(retained ? 5 : 3));
+              assertTrue(wtx.moveTo(retained
+                  ? 5
+                  : 3));
               wtx.remove();
               if (retained) {
                 assertTrue(wtx.moveTo(6));
@@ -2052,7 +2283,9 @@ final class JsonBulkInsertDiffRegressionTest {
               assertTrue(wtx.moveTo(2));
               wtx.replaceObjectRecordValue(new NumberValue(7));
               assertEquals(replacementKey, wtx.getNodeKey());
-              assertChildLinks(wtx, 1, replacementKey, retained ? 6 : 4);
+              assertChildLinks(wtx, 1, replacementKey, retained
+                  ? 6
+                  : 4);
               if (retained) {
                 assertChildLinks(wtx, 6, 3);
                 assertChildLinks(wtx, 3, 4);
@@ -2067,8 +2300,12 @@ final class JsonBulkInsertDiffRegressionTest {
             };
             assertEquals(expected, serialize(session, 2));
             final JsonObject diff = readDiff(session, 1, 2);
-            assertNormalizedOperations(session, diff, retained ? Set.of(2L, 5L) : Set.of(2L),
-                retained ? Set.of(3L, 7L) : Set.of(5L));
+            assertNormalizedOperations(session, diff, retained
+                ? Set.of(2L, 5L)
+                : Set.of(2L),
+                retained
+                    ? Set.of(3L, 7L)
+                    : Set.of(5L));
             assertTrue(wtx.moveTo(replacementKey));
             wtx.setNumberValue(70);
             wtx.commit();
@@ -2117,10 +2354,13 @@ final class JsonBulkInsertDiffRegressionTest {
   void removingAMovedChildsParentRetainsOnlyIndependentDeletes(final boolean differentParent) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        seed(session, differentParent ? "[[0],[1],9]" : "[[0,1],9]");
+        seed(session, differentParent
+            ? "[[0],[1],9]"
+            : "[[0,1],9]");
         try (final var wtx = session.beginNodeTrx()) {
           assertTrue(wtx.moveTo(4));
           if (differentParent) {
@@ -2128,13 +2368,20 @@ final class JsonBulkInsertDiffRegressionTest {
           } else {
             wtx.moveSubtreeToRightSibling(3);
           }
-          assertTrue(wtx.moveTo(differentParent ? 4 : 2));
+          assertTrue(wtx.moveTo(differentParent
+              ? 4
+              : 2));
           wtx.remove();
           wtx.commit();
-          assertEquals(differentParent ? "[[],9]" : "[9]", serialize(session, 2));
-          assertEquals(differentParent ? Set.of(3L, 4L) : Set.of(2L),
-              operationKeys(readDiff(session, 1, 2), "delete"));
-          assertTrue(wtx.moveTo(differentParent ? 6 : 5));
+          assertEquals(differentParent
+              ? "[[],9]"
+              : "[9]", serialize(session, 2));
+          assertEquals(differentParent
+              ? Set.of(3L, 4L)
+              : Set.of(2L), operationKeys(readDiff(session, 1, 2), "delete"));
+          assertTrue(wtx.moveTo(differentParent
+              ? 6
+              : 5));
           wtx.setNumberValue(90);
           wtx.commit();
         }
@@ -2147,8 +2394,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void removingAReplacementInsideAnotherParentPreservesItsOriginalDeletion() throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[{\"a\":{}},{\"b\":{}},9]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -2177,8 +2425,9 @@ final class JsonBulkInsertDiffRegressionTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       for (final boolean recompute : new boolean[] {false, true}) {
         JsonTestHelper.deleteEverything();
-        try (final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+        try (
+            final var database =
+                JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
             final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
           seed(session, "[[[0,1]],9]");
           try (final var wtx = session.beginNodeTrx()) {
@@ -2201,12 +2450,17 @@ final class JsonBulkInsertDiffRegressionTest {
             wtx.remove();
             assertTrue(wtx.moveTo(2));
             wtx.remove();
-            assertChildLinks(wtx, 1, position == InsertPosition.AS_RIGHT_SIBLING ? 6 : 3,
-                position == InsertPosition.AS_RIGHT_SIBLING ? 3 : 6);
+            assertChildLinks(wtx, 1, position == InsertPosition.AS_RIGHT_SIBLING
+                ? 6
+                : 3,
+                position == InsertPosition.AS_RIGHT_SIBLING
+                    ? 3
+                    : 6);
             assertChildLinks(wtx, 3, 5);
             wtx.commit();
-            assertEquals(position == InsertPosition.AS_RIGHT_SIBLING ? "[9,[1]]" : "[[1],9]",
-                serialize(session, 2));
+            assertEquals(position == InsertPosition.AS_RIGHT_SIBLING
+                ? "[9,[1]]"
+                : "[[1],9]", serialize(session, 2));
             assertEquals(Set.of(2L, 4L), operationKeys(readDiff(session, 1, 2), "delete"));
             assertEquals(Set.of(3L), operationKeys(readDiff(session, 1, 2), "insert"));
             assertTrue(wtx.moveTo(5));
@@ -2215,8 +2469,9 @@ final class JsonBulkInsertDiffRegressionTest {
           }
           if (recompute) {
             Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
-            final JsonObject diff = JsonParser.parseString(
-                new BasicJsonDiff(database.getName()).generateDiff(session, 1, 2, 0, 0, false)).getAsJsonObject();
+            final JsonObject diff =
+                JsonParser.parseString(new BasicJsonDiff(database.getName()).generateDiffForReplay(session, 1, 2))
+                          .getAsJsonObject();
             assertEquals(Set.of(2L, 4L), operationKeys(diff, "delete"));
           }
           assertCopiedRevisions(session, deweyIDs);
@@ -2230,8 +2485,9 @@ final class JsonBulkInsertDiffRegressionTest {
   void abortReleasesIdentityAccumulationBeforeVacatedPositionsAreReused(final boolean revert) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
-      try (final var database =
-          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
         seed(session, "[0]");
         try (final var wtx = session.beginNodeTrx()) {
@@ -2247,17 +2503,25 @@ final class JsonBulkInsertDiffRegressionTest {
           assertTrue(pendingOperations(wtx).isEmpty());
           assertTrue(wtx.moveTo(1));
           insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[10,20]");
+          assertEquals(
+              Set.of(new PendingOperation(DiffType.INSERTED, 3, 0), new PendingOperation(DiffType.INSERTED, 4, 0)),
+              pendingOperations(wtx));
           wtx.commit();
           assertEquals("[0,10,20]", serialize(session, 2));
-          assertEquals(Set.of(), operationKeys(readDiff(session, 1, 2), "delete"));
-          assertEquals(Set.of(3L, 4L), operationKeys(readDiff(session, 1, 2), "insert"));
+          if (revert) {
+            assertFalse(Files.exists(diffDirectory(session).resolve("diffFromRev1toRev2.json")));
+          } else {
+            assertEquals(Set.of(), operationKeys(readDiff(session, 1, 2), "delete"));
+            assertEquals(Set.of(3L, 4L), operationKeys(readDiff(session, 1, 2), "insert"));
+          }
         }
         assertCopiedRevisions(session, deweyIDs);
       }
     }
   }
 
-  private record PendingOperation(DiffType type, long newKey, long oldKey) {}
+  private record PendingOperation(DiffType type, long newKey, long oldKey) {
+  }
 
   private static Set<PendingOperation> pendingOperations(final JsonNodeTrx wtx) {
     final var tuples = IngestArrayPositionProbe.pendingDiffs(wtx);
@@ -2288,7 +2552,8 @@ final class JsonBulkInsertDiffRegressionTest {
 
   private static JsonObject readDiff(final JsonResourceSession session, final int oldRevision, final int newRevision)
       throws Exception {
-    return JsonDiffSidecar.read(diffDirectory(session).resolve("diffFromRev" + oldRevision + "toRev" + newRevision + ".json"),
+    return JsonDiffSidecar.read(
+        diffDirectory(session).resolve("diffFromRev" + oldRevision + "toRev" + newRevision + ".json"),
         JsonTestHelper.RESOURCE, oldRevision, newRevision, session.getResourceConfig().areDeweyIDsStored);
   }
 
@@ -2297,8 +2562,8 @@ final class JsonBulkInsertDiffRegressionTest {
     switch (position) {
       case AS_FIRST_CHILD -> wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO,
           JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
-      case AS_LAST_CHILD -> wtx.insertSubtreeAsLastChild(reader, JsonNodeTrx.Commit.NO,
-          JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
+      case AS_LAST_CHILD -> wtx.insertSubtreeAsLastChild(reader, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES,
+          JsonNodeTrx.SkipRootToken.YES);
       case AS_LEFT_SIBLING -> wtx.insertSubtreeAsLeftSibling(reader, JsonNodeTrx.Commit.NO,
           JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
       case AS_RIGHT_SIBLING -> wtx.insertSubtreeAsRightSibling(reader, JsonNodeTrx.Commit.NO,

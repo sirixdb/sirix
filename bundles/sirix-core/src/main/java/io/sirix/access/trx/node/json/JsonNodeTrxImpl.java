@@ -214,6 +214,8 @@ final class JsonNodeTrxImpl extends
    */
   private int beforeBulkInsertionRevisionNumber = -1;
 
+  private boolean suppressUpdateDiffs;
+
   /**
    * Insert not allowed exception because of absance of parent in array.
    */
@@ -1080,13 +1082,12 @@ final class JsonNodeTrxImpl extends
     if (pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
       return;
     }
-    updateOperationsUnordered.put(newNodeKey,
-        new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
-            ? null : new DiffDepth(id.getLevel(), 0)));
+    updateOperationsUnordered.put(newNodeKey, new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
+        ? null
+        : new DiffDepth(id.getLevel(), 0)));
   }
 
-  private void adaptUpdateOperationsForReplace(final SirixDeweyID id, final long oldNodeKey,
-      final long newNodeKey) {
+  private void adaptUpdateOperationsForReplace(final SirixDeweyID id, final long oldNodeKey, final long newNodeKey) {
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
@@ -1097,13 +1098,13 @@ final class JsonNodeTrxImpl extends
     }
     updateOperationsUnordered.put(newNodeKey,
         new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, id == null
-          ? null : new DiffDepth(id.getLevel(), id.getLevel())));
+            ? null
+            : new DiffDepth(id.getLevel(), id.getLevel())));
   }
 
   private boolean wasPresentInDiffBase(final long nodeKey) {
     final int revision = diffStartingRevision(getRevisionNumber());
-    if (revision == 0
-        || nodeKey > storageEngineWriter.loadRevRoot(revision).getMaxNodeKeyInDocumentIndex()) {
+    if (revision == 0 || nodeKey > storageEngineWriter.loadRevRoot(revision).getMaxNodeKeyInDocumentIndex()) {
       return false;
     }
     awaitPendingAsyncCommit();
@@ -1117,9 +1118,9 @@ final class JsonNodeTrxImpl extends
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    updateOperationsUnordered.put(-nodeKey,
-        new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
-            ? null : new DiffDepth(0, oldDeweyID.getLevel())));
+    updateOperationsUnordered.put(-nodeKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
+        ? null
+        : new DiffDepth(0, oldDeweyID.getLevel())));
     adaptUpdateOperationsForInsert(newDeweyID, nodeKey);
   }
 
@@ -2232,7 +2233,8 @@ final class JsonNodeTrxImpl extends
       final String keyName = getName().getLocalName();
       final DiffTuple pending = updateOperationsUnordered.get(nodeKey);
       final long oldValueNodeKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
-          ? pending.getOldNodeKey() : nodeKey;
+          ? pending.getOldNodeKey()
+          : nodeKey;
       final boolean hasLeft = hasLeftSibling();
       final long anchorKey = hasLeft
           ? getLeftSiblingKey()
@@ -3404,11 +3406,12 @@ final class JsonNodeTrxImpl extends
     }
     final DiffTuple pending = updateOperationsUnordered.remove(oldNodeKey);
     final long originalKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
-        ? pending.getOldNodeKey() : oldNodeKey;
+        ? pending.getOldNodeKey()
+        : oldNodeKey;
     updateOperationsUnordered.remove(-oldNodeKey);
-    updateOperationsUnordered.put(-originalKey,
-        new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, id == null
-            ? null : new DiffDepth(0, id.getLevel())));
+    updateOperationsUnordered.put(-originalKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, id == null
+        ? null
+        : new DiffDepth(0, id.getLevel())));
   }
 
   private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
@@ -3810,9 +3813,9 @@ final class JsonNodeTrxImpl extends
     if (!resourceSession.getResourceConfig().storeDiffs() || updateOperationsUnordered.containsKey(nodeKey)) {
       return;
     }
-    updateOperationsUnordered.put(nodeKey,
-        new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
-            ? null : new DiffDepth(id.getLevel(), id.getLevel())));
+    updateOperationsUnordered.put(nodeKey, new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
+        ? null
+        : new DiffDepth(id.getLevel(), id.getLevel())));
   }
 
   @Override
@@ -4294,6 +4297,7 @@ final class JsonNodeTrxImpl extends
       ingestArrayPositions = null;
       if (!nodeHashing.isBulkInsert()) {
         beforeBulkInsertionRevisionNumber = -1;
+        suppressUpdateDiffs = false;
         updateOperationsUnordered.clear();
       }
     }
@@ -4301,7 +4305,7 @@ final class JsonNodeTrxImpl extends
 
   private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
     final int oldRevisionNumber = diffStartingRevision(revisionNumber);
-    if (!nodeHashing.isBulkInsert() && oldRevisionNumber > 0) {
+    if (!nodeHashing.isBulkInsert() && !suppressUpdateDiffs && oldRevisionNumber > 0) {
 
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
           oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
@@ -4339,7 +4343,9 @@ final class JsonNodeTrxImpl extends
   }
 
   private int diffStartingRevision(final int revisionNumber) {
-    return beforeBulkInsertionRevisionNumber < 0 ? revisionNumber - 1 : beforeBulkInsertionRevisionNumber;
+    return beforeBulkInsertionRevisionNumber < 0
+        ? revisionNumber - 1
+        : beforeBulkInsertionRevisionNumber;
   }
 
   @Override
@@ -4347,6 +4353,7 @@ final class JsonNodeTrxImpl extends
     runLocked(() -> {
       super.rollback();
       beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = false;
     });
     return this;
   }
@@ -4356,6 +4363,7 @@ final class JsonNodeTrxImpl extends
     runLocked(() -> {
       super.revertTo(revision);
       beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
     });
     return this;
   }

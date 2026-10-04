@@ -1,11 +1,13 @@
 package io.sirix.service.json;
 
 import java.util.Set;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
+import io.sirix.diff.DiffFactory.DiffOptimized;
 import io.sirix.diff.DiffObserver;
 import io.sirix.diff.DiffTuple;
 import io.sirix.diff.JsonDiffSerializer;
@@ -77,29 +79,41 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
    */
   public String generateDiff(JsonResourceSession session, int oldRevisionNumber, int newRevisionNumber,
       long startNodeKey, long maxDepth, boolean includeData) {
+    final DiffOptimized optimized = session.getResourceConfig().hashType == HashType.NONE
+        ? DiffOptimized.NO
+        : DiffOptimized.HASHED;
+    return generateDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, includeData, optimized);
+  }
+
+  public String generateDiffForReplay(final JsonResourceSession session, final int oldRevisionNumber,
+      final int newRevisionNumber) {
+    return generateDiff(session, oldRevisionNumber, newRevisionNumber, 0, 0, false, DiffOptimized.NO);
+  }
+
+  private String generateDiff(final JsonResourceSession session, final int oldRevisionNumber,
+      final int newRevisionNumber, final long startNodeKey, final long maxDepth, final boolean includeData,
+      final DiffOptimized optimized) {
     diffs.clear();
     insertedKeys.clear();
 
-    invokeDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth);
-    if (maxDepth == 0) {
-      expandRetainedFragments(session, oldRevisionNumber, newRevisionNumber);
+    invokeDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, optimized);
+    if (maxDepth == 0 && !diffs.isEmpty()) {
+      expandRetainedFragments(session, oldRevisionNumber, newRevisionNumber, optimized);
     }
 
     return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
         includeData);
   }
 
-  private void invokeDiff(final JsonResourceSession session, final int oldRevisionNumber,
-      final int newRevisionNumber, final long startNodeKey, final long maxDepth) {
-    DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(session, newRevisionNumber, oldRevisionNumber,
-        DiffFactory.DiffOptimized.NO, Set.of(this)).skipSubtrees(true)
-                              .newStartKey(startNodeKey)
-                              .oldStartKey(startNodeKey)
-                              .oldMaxDepth(maxDepth));
+  private void invokeDiff(final JsonResourceSession session, final int oldRevisionNumber, final int newRevisionNumber,
+      final long startNodeKey, final long maxDepth, final DiffOptimized optimized) {
+    DiffFactory.invokeJsonDiff(
+        new DiffFactory.Builder<>(session, newRevisionNumber, oldRevisionNumber, optimized, Set.of(this)).skipSubtrees(
+            true).newStartKey(startNodeKey).oldStartKey(startNodeKey).oldMaxDepth(maxDepth));
   }
 
   private void expandRetainedFragments(final JsonResourceSession session, final int oldRevisionNumber,
-      final int newRevisionNumber) {
+      final int newRevisionNumber, final DiffOptimized optimized) {
     try (final var previousRevision = session.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var newRevision = session.beginNodeReadOnlyTrx(newRevisionNumber)) {
       final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
@@ -109,14 +123,12 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
       boolean hasRetainedKeys = false;
       for (int index = 0; index < diffs.size(); index++) {
         final DiffTuple tuple = diffs.get(index);
-        if (tuple.getDiff() != DiffFactory.DiffType.INSERTED
-            && tuple.getDiff() != DiffFactory.DiffType.REPLACEDNEW) {
+        if (tuple.getDiff() != DiffFactory.DiffType.INSERTED && tuple.getDiff() != DiffFactory.DiffType.REPLACEDNEW) {
           continue;
         }
         final long nodeKey = tuple.getNewNodeKey();
-        if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW
-            && (newRevision.moveTo(tuple.getOldNodeKey())
-                || nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey))) {
+        if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW && (newRevision.moveTo(tuple.getOldNodeKey())
+            || nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey))) {
           normalizeReplacement(index, tuple, newRevision);
           continue;
         }
@@ -124,7 +136,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
           hasRetainedKeys = true;
           if (newRevision.hasFirstChild() || previousRevision.hasFirstChild()) {
-            invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0);
+            invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0, optimized);
           }
         } else {
           findFragmentRoots(newRevision, previousRevision, previousMaxNodeKey);
@@ -141,8 +153,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     }
   }
 
-  private void normalizeReplacement(final int index, final DiffTuple tuple,
-      final JsonNodeReadOnlyTrx newRevision) {
+  private void normalizeReplacement(final int index, final DiffTuple tuple, final JsonNodeReadOnlyTrx newRevision) {
     diffs.set(index, new DiffTuple(DiffFactory.DiffType.DELETED, 0, tuple.getOldNodeKey(), tuple.getDepth()));
     if (newRevision.moveTo(tuple.getOldNodeKey())) {
       diffListener(DiffFactory.DiffType.INSERTED, tuple.getOldNodeKey(), 0, tuple.getDepth());
@@ -150,8 +161,8 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     diffListener(DiffFactory.DiffType.INSERTED, tuple.getNewNodeKey(), 0, tuple.getDepth());
   }
 
-  private void findFragmentRoots(final JsonNodeReadOnlyTrx newRevision,
-      final JsonNodeReadOnlyTrx previousRevision, final long previousMaxNodeKey) {
+  private void findFragmentRoots(final JsonNodeReadOnlyTrx newRevision, final JsonNodeReadOnlyTrx previousRevision,
+      final long previousMaxNodeKey) {
     final long rootKey = newRevision.getNodeKey();
     long greatestNewKey = rootKey;
     if (!newRevision.moveToFirstChild()) {
@@ -178,7 +189,8 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   @Override
   public void diffListener(final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
       final DiffDepth depth) {
-    if (diffType == DiffFactory.DiffType.SAME || diffType == DiffFactory.DiffType.REPLACEDOLD) {
+    if (diffType == DiffFactory.DiffType.SAME || diffType == DiffFactory.DiffType.SAMEHASH
+        || diffType == DiffFactory.DiffType.REPLACEDOLD) {
       return;
     }
     if (diffType == DiffFactory.DiffType.INSERTED && !insertedKeys.add(newNodeKey)) {
