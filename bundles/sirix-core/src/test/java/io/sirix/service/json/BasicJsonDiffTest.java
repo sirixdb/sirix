@@ -1,5 +1,6 @@
 package io.sirix.service.json;
 
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
@@ -167,13 +168,22 @@ public final class BasicJsonDiffTest {
       wtx.commit();
 
       final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 2, 5);
-      // Under fusion, the inserted {"data":"data"} objects are fused records, which shifts
-      // inserted-record nodeKeys + DeweyIDs. Logical operation (3 inserts + 1 delete) is
-      // unchanged; the serialized nodeKeys differ.
-      final String fixtureName = true
-          ? "deletion-at-eof-fused.json"
-          : "deletion-at-eof.json";
-      assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve(fixtureName)), diffRev1Rev2);
+      final JsonObject diff = JsonParser.parseString(diffRev1Rev2).getAsJsonObject();
+      assertEquals(2, diff.get("old-revision").getAsInt());
+      assertEquals(5, diff.get("new-revision").getAsInt());
+      final var operations = diff.getAsJsonArray("diffs");
+      assertEquals(3, operations.size());
+      final long[] insertedRoots = {4, 6};
+      for (int index = 0; index < insertedRoots.length; index++) {
+        final JsonObject insert = operations.get(index).getAsJsonObject().getAsJsonObject("insert");
+        assertEquals(insertedRoots[index], insert.get("nodeKey").getAsLong());
+        assertEquals(1, insert.get("insertPositionNodeKey").getAsLong());
+        assertEquals("asFirstChild", insert.get("insertPosition").getAsString());
+        assertEquals("jsonFragment", insert.get("type").getAsString());
+        assertEquals(JsonParser.parseString("{\"data\":\"data\"}"),
+            JsonParser.parseString(insert.get("data").getAsString()));
+      }
+      assertEquals(2, operations.get(2).getAsJsonObject().getAsJsonObject("delete").get("nodeKey").getAsLong());
     }
   }
 

@@ -13,6 +13,7 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -243,7 +244,7 @@ public final class JsonDiffSerializer {
       }
 
       if (oldRevisionNumber < newRevisionNumber) {
-        orderInserts(jsonDiffs, oldRtx);
+        orderInserts(jsonDiffs, oldRtx, newRtx);
       }
       final var observer = arrayPositionCacheObserver;
       if (observer != null) {
@@ -255,7 +256,8 @@ public final class JsonDiffSerializer {
     return finish(json, includeIntegrityMetadata);
   }
 
-  private static void orderInserts(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision) {
+  private static void orderInserts(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision,
+      final JsonNodeReadOnlyTrx newRevision) {
     int insertCount = 0;
     long previousKey = -1;
     boolean ordered = true;
@@ -299,6 +301,9 @@ public final class JsonDiffSerializer {
     if (!retainedKeys.isEmpty()) {
       final var moves = new Long2ObjectOpenHashMap<JsonObject>(retainedKeys.size());
       final var dependencies = new ArrayList<JsonObject>(retainedKeys.size());
+      final var ancestorMoves = new Long2LongOpenHashMap(retainedKeys.size());
+      ancestorMoves.defaultReturnValue(Long.MIN_VALUE);
+      final var ancestorPath = new LongArrayList();
       for (final var operation : diffs) {
         final JsonObject object = operation.getAsJsonObject();
         if (object.has("insert")) {
@@ -314,7 +319,8 @@ public final class JsonDiffSerializer {
           JsonObject move = moves.remove(object.getAsJsonObject("insert").get("nodeKey").getAsLong());
           while (move != null) {
             dependencies.add(move);
-            move = moves.remove(move.getAsJsonObject("insert").get("insertPositionNodeKey").getAsLong());
+            final long anchor = move.getAsJsonObject("insert").get("insertPositionNodeKey").getAsLong();
+            move = moves.remove(enclosingMove(anchor, newRevision, retainedKeys, ancestorMoves, ancestorPath));
           }
           for (int index = dependencies.size() - 1; index >= 0; index--) {
             inserts.add(dependencies.get(index));
@@ -347,6 +353,27 @@ public final class JsonDiffSerializer {
         diffs.set(index, inserts.get(insertIndex++));
       }
     }
+  }
+
+  private static long enclosingMove(long anchor, final JsonNodeReadOnlyTrx newRevision,
+      final LongSet retainedKeys, final Long2LongOpenHashMap ancestorMoves, final LongArrayList ancestorPath) {
+    while (anchor != Fixed.NULL_NODE_KEY.getStandardProperty() && !retainedKeys.contains(anchor)) {
+      final long cached = ancestorMoves.get(anchor);
+      if (cached != Long.MIN_VALUE) {
+        anchor = cached;
+        break;
+      }
+      ancestorPath.add(anchor);
+      if (!newRevision.moveTo(anchor)) {
+        throw new IllegalStateException("Cannot resolve move anchor " + anchor);
+      }
+      anchor = newRevision.getParentKey();
+    }
+    for (int index = 0; index < ancestorPath.size(); index++) {
+      ancestorMoves.put(ancestorPath.getLong(index), anchor);
+    }
+    ancestorPath.clear();
+    return anchor;
   }
 
   private static String finish(final JsonObject document, final boolean includeIntegrityMetadata) {

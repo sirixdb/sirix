@@ -8,8 +8,11 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.io.StorageType;
 import io.sirix.service.InsertPosition;
+import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -545,6 +548,17 @@ final class JsonBulkInsertDiffRegressionTest {
             final var copiedRevision = destination.beginNodeReadOnlyTrx(revision)) {
           assertEquals(sourceRevision.getMaxNodeKey(), copiedRevision.getMaxNodeKey(),
               "a retained move must not allocate new destination keys");
+          final var sourceNodes = new DescendantAxis(sourceRevision, IncludeSelf.YES);
+          final var copiedNodes = new DescendantAxis(copiedRevision, IncludeSelf.YES);
+          while (sourceNodes.hasNext()) {
+            assertTrue(copiedNodes.hasNext());
+            assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
+            assertEquals(sourceRevision.getKind(), copiedRevision.getKind());
+            assertEquals(sourceRevision.getParentKey(), copiedRevision.getParentKey());
+            assertEquals(sourceRevision.getLeftSiblingKey(), copiedRevision.getLeftSiblingKey());
+            assertEquals(sourceRevision.getRightSiblingKey(), copiedRevision.getRightSiblingKey());
+          }
+          assertFalse(copiedNodes.hasNext());
         }
       }
     }
@@ -588,6 +602,342 @@ final class JsonBulkInsertDiffRegressionTest {
           wtx.commit();
           assertEquals("[{\"existing\":1},{\"left\":{\"nested\":30},\"field\":[100],\"right\":20}]",
               serialize(session, 5));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void retainedMoveWaitsForTheMoveOfItsAnchorsAncestor() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[[[0]],1]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[2]");
+          assertTrue(wtx.moveTo(array));
+          wtx.moveSubtreeToFirstChild(3);
+          assertTrue(wtx.moveTo(4));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("[[0,[]],1,2]", serialize(session, 2));
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertTrue(wtx.moveTo(6));
+          wtx.setNumberValue(20);
+          wtx.commit();
+          assertEquals("[[100,[]],1,20]", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"[0]", "{\"value\":0}"})
+  void retainedOnlyChildDoesNotAddADestinationDescent(final String retained) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[" + retained + ",1]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[[[],9]]");
+          assertTrue(wtx.moveTo(6));
+          wtx.moveSubtreeToFirstChild(2);
+          wtx.commit();
+          assertEquals("[1,[[" + retained + "],9]]", serialize(session, 2));
+          assertTrue(wtx.moveTo(7));
+          wtx.setNumberValue(90);
+          wtx.commit();
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[1,[[" + retained.replace("0", "100") + "],90]]", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"[0]", "{\"value\":0}"})
+  void retainedNamedOnlyChildDoesNotAddADestinationDescent(final String retained) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[{\"field\":" + retained + "},1]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"holder\":{},\"next\":9}]");
+          assertTrue(wtx.moveTo(7));
+          wtx.moveSubtreeToFirstChild(3);
+          wtx.commit();
+          assertEquals("[{},1,{\"holder\":{\"field\":" + retained + "},\"next\":9}]", serialize(session, 2));
+          assertTrue(wtx.moveTo(8));
+          wtx.setNumberValue(90);
+          wtx.commit();
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[{},1,{\"holder\":{\"field\":" + retained.replace("0", "100") + "},\"next\":90}]",
+              serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"[0]", "{\"value\":0}"})
+  void recomputedRetainedFragmentIncludesDescendantEdits(final String retained) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[" + retained + ",1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          assertTrue(wtx.moveTo(6));
+          wtx.moveSubtreeToRightSibling(2);
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[1,2,3," + retained.replace("0", "100") + "]", serialize(session, 2));
+          assertTrue(wtx.moveTo(6));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(200);
+          wtx.commit();
+          assertEquals("[1,2,30," + retained.replace("0", "200") + "]", serialize(session, 4));
+        }
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void recomputedNewFragmentFindsRetainedRootsAndTheirEdits() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[[0],1]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[[[],9]]");
+          assertTrue(wtx.moveTo(6));
+          wtx.moveSubtreeToFirstChild(2);
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[1,[[[100]],9]]", serialize(session, 2));
+          assertTrue(wtx.moveTo(7));
+          wtx.setNumberValue(90);
+          wtx.commit();
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(200);
+          wtx.commit();
+          assertEquals("[1,[[[200]],90]]", serialize(session, 4));
+        }
+        assertRecomputedRetainsNode(session, 2);
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void recomputedNamedFragmentPreservesNameAndDescendantEdits() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[{\"field\":[0]},1]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"holder\":{},\"next\":9}]");
+          assertTrue(wtx.moveTo(7));
+          wtx.moveSubtreeToFirstChild(3);
+          wtx.setObjectKeyName("renamed");
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[{},1,{\"holder\":{\"renamed\":[100]},\"next\":9}]", serialize(session, 2));
+          assertTrue(wtx.moveTo(8));
+          wtx.setNumberValue(90);
+          wtx.commit();
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(200);
+          wtx.commit();
+          assertEquals("[{},1,{\"holder\":{\"renamed\":[200]},\"next\":90}]", serialize(session, 4));
+        }
+        assertRecomputedRetainsNode(session, 3);
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  private static void assertRecomputedRetainsNode(final JsonResourceSession source, final long nodeKey) {
+    final String databaseName = source.getResourceConfig().getResource().getParent().getParent().getFileName().toString();
+    final JsonObject diff = JsonParser
+                                    .parseString(new BasicJsonDiff(databaseName).generateDiff(source, 1, 2, 0, 0, false))
+                                    .getAsJsonObject();
+    try (final var previousRevision = source.beginNodeReadOnlyTrx(1)) {
+      assertTrue(JsonDiffSidecar.retainedNodeKeys(diff.getAsJsonArray("diffs"), previousRevision).contains(nodeKey),
+          diff.toString());
+    }
+  }
+
+  @Test
+  void recomputedReplacementMovesRetainedChildrenBeforeRemovingTheirParent() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        seed(session, "[[[0],1]]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(2));
+          wtx.insertArrayAsLeftSibling();
+          assertEquals(6, wtx.getNodeKey());
+          wtx.moveSubtreeToFirstChild(3);
+          assertTrue(wtx.moveTo(3));
+          wtx.insertNumberValueAsRightSibling(9);
+          assertEquals(7, wtx.getNodeKey());
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(100);
+          assertTrue(wtx.moveTo(2));
+          wtx.remove();
+          wtx.commit();
+          assertEquals("[[[100],9]]", serialize(session, 2));
+          assertTrue(wtx.moveTo(7));
+          wtx.setNumberValue(90);
+          wtx.commit();
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(200);
+          wtx.commit();
+          assertEquals("[[[200],90]]", serialize(session, 4));
+        }
+        assertRecomputedRetainsNode(session, 3);
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void recomputedRetainedFragmentIncludesDescendantInsertionsAndRemovals() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[[0,1],2,3]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[4]");
+          assertTrue(wtx.moveTo(7));
+          wtx.moveSubtreeToRightSibling(2);
+          assertTrue(wtx.moveTo(3));
+          wtx.remove();
+          assertTrue(wtx.moveTo(2));
+          wtx.insertNumberValueAsLastChild(100);
+          wtx.commit();
+          assertEquals("[2,3,4,[1,100]]", serialize(session, 2));
+          assertTrue(wtx.moveTo(7));
+          wtx.setNumberValue(40);
+          wtx.commit();
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(101);
+          assertTrue(wtx.moveTo(8));
+          wtx.setNumberValue(200);
+          wtx.commit();
+          assertEquals("[2,3,40,[101,200]]", serialize(session, 4));
+        }
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void pendingInsertLookupSurvivesMovesOfItsAncestor() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[[],[],[]]");
+          assertTrue(wtx.moveTo(3));
+          wtx.moveSubtreeToFirstChild(4);
+          assertTrue(wtx.moveTo(array));
+          wtx.moveSubtreeToFirstChild(3);
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(4);
+          wtx.commit();
+          assertEquals("[[],0,[],[]]", serialize(session, 2));
+          assertEquals(3, readDiff(session, 1, 2).getAsJsonArray("diffs").size());
+          assertTrue(wtx.moveTo(4));
+          wtx.insertNumberValueAsFirstChild(100);
+          wtx.commit();
+          assertEquals("[[],0,[],[100]]", serialize(session, 3));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {32, 128})
+  void bulkSiblingReorderingKeepsOnePendingInsertPerKey(final int count) throws Exception {
+    final List<Integer> input = new ArrayList<>(count);
+    for (int value = 0; value < count; value++) {
+      input.add(value);
+    }
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[-1]");
+        final List<Integer> expected = new ArrayList<>(count + 1);
+        expected.add(-1);
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, input.toString());
+          for (int value = 0; value < count; value++) {
+            assertTrue(wtx.moveTo(array));
+            wtx.moveSubtreeToFirstChild(value + 3);
+            expected.add(0, value);
+          }
+          wtx.commit();
+          assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 2)));
+          assertEquals(count, insertedTuples(readDiff(session, 1, 2)).size());
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(1000);
+          wtx.commit();
+          expected.set(count - 1, 1000);
+          assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 3)));
         }
         assertCopiedRevisions(session, deweyIDs);
       }

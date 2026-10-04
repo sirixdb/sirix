@@ -51,8 +51,6 @@ import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
 import io.sirix.service.json.BasicJsonDiff;
-import io.sirix.settings.Constants;
-import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
@@ -197,13 +195,7 @@ public final class JsonResourceCopy implements Callable<Void> {
   public Void call() {
     rtx.moveTo(startNodeKey);
 
-    // Setup primitives.
-    boolean moveToParent = false;
-    boolean first = true;
-
-    long previousKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-
-    insert(moveToParent, first, previousKey, LongSets.EMPTY_SET);
+    insert(LongSets.EMPTY_SET);
 
     if (copyAllRevisionsUpToMostRecent) {
       wtx.commit();
@@ -231,7 +223,7 @@ public final class JsonResourceCopy implements Callable<Void> {
             final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
             sidecar = JsonParser
                                 .parseString(new BasicJsonDiff(databaseName).generateDiff(readResourceSession,
-                                    revision - 1, revision))
+                                    revision - 1, revision, 0, 0, false))
                                 .getAsJsonObject();
           }
 
@@ -458,7 +450,7 @@ public final class JsonResourceCopy implements Callable<Void> {
   private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, InsertPosition insertPosition,
       final LongSet retainedNodeKeys) {
     final var copyResource = new Builder(wtx, rtxOnRevision, insertPosition).build();
-    copyResource.insert(false, true, Fixed.NULL_NODE_KEY.getStandardProperty(), retainedNodeKeys);
+    copyResource.insert(retainedNodeKeys);
   }
 
   private static void requireMove(final boolean moved, final String role, final long nodeKey) {
@@ -467,7 +459,9 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void insert(boolean moveToParent, boolean isFirst, long previousKey, final LongSet retainedNodeKeys) {
+  private void insert(final LongSet retainedNodeKeys) {
+    final long sourceRoot = rtx.getNodeKey();
+    boolean isFirst = true;
     final Axis axis = retainedNodeKeys.isEmpty()
         ? new DescendantAxis(rtx, IncludeSelf.YES)
         : VisitorDescendantAxis.newBuilder(rtx).includeSelf().visitor(new JsonNodeVisitor() {
@@ -502,82 +496,43 @@ public final class JsonResourceCopy implements Callable<Void> {
     // Iterate over all nodes of the subtree including self.
     while (axis.hasNext()) {
       final long key = axis.nextLong();
-      if (retainedNodeKeys.contains(key)) {
-        if (!rtx.hasRightSibling()) {
-          moveToParent = true;
-        }
+      if (rtx.isDocumentRoot() || retainedNodeKeys.contains(key)) {
         continue;
       }
-      long leftSiblingKey = rtx.getLeftSiblingKey();
-      if (retainedNodeKeys.contains(leftSiblingKey)) {
-        do {
-          rtx.moveTo(leftSiblingKey);
-          leftSiblingKey = rtx.getLeftSiblingKey();
-        } while (retainedNodeKeys.contains(leftSiblingKey));
-        rtx.moveTo(key);
-      }
-
-      // Process all pending moves to parents.
-      if (moveToParent) {
-        while (!stack.isEmpty() && stack.peekLong(0) != leftSiblingKey) {
-          rtx.moveTo(stack.popLong());
-          rtx.moveTo(key);
-          wtx.moveToParent();
-        }
-        if (!stack.isEmpty()) {
-          rtx.moveTo(stack.popLong());
-          wtx.moveToParent();
-        }
-        rtx.moveTo(key);
-      }
-
-      // Process node.
-      final long nodeKey = rtx.getNodeKey();
-
-      InsertPosition insertPosition;
-
+      final InsertPosition insertPosition;
       if (isFirst) {
         insertPosition = insert;
       } else {
-        if (moveToParent) {
-          insertPosition = InsertPosition.AS_RIGHT_SIBLING;
-        } else if (leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty() && previousKey == leftSiblingKey) {
+        final long parentKey = rtx.getParentKey();
+        while (!stack.isEmpty() && stack.peekLong(1) != parentKey) {
+          stack.popLong();
+          stack.popLong();
+        }
+        requireMove(wtx.moveTo(stack.peekLong(0)), "copy parent", parentKey);
+        if (wtx.hasLastChild()) {
+          wtx.moveToLastChild();
           insertPosition = InsertPosition.AS_RIGHT_SIBLING;
         } else {
           insertPosition = InsertPosition.AS_FIRST_CHILD;
         }
       }
-
-      moveToParent = false;
       // Phase 4: legacy OBJECT_KEY's value child was inserted as part of the OBJECT_KEY pair
       // (so the descendant walk had to skip the value child). With OBJECT_KEY gone, fused
       // OBJECT_NAMED_* records carry the value inline (primitive leaves) or own a real subtree
       // (structural). Children of OBJECT_NAMED_OBJECT are inner fields and MUST be inserted
       // normally — the previous skip-on-parent-OBJECT_KEY guard is no longer needed.
       processNode(rtx, insertPosition);
-      rtx.moveTo(nodeKey);
+      rtx.moveTo(key);
 
       isFirst = false;
 
-      // Push end element to stack if we are a start element with children.
-      boolean withChildren = false;
-      if (!rtx.isDocumentRoot() && rtx.hasFirstChild()) {
-        stack.push(rtx.getNodeKey());
-        withChildren = true;
+      if (rtx.hasFirstChild()) {
+        stack.push(key);
+        stack.push(wtx.getNodeKey());
       }
-
-      // Remember to process all pending moves to parents from stack if required.
-      if (!withChildren && !rtx.isDocumentRoot() && !rtx.hasRightSibling()) {
-        moveToParent = true;
-      }
-
-      previousKey = key;
     }
-
-    // Finally emit all pending moves to parents.
-    while (!stack.isEmpty() && stack.peekLong(0) != Constants.NULL_ID_LONG) {
-      rtx.moveTo(stack.popLong());
-    }
+    stack.clear();
+    rtx.moveTo(sourceRoot);
   }
 
   /**

@@ -3,12 +3,14 @@ package io.sirix.service.json;
 import java.util.Set;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.JsonDiff;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
 import io.sirix.diff.DiffObserver;
 import io.sirix.diff.DiffTuple;
 import io.sirix.diff.JsonDiffSerializer;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,7 @@ import java.util.List;
 public final class BasicJsonDiff implements DiffObserver, JsonDiff {
 
   private final List<DiffTuple> diffs;
+  private final LongOpenHashSet insertedKeys = new LongOpenHashSet();
   private final String databaseName;
 
   /**
@@ -76,7 +79,19 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   public String generateDiff(JsonResourceSession session, int oldRevisionNumber, int newRevisionNumber,
       long startNodeKey, long maxDepth, boolean includeData) {
     diffs.clear();
+    insertedKeys.clear();
 
+    invokeDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth);
+    if (maxDepth == 0) {
+      expandRetainedFragments(session, oldRevisionNumber, newRevisionNumber);
+    }
+
+    return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
+        includeData);
+  }
+
+  private void invokeDiff(final JsonResourceSession session, final int oldRevisionNumber,
+      final int newRevisionNumber, final long startNodeKey, final long maxDepth) {
     DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(session, newRevisionNumber, oldRevisionNumber,
         session.getResourceConfig().hashType == HashType.NONE
             ? DiffFactory.DiffOptimized.NO
@@ -85,14 +100,88 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
                               .newStartKey(startNodeKey)
                               .oldStartKey(startNodeKey)
                               .oldMaxDepth(maxDepth));
+  }
 
-    return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
-        includeData);
+  private void expandRetainedFragments(final JsonResourceSession session, final int oldRevisionNumber,
+      final int newRevisionNumber) {
+    try (final var previousRevision = session.beginNodeReadOnlyTrx(oldRevisionNumber);
+        final var newRevision = session.beginNodeReadOnlyTrx(newRevisionNumber)) {
+      final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
+      if (previousMaxNodeKey == 0) {
+        return;
+      }
+      boolean hasRetainedKeys = false;
+      for (int index = 0; index < diffs.size(); index++) {
+        final DiffTuple tuple = diffs.get(index);
+        if (tuple.getDiff() != DiffFactory.DiffType.INSERTED
+            && tuple.getDiff() != DiffFactory.DiffType.REPLACEDNEW) {
+          continue;
+        }
+        final long nodeKey = tuple.getNewNodeKey();
+        if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW
+            && (newRevision.moveTo(tuple.getOldNodeKey())
+                || nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey))) {
+          normalizeReplacement(index, tuple, newRevision);
+          continue;
+        }
+        newRevision.moveTo(nodeKey);
+        if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
+          hasRetainedKeys = true;
+          if (newRevision.hasFirstChild() || previousRevision.hasFirstChild()) {
+            invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0);
+          }
+        } else {
+          findRetainedRoots(newRevision, previousRevision, previousMaxNodeKey);
+        }
+      }
+      if (hasRetainedKeys) {
+        for (int index = 0; index < diffs.size(); index++) {
+          final DiffTuple tuple = diffs.get(index);
+          if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+            normalizeReplacement(index, tuple, newRevision);
+          }
+        }
+      }
+    }
+  }
+
+  private void normalizeReplacement(final int index, final DiffTuple tuple,
+      final JsonNodeReadOnlyTrx newRevision) {
+    diffs.set(index, new DiffTuple(DiffFactory.DiffType.DELETED, 0, tuple.getOldNodeKey(), tuple.getDepth()));
+    if (newRevision.moveTo(tuple.getOldNodeKey())) {
+      diffListener(DiffFactory.DiffType.INSERTED, tuple.getOldNodeKey(), 0, tuple.getDepth());
+    }
+    diffListener(DiffFactory.DiffType.INSERTED, tuple.getNewNodeKey(), 0, tuple.getDepth());
+  }
+
+  private void findRetainedRoots(final JsonNodeReadOnlyTrx newRevision,
+      final JsonNodeReadOnlyTrx previousRevision, final long previousMaxNodeKey) {
+    final long rootKey = newRevision.getNodeKey();
+    if (!newRevision.moveToFirstChild()) {
+      return;
+    }
+    while (true) {
+      final long nodeKey = newRevision.getNodeKey();
+      if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
+        diffListener(DiffFactory.DiffType.INSERTED, nodeKey, 0, new DiffDepth(0, 0));
+      } else if (newRevision.moveToFirstChild()) {
+        continue;
+      }
+      while (!newRevision.hasRightSibling() && newRevision.getNodeKey() != rootKey) {
+        newRevision.moveToParent();
+      }
+      if (newRevision.getNodeKey() == rootKey || !newRevision.moveToRightSibling()) {
+        break;
+      }
+    }
   }
 
   @Override
   public void diffListener(final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
       final DiffDepth depth) {
+    if (diffType == DiffFactory.DiffType.INSERTED && !insertedKeys.add(newNodeKey)) {
+      return;
+    }
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 
