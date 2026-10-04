@@ -688,181 +688,22 @@ final class JsonBulkInsertDiffRegressionTest {
           final var database =
               JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        final String initial = switch (scenario) {
-          case "reordered" -> "[0,1,2]";
-          case "removed" -> "[0,1,2,3]";
-          case "replaced" -> "{\"a\":\"old\",\"b\":1}";
-          case "reparented" -> "[{\"x\":0},{}]";
-          case "replaced_root" -> "[0,1]";
-          case "empty", "empty_repeat" -> "[0]";
-          default -> throw new AssertionError(scenario);
-        };
+        final String initial = initialSnapshot(scenario);
         final List<String> expected = new ArrayList<>();
         try (final var wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(initial), JsonNodeTrx.Commit.NO);
-          switch (scenario) {
-            case "reordered" -> {
-              assertTrue(wtx.moveTo(4));
-              wtx.moveSubtreeToRightSibling(2);
-              assertChildLinks(wtx, 1, 3, 4, 2);
-              expected.add("[1,2,0]");
-            }
-            case "removed" -> {
-              assertTrue(wtx.moveTo(3));
-              wtx.remove();
-              assertTrue(wtx.moveTo(5));
-              wtx.remove();
-              assertChildLinks(wtx, 1, 2, 4);
-              assertEquals(5, wtx.getMaxNodeKey());
-              expected.add("[0,2]");
-            }
-            case "replaced" -> {
-              assertTrue(wtx.moveTo(2));
-              wtx.replaceObjectRecordValue(new NumberValue(7));
-              assertEquals(4, wtx.getNodeKey());
-              assertTrue(wtx.moveTo(1));
-              wtx.insertObjectRecordAsLastChild("discard", new NumberValue(0));
-              assertEquals(5, wtx.getNodeKey());
-              wtx.remove();
-              assertChildLinks(wtx, 1, 4, 3);
-              expected.add("{\"a\":7,\"b\":1}");
-            }
-            case "reparented" -> {
-              assertTrue(wtx.moveTo(4));
-              wtx.moveSubtreeToFirstChild(3);
-              assertTrue(wtx.moveTo(2));
-              wtx.remove();
-              assertChildLinks(wtx, 1, 4);
-              assertChildLinks(wtx, 4, 3);
-              expected.add("[{\"x\":0}]");
-            }
-            case "replaced_root" -> {
-              assertTrue(wtx.moveTo(1));
-              wtx.remove();
-              wtx.moveToDocumentRoot();
-              wtx.insertArrayAsFirstChild();
-              assertEquals(4, wtx.getNodeKey());
-              wtx.insertNumberValueAsFirstChild(42);
-              wtx.insertNumberValueAsRightSibling(0);
-              assertEquals(6, wtx.getNodeKey());
-              wtx.remove();
-              assertChildLinks(wtx, 0, 4);
-              assertChildLinks(wtx, 4, 5);
-              expected.add("[42]");
-            }
-            case "empty", "empty_repeat" -> {
-              assertTrue(wtx.moveTo(1));
-              wtx.remove();
-              assertChildLinks(wtx, 0);
-              assertEquals(2, wtx.getMaxNodeKey());
-              expected.add("");
-            }
-            default -> throw new AssertionError(scenario);
-          }
+          editInitialSnapshot(wtx, scenario, expected);
           wtx.commit();
           try (final var files = Files.list(diffDirectory(session))) {
             assertFalse(files.findAny().isPresent(), "edited first commit must not emit sidecars");
           }
           if (scenario.equals("empty") || scenario.equals("empty_repeat")) {
-            if (scenario.equals("empty_repeat")) {
-              wtx.moveToDocumentRoot();
-              wtx.insertArrayAsFirstChild();
-              assertEquals(3, wtx.getNodeKey());
-              wtx.remove();
-              assertChildLinks(wtx, 0);
-              assertEquals(3, wtx.getMaxNodeKey());
-              wtx.commit();
-              expected.add("");
-            }
-            wtx.moveToDocumentRoot();
-            wtx.insertArrayAsFirstChild();
-            final long arrayKey = scenario.equals("empty_repeat")
-                ? 4
-                : 3;
-            assertEquals(arrayKey, wtx.getNodeKey());
-            wtx.commit();
-            expected.add("[]");
-            assertTrue(wtx.moveTo(arrayKey));
-            wtx.insertNumberValueAsFirstChild(40);
-            assertEquals(arrayKey + 1, wtx.getNodeKey());
-            wtx.commit();
-            expected.add("[40]");
-            wtx.setNumberValue(41);
-            wtx.commit();
-            expected.add("[41]");
+            editEmptySnapshot(wtx, scenario, expected);
           } else {
-            final long updatedKey = switch (scenario) {
-              case "reordered" -> 2;
-              case "removed", "replaced" -> 4;
-              case "reparented" -> 3;
-              case "replaced_root" -> 5;
-              default -> throw new AssertionError(scenario);
-            };
-            assertTrue(wtx.moveTo(updatedKey));
-            wtx.setNumberValue(100);
-            wtx.commit();
-            expected.add(switch (scenario) {
-              case "reordered" -> "[1,2,100]";
-              case "removed" -> "[0,100]";
-              case "replaced" -> "{\"a\":100,\"b\":1}";
-              case "reparented" -> "[{\"x\":100}]";
-              case "replaced_root" -> "[100]";
-              default -> throw new AssertionError(scenario);
-            });
-            final long deletedKey = switch (scenario) {
-              case "reordered" -> 4;
-              case "removed" -> 2;
-              case "replaced", "reparented" -> 3;
-              case "replaced_root" -> 5;
-              default -> throw new AssertionError(scenario);
-            };
-            assertTrue(wtx.moveTo(deletedKey));
-            wtx.remove();
-            wtx.commit();
-            expected.add(switch (scenario) {
-              case "reordered" -> "[1,100]";
-              case "removed" -> "[100]";
-              case "replaced_root" -> "[]";
-              case "replaced" -> "{\"a\":100}";
-              case "reparented" -> "[{}]";
-              default -> throw new AssertionError(scenario);
-            });
-            final long parent = scenario.equals("reparented") || scenario.equals("replaced_root")
-                ? 4
-                : 1;
-            assertTrue(wtx.moveTo(parent));
-            if (scenario.equals("replaced") || scenario.equals("reparented")) {
-              wtx.insertObjectRecordAsFirstChild("new", new NumberValue(9));
-            } else {
-              wtx.insertNumberValueAsFirstChild(9);
-            }
-            final long insertedKey = wtx.getNodeKey();
-            assertEquals(switch (scenario) {
-              case "reordered", "reparented" -> 5;
-              case "removed", "replaced" -> 6;
-              case "replaced_root" -> 7;
-              default -> throw new AssertionError(scenario);
-            }, insertedKey);
-            wtx.commit();
-            expected.add(switch (scenario) {
-              case "reordered" -> "[9,1,100]";
-              case "removed" -> "[9,100]";
-              case "replaced" -> "{\"new\":9,\"a\":100}";
-              case "reparented" -> "[{\"new\":9}]";
-              case "replaced_root" -> "[9]";
-              default -> throw new AssertionError(scenario);
-            });
-            if (scenario.equals("reordered") || scenario.equals("removed") || scenario.equals("replaced")) {
-              assertTrue(wtx.moveTo(updatedKey));
-              wtx.moveSubtreeToRightSibling(insertedKey);
-              wtx.commit();
-              expected.add(switch (scenario) {
-                case "reordered" -> "[1,100,9]";
-                case "removed" -> "[100,9]";
-                case "replaced" -> "{\"a\":100,\"new\":9}";
-                default -> throw new AssertionError(scenario);
-              });
-            }
+            final long updatedKey = updateSnapshot(wtx, scenario, expected);
+            deleteFromSnapshot(wtx, scenario, expected);
+            final long insertedKey = insertIntoSnapshot(wtx, scenario, expected);
+            reorderSnapshot(wtx, scenario, updatedKey, insertedKey, expected);
           }
         }
         for (int revision = 1; revision <= expected.size(); revision++) {
@@ -871,27 +712,221 @@ final class JsonBulkInsertDiffRegressionTest {
         for (int revision = 2; revision <= expected.size(); revision++) {
           assertEquals(revision, readDiff(session, revision - 1, revision).get("new-revision").getAsInt());
           if (recompute) {
-            final JsonObject diff = JsonParser
-                                              .parseString(new BasicJsonDiff(database.getName()).generateDiffForReplay(
-                                                  session, revision - 1, revision))
-                                              .getAsJsonObject();
-            if (revision == 2 && scenario.equals("empty_repeat")) {
-              assertEquals(0, diff.getAsJsonArray("diffs").size());
-            }
-            if (revision == 3 && (scenario.equals("reparented") || scenario.equals("replaced_root"))) {
-              assertEquals(Set.of(scenario.equals("reparented")
-                  ? 3L
-                  : 5L), operationKeys(diff, "delete"));
-            }
-            if (revision == 5 && (scenario.equals("reordered") || scenario.equals("removed"))) {
-              assertFalse(operationKeys(diff, "insert").isEmpty(), "a reorder must emit retained placements");
-            }
-            Files.delete(diffDirectory(session).resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json"));
+            assertReplaySnapshot(session, database.getName(), revision, scenario);
           }
         }
         assertCopiedRevisions(session, deweyIDs);
       }
     }
+  }
+
+  private static String initialSnapshot(final String scenario) {
+    return switch (scenario) {
+      case "reordered" -> "[0,1,2]";
+      case "removed" -> "[0,1,2,3]";
+      case "replaced" -> "{\"a\":\"old\",\"b\":1}";
+      case "reparented" -> "[{\"x\":0},{}]";
+      case "replaced_root" -> "[0,1]";
+      case "empty", "empty_repeat" -> "[0]";
+      default -> throw new AssertionError(scenario);
+    };
+  }
+
+  private static void editInitialSnapshot(final JsonNodeTrx wtx, final String scenario, final List<String> expected) {
+    switch (scenario) {
+      case "reordered" -> {
+        assertTrue(wtx.moveTo(4));
+        wtx.moveSubtreeToRightSibling(2);
+        assertChildLinks(wtx, 1, 3, 4, 2);
+        expected.add("[1,2,0]");
+      }
+      case "removed" -> {
+        assertTrue(wtx.moveTo(3));
+        wtx.remove();
+        assertTrue(wtx.moveTo(5));
+        wtx.remove();
+        assertChildLinks(wtx, 1, 2, 4);
+        assertEquals(5, wtx.getMaxNodeKey());
+        expected.add("[0,2]");
+      }
+      case "replaced" -> {
+        assertTrue(wtx.moveTo(2));
+        wtx.replaceObjectRecordValue(new NumberValue(7));
+        assertEquals(4, wtx.getNodeKey());
+        assertTrue(wtx.moveTo(1));
+        wtx.insertObjectRecordAsLastChild("discard", new NumberValue(0));
+        assertEquals(5, wtx.getNodeKey());
+        wtx.remove();
+        assertChildLinks(wtx, 1, 4, 3);
+        expected.add("{\"a\":7,\"b\":1}");
+      }
+      case "reparented" -> {
+        assertTrue(wtx.moveTo(4));
+        wtx.moveSubtreeToFirstChild(3);
+        assertTrue(wtx.moveTo(2));
+        wtx.remove();
+        assertChildLinks(wtx, 1, 4);
+        assertChildLinks(wtx, 4, 3);
+        expected.add("[{\"x\":0}]");
+      }
+      case "replaced_root" -> {
+        assertTrue(wtx.moveTo(1));
+        wtx.remove();
+        wtx.moveToDocumentRoot();
+        wtx.insertArrayAsFirstChild();
+        assertEquals(4, wtx.getNodeKey());
+        wtx.insertNumberValueAsFirstChild(42);
+        wtx.insertNumberValueAsRightSibling(0);
+        assertEquals(6, wtx.getNodeKey());
+        wtx.remove();
+        assertChildLinks(wtx, 0, 4);
+        assertChildLinks(wtx, 4, 5);
+        expected.add("[42]");
+      }
+      case "empty", "empty_repeat" -> {
+        assertTrue(wtx.moveTo(1));
+        wtx.remove();
+        assertChildLinks(wtx, 0);
+        assertEquals(2, wtx.getMaxNodeKey());
+        expected.add("");
+      }
+      default -> throw new AssertionError(scenario);
+    }
+  }
+
+  private static void editEmptySnapshot(final JsonNodeTrx wtx, final String scenario, final List<String> expected) {
+    if (scenario.equals("empty_repeat")) {
+      wtx.moveToDocumentRoot();
+      wtx.insertArrayAsFirstChild();
+      assertEquals(3, wtx.getNodeKey());
+      wtx.remove();
+      assertChildLinks(wtx, 0);
+      assertEquals(3, wtx.getMaxNodeKey());
+      wtx.commit();
+      expected.add("");
+    }
+    wtx.moveToDocumentRoot();
+    wtx.insertArrayAsFirstChild();
+    final long arrayKey = scenario.equals("empty_repeat")
+        ? 4
+        : 3;
+    assertEquals(arrayKey, wtx.getNodeKey());
+    wtx.commit();
+    expected.add("[]");
+    assertTrue(wtx.moveTo(arrayKey));
+    wtx.insertNumberValueAsFirstChild(40);
+    assertEquals(arrayKey + 1, wtx.getNodeKey());
+    wtx.commit();
+    expected.add("[40]");
+    wtx.setNumberValue(41);
+    wtx.commit();
+    expected.add("[41]");
+  }
+
+  private static long updateSnapshot(final JsonNodeTrx wtx, final String scenario, final List<String> expected) {
+    final long updatedKey = switch (scenario) {
+      case "reordered" -> 2;
+      case "removed", "replaced" -> 4;
+      case "reparented" -> 3;
+      case "replaced_root" -> 5;
+      default -> throw new AssertionError(scenario);
+    };
+    assertTrue(wtx.moveTo(updatedKey));
+    wtx.setNumberValue(100);
+    wtx.commit();
+    expected.add(switch (scenario) {
+      case "reordered" -> "[1,2,100]";
+      case "removed" -> "[0,100]";
+      case "replaced" -> "{\"a\":100,\"b\":1}";
+      case "reparented" -> "[{\"x\":100}]";
+      case "replaced_root" -> "[100]";
+      default -> throw new AssertionError(scenario);
+    });
+    return updatedKey;
+  }
+
+  private static void deleteFromSnapshot(final JsonNodeTrx wtx, final String scenario, final List<String> expected) {
+    final long deletedKey = switch (scenario) {
+      case "reordered" -> 4;
+      case "removed" -> 2;
+      case "replaced", "reparented" -> 3;
+      case "replaced_root" -> 5;
+      default -> throw new AssertionError(scenario);
+    };
+    assertTrue(wtx.moveTo(deletedKey));
+    wtx.remove();
+    wtx.commit();
+    expected.add(switch (scenario) {
+      case "reordered" -> "[1,100]";
+      case "removed" -> "[100]";
+      case "replaced_root" -> "[]";
+      case "replaced" -> "{\"a\":100}";
+      case "reparented" -> "[{}]";
+      default -> throw new AssertionError(scenario);
+    });
+  }
+
+  private static long insertIntoSnapshot(final JsonNodeTrx wtx, final String scenario, final List<String> expected) {
+    final long parent = scenario.equals("reparented") || scenario.equals("replaced_root")
+        ? 4
+        : 1;
+    assertTrue(wtx.moveTo(parent));
+    if (scenario.equals("replaced") || scenario.equals("reparented")) {
+      wtx.insertObjectRecordAsFirstChild("new", new NumberValue(9));
+    } else {
+      wtx.insertNumberValueAsFirstChild(9);
+    }
+    final long insertedKey = wtx.getNodeKey();
+    assertEquals(switch (scenario) {
+      case "reordered", "reparented" -> 5;
+      case "removed", "replaced" -> 6;
+      case "replaced_root" -> 7;
+      default -> throw new AssertionError(scenario);
+    }, insertedKey);
+    wtx.commit();
+    expected.add(switch (scenario) {
+      case "reordered" -> "[9,1,100]";
+      case "removed" -> "[9,100]";
+      case "replaced" -> "{\"new\":9,\"a\":100}";
+      case "reparented" -> "[{\"new\":9}]";
+      case "replaced_root" -> "[9]";
+      default -> throw new AssertionError(scenario);
+    });
+    return insertedKey;
+  }
+
+  private static void reorderSnapshot(final JsonNodeTrx wtx, final String scenario, final long updatedKey,
+      final long insertedKey, final List<String> expected) {
+    if (scenario.equals("reordered") || scenario.equals("removed") || scenario.equals("replaced")) {
+      assertTrue(wtx.moveTo(updatedKey));
+      wtx.moveSubtreeToRightSibling(insertedKey);
+      wtx.commit();
+      expected.add(switch (scenario) {
+        case "reordered" -> "[1,100,9]";
+        case "removed" -> "[100,9]";
+        case "replaced" -> "{\"a\":100,\"new\":9}";
+        default -> throw new AssertionError(scenario);
+      });
+    }
+  }
+
+  private static void assertReplaySnapshot(final JsonResourceSession session, final String databaseName,
+      final int revision, final String scenario) throws Exception {
+    final JsonObject diff =
+        JsonParser.parseString(new BasicJsonDiff(databaseName).generateDiffForReplay(session, revision - 1, revision))
+                  .getAsJsonObject();
+    if (revision == 2 && scenario.equals("empty_repeat")) {
+      assertEquals(0, diff.getAsJsonArray("diffs").size());
+    }
+    if (revision == 3 && (scenario.equals("reparented") || scenario.equals("replaced_root"))) {
+      assertEquals(Set.of(scenario.equals("reparented")
+          ? 3L
+          : 5L), operationKeys(diff, "delete"));
+    }
+    if (revision == 5 && (scenario.equals("reordered") || scenario.equals("removed"))) {
+      assertFalse(operationKeys(diff, "insert").isEmpty(), "a reorder must emit retained placements");
+    }
+    Files.delete(diffDirectory(session).resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json"));
   }
 
   @ParameterizedTest

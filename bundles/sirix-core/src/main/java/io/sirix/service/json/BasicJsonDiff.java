@@ -153,12 +153,16 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         }
       }
       if (hasRetainedKeys) {
-        for (int index = 0; index < diffs.size(); index++) {
-          final DiffTuple tuple = diffs.get(index);
-          if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
-            normalizeReplacement(index, tuple, newRevision);
-          }
-        }
+        normalizeRetainedReplacements(newRevision);
+      }
+    }
+  }
+
+  private void normalizeRetainedReplacements(final JsonNodeReadOnlyTrx newRevision) {
+    for (int index = 0; index < diffs.size(); index++) {
+      final DiffTuple tuple = diffs.get(index);
+      if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+        normalizeReplacement(index, tuple, newRevision);
       }
     }
   }

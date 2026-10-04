@@ -559,41 +559,8 @@ final class JsonNodeTrxImpl extends
         assertRunning();
 
         final InputShape inputShape = inputValidator.validate();
-        var skipRootJsonToken = doSkipRootToken;
-        final var nodeKind = getKind();
-
-        // $CASES-OMITTED$
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            // play
-            // the OBJECT/ARRAY role under fusion, so admit them as valid first/last-child
-            // anchor points alongside their non-fused counterparts.
-            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
-                && nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
-              throw new IllegalStateException(
-                  "Current node must either be the document root, an array or an object key.");
-            }
-            if (inputShape.isObject()) {
-              if (nodeKind == NodeKind.OBJECT || nodeKind == NodeKind.OBJECT_NAMED_OBJECT) {
-                skipRootJsonToken = SkipRootToken.YES;
-              }
-            } else if (inputShape.isArray()) {
-              if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT
-                  && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
-                throw new IllegalStateException("Current node in storage must be an array node.");
-              }
-            }
-          }
-          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-            if (checkParentNode == CheckParentNode.YES) {
-              final NodeKind parentKind = getParentKind();
-              if (parentKind != NodeKind.ARRAY && parentKind != NodeKind.OBJECT_NAMED_ARRAY) {
-                throw new IllegalStateException("Current parent node must be an array node.");
-              }
-            }
-          }
-          default -> throw new UnsupportedOperationException();
-        }
+        final SkipRootToken skipRootJsonToken =
+            validateSubtreePosition(insertionPosition, checkParentNode, doSkipRootToken, inputShape);
 
         checkAccessAndCommit();
         final boolean storeDiffs = resourceSession.getResourceConfig().storeDiffs();
@@ -638,23 +605,7 @@ final class JsonNodeTrxImpl extends
         }
 
         if (storeDiffs) {
-          if (skipRootJsonToken == SkipRootToken.YES) {
-            // A skipped input root has no single inserted subtree representing all its children.
-            // Record only the new sibling roots, stopping at the pre-existing neighbor.
-            final long insertedRoot = getNodeKey();
-            final boolean walkLeft = insertionPosition == InsertPosition.AS_LAST_CHILD
-                || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
-            if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
-              do {
-                adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-              } while ((walkLeft
-                  ? moveToLeftSibling()
-                  : moveToRightSibling()) && getNodeKey() != siblingBoundary);
-              moveTo(insertedRoot);
-            }
-          } else {
-            adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-          }
+          collectBulkInsertDiffs(insertionPosition, skipRootJsonToken, nodeKey, siblingBoundary);
         }
 
         // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
@@ -679,6 +630,65 @@ final class JsonNodeTrxImpl extends
       }
     });
     return this;
+  }
+
+  private SkipRootToken validateSubtreePosition(final InsertPosition insertionPosition,
+      final CheckParentNode checkParentNode, final SkipRootToken skipRootToken, final InputShape inputShape) {
+    final NodeKind nodeKind = getKind();
+    switch (insertionPosition) {
+      case AS_FIRST_CHILD, AS_LAST_CHILD -> {
+        return validateSubtreeChildPosition(nodeKind, skipRootToken, inputShape);
+      }
+      case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
+        if (checkParentNode == CheckParentNode.YES) {
+          final NodeKind parentKind = getParentKind();
+          if (parentKind != NodeKind.ARRAY && parentKind != NodeKind.OBJECT_NAMED_ARRAY) {
+            throw new IllegalStateException("Current parent node must be an array node.");
+          }
+        }
+        return skipRootToken;
+      }
+      default -> throw new UnsupportedOperationException();
+    }
+  }
+
+  private static SkipRootToken validateSubtreeChildPosition(final NodeKind nodeKind, final SkipRootToken skipRootToken,
+      final InputShape inputShape) {
+    if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
+        && nodeKind != NodeKind.OBJECT_NAMED_OBJECT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
+      throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+    }
+    if (inputShape.isObject()) {
+      if (nodeKind == NodeKind.OBJECT || nodeKind == NodeKind.OBJECT_NAMED_OBJECT) {
+        return SkipRootToken.YES;
+      }
+    } else if (inputShape.isArray()) {
+      if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.OBJECT_NAMED_ARRAY) {
+        throw new IllegalStateException("Current node in storage must be an array node.");
+      }
+    }
+    return skipRootToken;
+  }
+
+  private void collectBulkInsertDiffs(final InsertPosition insertionPosition, final SkipRootToken skipRootToken,
+      final long nodeKey, final long siblingBoundary) {
+    if (skipRootToken == SkipRootToken.YES) {
+      // A skipped input root has no single inserted subtree representing all its children.
+      // Record only the new sibling roots, stopping at the pre-existing neighbor.
+      final long insertedRoot = getNodeKey();
+      final boolean walkLeft =
+          insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+      if (insertedRoot != nodeKey && insertedRoot != siblingBoundary) {
+        do {
+          adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+        } while ((walkLeft
+            ? moveToLeftSibling()
+            : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+        moveTo(insertedRoot);
+      }
+    } else {
+      adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+    }
   }
 
   /**
@@ -2216,19 +2226,7 @@ final class JsonNodeTrxImpl extends
       // for sdb:item-history, indexes, and temporal axes — without this, {@code replace json
       // value} on a fused field would mint a new physical node and break "track a single
       // field's history" workflows).
-      if (kind == NodeKind.OBJECT_NAMED_STRING && value instanceof StringValue sv) {
-        setStringValue(sv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof NumberValue nv) {
-        setNumberValue(nv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof BooleanValue bv) {
-        setBooleanValue(bv.getValue());
-        return this;
-      }
-      if (kind == NodeKind.OBJECT_NAMED_NULL && value instanceof NullValue) {
+      if (updateObjectRecordValue(kind, value)) {
         return this;
       }
 
@@ -2268,6 +2266,25 @@ final class JsonNodeTrxImpl extends
         lock.unlock();
       }
     }
+  }
+
+  private boolean updateObjectRecordValue(final NodeKind kind, final ObjectRecordValue<?> value) {
+    if (kind == NodeKind.OBJECT_NAMED_STRING && value instanceof StringValue sv) {
+      setStringValue(sv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof NumberValue nv) {
+      setNumberValue(nv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof BooleanValue bv) {
+      setBooleanValue(bv.getValue());
+      return true;
+    }
+    if (kind == NodeKind.OBJECT_NAMED_NULL && value instanceof NullValue) {
+      return true;
+    }
+    return false;
   }
 
   @Override

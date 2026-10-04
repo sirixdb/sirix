@@ -136,10 +136,10 @@ public final class DiffTuple implements Serializable {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("diff", diff)
-                      .add("new nodeKey", newNodeKey)
-                      .add("old nodeKey", oldNodeKey)
-                      .toString();
+                         .add("diff", diff)
+                         .add("new nodeKey", newNodeKey)
+                         .add("old nodeKey", oldNodeKey)
+                         .toString();
   }
 
   /**

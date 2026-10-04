@@ -366,18 +366,7 @@ public final class JsonResourceCopy implements Callable<Void> {
 
   private void allocateFragments(final List<JsonObject> placements, final LongSet roots, final LongSet retainedKeys,
       final JsonNodeReadOnlyTrx source, final long temporaryObject, final long temporaryArray) {
-    final var fragments = new PriorityQueue<FragmentCursor>(Math.max(1, placements.size()),
-        Comparator.comparingLong(fragment -> fragment.key));
-    for (final var placement : placements) {
-      final long key = placement.getAsJsonObject(INSERT).get("nodeKey").getAsLong();
-      if (!retainedKeys.contains(key)) {
-        requireMove(source.moveTo(key), "fragment source", key);
-        final var cursor = new FragmentCursor(copyAxis(source, roots, key), roots, key);
-        if (cursor.advance()) {
-          fragments.add(cursor);
-        }
-      }
-    }
+    final var fragments = createFragmentCursors(placements, roots, retainedKeys, source);
     Long2LongOpenHashMap temporaryParents = null;
     final var ancestorPath = new LongArrayList();
     while (!fragments.isEmpty()) {
@@ -419,22 +408,43 @@ public final class JsonResourceCopy implements Callable<Void> {
         }
         ancestorPath.clear();
       }
-      requireMove(source.moveTo(key), "allocation source", key);
-      final InsertPosition position;
-      if (!wtx.isDocumentRoot() && wtx.hasLastChild()) {
-        wtx.moveToLastChild();
-        position = InsertPosition.AS_RIGHT_SIBLING;
-      } else {
-        position = InsertPosition.AS_FIRST_CHILD;
-      }
-      if (key <= wtx.getMaxNodeKey()) {
-        throw new IllegalStateException("JSON revision copy already allocated node " + key);
-      }
-      wtx.copyNodeWithKey(source, position);
+      copyAllocatedNode(source, key);
       if (fragment.advance()) {
         fragments.add(fragment);
       }
     }
+  }
+
+  private PriorityQueue<FragmentCursor> createFragmentCursors(final List<JsonObject> placements, final LongSet roots,
+      final LongSet retainedKeys, final JsonNodeReadOnlyTrx source) {
+    final var fragments = new PriorityQueue<FragmentCursor>(Math.max(1, placements.size()),
+        Comparator.comparingLong(fragment -> fragment.key));
+    for (final var placement : placements) {
+      final long key = placement.getAsJsonObject(INSERT).get("nodeKey").getAsLong();
+      if (!retainedKeys.contains(key)) {
+        requireMove(source.moveTo(key), "fragment source", key);
+        final var cursor = new FragmentCursor(copyAxis(source, roots, key), roots, key);
+        if (cursor.advance()) {
+          fragments.add(cursor);
+        }
+      }
+    }
+    return fragments;
+  }
+
+  private void copyAllocatedNode(final JsonNodeReadOnlyTrx source, final long key) {
+    requireMove(source.moveTo(key), "allocation source", key);
+    final InsertPosition position;
+    if (!wtx.isDocumentRoot() && wtx.hasLastChild()) {
+      wtx.moveToLastChild();
+      position = InsertPosition.AS_RIGHT_SIBLING;
+    } else {
+      position = InsertPosition.AS_FIRST_CHILD;
+    }
+    if (key <= wtx.getMaxNodeKey()) {
+      throw new IllegalStateException("JSON revision copy already allocated node " + key);
+    }
+    wtx.copyNodeWithKey(source, position);
   }
 
   private static boolean compatibleParent(final NodeKind kind, final NodeKind parentKind) {

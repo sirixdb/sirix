@@ -45,102 +45,119 @@ final class JsonBulkInsertCollectionWorkBudgetTest {
       for (final boolean storeDiffs : new boolean[] {true, false}) {
         for (final int length : new int[] {16, 256}) {
           for (final JsonNodeTrx.SkipRootToken skipRoot : JsonNodeTrx.SkipRootToken.values()) {
-            JsonTestHelper.deleteEverything();
-            final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                                      .storageType(StorageType.FILE_CHANNEL)
-                                                                      .hashKind(HashType.NONE)
-                                                                      .useDeweyIDs(deweyIDs)
-                                                                      .storeDiffs(storeDiffs)
-                                                                      .build();
-            try (
-                final var database =
-                    JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
-                final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-                final var writer = session.beginNodeTrx(100_000)) {
-              writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0,99]"), JsonNodeTrx.Commit.NO);
-              writer.commit();
-              final boolean sibling =
-                  position == InsertPosition.AS_LEFT_SIBLING || position == InsertPosition.AS_RIGHT_SIBLING;
-              final boolean skipped = skipRoot == JsonNodeTrx.SkipRootToken.YES;
-              final int roots = skipped
-                  ? length
-                  : 1;
-              assertTrue(writer.moveTo(sibling
-                  ? 2
-                  : 1));
-              final JsonArray inserted = new JsonArray();
-              for (int value = 0; value < length; value++) {
-                inserted.add(value + 100);
-              }
-              try (final CursorWork work = new CursorWork(writer);
-                  final JsonReader reader = new ObservedReader(inserted.toString(), work)) {
-                final var capture =
-                    WorkCapture.of(work.boundaryReads, work.deweyReads, work.siblingMoves, work.childMoves).run(() -> {
-                      switch (position) {
-                        case AS_FIRST_CHILD -> writer.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO,
-                            JsonNodeTrx.CheckParentNode.YES, skipRoot);
-                        case AS_LAST_CHILD -> writer.insertSubtreeAsLastChild(reader, JsonNodeTrx.Commit.NO,
-                            JsonNodeTrx.CheckParentNode.YES, skipRoot);
-                        case AS_LEFT_SIBLING -> writer.insertSubtreeAsLeftSibling(reader, JsonNodeTrx.Commit.NO,
-                            JsonNodeTrx.CheckParentNode.YES, skipRoot);
-                        case AS_RIGHT_SIBLING -> writer.insertSubtreeAsRightSibling(reader, JsonNodeTrx.Commit.NO,
-                            JsonNodeTrx.CheckParentNode.YES, skipRoot);
-                      }
-                    });
-                capture.assertExactly(work.boundaryReads, storeDiffs && skipped
-                    ? 1
-                    : 0, "disabled diff storage must not capture a sibling boundary")
-                       .assertExactly(work.deweyReads, storeDiffs
-                           ? roots
-                           : 0, "disabled diff storage must not read inserted-root Dewey IDs after shredding")
-                       .assertExactly(work.siblingMoves, (storeDiffs && skipped
-                           ? length
-                           : 0)
-                           + (sibling
-                               ? 1
-                               : 0),
-                           "only enabled collection may sweep the inserted siblings")
-                       .assertExactly(work.childMoves, sibling
-                           ? 0
-                           : 1, "the counting cursor must observe the returned inserted root");
-              }
-              assertEquals(storeDiffs
-                  ? roots
-                  : 0, IngestArrayPositionProbe.pendingDiffs(writer).size());
-              assertEquals(length + (skipped
-                  ? 3
-                  : 4), writer.getMaxNodeKey());
-              writer.commit();
-              final JsonArray expected = new JsonArray();
-              if (position == InsertPosition.AS_RIGHT_SIBLING || position == InsertPosition.AS_LAST_CHILD) {
-                expected.add(0);
-              }
-              if (position == InsertPosition.AS_LAST_CHILD) {
-                expected.add(99);
-              }
-              if (!skipped) {
-                expected.add(inserted);
-              } else if (position == InsertPosition.AS_LEFT_SIBLING) {
-                for (int index = inserted.size() - 1; index >= 0; index--) {
-                  expected.add(inserted.get(index));
-                }
-              } else {
-                expected.addAll(inserted);
-              }
-              if (position == InsertPosition.AS_FIRST_CHILD || position == InsertPosition.AS_LEFT_SIBLING) {
-                expected.add(0);
-              }
-              if (position != InsertPosition.AS_LAST_CHILD) {
-                expected.add(99);
-              }
-              final StringWriter result = new StringWriter();
-              JsonSerializer.newBuilder(session, result).build().call();
-              assertEquals(expected, JsonParser.parseString(result.toString()));
-            }
+            assertCollectionWork(position, deweyIDs, storeDiffs, length, skipRoot);
           }
         }
       }
     }
+  }
+
+  private static void assertCollectionWork(final InsertPosition position, final boolean deweyIDs,
+      final boolean storeDiffs, final int length, final JsonNodeTrx.SkipRootToken skipRoot) throws Exception {
+    JsonTestHelper.deleteEverything();
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .hashKind(HashType.NONE)
+                                                              .useDeweyIDs(deweyIDs)
+                                                              .storeDiffs(storeDiffs)
+                                                              .build();
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var writer = session.beginNodeTrx(100_000)) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0,99]"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      final boolean sibling = position == InsertPosition.AS_LEFT_SIBLING || position == InsertPosition.AS_RIGHT_SIBLING;
+      final boolean skipped = skipRoot == JsonNodeTrx.SkipRootToken.YES;
+      final int roots = skipped
+          ? length
+          : 1;
+      assertTrue(writer.moveTo(sibling
+          ? 2
+          : 1));
+      final JsonArray inserted = new JsonArray();
+      for (int value = 0; value < length; value++) {
+        inserted.add(value + 100);
+      }
+      try (final CursorWork work = new CursorWork(writer);
+          final JsonReader reader = new ObservedReader(inserted.toString(), work)) {
+        final var capture = WorkCapture.of(work.boundaryReads, work.deweyReads, work.siblingMoves, work.childMoves)
+                                       .run(() -> insertSubtree(writer, reader, position, skipRoot));
+        assertCollectionCounts(capture, work, storeDiffs, skipped, sibling, roots, length);
+      }
+      assertEquals(storeDiffs
+          ? roots
+          : 0, IngestArrayPositionProbe.pendingDiffs(writer).size());
+      assertEquals(length + (skipped
+          ? 3
+          : 4), writer.getMaxNodeKey());
+      writer.commit();
+      final JsonArray expected = expectedContent(position, inserted, skipped);
+      final StringWriter result = new StringWriter();
+      JsonSerializer.newBuilder(session, result).build().call();
+      assertEquals(expected, JsonParser.parseString(result.toString()));
+    }
+  }
+
+  private static void insertSubtree(final JsonNodeTrx writer, final JsonReader reader, final InsertPosition position,
+      final JsonNodeTrx.SkipRootToken skipRoot) {
+    switch (position) {
+      case AS_FIRST_CHILD ->
+        writer.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, skipRoot);
+      case AS_LAST_CHILD ->
+        writer.insertSubtreeAsLastChild(reader, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, skipRoot);
+      case AS_LEFT_SIBLING ->
+        writer.insertSubtreeAsLeftSibling(reader, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, skipRoot);
+      case AS_RIGHT_SIBLING ->
+        writer.insertSubtreeAsRightSibling(reader, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, skipRoot);
+    }
+  }
+
+  private static void assertCollectionCounts(final WorkReport capture, final CursorWork work, final boolean storeDiffs,
+      final boolean skipped, final boolean sibling, final int roots, final int length) {
+    capture.assertExactly(work.boundaryReads, storeDiffs && skipped
+        ? 1
+        : 0, "disabled diff storage must not capture a sibling boundary")
+           .assertExactly(work.deweyReads, storeDiffs
+               ? roots
+               : 0, "disabled diff storage must not read inserted-root Dewey IDs after shredding")
+           .assertExactly(work.siblingMoves, (storeDiffs && skipped
+               ? length
+               : 0)
+               + (sibling
+                   ? 1
+                   : 0),
+               "only enabled collection may sweep the inserted siblings")
+           .assertExactly(work.childMoves, sibling
+               ? 0
+               : 1, "the counting cursor must observe the returned inserted root");
+  }
+
+  private static JsonArray expectedContent(final InsertPosition position, final JsonArray inserted,
+      final boolean skipped) {
+    final JsonArray expected = new JsonArray();
+    if (position == InsertPosition.AS_RIGHT_SIBLING || position == InsertPosition.AS_LAST_CHILD) {
+      expected.add(0);
+    }
+    if (position == InsertPosition.AS_LAST_CHILD) {
+      expected.add(99);
+    }
+    if (!skipped) {
+      expected.add(inserted);
+    } else if (position == InsertPosition.AS_LEFT_SIBLING) {
+      for (int index = inserted.size() - 1; index >= 0; index--) {
+        expected.add(inserted.get(index));
+      }
+    } else {
+      expected.addAll(inserted);
+    }
+    if (position == InsertPosition.AS_FIRST_CHILD || position == InsertPosition.AS_LEFT_SIBLING) {
+      expected.add(0);
+    }
+    if (position != InsertPosition.AS_LAST_CHILD) {
+      expected.add(99);
+    }
+    return expected;
   }
 
   private static final class ObservedReader extends JsonReader {
