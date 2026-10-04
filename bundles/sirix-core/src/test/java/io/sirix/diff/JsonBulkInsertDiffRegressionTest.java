@@ -1,6 +1,7 @@
 package io.sirix.diff;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
@@ -1484,7 +1485,8 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"replace_twice", "replace_then_move", "replace_then_delete", "new_then_replace"})
+  @ValueSource(strings = {"replace_twice", "replace_then_move", "replace_then_delete", "new_then_replace",
+      "move_then_replace"})
   void replacementAccumulationPreservesOriginalIdentity(final String action) throws Exception {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
@@ -1497,6 +1499,11 @@ final class JsonBulkInsertDiffRegressionTest {
             assertTrue(wtx.moveTo(1));
             wtx.insertObjectRecordAsLastChild("new", new StringValue("new"));
           } else {
+            assertTrue(wtx.moveTo(2));
+          }
+          if (action.equals("move_then_replace")) {
+            assertTrue(wtx.moveTo(3));
+            wtx.moveSubtreeToRightSibling(2);
             assertTrue(wtx.moveTo(2));
           }
           wtx.replaceObjectRecordValue(new NumberValue(10));
@@ -1519,6 +1526,7 @@ final class JsonBulkInsertDiffRegressionTest {
             case "replace_then_move" -> "{\"keep\":1,\"old\":100}";
             case "replace_then_delete" -> "{\"keep\":1}";
             case "new_then_replace" -> "{\"old\":{},\"keep\":1,\"new\":10}";
+            case "move_then_replace" -> "{\"keep\":1,\"old\":10}";
             default -> throw new AssertionError(action);
           };
           assertEquals(expected, serialize(session, 2));
@@ -1568,6 +1576,242 @@ final class JsonBulkInsertDiffRegressionTest {
           assertEquals("[1,2,3,4,5,6,7,8,9,10,11,12]", serialize(session, revision));
         }
         assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = InsertPosition.class, names = {"AS_FIRST_CHILD", "AS_LEFT_SIBLING", "AS_RIGHT_SIBLING"})
+  void compactDescendantReplacementSurvivesMovingOutsideItsRoot(final InsertPosition position) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      for (final boolean recompute : new boolean[] {false, true}) {
+        JsonTestHelper.deleteEverything();
+        try (final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+            final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+          seed(session, "{\"holder\":{},\"keep\":1}");
+          try (final var wtx = session.beginNodeTrx()) {
+            assertTrue(wtx.moveTo(1));
+            wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"a\":{\"x\":\"v\"}}"),
+                JsonNodeTrx.Commit.NO);
+            assertEquals(Set.of(new PendingOperation(DiffType.INSERTED, 4, 0)), pendingOperations(wtx));
+            assertTrue(wtx.moveTo(5));
+            wtx.replaceObjectRecordValue(new NumberValue(7));
+            assertEquals(6, wtx.getNodeKey());
+            assertTrue(wtx.moveTo(2));
+            wtx.insertObjectRecordAsFirstChild("before", new NumberValue(0));
+            wtx.insertObjectRecordAsRightSibling("after", new NumberValue(1));
+            switch (position) {
+              case AS_FIRST_CHILD -> {
+                assertTrue(wtx.moveTo(2));
+                wtx.moveSubtreeToFirstChild(6);
+              }
+              case AS_LEFT_SIBLING -> {
+                assertTrue(wtx.moveTo(8));
+                wtx.moveSubtreeToLeftSibling(6);
+              }
+              case AS_RIGHT_SIBLING -> {
+                assertTrue(wtx.moveTo(7));
+                wtx.moveSubtreeToRightSibling(6);
+              }
+              default -> throw new AssertionError(position);
+            }
+            assertChildLinks(wtx, 1, 2, 3, 4);
+            if (position == InsertPosition.AS_FIRST_CHILD) {
+              assertChildLinks(wtx, 2, 6, 7, 8);
+            } else {
+              assertChildLinks(wtx, 2, 7, 6, 8);
+            }
+            assertChildLinks(wtx, 4);
+            final Set<PendingOperation> pending = pendingOperations(wtx);
+            wtx.commit();
+            final JsonObject diff = readDiff(session, 1, 2);
+            assertEquals(Set.of(4L, 6L, 7L, 8L), operationKeys(diff, "insert"));
+            assertTrue(pending.contains(new PendingOperation(DiffType.INSERTED, 6, 0)));
+            assertEquals(Set.of(), operationKeys(diff, "delete"));
+            assertEquals(JsonParser.parseString("{\"holder\":{\"before\":0,\"x\":7,\"after\":1},"
+                + "\"keep\":1,\"a\":{}}"), JsonParser.parseString(serialize(session, 2)));
+            assertTrue(wtx.moveTo(6));
+            wtx.setNumberValue(70);
+            wtx.commit();
+            assertTrue(wtx.moveTo(7));
+            wtx.setNumberValue(10);
+            wtx.commit();
+          }
+          if (recompute) {
+            Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+          }
+          assertCopiedRevisions(session, deweyIDs);
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AfterCommitState.class,
+      names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_FLUSH", "KEEP_OPEN_ASYNC_COMMIT"})
+  void compactDescendantReplacementUsesTheEarliestBulkRevision(final AfterCommitState state) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        seed(session, "{\"holder\":{},\"keep\":1}");
+        try (final var wtx = session.beginNodeTrx(5, state)) {
+          assertTrue(wtx.moveTo(1));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(
+              "{\"a\":{\"x\":\"v\",\"padding\":[0,1,2,3,4,5,6]}}"), JsonNodeTrx.Commit.NO);
+          final int revision = wtx.getRevisionNumber();
+          assertTrue(wtx.moveTo(5));
+          wtx.replaceObjectRecordValue(new NumberValue(7));
+          assertEquals(14, wtx.getNodeKey());
+          assertEquals(revision, wtx.getRevisionNumber());
+          assertTrue(wtx.moveTo(2));
+          wtx.moveSubtreeToFirstChild(14);
+          wtx.commit();
+          wtx.awaitPendingAsyncCommit();
+          final JsonObject diff = readDiff(session, 1, revision);
+          assertEquals(Set.of(4L, 14L), operationKeys(diff, "insert"));
+          assertEquals(JsonParser.parseString("{\"holder\":{\"x\":7},\"keep\":1,"
+              + "\"a\":{\"padding\":[0,1,2,3,4,5,6]}}"), JsonParser.parseString(serialize(session, revision)));
+          assertTrue(wtx.moveTo(14));
+          wtx.setNumberValue(70);
+          wtx.commit();
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void compactDescendantReplacementChainRemainsAnInsertion(final boolean recompute) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        seed(session, "{\"holder\":{},\"keep\":1}");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(1));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"a\":{\"x\":\"v\"}}"),
+              JsonNodeTrx.Commit.NO);
+          assertTrue(wtx.moveTo(5));
+          wtx.replaceObjectRecordValue(new NumberValue(7));
+          wtx.replaceObjectRecordValue(new StringValue("again"));
+          wtx.replaceObjectRecordValue(new NumberValue(7));
+          assertEquals(8, wtx.getNodeKey());
+          assertTrue(wtx.moveTo(2));
+          wtx.moveSubtreeToFirstChild(8);
+          assertChildLinks(wtx, 2, 8);
+          assertChildLinks(wtx, 4);
+          wtx.commit();
+          assertEquals(Set.of(4L, 8L), operationKeys(readDiff(session, 1, 2), "insert"));
+          assertEquals("{\"holder\":{\"x\":7},\"keep\":1,\"a\":{}}", serialize(session, 2));
+          assertTrue(wtx.moveTo(8));
+          wtx.setNumberValue(70);
+          wtx.commit();
+        }
+        if (recompute) {
+          Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"delete_then_replace", "replacement_under_deleted_ancestor", "retained_descendant"})
+  void replacementDeletesCoalesceWithoutLosingSurvivingInserts(final String action) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      for (final boolean recompute : new boolean[] {false, true}) {
+        JsonTestHelper.deleteEverything();
+        try (final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+            final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+          final boolean retained = action.equals("retained_descendant");
+          seed(session, switch (action) {
+            case "delete_then_replace" -> "{\"a\":{\"x\":0},\"b\":1}";
+            case "replacement_under_deleted_ancestor" -> "{\"a\":{\"x\":{}},\"b\":1}";
+            case "retained_descendant" -> "{\"a\":{\"x\":{\"kept\":0,\"removed\":1}},\"b\":{}}";
+            default -> throw new AssertionError(action);
+          });
+          final long replacementKey = retained ? 7 : 5;
+          try (final var wtx = session.beginNodeTrx()) {
+            if (action.equals("replacement_under_deleted_ancestor")) {
+              assertTrue(wtx.moveTo(3));
+              wtx.replaceObjectRecordValue(new NumberValue(7));
+              assertTrue(wtx.moveTo(4));
+              wtx.moveSubtreeToRightSibling(5);
+              assertTrue(wtx.moveTo(2));
+              wtx.remove();
+              assertChildLinks(wtx, 1, 4, 5);
+            } else {
+              assertTrue(wtx.moveTo(retained ? 5 : 3));
+              wtx.remove();
+              if (retained) {
+                assertTrue(wtx.moveTo(6));
+                wtx.moveSubtreeToFirstChild(3);
+              }
+              assertTrue(wtx.moveTo(2));
+              wtx.replaceObjectRecordValue(new NumberValue(7));
+              assertEquals(replacementKey, wtx.getNodeKey());
+              assertChildLinks(wtx, 1, replacementKey, retained ? 6 : 4);
+              if (retained) {
+                assertChildLinks(wtx, 6, 3);
+                assertChildLinks(wtx, 3, 4);
+              }
+            }
+            wtx.commit();
+            final String expected = switch (action) {
+              case "delete_then_replace" -> "{\"a\":7,\"b\":1}";
+              case "replacement_under_deleted_ancestor" -> "{\"b\":1,\"x\":7}";
+              case "retained_descendant" -> "{\"a\":7,\"b\":{\"x\":{\"kept\":0}}}";
+              default -> throw new AssertionError(action);
+            };
+            assertEquals(expected, serialize(session, 2));
+            final JsonObject diff = readDiff(session, 1, 2);
+            assertNormalizedOperations(session, diff, retained ? Set.of(2L, 5L) : Set.of(2L),
+                retained ? Set.of(3L, 7L) : Set.of(5L));
+            assertTrue(wtx.moveTo(replacementKey));
+            wtx.setNumberValue(70);
+            wtx.commit();
+            if (retained) {
+              assertTrue(wtx.moveTo(4));
+              wtx.setNumberValue(100);
+              wtx.commit();
+            }
+          }
+          if (recompute) {
+            Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+          }
+          assertCopiedRevisions(session, deweyIDs);
+        }
+      }
+    }
+  }
+
+  private static void assertNormalizedOperations(final JsonResourceSession session, final JsonObject diff,
+      final Set<Long> deletes, final Set<Long> inserts) {
+    try (final var previousRevision = session.beginNodeReadOnlyTrx(1);
+        final var newRevision = session.beginNodeReadOnlyTrx(2)) {
+      final JsonArray forward = diff.getAsJsonArray("diffs");
+      final JsonArray reverse = new JsonArray(forward.size());
+      final JsonArray repeatedDeletes = new JsonArray(forward.size());
+      for (int index = forward.size() - 1; index >= 0; index--) {
+        reverse.add(forward.get(index));
+      }
+      for (final var operation : forward) {
+        repeatedDeletes.add(operation);
+        if (operation.getAsJsonObject().has("delete")) {
+          repeatedDeletes.add(operation);
+        }
+      }
+      for (final JsonArray operations : new JsonArray[] {forward, reverse, repeatedDeletes}) {
+        final JsonObject normalized = new JsonObject();
+        normalized.add("diffs", JsonDiffSidecar.normalizeReplacements(operations, previousRevision, newRevision));
+        assertEquals(deletes, operationKeys(normalized, "delete"));
+        assertEquals(inserts, operationKeys(normalized, "insert"));
       }
     }
   }

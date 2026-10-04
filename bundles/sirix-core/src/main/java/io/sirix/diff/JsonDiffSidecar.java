@@ -10,6 +10,9 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.node.SirixDeweyID;
+import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
@@ -28,8 +31,10 @@ public final class JsonDiffSidecar {
     throw new AssertionError("No instances");
   }
 
-  public static JsonArray normalizeReplacements(final JsonArray diffs, final JsonNodeReadOnlyTrx newRevision) {
+  public static JsonArray normalizeReplacements(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision,
+      final JsonNodeReadOnlyTrx newRevision) {
     requireNonNull(diffs);
+    requireNonNull(previousRevision);
     requireNonNull(newRevision);
     boolean hasReplacements = false;
     for (final var operation : diffs) {
@@ -39,7 +44,7 @@ public final class JsonDiffSidecar {
       }
     }
     if (!hasReplacements) {
-      return diffs;
+      return coalesceDeletes(diffs, previousRevision, newRevision);
     }
     final var normalized = new JsonArray(diffs.size());
     for (final var operation : diffs) {
@@ -71,7 +76,72 @@ public final class JsonDiffSidecar {
       deleted.add("delete", delete);
       normalized.add(deleted);
     }
+    return coalesceDeletes(normalized, previousRevision, newRevision);
+  }
+
+  static JsonArray coalesceDeletes(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision,
+      final JsonNodeReadOnlyTrx newRevision) {
+    Long2IntOpenHashMap roots = null;
+    int deletionCount = 0;
+    for (int index = 0; index < diffs.size(); index++) {
+      final JsonObject operation = diffs.get(index).getAsJsonObject();
+      if ((operation.has("delete") || operation.has("replace")) && roots == null) {
+        roots = new Long2IntOpenHashMap();
+        roots.defaultReturnValue(-1);
+      }
+      if (operation.has("delete")) {
+        roots.putIfAbsent(operation.getAsJsonObject("delete").get("nodeKey").getAsLong(), index);
+        deletionCount++;
+      } else if (operation.has("replace")) {
+        roots.put(operation.getAsJsonObject("replace").get("oldNodeKey").getAsLong(), index);
+        deletionCount++;
+      }
+    }
+    if (roots == null || deletionCount < 2) {
+      return diffs;
+    }
+    final var normalized = new JsonArray(diffs.size());
+    final var cache = new Long2BooleanOpenHashMap();
+    final var path = new LongArrayList(0);
+    for (int index = 0; index < diffs.size(); index++) {
+      final JsonObject operation = diffs.get(index).getAsJsonObject();
+      if (operation.has("delete")) {
+        final long nodeKey = operation.getAsJsonObject("delete").get("nodeKey").getAsLong();
+        if (roots.get(nodeKey) != index || previousRevision.moveTo(nodeKey)
+            && hasRemovedAncestor(previousRevision, newRevision, roots, cache, path)) {
+          continue;
+        }
+      }
+      normalized.add(operation);
+    }
     return normalized;
+  }
+
+  private static boolean hasRemovedAncestor(final JsonNodeReadOnlyTrx previousRevision,
+      final JsonNodeReadOnlyTrx newRevision, final Long2IntOpenHashMap roots,
+      final Long2BooleanOpenHashMap cache, final LongArrayList path) {
+    boolean deleted = false;
+    while (previousRevision.moveToParent()) {
+      final long key = previousRevision.getNodeKey();
+      if (cache.containsKey(key)) {
+        deleted = cache.get(key);
+        break;
+      }
+      final boolean retained = newRevision.moveTo(key);
+      if (retained && newRevision.getParentKey() != previousRevision.getParentKey()) {
+        break;
+      }
+      if (roots.containsKey(key)) {
+        deleted = !retained;
+        break;
+      }
+      path.add(key);
+    }
+    for (int index = 0; index < path.size(); index++) {
+      cache.put(path.getLong(index), deleted);
+    }
+    path.clear();
+    return deleted;
   }
 
   public static LongSet retainedNodeKeys(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision) {

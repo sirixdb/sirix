@@ -1089,14 +1089,26 @@ final class JsonNodeTrxImpl extends
     if (!resourceSession.getResourceConfig().storeDiffs()) {
       return;
     }
-    if (oldNodeKey == 0) {
+    updateOperationsUnordered.remove(-oldNodeKey);
+    if (!wasPresentInDiffBase(oldNodeKey)) {
       adaptUpdateOperationsForInsert(id, newNodeKey);
       return;
     }
-    updateOperationsUnordered.remove(-oldNodeKey);
     updateOperationsUnordered.put(newNodeKey,
         new DiffTuple(DiffFactory.DiffType.REPLACEDNEW, newNodeKey, oldNodeKey, id == null
-            ? null : new DiffDepth(id.getLevel(), id.getLevel())));
+          ? null : new DiffDepth(id.getLevel(), id.getLevel())));
+  }
+
+  private boolean wasPresentInDiffBase(final long nodeKey) {
+    final int revision = diffStartingRevision(getRevisionNumber());
+    if (revision == 0
+        || nodeKey > storageEngineWriter.loadRevRoot(revision).getMaxNodeKeyInDocumentIndex()) {
+      return false;
+    }
+    awaitPendingAsyncCommit();
+    try (final var previousRevision = resourceSession.beginNodeReadOnlyTrx(revision)) {
+      return previousRevision.moveTo(nodeKey);
+    }
   }
 
   private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
@@ -2218,11 +2230,8 @@ final class JsonNodeTrxImpl extends
 
       final String keyName = getName().getLocalName();
       final DiffTuple pending = updateOperationsUnordered.get(nodeKey);
-      final long oldValueNodeKey = pending == null ? nodeKey : switch (pending.getDiff()) {
-        case INSERTED -> 0;
-        case REPLACEDNEW -> pending.getOldNodeKey();
-        default -> nodeKey;
-      };
+      final long oldValueNodeKey = pending != null && pending.getDiff() == DiffFactory.DiffType.REPLACEDNEW
+          ? pending.getOldNodeKey() : nodeKey;
       final boolean hasLeft = hasLeftSibling();
       final long anchorKey = hasLeft
           ? getLeftSiblingKey()
@@ -4290,9 +4299,7 @@ final class JsonNodeTrxImpl extends
   }
 
   private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
-    final int oldRevisionNumber = beforeBulkInsertionRevisionNumber < 0
-        ? revisionNumber - 1
-        : beforeBulkInsertionRevisionNumber;
+    final int oldRevisionNumber = diffStartingRevision(revisionNumber);
     if (!nodeHashing.isBulkInsert() && oldRevisionNumber > 0) {
 
       final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
@@ -4328,6 +4335,10 @@ final class JsonNodeTrxImpl extends
         throw new UncheckedIOException(e);
       }
     }
+  }
+
+  private int diffStartingRevision(final int revisionNumber) {
+    return beforeBulkInsertionRevisionNumber < 0 ? revisionNumber - 1 : beforeBulkInsertionRevisionNumber;
   }
 
   @Override

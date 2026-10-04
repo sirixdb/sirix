@@ -234,7 +234,7 @@ public final class JsonResourceCopy implements Callable<Void> {
                                 .getAsJsonObject();
           }
 
-          replay(JsonDiffSidecar.normalizeReplacements(sidecar.getAsJsonArray("diffs"), rtxOnRevision),
+          replay(JsonDiffSidecar.normalizeReplacements(sidecar.getAsJsonArray("diffs"), previousRevision, rtxOnRevision),
               previousRevision, rtxOnRevision);
           wtx.commit();
         }
