@@ -471,13 +471,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     requireNonNull(name);
     requireNonNull(pathKind);
 
-    // Use O(1) cache lookup instead of O(n) ChildAxis iteration
-    // The child name for lookup - handle namespace prefix case
-    final QNm lookupName = pathKind == NodeKind.NAMESPACE
-        ? new QNm(name.getPrefix())
-        : name;
-
-    final long childNodeKey = pathSummaryReader.findChild(parentNodeKey, lookupName, pathKind);
+    final long childNodeKey = pathSummaryReader.findChild(parentNodeKey, name, pathKind);
 
     long retVal;
     if (childNodeKey >= 0) {

@@ -86,13 +86,13 @@ final class PathSummaryMoveTest {
         final String secondParent = shared
             ? "a"
             : "b";
+        final String namespaces = " xmlns:p=\"urn:p\" xmlns:q=\"urn:p\"";
         final String extra = shared
-            ? "<child><leaf/></child>"
+            ? "<child" + namespaces + "><leaf/></child>"
             : "";
-        final String xml =
-            "<root><a><target/><child xmlns:p=\"urn:p\" id=\"1\"><branch><leaf/><leaf/></branch><leaf/><leaf/></child>"
-                + extra + "<last/></a><" + secondParent + "><child><other/></child><target/><last/></" + secondParent
-                + "></root>";
+        final String xml = "<root><a><target/><child" + namespaces
+            + " id=\"1\"><branch><leaf/><leaf/></branch><leaf/><leaf/></child>" + extra + "<last/></a><" + secondParent
+            + "><child" + namespaces + "><other/></child><target/><last/></" + secondParent + "></root>";
         trx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(xml), XmlNodeTrx.Commit.No);
         trx.commit();
         final long sourceParent = namedKeys(trx, "a").getFirst();
