@@ -442,9 +442,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     } else {
       position = InsertPosition.AS_FIRST_CHILD;
     }
-    if (key <= wtx.getMaxNodeKey()) {
-      throw new IllegalStateException("JSON revision copy already allocated node " + key);
-    }
+    // Deleted keys below the frontier can become live again after a revert. copyNodeWithKey
+    // rejects live collisions and preserves the frontier when importing such a key.
     wtx.copyNodeWithKey(source, position);
   }
 

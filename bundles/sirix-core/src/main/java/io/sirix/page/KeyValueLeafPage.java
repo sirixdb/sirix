@@ -1401,6 +1401,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Directory entry
     PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes, nodeKindId);
+    // The new slot bytes supersede any cached record, including an in-transaction tombstone.
+    // Readers and prepareRecordForModification consult records[] before the slotted page.
+    if (records != null) {
+      records[slotOffset] = null;
+    }
     clearSlotPreservation(slotOffset);
 
     // Bitmap
