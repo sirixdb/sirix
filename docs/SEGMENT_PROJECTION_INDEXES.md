@@ -2060,7 +2060,8 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 `sirix.projection.bulkDiag`, `sirix.segBuildDiag`, `sirix.projection.verifyDirectAssembly` (parity check),
 `sirix.hft.telemetry`, `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
 `sirix.chunkedBody.diag`, `sirix.projection.groupPasses.planDiag`, `sirix.debug.ast`.
-Valid-time ordered-store scan diagnostics are cataloged with their gating requirements in the
+Valid-time interval/posting references emitted, posting lookups, and compressed posting chunks read
+are gated by `sirix.validTime.scanDiag` in `HotOrderedStore` and cataloged with their requirements in the
 [work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
 
 **Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one

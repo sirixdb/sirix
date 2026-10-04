@@ -36,7 +36,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
       final boolean strictStart, final boolean strictEnd, final @Nullable Predicate<? super JsonDBObject> residual,
-      final int indexId, final @Nullable Evidence evidence) {
+      final int indexId) {
     this.document = document;
     this.instant = instant;
     this.config = config;
@@ -44,7 +44,6 @@ final class ValidTimeKeySequence extends AbstractSequence {
     this.strictEnd = strictEnd;
     this.residual = residual;
     this.indexId = indexId;
-    this.evidence = evidence;
     exactPoint = new IntervalDomain().isExact(instant);
   }
 
@@ -55,9 +54,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
         candidates = LongArrays.EMPTY_ARRAY;
         return candidates;
       }
-      if (evidence == null) {
-        evidence = ValidTimeIntervalIndex.readEvidence(document, indexId);
-      }
+      evidence = ValidTimeIntervalIndex.readEvidence(document, indexId, closed);
       candidates =
           ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
     }

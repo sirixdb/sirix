@@ -39,7 +39,7 @@ public final class ValidTimeIntervalIndexFactory {
   }
 
   /** Revisioned posting of intervals that cannot be answered from millisecond endpoints alone. */
-  public static OrderedStore createVerificationStore(final StorageEngineReader storageEngineReader,
+  public static HotOrderedStore createVerificationStore(final StorageEngineReader storageEngineReader,
       final int indexNumber) {
     final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(storageEngineReader,
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber));
@@ -47,14 +47,14 @@ public final class ValidTimeIntervalIndexFactory {
   }
 
   /** Read the revisioned record membership of an array or document root without node navigation. */
-  public static OrderedStore createMembershipStore(final StorageEngineReader storageEngineReader,
+  public static HotOrderedStore createMembershipStore(final StorageEngineReader storageEngineReader,
       final int indexNumber) {
     return new HotOrderedStore(ValidTimeKey.STORE_MEMBERS, null, HOTIndexReader.create(storageEngineReader,
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber)));
   }
 
   /** Conservative, revisioned order guard for replacing an ordered array iteration by sorted keys. */
-  public static OrderedStore createOrderStore(final StorageEngineReader storageEngineReader, final int indexNumber) {
+  public static HotOrderedStore createOrderStore(final StorageEngineReader storageEngineReader, final int indexNumber) {
     return new HotOrderedStore(ValidTimeKey.STORE_UNORDERED, null, HOTIndexReader.create(storageEngineReader,
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, metadataIndex(indexNumber)));
   }

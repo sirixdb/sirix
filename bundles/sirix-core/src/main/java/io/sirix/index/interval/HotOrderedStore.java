@@ -5,11 +5,16 @@
  */
 package io.sirix.index.interval;
 
+import io.sirix.access.trx.page.HOTRangeCursor;
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.index.hot.HOTIndexReader;
+import io.sirix.index.hot.HOTKeySerializer;
+import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -50,6 +55,8 @@ public final class HotOrderedStore implements OrderedStore {
   private static final boolean SCAN_DIAGNOSTICS = Boolean.getBoolean("sirix.validTime.scanDiag");
   private static final LongAdder INTERVAL_REFS_EMITTED = new LongAdder();
   private static final LongAdder POSTING_REFS_EMITTED = new LongAdder();
+  private static final LongAdder POSTING_LOOKUPS = new LongAdder();
+  private static final LongAdder POSTING_CHUNKS_READ = new LongAdder();
 
   public static boolean scanDiagnosticsEnabled() {
     return SCAN_DIAGNOSTICS;
@@ -61,6 +68,14 @@ public final class HotOrderedStore implements OrderedStore {
 
   public static long postingRefsEmitted() {
     return POSTING_REFS_EMITTED.sum();
+  }
+
+  public static long postingLookups() {
+    return POSTING_LOOKUPS.sum();
+  }
+
+  public static long postingChunksRead() {
+    return POSTING_CHUNKS_READ.sum();
   }
 
   private final byte store;
@@ -101,6 +116,106 @@ public final class HotOrderedStore implements OrderedStore {
     final ValidTimeKey from = new ValidTimeKey(store, forkNode, endpointLo);
     final ValidTimeKey to = new ValidTimeKey(store, forkNode, endpointHi);
     scan(from, to, out);
+  }
+
+  public @Nullable NodeReferences chunk(final long forkNode, final long endpoint, final long ref) {
+    if (ref < 0 || (ref >>> 48) != 0) {
+      throw new IllegalArgumentException("Reference exceeds the HOT chunk domain: " + ref);
+    }
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    if (SCAN_DIAGNOSTICS) {
+      POSTING_LOOKUPS.increment();
+    }
+    final var root = r.getRootReference();
+    if (root == null) {
+      return null;
+    }
+    final byte[] key = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(new ValidTimeKey(store, forkNode, endpoint),
+        (int) (ref >>> 16), key, 0);
+    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
+        final HOTRangeCursor cursor = trie.range(root, key, key)) {
+      return cursor.hasNext()
+          ? postingChunk(cursor.next())
+          : null;
+    }
+  }
+
+  public long cardinality(final long forkNode, final long endpoint) {
+    return cardinality(forkNode, endpoint, false);
+  }
+
+  public boolean hasReferences(final long forkNode, final long endpoint) {
+    return cardinality(forkNode, endpoint, true) != 0;
+  }
+
+  public boolean intersects(final long forkNode, final long endpoint, final HotOrderedStore other,
+      final long otherForkNode, final long otherEndpoint) {
+    requireNonNull(other);
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    if (SCAN_DIAGNOSTICS) {
+      POSTING_LOOKUPS.increment();
+    }
+    final var root = r.getRootReference();
+    if (root == null) {
+      return false;
+    }
+    final ValidTimeKey key = new ValidTimeKey(store, forkNode, endpoint);
+    final byte[] from = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    final byte[] to = new byte[from.length];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
+    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
+        final HOTRangeCursor cursor = trie.range(root, from, to)) {
+      while (cursor.hasNext()) {
+        final HOTRangeCursor.Entry entry = cursor.next();
+        final NodeReferences refs = postingChunk(entry);
+        if (!refs.hasNodeKeys()) {
+          continue;
+        }
+        final byte[] composite = entry.keyBytes();
+        final long chunkBase = (HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL) << 16;
+        final NodeReferences otherRefs = other.chunk(otherForkNode, otherEndpoint, chunkBase);
+        if (otherRefs != null && Roaring64Bitmap.intersects(refs.getNodeKeys(), otherRefs.getNodeKeys())) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private long cardinality(final long forkNode, final long endpoint, final boolean stopAtFirst) {
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    if (SCAN_DIAGNOSTICS) {
+      POSTING_LOOKUPS.increment();
+    }
+    final var root = r.getRootReference();
+    if (root == null) {
+      return 0;
+    }
+    final ValidTimeKey key = new ValidTimeKey(store, forkNode, endpoint);
+    final byte[] from = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    final byte[] to = new byte[from.length];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
+    long count = 0;
+    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
+        final HOTRangeCursor cursor = trie.range(root, from, to)) {
+      while (cursor.hasNext()) {
+        count += postingChunk(cursor.next()).cardinality();
+        if (stopAtFirst && count != 0) {
+          break;
+        }
+      }
+    }
+    return count;
+  }
+
+  private static NodeReferences postingChunk(final HOTRangeCursor.Entry entry) {
+    if (SCAN_DIAGNOSTICS) {
+      POSTING_CHUNKS_READ.increment();
+    }
+    return NodeReferencesSerializer.deserializeChunk(entry.valueBytes());
   }
 
   @Override

@@ -13,6 +13,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Signature;
+import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AtomicType;
@@ -21,6 +22,7 @@ import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.AbstractSequence;
 import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -94,6 +96,13 @@ public final class ScanValidTimeIndex extends AbstractFunction {
 
     final JsonDBItem document = (JsonDBItem) args[0];
 
+    if (args.length == 5) {
+      final String from = ((Str) args[2]).stringValue();
+      final String to = ((Str) args[3]).stringValue();
+      final int mode = ((IntNumeric) args[4]).intValue();
+      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode);
+    }
+
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
@@ -101,13 +110,6 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     if (validTimeConfig == null) {
       throw new QueryException(new QNm("Resource does not have valid time configuration. "
           + "Configure valid time paths when creating the resource."));
-    }
-
-    if (args.length == 5) {
-      final String from = ((Str) args[2]).stringValue();
-      final String to = ((Str) args[3]).stringValue();
-      final int mode = ((IntNumeric) args[4]).intValue();
-      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode);
     }
 
     final Instant validTime = dateTimeToInstant.convert((DateTime) args[1]);
@@ -122,10 +124,14 @@ public final class ScanValidTimeIndex extends AbstractFunction {
     return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 
-  public static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx, final JsonDBItem document,
-      final Supplier<Sequence> point, final String from, final String to, final int mode) {
+  public static Sequence comparisonScan(final StaticContext sctx, final QueryContext ctx,
+      final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
+      final int mode) {
     if (mode < 0 || mode > 127) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
+    }
+    if (!(document instanceof Array array) || array.len() == 0) {
+      return new ItemSequence();
     }
     return new AbstractSequence() {
       private @Nullable Sequence selected;
