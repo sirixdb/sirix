@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.path.Path;
