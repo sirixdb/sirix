@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -466,7 +467,7 @@ final class JsonBulkInsertDiffRegressionTest {
                   : 0;
             default -> throw new AssertionError();
           };
-          final long movedKey = movedValue + 2;
+          final long movedKey = movedValue + 2L;
           try (final var wtx = session.beginNodeTrx()) {
             assertTrue(wtx.moveTo(array));
             if (bulkPosition == InsertPosition.AS_LEFT_SIBLING || bulkPosition == InsertPosition.AS_RIGHT_SIBLING) {
@@ -1259,8 +1260,9 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   private static void assertRecomputedRetainsNode(final JsonResourceSession source, final long nodeKey) {
-    final String databaseName =
-        source.getResourceConfig().getResource().getParent().getParent().getFileName().toString();
+    final Path databasePath =
+        requireNonNull(requireNonNull(source.getResourceConfig().getResource().getParent()).getParent());
+    final String databaseName = databasePath.getFileName().toString();
     final JsonObject diff =
         JsonParser.parseString(new BasicJsonDiff(databaseName).generateDiffForReplay(source, 1, 2)).getAsJsonObject();
     try (final var previousRevision = source.beginNodeReadOnlyTrx(1)) {

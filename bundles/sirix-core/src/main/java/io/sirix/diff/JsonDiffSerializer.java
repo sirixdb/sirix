@@ -277,7 +277,7 @@ public final class JsonDiffSerializer {
         insertCount++;
       }
     }
-    if (insertCount < 2 || ordered && !hasRetainedKeys) {
+    if (insertCount < 2 || (ordered && !hasRetainedKeys)) {
       return;
     }
     final LongSet retainedKeys = hasRetainedKeys

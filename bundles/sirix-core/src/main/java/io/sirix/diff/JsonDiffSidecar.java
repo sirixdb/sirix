@@ -66,7 +66,9 @@ public final class JsonDiffSidecar {
       insert.addProperty("insertPositionNodeKey", newRevision.hasLeftSibling()
           ? newRevision.getLeftSiblingKey()
           : newRevision.getParentKey());
-      insert.addProperty("insertPosition", newRevision.hasLeftSibling() ? "asRightSibling" : "asFirstChild");
+      insert.addProperty("insertPosition", newRevision.hasLeftSibling()
+          ? "asRightSibling"
+          : "asFirstChild");
       final var inserted = new JsonObject();
       inserted.add("insert", insert);
       normalized.add(inserted);
@@ -85,15 +87,17 @@ public final class JsonDiffSidecar {
     int deletionCount = 0;
     for (int index = 0; index < diffs.size(); index++) {
       final JsonObject operation = diffs.get(index).getAsJsonObject();
-      if ((operation.has("delete") || operation.has("replace")) && roots == null) {
-        roots = new Long2IntOpenHashMap();
-        roots.defaultReturnValue(-1);
-      }
-      if (operation.has("delete")) {
-        roots.putIfAbsent(operation.getAsJsonObject("delete").get("nodeKey").getAsLong(), index);
-        deletionCount++;
-      } else if (operation.has("replace")) {
-        roots.put(operation.getAsJsonObject("replace").get("oldNodeKey").getAsLong(), index);
+      final boolean delete = operation.has("delete");
+      if (delete || operation.has("replace")) {
+        if (roots == null) {
+          roots = new Long2IntOpenHashMap();
+          roots.defaultReturnValue(-1);
+        }
+        if (delete) {
+          roots.putIfAbsent(operation.getAsJsonObject("delete").get("nodeKey").getAsLong(), index);
+        } else {
+          roots.put(operation.getAsJsonObject("replace").get("oldNodeKey").getAsLong(), index);
+        }
         deletionCount++;
       }
     }
@@ -107,8 +111,8 @@ public final class JsonDiffSidecar {
       final JsonObject operation = diffs.get(index).getAsJsonObject();
       if (operation.has("delete")) {
         final long nodeKey = operation.getAsJsonObject("delete").get("nodeKey").getAsLong();
-        if (roots.get(nodeKey) != index || previousRevision.moveTo(nodeKey)
-            && hasRemovedAncestor(previousRevision, newRevision, roots, cache, path)) {
+        if (roots.get(nodeKey) != index || (previousRevision.moveTo(nodeKey)
+            && hasRemovedAncestor(previousRevision, newRevision, roots, cache, path))) {
           continue;
         }
       }
@@ -118,8 +122,8 @@ public final class JsonDiffSidecar {
   }
 
   private static boolean hasRemovedAncestor(final JsonNodeReadOnlyTrx previousRevision,
-      final JsonNodeReadOnlyTrx newRevision, final Long2IntOpenHashMap roots,
-      final Long2BooleanOpenHashMap cache, final LongArrayList path) {
+      final JsonNodeReadOnlyTrx newRevision, final Long2IntOpenHashMap roots, final Long2BooleanOpenHashMap cache,
+      final LongArrayList path) {
     boolean deleted = false;
     while (previousRevision.moveToParent()) {
       final long key = previousRevision.getNodeKey();
@@ -148,20 +152,22 @@ public final class JsonDiffSidecar {
     requireNonNull(diffs);
     requireNonNull(previousRevision);
     final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
-    LongSet retainedKeys = LongSets.EMPTY_SET;
+    LongOpenHashSet retainedKeys = null;
     for (final var operation : diffs) {
       final JsonObject object = operation.getAsJsonObject();
       if (object.has("insert")) {
         final long nodeKey = object.getAsJsonObject("insert").get("nodeKey").getAsLong();
         if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
-          if (retainedKeys == LongSets.EMPTY_SET) {
+          if (retainedKeys == null) {
             retainedKeys = new LongOpenHashSet();
           }
           retainedKeys.add(nodeKey);
         }
       }
     }
-    return retainedKeys;
+    return retainedKeys == null
+        ? LongSets.EMPTY_SET
+        : retainedKeys;
   }
 
   /**

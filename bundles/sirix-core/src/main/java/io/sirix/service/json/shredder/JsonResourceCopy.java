@@ -159,8 +159,8 @@ public final class JsonResourceCopy implements Callable<Void> {
 
     /**
      * Copy and commit the initial source revision and each later revision up to the most recent
-     * revision. Source node keys are preserved for replay; the destination must not already contain
-     * any key being copied. Snapshot-only copying instead allocates destination keys normally.
+     * revision. Source node keys are preserved for replay; the destination must not already contain any
+     * key being copied. Snapshot-only copying instead allocates destination keys normally.
      *
      * @return this builder instance
      */

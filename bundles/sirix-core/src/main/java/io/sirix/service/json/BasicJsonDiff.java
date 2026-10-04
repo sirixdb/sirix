@@ -138,7 +138,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         }
         final long nodeKey = tuple.getNewNodeKey();
         if (tuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW && (newRevision.moveTo(tuple.getOldNodeKey())
-            || nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey))) {
+            || (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)))) {
           normalizeReplacement(index, tuple, newRevision);
           continue;
         }
@@ -180,7 +180,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     }
     while (true) {
       final long nodeKey = newRevision.getNodeKey();
-      if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey) || nodeKey < greatestNewKey) {
+      if ((nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) || nodeKey < greatestNewKey) {
         diffListener(DiffFactory.DiffType.INSERTED, nodeKey, 0, new DiffDepth(0, 0));
       } else if (newRevision.moveToFirstChild()) {
         greatestNewKey = Math.max(greatestNewKey, nodeKey);
