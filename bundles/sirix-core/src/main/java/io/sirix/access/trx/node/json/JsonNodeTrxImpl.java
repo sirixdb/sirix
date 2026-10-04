@@ -1126,6 +1126,9 @@ final class JsonNodeTrxImpl extends
         ? null
         : new DiffDepth(newDeweyID.getLevel(), 0));
     if (oldDeweyID != null && newDeweyID != null) {
+      updateOperationsOrdered.values()
+                             .removeIf(tuple -> tuple.getDiff() == DiffFactory.DiffType.INSERTED
+                                 && tuple.getNewNodeKey() == nodeKey);
       updateOperationsOrdered.put(oldDeweyID, deleteTuple);
       updateOperationsOrdered.put(newDeweyID, insertTuple);
     } else {

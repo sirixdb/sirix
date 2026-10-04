@@ -32,22 +32,34 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.visitor.JsonNodeVisitor;
+import io.sirix.api.visitor.VisitResult;
+import io.sirix.api.visitor.VisitResultType;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
+import io.sirix.axis.visitor.VisitorDescendantAxis;
 import io.sirix.diff.JsonDiffSidecar;
 import io.sirix.node.NodeKind;
+import io.sirix.node.immutable.json.ImmutableArrayNode;
+import io.sirix.node.immutable.json.ImmutableObjectNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -191,14 +203,15 @@ public final class JsonResourceCopy implements Callable<Void> {
 
     long previousKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-    insert(moveToParent, first, previousKey);
+    insert(moveToParent, first, previousKey, LongSets.EMPTY_SET);
 
     if (copyAllRevisionsUpToMostRecent) {
       wtx.commit();
 
       for (var revision = rtx.getRevisionNumber() + 1; revision <= rtx.getResourceSession()
                                                                       .getMostRecentRevisionNumber(); revision++) {
-        try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision)) {
+        try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision);
+            final var previousRevision = readResourceSession.beginNodeReadOnlyTrx(revision - 1)) {
           // Validate the raw sidecar once, but do not hydrate jsonFragment operations into full
           // strings: replay copies those subtrees directly from rtxOnRevision and must stay bounded.
           final var updateOperationsFile =
@@ -222,24 +235,42 @@ public final class JsonResourceCopy implements Callable<Void> {
                                 .getAsJsonObject();
           }
 
+          final var retainedNodeKeys = JsonDiffSidecar.retainedNodeKeys(sidecar.getAsJsonArray("diffs"), previousRevision);
           for (final var diffsElement : sidecar.getAsJsonArray("diffs")) {
             final JsonObject diffsObject = diffsElement.getAsJsonObject();
             if (diffsObject.has(INSERT)) {
               final JsonObject insertObject = diffsObject.getAsJsonObject(INSERT);
-              executeInsert(insertObject, rtxOnRevision);
+              if (retainedNodeKeys.contains(insertObject.get("nodeKey").getAsLong())) {
+                executeMove(insertObject, rtxOnRevision);
+              } else {
+                executeInsert(insertObject, rtxOnRevision, retainedNodeKeys);
+              }
             } else if (diffsObject.has(REPLACE)) {
               final JsonObject replaceObject = diffsObject.getAsJsonObject(REPLACE);
-              executeReplace(replaceObject, rtxOnRevision);
+              executeReplace(replaceObject, rtxOnRevision, retainedNodeKeys);
             } else if (diffsObject.has(UPDATE)) {
               final JsonObject updateObject = diffsObject.getAsJsonObject(UPDATE);
               executeUpdate(updateObject, rtxOnRevision);
             } else if (diffsObject.has(DELETE)) {
               final JsonObject deleteObject = diffsObject.getAsJsonObject(DELETE);
               final long nodeKey = deleteObject.get("nodeKey").getAsLong();
-              executeDelete(nodeKey);
+              if (retainedNodeKeys.isEmpty()) {
+                executeDelete(nodeKey);
+              }
             }
           }
 
+          if (!retainedNodeKeys.isEmpty()) {
+            for (final var operation : sidecar.getAsJsonArray("diffs")) {
+              final JsonObject object = operation.getAsJsonObject();
+              if (object.has(DELETE)) {
+                final long nodeKey = object.getAsJsonObject(DELETE).get("nodeKey").getAsLong();
+                if (!retainedNodeKeys.contains(nodeKey)) {
+                  executeDelete(nodeKey);
+                }
+              }
+            }
+          }
           wtx.commit();
         }
       }
@@ -275,7 +306,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void executeReplace(JsonObject replaceObject, JsonNodeReadOnlyTrx rtxOnRevision) {
+  private void executeReplace(JsonObject replaceObject, JsonNodeReadOnlyTrx rtxOnRevision,
+      final LongSet retainedNodeKeys) {
     final var oldNodeKey = replaceObject.get("oldNodeKey").getAsLong();
     final var newNodeKey = replaceObject.get("newNodeKey").getAsLong();
     final var type = replaceObject.get("type").getAsString();
@@ -307,7 +339,7 @@ public final class JsonResourceCopy implements Callable<Void> {
     } else {
       wtx.remove();
 
-      insert(type, rtxOnRevision, insertPosition);
+      insert(type, rtxOnRevision, insertPosition, retainedNodeKeys);
     }
   }
 
@@ -332,7 +364,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void executeInsert(JsonObject insertObject, JsonNodeReadOnlyTrx rtxOnRevision) {
+  private void executeInsert(JsonObject insertObject, JsonNodeReadOnlyTrx rtxOnRevision,
+      final LongSet retainedNodeKeys) {
     final var key = insertObject.get("nodeKey").getAsLong();
     final var insertPosition = insertObject.get("insertPosition").getAsString();
     final var insertPositionNodeKey = insertObject.get("insertPositionNodeKey").getAsLong();
@@ -340,13 +373,49 @@ public final class JsonResourceCopy implements Callable<Void> {
     requireMove(wtx.moveTo(insertPositionNodeKey), "insert destination", insertPositionNodeKey);
     requireMove(rtxOnRevision.moveTo(key), "insert source", key);
 
-    insert(type, rtxOnRevision, insertPosition);
+    insert(type, rtxOnRevision, insertPosition, retainedNodeKeys);
   }
 
-  private void insert(String type, JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition) {
+  private void executeMove(final JsonObject moveObject, final JsonNodeReadOnlyTrx source) {
+    final long nodeKey = moveObject.get("nodeKey").getAsLong();
+    final long anchor = moveObject.get("insertPositionNodeKey").getAsLong();
+    requireMove(wtx.moveTo(anchor), "move destination", anchor);
+    requireMove(source.moveTo(nodeKey), "move source", nodeKey);
+    switch (InsertPosition.ofString(moveObject.get("insertPosition").getAsString())) {
+      case AS_FIRST_CHILD -> wtx.moveSubtreeToFirstChild(nodeKey);
+      case AS_RIGHT_SIBLING -> wtx.moveSubtreeToRightSibling(nodeKey);
+      default -> throw new IllegalStateException("Unsupported replay move position");
+    }
+    requireMove(wtx.moveTo(nodeKey), "moved destination", nodeKey);
+    if (source.getKind().playsObjectKeyRole() && !Objects.equals(wtx.getName(), source.getName())) {
+      wtx.setObjectKeyName(source.getName().getLocalName());
+    }
+    switch (source.getKind()) {
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> {
+        if (wtx.getBooleanValue() != source.getBooleanValue()) {
+          wtx.setBooleanValue(source.getBooleanValue());
+        }
+      }
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
+        if (!Objects.equals(wtx.getNumberValue(), source.getNumberValue())) {
+          wtx.setNumberValue(source.getNumberValue());
+        }
+      }
+      case STRING_VALUE, OBJECT_NAMED_STRING -> {
+        if (!Objects.equals(wtx.getValue(), source.getValue())) {
+          wtx.setStringValue(source.getValue());
+        }
+      }
+      default -> {
+      }
+    }
+  }
+
+  private void insert(String type, JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition,
+      final LongSet retainedNodeKeys) {
     final InsertPosition position = InsertPosition.ofString(insertPosition);
     switch (type) {
-      case "jsonFragment" -> insertFragment(rtxOnRevision, position);
+      case "jsonFragment" -> insertFragment(rtxOnRevision, position, retainedNodeKeys);
       case "boolean" -> {
         final boolean value = rtxOnRevision.getBooleanValue();
         switch (position) {
@@ -386,9 +455,10 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, InsertPosition insertPosition) {
+  private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, InsertPosition insertPosition,
+      final LongSet retainedNodeKeys) {
     final var copyResource = new Builder(wtx, rtxOnRevision, insertPosition).build();
-    copyResource.call();
+    copyResource.insert(false, true, Fixed.NULL_NODE_KEY.getStandardProperty(), retainedNodeKeys);
   }
 
   private static void requireMove(final boolean moved, final String role, final long nodeKey) {
@@ -397,14 +467,59 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
   }
 
-  private void insert(boolean moveToParent, boolean isFirst, long previousKey) {
+  private void insert(boolean moveToParent, boolean isFirst, long previousKey, final LongSet retainedNodeKeys) {
+    final Axis axis = retainedNodeKeys.isEmpty()
+        ? new DescendantAxis(rtx, IncludeSelf.YES)
+        : VisitorDescendantAxis.newBuilder(rtx).includeSelf().visitor(new JsonNodeVisitor() {
+          @Override
+          public VisitResult visit(final ImmutableArrayNode node) {
+            return retainedNodeKeys.contains(node.getNodeKey())
+                ? VisitResultType.SKIPSUBTREE
+                : VisitResultType.CONTINUE;
+          }
+
+          @Override
+          public VisitResult visit(final ImmutableObjectNode node) {
+            return retainedNodeKeys.contains(node.getNodeKey())
+                ? VisitResultType.SKIPSUBTREE
+                : VisitResultType.CONTINUE;
+          }
+
+          @Override
+          public VisitResult visit(final ObjectNamedArrayNode node) {
+            return retainedNodeKeys.contains(node.getNodeKey())
+                ? VisitResultType.SKIPSUBTREE
+                : VisitResultType.CONTINUE;
+          }
+
+          @Override
+          public VisitResult visit(final ObjectNamedObjectNode node) {
+            return retainedNodeKeys.contains(node.getNodeKey())
+                ? VisitResultType.SKIPSUBTREE
+                : VisitResultType.CONTINUE;
+          }
+        }).build();
     // Iterate over all nodes of the subtree including self.
-    for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext();) {
+    while (axis.hasNext()) {
       final long key = axis.nextLong();
+      if (retainedNodeKeys.contains(key)) {
+        if (!rtx.hasRightSibling()) {
+          moveToParent = true;
+        }
+        continue;
+      }
+      long leftSiblingKey = rtx.getLeftSiblingKey();
+      if (retainedNodeKeys.contains(leftSiblingKey)) {
+        do {
+          rtx.moveTo(leftSiblingKey);
+          leftSiblingKey = rtx.getLeftSiblingKey();
+        } while (retainedNodeKeys.contains(leftSiblingKey));
+        rtx.moveTo(key);
+      }
 
       // Process all pending moves to parents.
       if (moveToParent) {
-        while (!stack.isEmpty() && stack.peekLong(0) != rtx.getLeftSiblingKey()) {
+        while (!stack.isEmpty() && stack.peekLong(0) != leftSiblingKey) {
           rtx.moveTo(stack.popLong());
           rtx.moveTo(key);
           wtx.moveToParent();
@@ -426,7 +541,7 @@ public final class JsonResourceCopy implements Callable<Void> {
       } else {
         if (moveToParent) {
           insertPosition = InsertPosition.AS_RIGHT_SIBLING;
-        } else if (rtx.hasLeftSibling() && previousKey == rtx.getLeftSiblingKey()) {
+        } else if (leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty() && previousKey == leftSiblingKey) {
           insertPosition = InsertPosition.AS_RIGHT_SIBLING;
         } else {
           insertPosition = InsertPosition.AS_FIRST_CHILD;

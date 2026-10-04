@@ -303,6 +303,232 @@ final class JsonBulkInsertDiffRegressionTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(value = InsertPosition.class, names = {"AS_FIRST_CHILD", "AS_LEFT_SIBLING", "AS_RIGHT_SIBLING"})
+  void bulkInsertAndRetainedMoveReplayWithStableNodeIdentity(final InsertPosition movePosition) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      for (final InsertPosition bulkPosition : InsertPosition.values()) {
+        JsonTestHelper.deleteEverything();
+        try (final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+            final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+          final long array = seed(session, "[0,1,2]");
+          final List<Integer> expected = new ArrayList<>(List.of(0, 1, 2));
+          final int movedValue = switch (movePosition) {
+            case AS_FIRST_CHILD -> 2;
+            case AS_LEFT_SIBLING -> 1;
+            case AS_RIGHT_SIBLING -> bulkPosition == InsertPosition.AS_FIRST_CHILD
+                || bulkPosition == InsertPosition.AS_LEFT_SIBLING
+                    ? 2
+                    : 0;
+            default -> throw new AssertionError();
+          };
+          final long movedKey = movedValue + 2;
+          try (final var wtx = session.beginNodeTrx()) {
+            assertTrue(wtx.moveTo(array));
+            if (bulkPosition == InsertPosition.AS_LEFT_SIBLING || bulkPosition == InsertPosition.AS_RIGHT_SIBLING) {
+              assertTrue(wtx.moveToFirstChild());
+            }
+            insertSkipped(wtx, bulkPosition, "[3]");
+            switch (bulkPosition) {
+              case AS_FIRST_CHILD, AS_LEFT_SIBLING -> expected.add(0, 3);
+              case AS_LAST_CHILD -> expected.add(3);
+              case AS_RIGHT_SIBLING -> expected.add(1, 3);
+            }
+            expected.remove(Integer.valueOf(movedValue));
+            switch (movePosition) {
+              case AS_FIRST_CHILD -> {
+                assertTrue(wtx.moveTo(array));
+                wtx.moveSubtreeToFirstChild(movedKey);
+                expected.add(0, movedValue);
+              }
+              case AS_LEFT_SIBLING -> {
+                assertTrue(wtx.moveTo(5));
+                wtx.moveSubtreeToLeftSibling(movedKey);
+                expected.add(expected.indexOf(3), movedValue);
+              }
+              case AS_RIGHT_SIBLING -> {
+                assertTrue(wtx.moveTo(5));
+                wtx.moveSubtreeToRightSibling(movedKey);
+                expected.add(expected.indexOf(3) + 1, movedValue);
+              }
+              default -> throw new AssertionError();
+            }
+            wtx.commit();
+            assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 2)));
+            try (final var previousRevision = session.beginNodeReadOnlyTrx(1)) {
+              assertTrue(JsonDiffSidecar.retainedNodeKeys(readDiff(session, 1, 2).getAsJsonArray("diffs"), previousRevision)
+                                      .contains(movedKey));
+            }
+            assertTrue(wtx.moveTo(5));
+            wtx.setNumberValue(30);
+            wtx.commit();
+            expected.set(expected.indexOf(3), 30);
+            assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 3)));
+            assertTrue(wtx.moveTo(movedKey));
+            wtx.setNumberValue(100 + movedValue);
+            wtx.commit();
+            expected.set(expected.indexOf(movedValue), 100 + movedValue);
+            assertEquals(JsonParser.parseString(expected.toString()), JsonParser.parseString(serialize(session, 4)));
+          }
+          assertCopiedRevisions(session, deweyIDs);
+        }
+      }
+    }
+  }
+
+  @Test
+  void retainedMovesReplayInDependencyOrderWithoutAllocatingKeys() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0,1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(3);
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("[2,3,1,0]", serialize(session, 2));
+          assertTrue(wtx.moveTo(5));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertTrue(wtx.moveTo(2));
+          wtx.setNumberValue(100);
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(101);
+          wtx.commit();
+          assertEquals("[2,30,101,100]", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void retainedMoveThatReturnsToItsOriginalPositionKeepsTheReplayCursorOnItsKey() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0,1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(2);
+          assertTrue(wtx.moveTo(array));
+          wtx.moveSubtreeToFirstChild(2);
+          wtx.setNumberValue(7);
+          wtx.commit();
+          assertEquals("[7,1,2,3]", serialize(session, 2));
+          assertTrue(wtx.moveTo(5));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertEquals("[7,1,2,30]", serialize(session, 3));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void retainedContainerMovePreservesDescendantIdentity() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[[0],1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          assertTrue(wtx.moveTo(6));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("[1,2,3,[0]]", serialize(session, 2));
+          assertTrue(wtx.moveTo(6));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertTrue(wtx.moveTo(3));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[1,2,30,[100]]", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void retainedMoveUsesCurrentWriterAfterAbort(final boolean revert) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0,1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          wtx.commit();
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(2);
+          if (revert) {
+            wtx.revertTo(2);
+          } else {
+            wtx.rollback();
+          }
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("[1,2,3,0]", serialize(session, 3));
+          assertTrue(wtx.moveTo(5));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertEquals("[1,2,30,0]", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void retainedNamedMoveReplaysChangedNameAndInlineValue() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long object = seed(session, "{\"existing\":0,\"other\":1}");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(object));
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"added\":3}"), JsonNodeTrx.Commit.NO);
+          assertTrue(wtx.moveTo(2));
+          wtx.setObjectKeyName("renamed");
+          wtx.setNumberValue(7);
+          assertTrue(wtx.moveTo(4));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("{\"other\":1,\"added\":3,\"renamed\":7}", serialize(session, 2));
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertTrue(wtx.moveTo(2));
+          wtx.setNumberValue(70);
+          wtx.commit();
+          assertEquals("{\"other\":1,\"added\":30,\"renamed\":70}", serialize(session, 4));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (final var database =
         JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
@@ -315,6 +541,84 @@ final class JsonBulkInsertDiffRegressionTest {
       assertEquals(source.getMostRecentRevisionNumber(), destination.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
         assertEquals(serialize(source, revision), serialize(destination, revision));
+        try (final var sourceRevision = source.beginNodeReadOnlyTrx(revision);
+            final var copiedRevision = destination.beginNodeReadOnlyTrx(revision)) {
+          assertEquals(sourceRevision.getMaxNodeKey(), copiedRevision.getMaxNodeKey(),
+              "a retained move must not allocate new destination keys");
+        }
+      }
+    }
+  }
+
+  @Test
+  void compactNewRootSkipsRetainedSubtreesBeforeDeletingTheirOldParent() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[{\"field\":[0]},{\"existing\":1}]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"left\":{\"nested\":1},\"right\":2}]");
+          assertEquals(10, wtx.getMaxNodeKey());
+          assertTrue(wtx.moveTo(10));
+          wtx.moveSubtreeToLeftSibling(3);
+          assertTrue(wtx.moveTo(2));
+          wtx.remove();
+          wtx.commit();
+          final Set<Long> insertedKeys = new HashSet<>();
+          for (final var operation : readDiff(session, 1, 2).getAsJsonArray("diffs")) {
+            final JsonObject object = operation.getAsJsonObject();
+            if (object.has("insert")) {
+              assertTrue(insertedKeys.add(object.getAsJsonObject("insert").get("nodeKey").getAsLong()));
+            }
+          }
+          assertEquals(Set.of(3L, 7L), insertedKeys, "the new subtree remains one compact root tuple");
+          assertEquals("[{\"existing\":1},{\"left\":{\"nested\":1},\"field\":[0],\"right\":2}]",
+              serialize(session, 2));
+          assertTrue(wtx.moveTo(10));
+          wtx.setNumberValue(20);
+          wtx.commit();
+          assertTrue(wtx.moveTo(4));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertTrue(wtx.moveTo(9));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertEquals("[{\"existing\":1},{\"left\":{\"nested\":30},\"field\":[100],\"right\":20}]",
+              serialize(session, 5));
+        }
+        assertCopiedRevisions(session, deweyIDs);
+      }
+    }
+  }
+
+  @Test
+  void recomputedDiffRetainsMovedKeysAcrossLaterUpdates() throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      try (final var database =
+          JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config(deweyIDs));
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final long array = seed(session, "[0,1,2]");
+        try (final var wtx = session.beginNodeTrx()) {
+          assertTrue(wtx.moveTo(array));
+          insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[3]");
+          assertTrue(wtx.moveTo(5));
+          wtx.moveSubtreeToRightSibling(2);
+          wtx.commit();
+          assertEquals("[1,2,3,0]", serialize(session, 2));
+          assertTrue(wtx.moveTo(5));
+          wtx.setNumberValue(30);
+          wtx.commit();
+          assertTrue(wtx.moveTo(2));
+          wtx.setNumberValue(100);
+          wtx.commit();
+          assertEquals("[1,2,30,100]", serialize(session, 4));
+        }
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+        assertCopiedRevisions(session, deweyIDs);
       }
     }
   }

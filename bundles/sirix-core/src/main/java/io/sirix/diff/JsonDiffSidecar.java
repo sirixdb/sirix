@@ -1,5 +1,6 @@
 package io.sirix.diff;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -7,18 +8,44 @@ import com.google.gson.JsonParser;
 import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.node.SirixDeweyID;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static java.util.Objects.requireNonNull;
+
 /** Strict single-read decoder and validator for internal JSON diff sidecars. */
 public final class JsonDiffSidecar {
 
   private JsonDiffSidecar() {
     throw new AssertionError("No instances");
+  }
+
+  public static LongSet retainedNodeKeys(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision) {
+    requireNonNull(diffs);
+    requireNonNull(previousRevision);
+    final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
+    LongSet retainedKeys = LongSets.EMPTY_SET;
+    for (final var operation : diffs) {
+      final JsonObject object = operation.getAsJsonObject();
+      if (object.has("insert")) {
+        final long nodeKey = object.getAsJsonObject("insert").get("nodeKey").getAsLong();
+        if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
+          if (retainedKeys == LongSets.EMPTY_SET) {
+            retainedKeys = new LongOpenHashSet();
+          }
+          retainedKeys.add(nodeKey);
+        }
+      }
+    }
+    return retainedKeys;
   }
 
   /**
