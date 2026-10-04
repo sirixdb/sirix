@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -324,15 +325,19 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   public DateTime getDateTime() {
     if (dateTime == null) {
       final OffsetDateTime now = OffsetDateTime.ofInstant(Instant.now(), ZoneId.systemDefault());
-      final int offsetSeconds = now.getOffset().getTotalSeconds();
-      final int magnitude = Math.abs(offsetSeconds);
-      // DTD encodes its sign separately from the hour and minute magnitudes.
-      final DTD timezone = new DTD(offsetSeconds < 0, 0, (byte) (magnitude / 3600), (byte) (magnitude / 60 % 60),
-          magnitude % 60 * 1_000_000);
+      final DTD timezone = timezoneFromOffset(now.getOffset());
       dateTime = new DateTime((short) now.getYear(), (byte) now.getMonthValue(), (byte) now.getDayOfMonth(),
           (byte) now.getHour(), (byte) now.getMinute(), now.getSecond() * 1_000_000 + now.getNano() / 1_000, timezone);
     }
     return dateTime;
+  }
+
+  static DTD timezoneFromOffset(final ZoneOffset offset) {
+    final int offsetSeconds = requireNonNull(offset, "offset").getTotalSeconds();
+    final int magnitude = Math.abs(offsetSeconds);
+    // DTD encodes its sign separately from the hour and minute magnitudes.
+    return new DTD(offsetSeconds < 0, 0, (byte) (magnitude / 3600), (byte) (magnitude / 60 % 60),
+        magnitude % 60 * 1_000_000);
   }
 
   @Override

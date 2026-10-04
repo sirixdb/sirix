@@ -2,6 +2,7 @@ package io.sirix.query;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.DTD;
 import io.brackit.query.atomic.Date;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
@@ -19,12 +20,14 @@ import io.sirix.query.node.XmlDBNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,6 +41,19 @@ final class SirixQueryContextTimeTest {
 
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @CsvSource({"-04:00, true, 4, 0", "-03:30, true, 3, 30", "+05:30, false, 5, 30", "+02:00, false, 2, 0"})
+  void timezoneEncodingPreservesSignAndMagnitudes(final String offset, final boolean negative, final int hours,
+      final int minutes) {
+    final DTD timezone = SirixQueryContext.timezoneFromOffset(ZoneOffset.of(offset));
+
+    assertEquals(negative, timezone.isNegative());
+    assertEquals(0, timezone.getDays());
+    assertEquals(hours, timezone.getHours());
+    assertEquals(minutes, timezone.getMinutes());
+    assertEquals(0, timezone.getMicros());
+  }
 
   @ParameterizedTest
   @ValueSource(strings = {"current-dateTime()", "current-date()", "current-time()", "implicit-timezone()"})
