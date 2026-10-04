@@ -121,12 +121,9 @@ All notable changes to SirixDB are documented in this file.
   exclusive OS lock; independently closeable handles share revision and catalogue state while
   preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).
 
-- **CAS and VALIDTIME posting chunks** now append single-posting deltas for hot chunks and fold
-  every 64 changes into one base payload. Hot folded payloads live in referenced side pages, so
-  versioned leaves carry 13-byte markers instead of repeating the payload. CAS logical keys use order-preserving zero escaping
-  and termination so delta suffixes cannot alias longer values, including trailing NULs. The full
-  48-bit node-key range remains supported. This replaces the development index format in place;
-  old CAS indexes are not supported. See `docs/DISK_FORMAT.md`.
+- **CAS and VALIDTIME posting chunks** now use append-only deltas and referenced folded payloads.
+  The authoritative key layout, marker encoding, integrity checks, and format replacement policy
+  are in [On-disk format](docs/DISK_FORMAT.md#cas-and-validtime-posting-chunks).
 
 - **Versioned HOT projection reads** resolve explicitly requested slots from guarded raw fragments,
   retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves. The
@@ -262,11 +259,11 @@ All notable changes to SirixDB are documented in this file.
   is now discharged through that same complete-frontier splice: the parent's subtree is split
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
-  projection side-reference ownership on that route is specified in
-  [the merge path](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path). Further into the same load,
-  splitting a full node published a half that broke the trie condition (I11) against its own child:
-  a half keeps only the bits that still vary within it, so a child that sat safely below the node's
-  most significant bit can sit above the half's. Only the
+  side-reference ownership and refusal behavior are specified in
+  [HOT index specification §4.5.2](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path).
+  Further into the same load, splitting a full node published a half that broke the
+  trie condition (I11) against its own child: a half keeps only the bits that still vary within it, so
+  a child that sat safely below the node's most significant bit can sit above the half's. Only the
   half the new key joins was checked and lies on the key's route, so the other went out unseen,
   committed, and stopped the load three publications later with `HOT published structural path is
   malformed`, when an insert was first routed through it. A full-node decomposition, and the

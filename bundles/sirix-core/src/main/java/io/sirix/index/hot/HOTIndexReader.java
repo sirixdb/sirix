@@ -59,10 +59,10 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexReader<K extends Comparable<? super K>> extends AbstractHOTIndexReader<K> {
 
   /**
-   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
-   * {@code MAX_STRING_VALUE_BYTES = 246}), rounded to 512 for headroom. The logical key is written
-   * first; point lookup may append the four-byte zero chunk trailer into the spare capacity and pass
-   * its explicit valid length to the canonical HOT lower-bound seek.
+   * Thread-local buffer for key serialization. Covers {@link CASKeySerializer#maxSerializedLength}
+   * plus the chunk trailer; longer NAME keys grow the buffer. Point lookup may append the zero chunk
+   * trailer into the spare capacity and pass its explicit valid length to the canonical HOT
+   * lower-bound seek.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 

@@ -37,9 +37,8 @@ public final class HOTIncrementalInsert {
 
   /**
    * Diagnostic: leaf splits that carried a segment-reference side map onto their halves. The shape is
-   * rare (only the projection index attaches side maps, and only an overflowing ref-bearing leaf
-   * reaches here), so a test that means to exercise {@link #routeSegmentRefs} must assert this
-   * counter moved.
+   * reached by overflowing leaves carrying projection segments or referenced posting chunks, so a
+   * test that means to exercise {@link #routeSegmentRefs} must assert this counter moved.
    */
   public static final AtomicLong SPLIT_SEGMENT_REF_CARRIES = new AtomicLong();
 
@@ -223,16 +222,12 @@ public final class HOTIncrementalInsert {
    * the slot AND its out-of-line segment page.
    *
    * <p>
-   * A reference key encodes its owner as {@code (ownerSlot << 16) | subId}
-   * ({@code HOTLeafPage#overflowPageRefKey}), and the owner's stored key bytes are
-   * {@link PathKeySerializer}'s encoding of {@code ownerSlot} — the same derivation
-   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and canonical writer-side subtree rerouting
-   * use. The owning slot is an entry of {@code source}, hence of the union, hence of exactly one half
-   * — the one selected by the owner key's {@code splitBit} (the union's partition predicate); the
-   * other half is probed as a backstop. Residency is decided by {@link HOTLeafPage#findEntry}, never
-   * by a routed descent: the reference must sit on the page that PHYSICALLY holds the slot, exactly
-   * as {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half
-   * is data loss and fails loudly.
+   * Projection owners use {@link PathKeySerializer}'s encoding of the side-map owner slot. Posting
+   * owners are identified by {@link HOTLeafPage#findReferencedPostingOwner}, because their side-map
+   * keys are hashes of composite keys. The projection-derived split bit chooses only the first half
+   * to probe; both halves are searched for actual ownership. Residency, never a routed descent,
+   * decides the destination. A reference whose owner is in neither half is data loss and fails
+   * loudly.
    *
    * <p>
    * References are <em>copied</em>, not moved: {@code source} is abandoned by the splice, and the
@@ -269,11 +264,11 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * The leaf of {@code half} that physically holds {@code ownerKey}, or {@code null} when the half
-   * does not hold it. A half is a single leaf in the common case; only a half too large for one page
-   * is a {@link HOTBulkBuilder} subtree, and then the walk is bounded by that half's few pages. Every
-   * page of a half is in memory and swizzled onto its reference ({@link HOTBulkBuilder} and
-   * {@link #swizzle}), so this needs no page resolution.
+   * The leaf of {@code half} that physically holds the projection key or posting marker, or
+   * {@code null} when the half does not hold it. A half is a single leaf in the common case; only a
+   * half too large for one page is a {@link HOTBulkBuilder} subtree, and then the walk is bounded by
+   * that half's few pages. Every page of a half is in memory and swizzled onto its reference
+   * ({@link HOTBulkBuilder} and {@link #swizzle}), so this needs no page resolution.
    */
   private static @Nullable HOTLeafPage findOwningLeaf(final Page half, final byte[] ownerKey, final long refKey) {
     if (half instanceof HOTLeafPage leaf) {
@@ -1061,7 +1056,7 @@ public final class HOTIncrementalInsert {
    * the caller can release their off-heap slots. A speculative merged leaf consumed by a later merge
    * is closed here instead: it has no transaction-log identity and therefore cannot be retired by
    * {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
-   * copying only their key/value slots would orphan the separately owned projection segment pages.
+   * copying only their key/value slots would orphan projection segments or referenced posting pages.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable

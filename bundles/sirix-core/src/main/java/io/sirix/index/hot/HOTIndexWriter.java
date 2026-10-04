@@ -257,10 +257,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * Add one nodeKey to its chunk slot. Chunked-bitmap write hot path.
    *
    * <p>
-   * Builds {@code prefix(key) ‖ chunkIdx_be4} where {@code chunkIdx = (int)(nodeKey >>> 16)}, encodes
-   * a single-bit {@link NodeReferences} containing {@code nodeKey & 0xFFFF}, and calls the inherited
-   * {@link AbstractHOTIndexWriter#doIndex} which delegates to {@link HOTLeafPage#mergeWithNodeRefs}
-   * (OR-merge with any pre-existing chunk).
+   * Hot CAS and VALIDTIME chunks check membership before appending a delta or folding. Other chunks
+   * OR-merge a reusable single-bit payload through {@link AbstractHOTIndexWriter#doIndex}.
    * </p>
    */
   private void addNodeKeyToChunk(K key, long nodeKey) {
@@ -272,8 +270,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
-    if (postingDeltas && chunkIdx >= 0 && chunkIdx <= PostingDeltas.MAX_CHUNK_IDX
-        && applyPostingDelta(keyBuf, compLen, bit16, false) != DELTA_NOT_APPLICABLE) {
+    if (postingDeltas && chunkIdx >= 0 && applyPostingDelta(keyBuf, compLen, bit16, false) != DELTA_NOT_APPLICABLE) {
       return;
     }
 
@@ -293,7 +290,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
 
   // ---------------------------------------------------------------------------------------------
   // Append-only posting deltas (see PostingDeltas): a hot chunk's change is one tiny delta slot;
-  // FOLD_BOUND live deltas are folded into the chunk and tombstoned.
+  // At the fold bound, the live deltas and current operation replace the base once.
   // ---------------------------------------------------------------------------------------------
 
   /** The writer's view of one chunk: its base payload and its live deltas in application order. */
@@ -550,9 +547,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Fold: apply the live deltas in order and then the current operation to the base chunk through the
-   * ordinary chunk operations, then tombstone the known single-bit delta slots. Readers at older
-   * revisions keep the older base plus its live deltas.
+   * Fold in memory and replace the base once before tombstoning the known delta slots. Readers at
+   * older revisions keep the older base plus its live deltas.
    */
   private void foldPostingDeltas(final byte[] keyBuf, final int compLen, final ChunkView view, final long bit16,
       final boolean remove) {
@@ -583,7 +579,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
       int index = writableLeaf == null
           ? -1
           : writableLeaf.findEntry(deltaKey, deltaKey.length);
-      if (index < 0) {
+      if (writableLeaf == null || index < 0) {
         // Suffixes are visited in key order. Tombstones retain their keys and do not split or
         // consolidate leaves, so one writable descent suffices for every delta on this leaf.
         writableLeaf = prepareLeafOfTree(rootReference, deltaKey, deltaKey.length).leaf();
@@ -669,10 +665,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * Remove a single nodeKey from the chunked bitmap of {@code key}.
    *
    * <p>
-   * Locates the chunk slot {@code (prefix, (int)(nodeKey >>> 16))}, deserializes the chunk bitmap,
-   * removes {@code nodeKey & 0xFFFF}, re-serializes (or tombstones if the chunk is now empty). Other
-   * chunks of the same logical key are untouched — slot-granular CoW ensures the other chunks do not
-   * even appear in the new revision's TIL fragment.
+   * Hot CAS and VALIDTIME chunks use the same membership check and delta/fold path as additions.
+   * Other chunks use {@link AbstractHOTIndexWriter#doRemovePostingBit}; a referenced base is resolved
+   * before mutation and its replacement keeps the side page and marker together.
    * </p>
    *
    * @return true if a bit was actually cleared, false if absent
@@ -687,7 +682,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
-    if (postingDeltas && chunkIdx >= 0 && chunkIdx <= PostingDeltas.MAX_CHUNK_IDX) {
+    if (postingDeltas && chunkIdx >= 0) {
       final int outcome = applyPostingDelta(keyBuf, compLen, bit16, true);
       if (outcome == DELTA_SKIPPED) {
         return false;

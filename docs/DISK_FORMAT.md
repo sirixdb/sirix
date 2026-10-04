@@ -177,7 +177,7 @@ than trusting it to stay complete, since a kind may add a flag without touching 
 | KVLP (1) | `0x01` | `ChunkedBodyConfig.FLAG_CHUNKED_BODY` | body is chunk-framed (one META frame plus heap chunks split at entry boundaries, each independently compressed and checksummed) instead of one monolithic codec frame; writer off by default, both bodies readable |
 | KVLP (1) | `0x02` | `FLAG_OVERFLOW_SLOT_SIDECAR` | the page carries a cold overflow-slot sidecar. Set from the data, not a switch: written whenever `getSideSlotCount() != 0` |
 | OVERFLOW (9) | `0x01` | `FLAG_OVERFLOW_PAYLOAD_COMPRESSED` | the compressed body described below — **the default** since the payload-compression flip |
-| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries the segment/blob side map described below |
+| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries an overflow-page side map |
 
 Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
 build that predates a flag bit reads a resource written without it, but a resource written WITH it
@@ -278,22 +278,23 @@ The chunk index is unsigned, preserving node keys throughout `[0, 2^48)`.
 
 CAS prefixes have a fixed 10-byte header (sign-flipped path class, type id), followed by the
 atomic value's existing order-preserving encoding with `00` escaped as `00 FF`, then `00 00`.
-The value limit applies **before** escaping. This makes logical keys prefix-free without changing
-the atomic ordering or the direct path-class read. VALIDTIME prefixes remain fixed at 17 bytes.
+The 246-byte value limit applies **before** escaping. This makes logical keys prefix-free without
+changing the atomic ordering or the direct path-class read. VALIDTIME prefixes remain fixed at 17 bytes.
 
 For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
 changes. Each delta is `baseKey || suffix_BE4`, where
 `suffix = 0x80000000 | (sequence << 1) | removal`. Its payload contains exactly one low-16 posting
-bit. It sorts after its base and before the next chunk. The 64th live change folds the prior 63
+bit. It sorts after its base and before the next chunk. The 64th effective change folds the prior 63
 deltas plus that operation in memory, replaces the base once, and tombstones the old delta
 slots. Subsequent changes reuse sequence slots. Duplicate additions and absent removals write
 nothing. Higher chunk indices retain direct updates; they cannot be confused with suffixes because
 readers identify the logical key boundary, not the high bit of a chunk index.
 
 A folded payload of at least 256 bytes lives in an `OverflowPage`. Its leaf slot stores the
-21-byte marker `[FD][referenceKey_BE8][payloadLength_BE4][payloadHash_BE8]`. The payload hash uses
-the same XXH3-64 function as projection side-page descriptors. The side-map key is a 47-bit FNV-1a hash
-of the composite key, mixed with `hash ^= hash >>> 29`, shifted left 16 bits with sub-id 1.
+21-byte marker `[FD][referenceKey_BE8][payloadLength_BE4][payloadHash_BE8]`; the payload length must be
+in `[1, 65535]`. The payload hash uses the same XXH3-64 function as projection side-page descriptors.
+The side-map key is a 47-bit FNV-1a hash of the composite key, mixed with `hash ^= hash >>> 29`,
+shifted left 16 bits with sub-id 1.
 A same-leaf hash collision leaves a newly folded payload inline. Frontier rebuilds that bring
 colliding owners together rename a marker to a free side-map key before attaching its payload.
 Readers resolve the side page through their revision and validate its length against the marker.
@@ -308,8 +309,10 @@ there are no old-format readers, migrations, or compatibility switches.
 
 ## 3. Integrity
 
-- Every page's XXH3-64 (of the compressed payload) is stored in its **parent's** PageReference →
-  Merkle-style chain. Verified on read when `verifyChecksumsOnRead` (default true).
+- Ordinary parent `PageReference`s store the page's XXH3-64 of the compressed payload, verified on
+  read when `verifyChecksumsOnRead` (default true). HOT child, fragment, and side-map references
+  persist offsets without hashes; their integrity limits are specified in
+  [HOT index specification §3.6](HOT_INDEX_SPECIFICATION.md#36-hot-format-and-integrity).
 - The roots are covered too: both files' superblocks carry a CRC, both uber beacon
   slots carry an XXH3 trailer, and every revision record embeds an XXH3 of its offset+timestamp
   (+ the RevisionRootPage hash when present — 24-byte coverage; see §1).
