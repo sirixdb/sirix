@@ -133,6 +133,88 @@ final class NameIndexBulkBuildTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void longJsonFieldNamesSupportBuildInsertRemoveAndReopen(final VersioningType versioning) {
+    final QNm name = new QNm("x".repeat(300));
+    final List<QNm> names = List.of(name, MISSING);
+    final Set<IndexDef> definitions = definitions(IndexDef.DbType.JSON, name);
+    for (final BuildMode mode : BuildMode.values()) {
+      final Path path = directory.resolve("json-long-name-" + mode);
+      final Map<Integer, Set<Long>> snapshots = new HashMap<>();
+      final Map<QNm, Set<Long>> expected = new HashMap<>();
+      final Set<Long> keys = new TreeSet<>();
+      expected.put(name, keys);
+      expected.put(MISSING, Set.of());
+      Databases.createJsonDatabase(new DatabaseConfiguration(path));
+      try {
+        try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+          database.createResource(configuration(versioning));
+          try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+              final JsonNodeTrx trx = session.beginNodeTrx()) {
+            if (mode == BuildMode.INCREMENTAL) {
+              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
+            }
+            trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"" + name.getLocalName() + "\":1}]"),
+                JsonNodeTrx.Commit.NO);
+            trx.moveToDocumentRoot();
+            assertTrue(trx.moveToFirstChild());
+            final long arrayKey = trx.getNodeKey();
+            assertTrue(trx.moveToFirstChild());
+            assertTrue(trx.moveToFirstChild());
+            final long originalKey = trx.getNodeKey();
+            assertEquals(name, trx.getName());
+            keys.add(originalKey);
+            if (mode == BuildMode.COMMITTED) {
+              trx.commit();
+            }
+            if (mode != BuildMode.INCREMENTAL) {
+              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
+            }
+            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+                definitions, names, expected);
+            snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
+            trx.commit();
+
+            assertTrue(trx.moveTo(arrayKey));
+            trx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"" + name.getLocalName() + "\":2}"),
+                JsonNodeTrx.Commit.NO);
+            assertTrue(trx.moveToFirstChild());
+            final long insertedKey = trx.getNodeKey();
+            assertEquals(name, trx.getName());
+            keys.add(insertedKey);
+            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+                definitions, names, expected);
+            snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
+            trx.commit();
+
+            for (final long key : new long[] {originalKey, insertedKey}) {
+              assertTrue(trx.moveTo(key));
+              trx.remove();
+              keys.remove(key);
+              lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+                  definitions, names, expected);
+              snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
+              trx.commit();
+            }
+          }
+        }
+        Databases.clearGlobalCaches();
+        try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+            final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+          for (final Map.Entry<Integer, Set<Long>> snapshot : snapshots.entrySet()) {
+            try (final var trx = session.beginNodeReadOnlyTrx(snapshot.getKey())) {
+              lookups(session.getRtxIndexController(snapshot.getKey()), trx.getStorageEngineReader(), definitions,
+                  names, Map.of(name, snapshot.getValue(), MISSING, Set.of()));
+            }
+          }
+        }
+      } finally {
+        Databases.removeDatabase(path);
+      }
+    }
+  }
+
   private Map<Integer, Map<QNm, Set<Long>>> jsonPostings(final VersioningType versioning, final BuildMode mode,
       final Set<IndexDef> definitions) {
     final Path path = directory.resolve("json-" + mode);

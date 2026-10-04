@@ -92,8 +92,6 @@ final class KeySerializerUtf8Test {
     final CASValue longest = new CASValue(new Str("x".repeat(CAS_MAX_VALUE_BYTES)), Type.STR, 7);
     final byte[] bytes = new byte[1 << Byte.SIZE];
     assertEquals(bytes.length - Integer.BYTES, CASKeySerializer.INSTANCE.serializeWithChunkIdx(longest, 0, bytes, 0));
-    assertThrows(IllegalArgumentException.class, () -> NameKeySerializer.INSTANCE.serializeWithChunkIdx(
-        new QNm("x".repeat((1 << Byte.SIZE) - Integer.BYTES + 1)), 0, new byte[(1 << Byte.SIZE) + 1], 0));
   }
 
   @Test

@@ -139,11 +139,12 @@ public final class HOTBulkBuilder {
     // Snapshot into primitive-friendly arrays; validate strict ascending order + distinctness.
     final byte[][] keys = new byte[n][];
     final byte[][] values = new byte[n][];
+    final boolean cappedKeys = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
     for (int i = 0; i < n; i++) {
       final Entry e = sortedEntries.get(i);
       keys[i] = e.key();
       values[i] = e.value();
-      if (keys[i].length > HOTKeySerializer.MAX_KEY_BYTES) {
+      if (cappedKeys && keys[i].length > HOTKeySerializer.MAX_KEY_BYTES) {
         throw new IllegalArgumentException("HOT key exceeds maximum stored length");
       }
       if (i > 0) {
@@ -570,7 +571,7 @@ public final class HOTBulkBuilder {
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
-    if (lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
+    if (lastByte - firstByte >= 8 && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
       throw new IllegalArgumentException("HOT discriminative bit exceeds maximum key length");
     }
     final long pageKey = pageKeyAllocator.getAsLong();
