@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 /**
  * Unit coverage for the open-addressed {@code (parent, name, kind) -> child path node key} table.
  *
- * <p>It replaced a {@code Long2LongOpenHashMap} keyed on a LOSSY pack of the triple — 24 bits of
+ * <p>
+ * It replaced a {@code Long2LongOpenHashMap} keyed on a LOSSY pack of the triple — 24 bits of
  * {@code String.hashCode} plus the low 32 bits of the parent key — whose value was returned as the
  * authoritative child with no verification. The cases below pin the two properties that key could
  * not offer: a hit is the child that was actually inserted, and a miss really means absent.
@@ -169,7 +170,7 @@ final class PathSummaryChildIndexTest {
       final String name = "field" + i;
       final long parent = i % 7;
       assertEquals(expected.get(parent + "/" + name), index.get(parent, new QNm(name), KIND),
-                   "entry lost or moved across a rehash: " + parent + "/" + name);
+          "entry lost or moved across a rehash: " + parent + "/" + name);
     }
   }
 

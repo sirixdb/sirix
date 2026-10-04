@@ -302,8 +302,9 @@ final class PathSummaryMoveTest {
           case PROCESSING_INSTRUCTION -> "<child><?x value?><leaf/></child>";
           default -> throw new AssertionError(kind);
         };
-        trx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(
-            "<root><a>" + subtree + "</a><b>" + subtree + "<target/><last/></b></root>"), XmlNodeTrx.Commit.No);
+        trx.insertSubtreeAsFirstChild(
+            XmlShredder.createStringReader("<root><a>" + subtree + "</a><b>" + subtree + "<target/><last/></b></root>"),
+            XmlNodeTrx.Commit.No);
         trx.commit();
         snapshot(trx.getPathSummary());
         final long sourceParent = namedKeys(trx, "a").getFirst();
@@ -366,8 +367,9 @@ final class PathSummaryMoveTest {
           case OBJECT_NAMED_NULL -> "null";
           default -> throw new AssertionError(kind);
         };
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "[{\"a\":{\"x\":" + value + "}},{\"b\":{\"x\":" + value + ",\"target\":{},\"last\":{}}}]"),
+        trx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                "[{\"a\":{\"x\":" + value + "}},{\"b\":{\"x\":" + value + ",\"target\":{},\"last\":{}}}]"),
             JsonNodeTrx.Commit.NO);
         trx.commit();
         snapshot(trx.getPathSummary());
