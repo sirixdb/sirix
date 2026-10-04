@@ -62,20 +62,27 @@ final class ConstructedXmlNamespaceTest {
   @EnumSource(VersioningType.class)
   void serializationRoundTripKeepsNamespaces(final VersioningType versioning) {
     final String nested = "<root xmlns='urn:a' xmlns:p='urn:a'><item p:flag='a'/>"
-        + "<branch xmlns='urn:b' xmlns:p='urn:b'><p:item p:flag='b'/><item xmlns=''/></branch>"
+        + "<branch xmlns='urn:b' xmlns:p='urn:b'><p:item p:flag='b'/><item xmlns=''/>"
+        + "<inner xmlns:p='urn:a'><p:item/><deep xmlns:p='urn:b'><p:item/>"
+        + "<repeat xmlns:p='urn:b'><p:item/></repeat></deep><p:item/></inner><p:item/></branch>"
         + "<p:item/><item xmlns=''/></root>";
-    final List<String> nestedNames = List.of("ELEMENT|urn:a|root|", "ELEMENT|urn:a|item|",
-        "ATTRIBUTE|urn:a|flag|p",
+    final List<String> nestedNames = List.of("ELEMENT|urn:a|root|", "ELEMENT|urn:a|item|", "ATTRIBUTE|urn:a|flag|p",
         "ELEMENT|urn:b|branch|", "ELEMENT|urn:b|item|p", "ATTRIBUTE|urn:b|flag|p", "ELEMENT||item|",
+        "ELEMENT|urn:b|inner|", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|deep|", "ELEMENT|urn:b|item|p",
+        "ELEMENT|urn:b|repeat|", "ELEMENT|urn:b|item|p", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|item|p",
         "ELEMENT|urn:a|item|p", "ELEMENT||item|");
     for (final String input : List.of(XML, nested)) {
       run(versioning, "xml:store('serialized',()," + input + ")");
+      final List<String> expectedNames = input.equals(XML)
+          ? EXPECTED_NAMES
+          : nestedNames;
+      assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
       final String serialized = run(versioning, "xml:doc('serialized','resource1')");
       try (final var store = store(versioning)) {
         store.create("reparsed", "resource1", new DocumentParser(serialized));
       }
-      assertEquals(input.equals(XML) ? EXPECTED_NAMES : nestedNames, names(versioning, "reparsed", "resource1"),
-          serialized);
+      assertEquals(expectedNames, names(versioning, "reparsed", "resource1"), serialized);
+      assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
     }
   }
 
@@ -84,15 +91,16 @@ final class ConstructedXmlNamespaceTest {
   void pathNameTestsMatchExpandedNames(final VersioningType versioning) {
     run(versioning, "xml:store('paths',()," + XML + ")");
     final String document = "xml:doc('paths','resource1')";
-    assertAll(() -> assertEquals("a alias", run(versioning,
-        "declare namespace a='urn:a'; " + document + "/root/a:item/string()")),
-        () -> assertEquals("", run(versioning,
-            "declare namespace p='urn:not-a'; " + document + "/root/p:item/string()")),
+    assertAll(
+        () -> assertEquals("a alias",
+            run(versioning, "declare namespace a='urn:a'; " + document + "/root/a:item/string()")),
+        () -> assertEquals("",
+            run(versioning, "declare namespace p='urn:not-a'; " + document + "/root/p:item/string()")),
         () -> assertEquals("plain", run(versioning, document + "/root/item/string()")),
-        () -> assertEquals("a alias", run(versioning,
-            "declare namespace a='urn:a'; " + document + "//a:item/string()")),
-        () -> assertEquals("a alias", run(versioning,
-            "declare default element namespace 'urn:a'; " + document + "/*/item/string()")));
+        () -> assertEquals("a alias",
+            run(versioning, "declare namespace a='urn:a'; " + document + "//a:item/string()")),
+        () -> assertEquals("a alias",
+            run(versioning, "declare default element namespace 'urn:a'; " + document + "/*/item/string()")));
   }
 
   @ParameterizedTest
@@ -107,10 +115,10 @@ final class ConstructedXmlNamespaceTest {
       final String attributes = "xml:doc('" + collection + "','resource1')/root/@*";
       assertEquals("|flag|plain urn:a|flag|a", run(versioning, "for $a in " + attributes
           + " order by namespace-uri($a) return concat(namespace-uri($a),'|',local-name($a),'|',string($a))"));
-      assertEquals("a", run(versioning, "for $a in " + attributes
-          + " where node-name($a) eq fn:QName('urn:a','flag') return string($a)"));
-      assertEquals("a", run(versioning, "declare namespace a='urn:a'; xml:doc('" + collection
-          + "','resource1')/root/@a:flag/string()"));
+      assertEquals("a", run(versioning,
+          "for $a in " + attributes + " where node-name($a) eq fn:QName('urn:a','flag') return string($a)"));
+      assertEquals("a", run(versioning,
+          "declare namespace a='urn:a'; xml:doc('" + collection + "','resource1')/root/@a:flag/string()"));
       assertEquals("plain", run(versioning, "xml:doc('" + collection + "','resource1')/root/@flag/string()"));
     }
   }
@@ -129,8 +137,7 @@ final class ConstructedXmlNamespaceTest {
       final var trx = leaf.getTrx();
       final long cursor = trx.getNodeKey();
       assertAll(() -> assertEquals("urn:a", rootScope.defaultNS()),
-          () -> assertEquals("urn:a", rootScope.resolvePrefix("p")),
-          () -> assertEquals("", leafScope.defaultNS()),
+          () -> assertEquals("urn:a", rootScope.resolvePrefix("p")), () -> assertEquals("", leafScope.defaultNS()),
           () -> assertEquals("", leafScope.resolvePrefix(null)),
           () -> assertEquals("urn:b", leafScope.resolvePrefix("p")),
           () -> assertEquals("urn:q", leafScope.resolvePrefix("q")),
@@ -170,6 +177,7 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void addedResourcesAndSequencesMatchDocumentParser(final VersioningType versioning) {
+    // The collection.add versioning follow-up extends added-resource coverage beyond SLIDING_SNAPSHOT.
     final List<String> oracle = oracle(versioning);
     run(versioning, "xml:store('added','seed',<seed/>)");
     run(versioning, "xml:store('added','element'," + XML + ",false())");

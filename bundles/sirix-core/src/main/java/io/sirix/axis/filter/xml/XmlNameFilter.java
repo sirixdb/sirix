@@ -58,7 +58,9 @@ public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
     super(rtx);
     requireNonNull(name);
     mPrefixKey = -1;
-    mNamespaceURI = name.getNamespaceURI() == null ? "" : name.getNamespaceURI();
+    mNamespaceURI = name.getNamespaceURI() == null
+        ? ""
+        : name.getNamespaceURI();
     mLocalNameKey = rtx.keyForName(name.getLocalName());
   }
 

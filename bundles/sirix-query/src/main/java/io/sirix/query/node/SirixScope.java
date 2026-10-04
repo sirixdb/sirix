@@ -60,7 +60,9 @@ public final class SirixScope implements Scope {
             rtx.moveTo(nodeKey);
             rtx.moveToNamespace(index++);
             final int prefixKey = rtx.getPrefixKey();
-            return prefixKey == -1 ? "" : rtx.nameForKey(prefixKey);
+            return prefixKey == -1
+                ? ""
+                : rtx.nameForKey(prefixKey);
           } finally {
             rtx.moveTo(currentNodeKey);
           }
