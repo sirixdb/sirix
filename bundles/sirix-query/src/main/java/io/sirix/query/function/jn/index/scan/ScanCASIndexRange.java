@@ -43,11 +43,8 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
   public ScanCASIndexRange() {
     super(DEFAULT_NAME, new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
         SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
-        // Bounds are ZeroOrOne, not One: an empty sequence means "unbounded on this end". The
-        // index has always supported a one-sided range — CASFilterRange treats a null bound as
-        // unbounded, and the valid-time scan relies on exactly that — but this signature made
-        // the shape unreachable from a query, so `$x >= 'a'` could not be expressed as a range
-        // scan and the one-sided code path had no query-level coverage at all.
+        // Empty bounds represent unbounded ends. ZeroOrOne exposes the one-sided ranges supported
+        // by CASFilterRange to query callers.
         new SequenceType(AtomicType.ANA, Cardinality.ZeroOrOne),
         new SequenceType(AtomicType.ANA, Cardinality.ZeroOrOne), new SequenceType(AtomicType.BOOL, Cardinality.One),
         new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),

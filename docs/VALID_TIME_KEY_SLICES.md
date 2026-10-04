@@ -1,8 +1,9 @@
 # Valid-time key slices
 
-The valid-time index can answer closed and half-open point predicates without reading candidate
-objects. Its sorted key sequence constructs JSON objects only when a consumer requests them.
-`size()` counts keys; repeated iteration and early close do not close the borrowed revision transaction.
+The valid-time index can answer exact closed and half-open point predicates without reading candidate
+objects. Its sorted key sequence constructs exact-match JSON objects only when a consumer requests
+them; exceptional candidates retain demand-time verification. `size()` counts exact keys and verifies
+exceptional candidates; repeated iteration and early close do not close the borrowed revision transaction.
 
 ## Admission and exact fallbacks
 
@@ -107,6 +108,9 @@ and verification postings; point conversion and endpoint selection remain per ev
 All Gradle and Maven commands use a fresh, worktree-private Maven-local directory and a private
 `TMPDIR`. Do not use or modify `~/.m2` for this change: it may contain a stale Brackit snapshot.
 The example paths below must be empty at the start of a verification campaign.
+Before running the commands, define the shared-host `heavy()` limiter captured in
+[`measure.sh`](performance/cheap-first/measure.sh); its shell usage is described in the
+[campaign reproduction instructions](performance/cheap-first/README.md#reproduction).
 
 ```bash
 export TMPDIR="$PWD/build/validtime-verification/tmp"
@@ -155,8 +159,9 @@ demand, iteration and sorted keys, every strict/inclusive endpoint mode, structu
 views, warmed slice members/anchors, immutable windows, object-field views, deferred empty points,
 cast errors and historical readers with an active writer. Edited test transactions roll back before
 closing.
-A separate user-function count budget is retained but disabled pending the Brackit fix described below. A deliberate eager-materialization
-mutation must fail this budget; ordinary result assertions alone cannot detect it.
+User-function demand and return-type coverage is described under [Brackit dependency](#brackit-dependency).
+A deliberate eager-materialization mutation must fail the count budget; ordinary result assertions
+alone cannot detect it.
 
 The small empty-stab inexact fixture remains at 64 records. The dedicated Test phase must execute
 all five 100,000-record variants: empty stabs, selective positive stabs with the match first/last,
@@ -272,8 +277,9 @@ median fell from **403.1 ms to 93.0 ms** and its fresh-process query median from
 The end-to-end SH1 medians and every repetition are recorded in
 [results.csv](bench/validtime-slice/results.csv). Q12 is measured on the baseline's original anti-join;
 the separate membership change is not included, so its several-minute join dominates the saved slice
-work. The Q6/Q11 path through `local:slice` still needs the upstream Brackit fix for full demand-only
-materialization, as described above; timestamp-predicate folding already applies inside that body.
+work. At the measured revision, the Q6/Q11 path through `local:slice` lacked demand-only
+materialization despite timestamp-predicate folding inside that body. The current dependency contract
+is described under [Brackit dependency](#brackit-dependency).
 
 Median total query latency (milliseconds):
 

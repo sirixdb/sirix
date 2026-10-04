@@ -17,6 +17,7 @@ import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.settings.Fixed;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +55,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
   /**
    * Cached values.
    */
-  private List<Sequence> values;
+  private @Nullable List<Sequence> values;
 
   /** Last slice-relative index served by {@link #at(int)} / {@link #at(IntNumeric)}. */
   private int cursorSliceIndex = -1;

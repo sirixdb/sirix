@@ -217,11 +217,6 @@ public final class ValidTimeIntervalIndexWriter {
     }
   }
 
-  /**
-   * The local field name at the cursor — the field whose value this node carries. Works for the fused
-   * named-primitive shape ({@code OBJECT_NAMED_*}, name on the node itself) and the legacy shape (an
-   * {@code OBJECT_KEY} whose name is the field name).
-   */
   private static @Nullable String fieldNameAtCursor(final JsonNodeReadOnlyTrx rtx) {
     final var name = rtx.getName();
     return name == null
@@ -253,6 +248,7 @@ public final class ValidTimeIntervalIndexWriter {
    * exclude leap seconds, extended/year-zero dates and relaxed ISO spellings which the two parsers do
    * not interpret identically. Fractional precision is checked by IntervalDomain.
    */
+  @SuppressWarnings("StringConcatToTextBlock") // Error Prone 2.50.0 crashes on charAt offset arithmetic.
   public static boolean isExactLexicalBound(final @Nullable String raw) {
     if (raw == null || raw.length() < 20 || raw.charAt(4) != '-' || raw.charAt(10) != 'T' || raw.charAt(0) < '0'
         || raw.charAt(0) > '9' || raw.startsWith("0000") || raw.charAt(17) == '6'

@@ -35,7 +35,7 @@ public final class ValidTimeFilter {
 
   /** Exact fallback for the two original xs:dateTime comparisons, preserving conjunct order. */
   public static Sequence comparisonScanSequence(final @Nullable JsonDBItem document, final Supplier<Sequence> point,
-      final String from, final String to, final int mode, final StaticContext context,
+      final String from, final String to, final int mode, final @Nullable StaticContext context,
       final QueryContext queryContext) {
     if (!(document instanceof Array) || ((Array) currentDocument(document)).len() == 0) {
       return new ItemSequence();
