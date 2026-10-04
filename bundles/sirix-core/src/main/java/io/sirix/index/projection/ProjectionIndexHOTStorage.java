@@ -122,7 +122,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** Serialized slot-key length ({@link PathKeySerializer}); sizes every slot-key buffer here. */
   private static final int SLOT_KEY_BYTES = Long.BYTES;
   private static final Predicate<byte[]> BLOB_SIDE_REFERENCE_NEEDED =
-      value -> value.length != 0 && !isInlineBlob(value);
+      ProjectionIndexHOTStorage::blobSideReferenceNeeded;
 
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[SLOT_KEY_BYTES]);
 
@@ -3812,6 +3812,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         throw failure;
       }
     }
+  }
+
+  private static boolean blobSideReferenceNeeded(final byte[] value) {
+    return value.length != 0 && !isInlineBlob(value);
   }
 
   /** {@code true} iff {@code value} is a blob slot value whose payload is stored inline. */

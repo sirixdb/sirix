@@ -1204,7 +1204,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       final int middle = (low + high) >>> 1;
       final int offset = offsets[middle];
       final int storedLength = Short.toUnsignedInt(SegmentAccess.getShortLE(slots, offset));
-      final long start = offset + Short.BYTES;
+      final long start = (long) offset + Short.BYTES;
       final int comparison;
       if (storedLength == suffixLength && start <= lastWordStart) {
         if (READ_WORK_DIAG) {

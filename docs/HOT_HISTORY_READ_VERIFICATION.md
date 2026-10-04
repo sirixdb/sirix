@@ -30,13 +30,9 @@ five scoped byte loads per step. It was the largest sampled CPU block; redundant
 side-map operations were another measured cost. Skipping the map alone did not
 close the focused max gap.
 
-The fix prepares an eight-byte probe word once and uses a tight unsigned masked
-word comparison for eight-byte native keys. Mixed lengths and exact segment
-tails keep the bounded generic comparison. It also bypasses one find-entry
-dispatch layer and lets blob reads omit side references when copied bytes prove
-them unnecessary. Opaque slot callers and fragment/mini-page provenance retain
-their original semantics. No feature switch, alternate historical path or
-format-compatibility branch was added.
+The production lookup and provenance rules are owned by
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+No feature switch, alternate historical path or format-compatibility branch was added.
 
 Revision 1 span uses a summary-bound shortcut with two slot reads; revision 65
 span consumes 151. Revision 130 has a different balance of lookup costs: the
@@ -209,8 +205,9 @@ The reused kit was copied from the read-only earlier worker evidence; that
 copy was never modified. Build artifacts are local evidence, not repository
 source or portable URLs. This committed report records the verdicts and
 limitations; the pinned JSON keeps `targetsAllMeet: false` for the parent.
-The benchmark candidate's production-source hashes match this change. No
-production edits were made between the unpinned failure and pinned campaigns.
+The benchmark candidate's production-source hashes identify the frozen source
+before pipeline lint housekeeping. No production edits were made between the
+unpinned failure and pinned campaigns.
 
 ## Focused latest-revision span test setup correction
 
