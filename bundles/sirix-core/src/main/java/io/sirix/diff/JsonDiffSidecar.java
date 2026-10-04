@@ -28,6 +28,52 @@ public final class JsonDiffSidecar {
     throw new AssertionError("No instances");
   }
 
+  public static JsonArray normalizeReplacements(final JsonArray diffs, final JsonNodeReadOnlyTrx newRevision) {
+    requireNonNull(diffs);
+    requireNonNull(newRevision);
+    boolean hasReplacements = false;
+    for (final var operation : diffs) {
+      if (operation.getAsJsonObject().has("replace")) {
+        hasReplacements = true;
+        break;
+      }
+    }
+    if (!hasReplacements) {
+      return diffs;
+    }
+    final var normalized = new JsonArray(diffs.size());
+    for (final var operation : diffs) {
+      final JsonObject object = operation.getAsJsonObject();
+      if (!object.has("replace")) {
+        normalized.add(object);
+        continue;
+      }
+      final JsonObject replace = object.getAsJsonObject("replace");
+      final long oldKey = replace.get("oldNodeKey").getAsLong();
+      final long newKey = replace.get("newNodeKey").getAsLong();
+      if (!newRevision.moveTo(newKey)) {
+        throw new IllegalStateException("Cannot resolve replacement node " + newKey);
+      }
+      final JsonObject insert = replace.deepCopy();
+      insert.remove("oldNodeKey");
+      insert.remove("newNodeKey");
+      insert.addProperty("nodeKey", newKey);
+      insert.addProperty("insertPositionNodeKey", newRevision.hasLeftSibling()
+          ? newRevision.getLeftSiblingKey()
+          : newRevision.getParentKey());
+      insert.addProperty("insertPosition", newRevision.hasLeftSibling() ? "asRightSibling" : "asFirstChild");
+      final var inserted = new JsonObject();
+      inserted.add("insert", insert);
+      normalized.add(inserted);
+      final var delete = new JsonObject();
+      delete.addProperty("nodeKey", oldKey);
+      final var deleted = new JsonObject();
+      deleted.add("delete", delete);
+      normalized.add(deleted);
+    }
+    return normalized;
+  }
+
   public static LongSet retainedNodeKeys(final JsonArray diffs, final JsonNodeReadOnlyTrx previousRevision) {
     requireNonNull(diffs);
     requireNonNull(previousRevision);

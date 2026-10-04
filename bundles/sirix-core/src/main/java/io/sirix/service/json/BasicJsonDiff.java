@@ -131,7 +131,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
             invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0);
           }
         } else {
-          findRetainedRoots(newRevision, previousRevision, previousMaxNodeKey);
+          findFragmentRoots(newRevision, previousRevision, previousMaxNodeKey);
         }
       }
       if (hasRetainedKeys) {
@@ -154,19 +154,22 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     diffListener(DiffFactory.DiffType.INSERTED, tuple.getNewNodeKey(), 0, tuple.getDepth());
   }
 
-  private void findRetainedRoots(final JsonNodeReadOnlyTrx newRevision,
+  private void findFragmentRoots(final JsonNodeReadOnlyTrx newRevision,
       final JsonNodeReadOnlyTrx previousRevision, final long previousMaxNodeKey) {
     final long rootKey = newRevision.getNodeKey();
+    long greatestNewKey = rootKey;
     if (!newRevision.moveToFirstChild()) {
       return;
     }
     while (true) {
       final long nodeKey = newRevision.getNodeKey();
-      if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
+      if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey) || nodeKey < greatestNewKey) {
         diffListener(DiffFactory.DiffType.INSERTED, nodeKey, 0, new DiffDepth(0, 0));
       } else if (newRevision.moveToFirstChild()) {
+        greatestNewKey = Math.max(greatestNewKey, nodeKey);
         continue;
       }
+      greatestNewKey = Math.max(greatestNewKey, nodeKey);
       while (!newRevision.hasRightSibling() && newRevision.getNodeKey() != rootKey) {
         newRevision.moveToParent();
       }

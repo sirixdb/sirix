@@ -598,7 +598,7 @@ final class JsonNodeTrxImpl extends
         }
 
         checkAccessAndCommit();
-        if (beforeBulkInsertionRevisionNumber < 0) {
+        if (resourceSession.getResourceConfig().storeDiffs() && beforeBulkInsertionRevisionNumber < 0) {
           beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
         }
         nodeHashing.setBulkInsert(true);
@@ -1078,6 +1078,9 @@ final class JsonNodeTrxImpl extends
   }
 
   private void adaptUpdateOperationsForInsert(SirixDeweyID id, long newNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.INSERTED, newNodeKey, 0, id == null
         ? null
         : new DiffDepth(id.getLevel(), 0));
@@ -1105,6 +1108,9 @@ final class JsonNodeTrxImpl extends
   }
 
   private void adaptUpdateOperationsForReplace(SirixDeweyID id, long oldNodeKey, long newNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
     if (pendingInsertDeweyIDs != null) {
       pendingInsertDeweyIDs.remove(oldNodeKey);
       pendingInsertDeweyIDs.remove(newNodeKey);
@@ -1112,7 +1118,7 @@ final class JsonNodeTrxImpl extends
     // The fused-replace path (remove + insertObjectRecordAs* + REPLACEDNEW) leaves a stray
     // DELETED tuple for {@code oldNodeKey} from the inner remove(). The REPLACE diff already
     // captures the old → new transition; downstream replay ({@link
-    // io.sirix.service.json.shredder.JsonResourceCopy#executeReplace}) only needs the REPLACE
+    // io.sirix.service.json.shredder.JsonResourceCopy}) only needs the REPLACE
     // entry, otherwise it would receive a no-op DELETE on the just-replaced node and surface
     // it as a phantom delete in the diff JSON.
     if (id == null) {
@@ -1142,6 +1148,9 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptUpdateOperationsForMove(final SirixDeweyID oldDeweyID, final SirixDeweyID newDeweyID,
       final long nodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
     final var deleteTuple = new DiffTuple(DiffFactory.DiffType.DELETED, 0, nodeKey, oldDeweyID == null
         ? null
         : new DiffDepth(0, oldDeweyID.getLevel()));
@@ -3455,6 +3464,9 @@ final class JsonNodeTrxImpl extends
   }
 
   private void adaptUpdateOperationsForRemove(SirixDeweyID id, final long oldNodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
     if (pendingInsertDeweyIDs != null) {
       pendingInsertDeweyIDs.remove(oldNodeKey);
     }
@@ -3868,6 +3880,9 @@ final class JsonNodeTrxImpl extends
   }
 
   private void adaptUpdateOperationsForUpdate(SirixDeweyID id, long nodeKey) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return;
+    }
     final var diffTuple = new DiffTuple(DiffFactory.DiffType.UPDATED, nodeKey, nodeKey, id == null
         ? null
         : new DiffDepth(id.getLevel(), id.getLevel()));

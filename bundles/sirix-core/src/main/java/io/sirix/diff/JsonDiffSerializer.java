@@ -16,6 +16,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 import org.jspecify.annotations.Nullable;
@@ -26,6 +27,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
@@ -299,35 +301,18 @@ public final class JsonDiffSerializer {
     }
     inserts.sort(Comparator.comparingLong(operation -> operation.getAsJsonObject("insert").get("nodeKey").getAsLong()));
     if (!retainedKeys.isEmpty()) {
-      final var moves = new Long2ObjectOpenHashMap<JsonObject>(retainedKeys.size());
-      final var dependencies = new ArrayList<JsonObject>(retainedKeys.size());
-      final var ancestorMoves = new Long2LongOpenHashMap(retainedKeys.size());
-      ancestorMoves.defaultReturnValue(Long.MIN_VALUE);
-      final var ancestorPath = new LongArrayList();
+      final var moves = new ArrayList<JsonObject>(retainedKeys.size());
       for (final var operation : diffs) {
         final JsonObject object = operation.getAsJsonObject();
         if (object.has("insert")) {
           final long nodeKey = object.getAsJsonObject("insert").get("nodeKey").getAsLong();
           if (retainedKeys.contains(nodeKey)) {
-            moves.put(nodeKey, object);
+            moves.add(object);
           }
         }
       }
-      for (final var operation : diffs) {
-        final JsonObject object = operation.getAsJsonObject();
-        if (object.has("insert")) {
-          JsonObject move = moves.remove(object.getAsJsonObject("insert").get("nodeKey").getAsLong());
-          while (move != null) {
-            dependencies.add(move);
-            final long anchor = move.getAsJsonObject("insert").get("insertPositionNodeKey").getAsLong();
-            move = moves.remove(enclosingMove(anchor, newRevision, retainedKeys, ancestorMoves, ancestorPath));
-          }
-          for (int index = dependencies.size() - 1; index >= 0; index--) {
-            inserts.add(dependencies.get(index));
-          }
-          dependencies.clear();
-        }
-      }
+      orderMoves(moves, newRevision);
+      inserts.addAll(moves);
     }
     for (int index = inserts.size() - 1; index >= 0; index--) {
       final JsonObject insert = inserts.get(index).getAsJsonObject("insert");
@@ -353,6 +338,38 @@ public final class JsonDiffSerializer {
         diffs.set(index, inserts.get(insertIndex++));
       }
     }
+  }
+
+  public static void orderMoves(final List<JsonObject> operations, final JsonNodeReadOnlyTrx newRevision) {
+    Objects.requireNonNull(operations);
+    Objects.requireNonNull(newRevision);
+    if (operations.size() < 2) {
+      return;
+    }
+    final var moves = new Long2ObjectOpenHashMap<JsonObject>(operations.size());
+    for (final var operation : operations) {
+      moves.put(operation.getAsJsonObject("insert").get("nodeKey").getAsLong(), operation);
+    }
+    final var dependencies = new ArrayList<JsonObject>(operations.size());
+    final var ordered = new ArrayList<JsonObject>(operations.size());
+    final var ancestorMoves = new Long2LongOpenHashMap(operations.size());
+    ancestorMoves.defaultReturnValue(Long.MIN_VALUE);
+    final var ancestorPath = new LongArrayList();
+    final var allMovedKeys = new LongOpenHashSet(moves.keySet());
+    for (final var operation : operations) {
+      JsonObject move = moves.remove(operation.getAsJsonObject("insert").get("nodeKey").getAsLong());
+      while (move != null) {
+        dependencies.add(move);
+        final long anchor = move.getAsJsonObject("insert").get("insertPositionNodeKey").getAsLong();
+        move = moves.remove(enclosingMove(anchor, newRevision, allMovedKeys, ancestorMoves, ancestorPath));
+      }
+      for (int index = dependencies.size() - 1; index >= 0; index--) {
+        ordered.add(dependencies.get(index));
+      }
+      dependencies.clear();
+    }
+    operations.clear();
+    operations.addAll(ordered);
   }
 
   private static long enclosingMove(long anchor, final JsonNodeReadOnlyTrx newRevision,
