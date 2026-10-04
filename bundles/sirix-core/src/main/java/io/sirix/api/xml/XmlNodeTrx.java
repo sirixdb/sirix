@@ -256,37 +256,37 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * Insert new Processing Instruction node as left sibling of currently selected node. The cursor is
    * moved to the inserted node.
    *
-   * @param content content of processing instruction
    * @param target target of processing instruction
+   * @param content content of processing instruction
    * @throws SirixException if element node couldn't be inserted as first child
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsLeftSibling(String content, String target);
+  XmlNodeTrx insertPIAsLeftSibling(String target, String content);
 
   /**
    * Insert new Processing Instruction node as right sibling of currently selected node. The cursor is
    * moved to the inserted node.
    *
-   * @param content content of processing instruction
    * @param target target of processing instruction
+   * @param content content of processing instruction
    * @throws SirixException if element node couldn't be inserted as first child
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsRightSibling(String content, String target);
+  XmlNodeTrx insertPIAsRightSibling(String target, String content);
 
   /**
    * Insert new Processing Instruction node as first child of currently selected node. The cursor is
    * moved to the inserted node.
    *
-   * @param content content of processing instruction
    * @param target target of processing instruction
+   * @param content content of processing instruction
    * @throws SirixException if element node couldn't be inserted as first child
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsFirstChild(String content, String target);
+  XmlNodeTrx insertPIAsFirstChild(String target, String content);
 
   /**
    * Insert new element node as first child of currently selected node. The cursor is moved to the
