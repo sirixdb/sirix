@@ -82,27 +82,27 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     final DiffOptimized optimized = session.getResourceConfig().hashType == HashType.NONE
         ? DiffOptimized.NO
         : DiffOptimized.HASHED;
-    return generateDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, includeData, optimized);
+    computeDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, optimized);
+    return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
+        includeData);
   }
 
   public String generateDiffForReplay(final JsonResourceSession session, final int oldRevisionNumber,
       final int newRevisionNumber) {
-    return generateDiff(session, oldRevisionNumber, newRevisionNumber, 0, 0, false, DiffOptimized.NO);
+    computeDiff(session, oldRevisionNumber, newRevisionNumber, 0, 0, DiffOptimized.NO);
+    if (!diffs.isEmpty()) {
+      expandRetainedFragments(session, oldRevisionNumber, newRevisionNumber);
+    }
+    return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
+        false);
   }
 
-  private String generateDiff(final JsonResourceSession session, final int oldRevisionNumber,
-      final int newRevisionNumber, final long startNodeKey, final long maxDepth, final boolean includeData,
-      final DiffOptimized optimized) {
+  private void computeDiff(final JsonResourceSession session, final int oldRevisionNumber, final int newRevisionNumber,
+      final long startNodeKey, final long maxDepth, final DiffOptimized optimized) {
     diffs.clear();
     insertedKeys.clear();
 
     invokeDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, optimized);
-    if (maxDepth == 0 && !diffs.isEmpty()) {
-      expandRetainedFragments(session, oldRevisionNumber, newRevisionNumber, optimized);
-    }
-
-    return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
-        includeData);
   }
 
   private void invokeDiff(final JsonResourceSession session, final int oldRevisionNumber, final int newRevisionNumber,
@@ -113,7 +113,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   }
 
   private void expandRetainedFragments(final JsonResourceSession session, final int oldRevisionNumber,
-      final int newRevisionNumber, final DiffOptimized optimized) {
+      final int newRevisionNumber) {
     try (final var previousRevision = session.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var newRevision = session.beginNodeReadOnlyTrx(newRevisionNumber)) {
       final long previousMaxNodeKey = previousRevision.getMaxNodeKey();
@@ -136,7 +136,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         if (nodeKey <= previousMaxNodeKey && previousRevision.moveTo(nodeKey)) {
           hasRetainedKeys = true;
           if (newRevision.hasFirstChild() || previousRevision.hasFirstChild()) {
-            invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0, optimized);
+            invokeDiff(session, oldRevisionNumber, newRevisionNumber, nodeKey, 0, DiffOptimized.NO);
           }
         } else {
           findFragmentRoots(newRevision, previousRevision, previousMaxNodeKey);
