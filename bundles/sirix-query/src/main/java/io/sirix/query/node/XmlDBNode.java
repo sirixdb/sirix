@@ -2,7 +2,6 @@ package io.sirix.query.node;
 
 import io.sirix.utils.ToStringHelper;
 import io.sirix.axis.AbstractTemporalAxis;
-import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
@@ -145,7 +144,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     moveRtx();
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      return node.getImmutableNode().getParentKey() == rtx.getNodeKey();
+      return node.getImmutableNode().getParentKey() == nodeKey;
     }
     return false;
   }
@@ -156,7 +155,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
-        return node.getImmutableNode().getNodeKey() == rtx.getParentKey();
+        return node.nodeKey == rtx.getParentKey();
       }
     }
     return false;
@@ -165,24 +164,21 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDescendantOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isDescendantOf(node.deweyID);
         } else {
-          for (final var axis = new AncestorAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (node.getImmutableNode().getNodeKey() == rtx.getNodeKey()) {
-              retVal = true;
+          while (rtx.moveToParent()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
+              return true;
             }
           }
         }
       }
     }
-    return retVal;
+    return false;
   }
 
   /**
@@ -232,7 +228,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
-        retVal = deweyID.isAncestorOf(node.deweyID);
+        retVal = deweyID.isAncestorOrSelfOf(node.deweyID);
       } else {
         if (isSelfOf(other)) {
           retVal = true;
@@ -247,37 +243,34 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isSiblingOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      try {
-        if (deweyID != null) {
-          return deweyID.isSiblingOf(node.deweyID);
-        }
-        // noinspection ConstantConditions
-        if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
-            && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
-                                                                                                  .getNodeKey()) {
-          retVal = true;
-        }
-      } catch (final DocumentException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
+      if (kind == NodeKind.ATTRIBUTE || kind == NodeKind.NAMESPACE || node.kind == NodeKind.ATTRIBUTE
+          || node.kind == NodeKind.NAMESPACE || nodeKey == node.nodeKey) {
+        return false;
       }
+      if (deweyID != null) {
+        return deweyID.isSiblingOf(node.deweyID);
+      }
+      final long parentKey = rtx.getParentKey();
+      node.moveRtx();
+      return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty() && parentKey == node.rtx.getParentKey();
     }
-    return retVal;
+    return false;
   }
 
   @Override
   public boolean isPrecedingSiblingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingSiblingOf(node.deweyID);
         } else {
           while (rtx.hasRightSibling()) {
             rtx.moveToRightSibling();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
               return true;
             }
           }
@@ -291,13 +284,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isFollowingSiblingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingSiblingOf(node.deweyID);
         } else {
           while (rtx.hasLeftSibling()) {
             rtx.moveToLeftSibling();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
               return true;
             }
           }
@@ -311,13 +305,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isPrecedingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
-          for (final var axis = new FollowingAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+          for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
+            if (axis.nextLong() == node.nodeKey) {
               return true;
             }
           }
@@ -331,13 +325,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isFollowingOf(final Node<?> other) {
     if (other instanceof XmlDBNode node) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
-          for (final var axis = new PrecedingAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+          for (final Axis axis = new PrecedingAxis(rtx); axis.hasNext();) {
+            if (axis.nextLong() == node.nodeKey) {
               return true;
             }
           }
