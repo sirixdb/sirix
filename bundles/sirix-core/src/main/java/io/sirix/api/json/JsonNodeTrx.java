@@ -60,6 +60,18 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    */
   JsonNodeTrx copySubtreeAsRightSibling(JsonNodeReadOnlyTrx rtx);
 
+  /**
+   * Copy the current source node with its original key for revision replay. Children are copied
+   * separately; the destination's allocation frontier never decreases.
+   *
+   * @param rtx the transaction positioned on the source node
+   * @param position the insertion position relative to this transaction's cursor
+   * @return this transaction, positioned on the copied node
+   * @throws NullPointerException if either argument is {@code null}
+   * @throws IllegalArgumentException if the source key is not positive or the position is
+   *         {@link InsertPosition#AS_LAST_CHILD}
+   * @throws IllegalStateException if the destination already contains the source key
+   */
   JsonNodeTrx copyNodeWithKey(JsonNodeReadOnlyTrx rtx, InsertPosition position);
 
   JsonNodeTrx insertObjectAsFirstChild();

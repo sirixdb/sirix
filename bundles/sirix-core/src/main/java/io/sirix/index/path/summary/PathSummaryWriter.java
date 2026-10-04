@@ -785,6 +785,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       if (axis.hasNext()) {
         axis.nextLong();
         if (pathSummaryReader.getNodeKey() == oldPathNodeKey) {
+          // Removing the final reference would delete the same path class we need to retain.
           return;
         }
 

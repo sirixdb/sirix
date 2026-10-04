@@ -130,8 +130,8 @@ Roaring bitmaps re-serialized verbatim).
 
 ### 4. Diff files (155 B logical, 9% — but 4,096 B physical, category (c) at the FS level)
 
-One `diffFromRev{N-1}toRev{N}.json` file per commit
-(`{"database":…,"resource":…,"diffs":[{"update":{"nodeKey":2,"path":"/counter",…}}]}`).
+This single-value-update workload emits one diff file per post-bootstrap commit;
+the general emission policy is in [JSON_UPDATE_DIFFS.md](JSON_UPDATE_DIFFS.md#which-resources-pay-the-cost).
 At 10k commits: 1.58 MB logical but **40.96 MB in 4 KiB FS blocks + 10k inodes** — the diff
 *directory* physically outweighs the 14.8 MB data file. (The envelope also repeats
 database/resource/revisions per file, ~100 B of its 155 B.)

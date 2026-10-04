@@ -12,8 +12,9 @@ order, payload, or integrity metadata.
 
 ## Revision stability and lifetime
 
-Each `serialize` call opens separate read-only transactions for its old and new revisions and
-creates one cache for each. `AbstractResourceSession.createStorageEngineReader(revision)` passes
+Each `serialize` call with operations to emit opens separate read-only transactions for its old
+and new revisions and creates one cache for each. Calls with no emitted operations return without
+opening readers. `AbstractResourceSession.createStorageEngineReader(revision)` passes
 that explicit revision to `NodeStorageEngineReader`, whose revision number and revision root are
 final fields and whose epoch ticket protects its reads. Moving a cursor does not mutate a node.
 Later writes create a new revision; the old reader continues to follow its own revision root.
@@ -118,12 +119,25 @@ Verified creation paths that leave this default intact include the core builder,
 creation/upload handlers. This is source verification, not a count of deployed resources.
 
 The costly resolver is specifically JSON: both commit paths check `storeDiffs()` before invoking
-`serializeUpdateDiffs`; `JsonNodeTrxImpl` writes the sidecar for eligible non-bulk commits from
-revision 2 onward. Array-position resolution additionally requires a path summary and an array
-step in an emitted path. The hint fast path is offered to those same resources and additionally
-requires stored child counts (`storeChildCount`, also `true` by default); wherever one of the three
-flags is off, or the revision emits no sidecar, the walk above is the only resolver.
+`serializeUpdateDiffs`. Outside an active bulk insertion, `JsonNodeTrxImpl` writes a sidecar only
+when the diff baseline is a committed revision greater than zero and no post-revert guard is
+active. Ordinary commits use the immediately preceding revision. Bulk calls share the committed
+baseline captured before the first pending bulk insertion; revision-producing commits inside
+the bulk operation preserve pending tuples, and the completed batch's filename and declared
+revisions use that baseline and its final committed revision. Storage-only async flushes neither
+advance the logical revision nor reset the pending tuples. A first load beginning at revision
+zero emits no sidecar, including when positive thresholds produce intermediate revisions.
+
+`revertTo` suppresses sidecars until the next commit outside an active bulk insertion, because
+subsequent mutation tuples alone do not describe the transition from the latest committed
+revision. Consumers use the [sidecar fallback](DISK_FORMAT.md#json-revision-diff-sidecars).
+That commit resets the guard and pending bulk baseline; rollback also resets both.
+
+Array-position resolution additionally requires a path summary and an array step in an emitted
+path. Ingest hints additionally require stored child counts (`storeChildCount`, also `true` by
+default); missing hints retain the structural resolver described above.
 `storeDiffs(false)` disables commit-sidecar generation; `buildPathSummary(false)` leaves diff
-storage enabled but skips path resolution. Dewey IDs select
-the tuple collection and add metadata without disabling path resolution. XML shares the builder's
-flag default, but `XmlNodeTrxImpl.serializeUpdateDiffs` is empty and never runs this JSON resolver.
+storage enabled but skips path resolution. Pending tuples use one primitive node-key map with
+either Dewey-ID setting; Dewey IDs add metadata without disabling path resolution. XML shares
+the builder's flag default, but `XmlNodeTrxImpl.serializeUpdateDiffs` is empty and never runs this
+JSON resolver.

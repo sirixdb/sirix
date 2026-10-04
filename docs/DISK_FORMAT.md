@@ -375,6 +375,11 @@ authoritative storage commit. Version 1 sidecars add three top-level fields:
 "operations-sha256": <64 lowercase hexadecimal characters>
 ```
 
+An ordinary subtree insertion is represented by its inserted root; descendants are carried by
+that fragment. When ingestion skips the input root, each inserted sibling subtree has its own
+root entry, exactly once. No entry for the skipped root is emitted. The emission lifecycle and
+bulk revision baseline are documented in [JSON_UPDATE_DIFFS.md](JSON_UPDATE_DIFFS.md#which-resources-pay-the-cost).
+
 The digest covers a canonical typed representation of the complete `diffs` array, including
 object-field order, names, values, and numeric lexical forms; it is computed incrementally from the
 Gson tree without creating another whole-file string or byte array. The writer first creates a
@@ -382,9 +387,12 @@ unique sibling temp file and then publishes it by same-directory atomic move whe
 
 The core reader performs one strict JSON read and validates resource/revision identity, Unicode
 scalar values, format version, count, digest, and the required schema of every operation before
-hydrating fragment data. `jn:diff` treats any failure as a cache miss and computes the authoritative
-revision diff. Multi-revision resource copy uses the same reader and fails before applying a partial
-revision. Files without these version-1 integrity fields are not accepted by this build.
+hydrating fragment data. Missing or invalid sidecars are cache misses: `jn:diff` computes the
+revision diff, while `getUpdateOperations()` and multi-revision resource copy use
+`BasicJsonDiff.generateDiffForReplay` to preserve node identity and expose edits inside retained
+fragments. Public `BasicJsonDiff.generateDiff` keeps hash-based equal-subtree skips and compact
+inserted-subtree traversal. Files without these version-1 integrity fields are not accepted by
+this build.
 
 ## Projection indexes (segment ⇔ slot layout)
 

@@ -107,7 +107,7 @@ public final class JsonResourceCopy implements Callable<Void> {
   private final boolean copyAllRevisionsUpToMostRecent;
 
   /**
-   * Builder to build an {@link JsonItemShredder} instance.
+   * Builder to build a {@link JsonResourceCopy} instance.
    */
   public static class Builder {
 
@@ -158,7 +158,9 @@ public final class JsonResourceCopy implements Callable<Void> {
     }
 
     /**
-     * Determines if changes between the revisions should be copied up to the most recent revision.
+     * Copy and commit the initial source revision and each later revision up to the most recent
+     * revision. Source node keys are preserved for replay; the destination must not already contain
+     * any key being copied. Snapshot-only copying instead allocates destination keys normally.
      *
      * @return this builder instance
      */
@@ -170,7 +172,7 @@ public final class JsonResourceCopy implements Callable<Void> {
     /**
      * Build an instance.
      *
-     * @return {@link JsonItemShredder} instance
+     * @return {@link JsonResourceCopy} instance
      */
     public JsonResourceCopy build() {
       return new JsonResourceCopy(wtx, rtx, this);
@@ -554,9 +556,11 @@ public final class JsonResourceCopy implements Callable<Void> {
   }
 
   /**
-   * Emit node.
+   * Copy the current source node without traversing its children.
    *
+   * @param wtx the destination transaction
    * @param rtx Sirix {@link JsonNodeReadOnlyTrx}
+   * @param insertPosition insertion position relative to the destination cursor
    */
   public static void processNode(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx,
       final InsertPosition insertPosition) {

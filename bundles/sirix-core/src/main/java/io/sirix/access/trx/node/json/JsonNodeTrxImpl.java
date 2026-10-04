@@ -96,7 +96,6 @@ import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
@@ -159,9 +158,9 @@ final class JsonNodeTrxImpl extends
   private final boolean ingestArrayPositionsConfigured;
 
   /**
-   * Whether the revision currently being written will emit an update-diff sidecar, which is the only
-   * reader of ingest ordinals. The bootstrap revision has no predecessor to diff against, so
-   * capturing for it would fill a map nothing reads.
+   * Whether the configuration and write revision permit collecting ingest ordinals. The bootstrap
+   * write revision is excluded; later epochs may collect hints even when a bulk baseline or revert
+   * suppresses sidecar publication. Serialization and writer replacement release those hints.
    */
   private boolean captureIngestArrayPositions;
 
@@ -3107,7 +3106,9 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Adapts pointers for move operations. JSON-specific: no text node merging.
+   * Adapts pointers for move operations. Both parents' first- and last-child links must agree with
+   * the sibling chain, including when detaching an only child or attaching to an empty parent;
+   * last-child appends rely on these cached endpoints. JSON-specific: no text node merging.
    *
    * @param fromNode root {@link StructNode} of the subtree to be moved
    * @param toNode the {@link StructNode} which is the anchor of the new subtree

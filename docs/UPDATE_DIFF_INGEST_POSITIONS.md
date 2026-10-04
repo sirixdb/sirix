@@ -58,12 +58,14 @@ serialization releases the map in `finally`; writer replacement also releases it
 on rollback, revert, and intermediate commits. No hints survive into a later
 revision. Standalone edits do not produce hints.
 
-Capture is disabled without stored child counts, path summaries, or diff storage,
-and on any revision that emits no sidecar. The bootstrap revision of a fresh
-resource has no predecessor to diff against, so the default whole-document load
-learns no ordinals at all; the gate mirrors the serializer's own condition and is
-refreshed wherever the writer is replaced, so the revision number is never read on
-an append. Unknown positions always retain the structural fallback. The bulk page
+Capture requires stored child counts, path summaries, diff storage, and a write
+revision greater than one. The bootstrap write revision of a fresh resource learns
+no ordinals. The gate is refreshed wherever the writer is replaced, so the revision
+number is never read on an append. It does not include every sidecar emission guard:
+later write epochs during a first-load bulk import or after a revert may collect
+hints that are discarded without publishing a sidecar. The emission policy belongs
+to [JSON_UPDATE_DIFFS.md](JSON_UPDATE_DIFFS.md#which-resources-pay-the-cost).
+Unknown positions always retain the structural fallback. The bulk page
 assembler for fresh resources does not use this cursor linkage path; this
 optimization targets streaming append ingestion, where the measured residual
 occurs.

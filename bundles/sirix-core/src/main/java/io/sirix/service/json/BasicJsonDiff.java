@@ -87,6 +87,16 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         includeData);
   }
 
+  /**
+   * Generate a compact diff for revision replay and update-operation fallback. Hash skips are
+   * disabled and retained fragments are expanded to preserve node identity and descendant edits.
+   * Public diff generation uses the separate optimized path.
+   *
+   * @param session the resource session to use
+   * @param oldRevisionNumber the source revision before the changes
+   * @param newRevisionNumber the source revision after the changes
+   * @return the replay diff without serialized fragment data
+   */
   public String generateDiffForReplay(final JsonResourceSession session, final int oldRevisionNumber,
       final int newRevisionNumber) {
     computeDiff(session, oldRevisionNumber, newRevisionNumber, 0, 0, DiffOptimized.NO);
