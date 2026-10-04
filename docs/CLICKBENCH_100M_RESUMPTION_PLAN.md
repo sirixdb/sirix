@@ -235,7 +235,8 @@ sequentially (keys in document order: root 0, top-level array 1, records from 2 
   rule (a) → 0.
 - R2(i) page: `{"meta":{"x":1},"genres":["Drama"]}` records — HEAD's `next − here` subtracts 2 →
   VALUES_UNCLAIMED on every page; with the fix → served and exact.
-- (e) pin: `$m.genres[]` over a string-valued field returns empty in the generic pipeline.
+- (e) pin: see `ArrayContainsScopeDifferentialTest.stringValuedFieldHasNoArrayMembers` for
+  the current string-field navigation contract.
 - (f) fixture expects declines (`regionOnlyPagesServed == 0`) and exact counts.
 (iii) `NoPathSummarySourceScopeDifferentialTest`, `ArrayPageRangeSequenceOverflowTest`, scan suite
 subset green. Both flags keep their defaults (off): no production exposure today.
@@ -259,14 +260,12 @@ with the rule on and off. (c) a nested spill's parent array poisons its own page
 reaches the orphan run. W3(b) (bare OBJECT/ARRAY with an off-page parent that is not the top-level container) is
 kept as the off-page arm of R2(ii).
 
-**(e) was wrong in the design.** `$m.genres[]` over a string is NOT empty in the interpreter: brackit raises
-XPTY0004 (`Illegal operand type 'xs:string' where 'array()' is expected`), and the auto-wired route answered 0 —
-kernels AND record path. Closed at planning time: `acceptsPredicate` declines an `ArrayContains` field whose
-scoped named path node has more references than its anonymous ARRAY child (a scalar/object/null value exists
-in this revision) or that is unscoped; `arrayContainsAt` throws `BIT_DYN_INT_ERROR` if it ever meets a
-non-array anchor (the summary admitted the field as array-only). Witnesses: the (e) pin (outcome equality —
-`error=err:XPTY0004` on both routes) and `mixedArrayAndStringFieldRaisesInBothRoutes` (1 in 5 records
-string-valued; proves the reference-count formulation on fused nodes).
+**(e) navigation and admission.** The current array-only admission invariant is documented in
+[`SirixVectorizedExecutor.anyFieldHoldsNonArrayValues`](../bundles/sirix-query/src/main/java/io/sirix/query/scan/SirixVectorizedExecutor.java).
+The current Brackit navigation expectations are pinned by
+[`ArrayContainsScopeDifferentialTest`](../bundles/sirix-query/src/test/java/io/sirix/query/ArrayContainsScopeDifferentialTest.java),
+including `mixedArrayAndStringFieldSkipsNonArraysInBothRoutes`. Those contracts supersede the
+type-error assumptions used in this implementation record.
 
 **Fixture corrections.** Numbers or objects INSIDE the queried array are type errors for the interpreter
 (XPTY0004 / FOTY0012), so F1, W2 and W3 assert truth by construction and corpus A keeps its mixed elements in an

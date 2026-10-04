@@ -398,8 +398,7 @@ final class ArrayContainsScopeDifferentialTest {
     store(res, sb.toString());
     final String predicate = "some $g in $m.genres[] satisfies $g eq 'Drama'";
     final String source = "jn:doc('" + DB + "','" + res + "')[]";
-    // `[]` over a string is a type error (XPTY0004) in the interpreter; the auto-wired route must not
-    // turn that into a silent zero.
+    // Check the fallback required by acceptsPredicate's conservative array-only admission gate.
     assertEquals(outcome(source, predicate, false, false), outcome(source, predicate, true, true),
         "the auto-wired route and the interpreter disagree on `[]` over a string-valued field");
   }

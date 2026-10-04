@@ -1478,10 +1478,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // guard. With statistics off nothing here can be proven, so the predicate is served as before.
       final var resourceConfig = session.getResourceConfig();
       if (resourceConfig.withPathSummary) {
-        // `$m.f[]` over a value that is not an array is the interpreter's type error (XPTY0004),
-        // which the kernels would answer as "no member". An error is not false: when the scoped
-        // field can hold a non-array value anywhere in this revision, the generic pipeline raises
-        // it. Reference counts, not statistics — the summary alone maintains them.
+        // Keep the conservative array-only admission invariant documented by
+        // anyFieldHoldsNonArrayValues; other field shapes use the generic pipeline.
         final Set<String> unboxed = new HashSet<>(2);
         collectArrayContainsFields(predicate, unboxed);
         if (!unboxed.isEmpty() && anyFieldHoldsNonArrayValues(sourcePath, unboxed)) {
@@ -1521,8 +1519,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * <p>
    * The named path node's references count every occurrence of the field; its anonymous ARRAY child's
-   * count the array-valued ones. Any surplus is a scalar, an object or a null, and {@code []} over it
-   * raises. An absent path raises nothing ({@code ()[]} is empty), an unscoped one (ambiguous or
+   * count the array-valued ones. Any surplus is a scalar, an object or a null, so the field is not
+   * array-only. The optimized route conservatively declines such fields and delegates their unboxing
+   * semantics to the generic pipeline. An absent path has no members; an unscoped one (ambiguous or
    * corrupt summary) cannot be proven and declines.
    */
   private boolean anyFieldHoldsNonArrayValues(final String[] sourcePath, final Set<String> fields) {
@@ -10712,9 +10711,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
     final NodeKind anchorKind = rtx.getKind();
     if (anchorKind != NodeKind.OBJECT_NAMED_ARRAY && anchorKind != NodeKind.ARRAY) {
-      // acceptsPredicate admits the field only when the summary proves every value an array; a
-      // non-array here is the interpreter's XPTY0004 that the gate exists to leave to it. Loud,
-      // never a silent "no member".
+      // A non-array here violates the array-only admission invariant in
+      // anyFieldHoldsNonArrayValues, so report an internal consistency error.
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR, "array membership over a non-array value (" + anchorKind
           + ") at node " + rtx.getNodeKey() + ": the path summary admitted the field as array-only");
     }

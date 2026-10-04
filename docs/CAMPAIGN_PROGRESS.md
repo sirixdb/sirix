@@ -1443,10 +1443,8 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   `acceptsPredicate`, fail-loud `arrayContainsAt`), `KeyValueLeafPage.elementStagingStaysPure` + `ELEMENT_STAGING_PURITY`
   (shared by the writer `PageKind.buildRegionTable` and the derive site), `ArrayContainsScopeDifferentialTest` (new,
   11 tests, mutation arms for R1/C/PC).
-- Corrections to the design, all recorded in plan §4.1: W3(a)/(c) unobservable → removed; (e) is an interpreter ERROR
-  (XPTY0004), not empty → planning-time decline via path-summary reference counts (`keyRefs > arrayRefs`); fixtures with
-  numbers/objects inside the queried array cannot use the interpreter as oracle; seam fixtures need flat filler records
-  (`RecordOrdinalRegion.encode` refuses off/on/off spanning records).
+- Corrections to the design are recorded in [plan §4.1](CLICKBENCH_100M_RESUMPTION_PLAN.md#41-implementation-record-and-corrections-2026-08-30),
+  which also points to the current navigation and admission contracts.
 - Rig results: 11/11, 4/4 (`regionOnlyPagesServed > 0`), 4/4, 1/1. Gradle gates pending the 100M load.
 - Known divergence ledgered: non-string elements → "no member" in both auto-wired paths where the interpreter raises.
 
