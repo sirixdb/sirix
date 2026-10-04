@@ -75,6 +75,13 @@ failure aborts those exact owners independently, while successful intermediate
 epochs preserve active projection builds. The handoff uses the existing listener
 array and definition-set snapshot.
 
+Dropping definitions publishes pending non-projection maintenance through the page-flush
+hook before replacing listeners. Retained VALIDTIME definitions therefore keep endpoint,
+membership and verification changes when the writer commits immediately after a drop.
+Projection listeners keep the existing exact-owner abort and retained-owner handoff.
+`ValidTimePendingIndexDropTest` covers CAS, projection and partial VALIDTIME drops,
+strict and inclusive reads, rounded bounds, and historical revisions after reopen.
+
 The factory owns the reader, transaction intent log and backend until construction
 succeeds. A construction failure closes all three independently and preserves the
 original exception, attaching cleanup failures only as suppressed diagnostics.
