@@ -361,7 +361,8 @@ final class StoreHandleLifecycleTest {
     final Path plainDatabasePath = storePath.resolve("plain");
     final Path aliasPath = storePath.resolve("alias");
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(storePath).build();
-        final BasicJsonDBStore other = BasicJsonDBStore.newBuilder().location(targetDatabasePath.getParent()).build()) {
+        final BasicJsonDBStore other =
+            BasicJsonDBStore.newBuilder().location(requireNonNull(targetDatabasePath.getParent())).build()) {
       final JsonDBCollection plain = store.create("plain", "resource1", "[\"plain\"]");
       assertEquals(plainDatabasePath.toRealPath(), plain.getDatabase().getDatabaseConfig().getDatabaseFile());
       assertFalse(Files.isSymbolicLink(plainDatabasePath));
@@ -401,7 +402,8 @@ final class StoreHandleLifecycleTest {
     final Path plainDatabasePath = storePath.resolve("plain");
     final Path aliasPath = storePath.resolve("alias");
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(storePath).build();
-        final BasicXmlDBStore other = BasicXmlDBStore.newBuilder().location(targetDatabasePath.getParent()).build()) {
+        final BasicXmlDBStore other =
+            BasicXmlDBStore.newBuilder().location(requireNonNull(targetDatabasePath.getParent())).build()) {
       final XmlDBCollection plain = store.create("plain", xml("<plain/>"));
       assertEquals(plainDatabasePath.toRealPath(), plain.getDatabase().getDatabaseConfig().getDatabaseFile());
       assertFalse(Files.isSymbolicLink(plainDatabasePath));
