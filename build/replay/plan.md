@@ -391,3 +391,20 @@ all intermediate validation results and the exact saved experiment are recorded 
 projection-identity-findings.md. The production experiment has been backed out while
 the tested history importer remains. Reproducer is retained outside the normal suite;
 no production copy switch and no claim of final acceptance. Stop and await firstmate.
+
+## CAS complete-tree source regression (2026-10-05 18:11 Berlin)
+
+Reproduced on plain origin/main 71be74062 in this same worktree: all four versioning
+cases miss ordinary array string keys {6,10}. Evidence: cas-main-1.log and XML under
+cas-main-1-results/. Returned to fm/sirix-replay-identity-delta before production edits.
+The CAS visitor moved the shared traversal cursor to the primitive parent without
+restoring it; subsequent builders visited the parent and silently omitted the value.
+Restore the cursor before processing each value. Validate multiple CAS definitions,
+primitive types, nested/root arrays and other shared visitors, then commit separately.
+
+Inbox 005 acknowledged: captain's stop is 2026-10-06 04:00 Berlin; start no validation
+that cannot finish before 03:40, preserve work and retire own jobs by 03:55.
+
+CAS fix validation: 129/129 invocations pass (cas-fixed-1.log and cas-fixed-1-results/),
+including eight new versioned regressions, existing CAS suites and all 109 import cases.
+Spotless Java apply passes; no work bound changed. The source fix is committed independently.

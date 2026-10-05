@@ -5,7 +5,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.cas.CASIndexBuilder;
-import io.sirix.node.NodeKind;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
@@ -78,26 +77,23 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor implements Index
     indexBuilderDelegate.finish();
   }
 
-  private long getPathClassRecord(ImmutableNode node) {
-    rtx.moveTo(node.getParentKey());
-
-    final long pcr;
-
-    // Phase 4: parent of a primitive value-node is now exclusively one of the fused-named
-    // kinds (52/53) or ARRAY. Dispatch on the concrete NodeKind to pick the right
-    // pathNodeKey accessor without alloc.
-    final NodeKind kind = rtx.getKind();
-    if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
-      pcr = ((ObjectNamedObjectNode) rtx.getNode()).getPathNodeKey();
-    } else if (kind == NodeKind.OBJECT_NAMED_ARRAY) {
-      pcr = ((ObjectNamedArrayNode) rtx.getNode()).getPathNodeKey();
-    } else if (kind == NodeKind.ARRAY) {
-      pcr = ((ImmutableArrayNode) rtx.getNode()).getPathNodeKey();
-    } else {
-      pcr = 0;
+  private long getPathClassRecord(final ImmutableNode node) {
+    final long nodeKey = node.getNodeKey();
+    try {
+      if (!rtx.moveTo(node.getParentKey())) {
+        throw new IllegalStateException("CAS value has no parent: " + nodeKey);
+      }
+      // All builders share this cursor. Restore it before processing the value or dispatching
+      // another visitor; otherwise a second CAS builder receives the parent instead of the value.
+      return switch (rtx.getKind()) {
+        case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) rtx.getNode()).getPathNodeKey();
+        case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) rtx.getNode()).getPathNodeKey();
+        case ARRAY -> ((ImmutableArrayNode) rtx.getNode()).getPathNodeKey();
+        default -> 0;
+      };
+    } finally {
+      rtx.moveTo(nodeKey);
     }
-
-    return pcr;
   }
 
 }
