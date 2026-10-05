@@ -44,7 +44,7 @@ an independent logging cost: stdout logging overlaps test execution. Retain
 `--info --stacktrace` and test diagnostics; do not claim a speedup from suppressing
 logs without an A/B measurement.
 
-Plan: put the HOT structural property class and its nested classes in one Linux
+Linux CI puts the HOT structural property class and its nested classes in one
 job and all remaining classes in another. Expected baseline-equivalent job times
 are approximately 18 and 15 minutes including setup/compilation/cleanup, giving
 both jobs substantial margin under the unchanged 35-minute timeout. Keep one
@@ -63,11 +63,14 @@ JUnit engines, JVM flags, diagnostic properties and test resources:
 ```
 
 The class-file pattern is `io/sirix/index/hot/HOTStructuralPropertyTest*.class`.
-For the original test class set T and matching set H, the lanes select T ∩ H and
-T ∖ H. Their intersection is empty and their union is T. Future tests automatically
-enter exactly one lane; nested property classes stay with their enclosing class.
+For the test class set T under the same test configuration and matching set H,
+the lanes select T ∩ H and T ∖ H. Their intersection is empty and their union is T.
+Future tests automatically enter exactly one lane; nested property classes stay
+with their enclosing class.
 An unrecognized lane fails configuration instead of silently skipping coverage.
-Without the property, `:sirix-core:test` still runs the complete original suite.
+Without the property, `:sirix-core:test` retains its existing test selection:
+the default runs the complete suite, while `-PexcludeHeavyTests` still excludes
+heavy-tagged tests on macOS and Windows.
 
 The `TestCore` matrix has no conditions, `continue-on-error`, tag exclusions or
 reduced workloads. Workflow triggers and the `Build` prerequisite are unchanged,

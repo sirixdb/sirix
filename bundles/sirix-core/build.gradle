@@ -125,8 +125,8 @@ artifacts {
 
 test {
     // Partition the existing test task rather than copying its JVM flags, engine configuration,
-    // or diagnostic properties into new tasks. Without this property local and platform runs
-    // still execute the full suite. The same class-file pattern and its complement cover every
+    // or diagnostic properties into new tasks. Without this property existing test selection
+    // is unchanged. The same class-file pattern and its complement cover every
     // current and future test class, including the property test's nested classes.
     def coreTestLane = providers.gradleProperty('coreTestLane').orNull
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
@@ -139,7 +139,7 @@ test {
     }
 
     useJUnitPlatform {
-        // The advisory cross-platform CI lanes exclude soak-style suites that cannot fit the
+        // The cross-platform CI lanes exclude soak-style suites that cannot fit the
         // runner budget there; Linux CI runs everything.
         if (project.hasProperty('excludeHeavyTests')) {
             excludeTags 'heavy'

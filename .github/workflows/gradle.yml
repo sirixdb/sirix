@@ -44,8 +44,8 @@ jobs:
     name: Test sirix-core (${{ matrix.lane }})
     needs: Build
     runs-on: ubuntu-latest
-    # Main run 37338714391 spent ~17 min in HOTStructuralPropertyTest and ~13 min in the
-    # remaining tests. Complementary class filters retain the full suite in concurrent jobs.
+    # Complementary class filters retain the full suite in concurrent jobs; baseline timings
+    # and coverage verification are documented in docs/CI_CORE_HEADROOM.md.
     # Keep both gating even when one fails; Deploy's TestCore dependency requires both.
     strategy:
       fail-fast: false
