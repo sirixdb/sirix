@@ -1241,10 +1241,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Update directory entry: [heapOffset][dataLength | nodeKindId]
     final int nodeKindId = ((NodeKind) fn.getKind()).getId();
     PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes, nodeKindId);
-    // Successful inline publication supersedes cached records just like a direct write.
-    if (records != null) {
-      records[offset] = null;
-    }
+    clearCachedRecord(offset);
     clearSlotPreservation(offset);
 
     // Mark slot populated in bitmap and track last slot index (new slots only)
@@ -1269,6 +1266,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     fn.bind(slottedPage, absOffset, nodeKey, offset);
     fn.setOwnerPage(this);
     return true;
+  }
+
+  /** Published slot bytes supersede cached records, including in-transaction tombstones. */
+  private void clearCachedRecord(final int offset) {
+    if (records != null) {
+      records[offset] = null;
+    }
   }
 
   // ==================== DIRECT-TO-HEAP CREATION ====================
@@ -1406,11 +1410,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Directory entry
     PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes, nodeKindId);
-    // The new slot bytes supersede any cached record, including an in-transaction tombstone.
-    // Readers and prepareRecordForModification consult records[] before the slotted page.
-    if (records != null) {
-      records[slotOffset] = null;
-    }
+    clearCachedRecord(slotOffset);
     clearSlotPreservation(slotOffset);
 
     // Bitmap
