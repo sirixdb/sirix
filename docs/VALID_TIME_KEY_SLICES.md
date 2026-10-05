@@ -248,6 +248,67 @@ These are cold-process measurements, not a forced OS-page-cache eviction. Also r
 twelve direct-call queries and byte-compare all twelve TSVs at both tiers. Timing results are recorded only after these checks pass.
 
 
+## Current verification (2026-10-05)
+
+Source `46da5ab1f7d56a3bafe7aee6a3749528b99c6114` passed the complete core suite
+(**13,111 tests**, zero failures/errors, 77 skips) and the complete query suite
+(**2,247 tests**, zero failures/errors, 12 skips). The query confirmation ran every class in a
+fresh 2 GiB worker after the initial shared worker exhausted its 2 GiB heap; no test was excluded
+and the heap cap was retained. Both module Spotless checks passed.
+
+All active work-budget cases in those suites passed. The five opt-in **100,000-row** cases then
+passed separately with zero skips and live counter diagnostics. Captures show zero object and
+timestamp reads for exact counts, one object on first demand, and zero interval/posting references
+for empty probes. The isolated UDF count/demand guard is enabled and passed. Both new regressions
+failed before the half-open change: end-equal records were included and the internal target could
+be called directly. The current test also executes the internal rewrite before confirming it
+remains absent from query-text function resolution.
+
+[Verification provenance](bench/validtime-slice/halfopen-verification.json) records the source and
+runtime fingerprints, suite/budget counts, actual heap policy and oracle checks.
+[100k work-counter captures](bench/validtime-slice/halfopen-work-counters.txt) retain the printed
+measurements. Subsequent source fixes or rebases require refreshed source-bound validation.
+
+## Current timing observations (2026-10-05)
+
+The measured implementation is `46da5ab1f7d56a3bafe7aee6a3749528b99c6114`, including public
+half-open `jn:open-bitemporal`, direct SH1 calls and the preceding correctness fixes. Fresh stores
+used the unchanged loader's natural publication batching. All twelve TSVs matched the read-only
+oracles byte-for-byte at both t25k and t100k; each timing repetition checked its oracle too.
+The complete repetitions are retained in [halfopen-results.csv](bench/validtime-slice/halfopen-results.csv)
+and [halfopen-direct-results.csv](bench/validtime-slice/halfopen-direct-results.csv).
+
+The before runtime is frozen source `79c7ab99e769300dffd1ab51d8f65ec8b9501818`, using its original
+strict-end wrapper and a separately rebuilt compatible store. The current runtime uses direct
+public calls. Both ran on the shared laptop with the kit's 512 MB initial/2 GiB maximum heap,
+1 GiB direct-memory limit and FILE_CHANNEL storage. Warm medians discard the first of ten
+repetitions (three for Q6/Q11); cold medians use three fresh JVMs. Opening and canonicalization
+are outside total query latency, which is compile + full iteration + serialization.
+
+The current Brackit SHA-256 is `d72e8ea6fb8cb8730961049ca71f82da0e5d580e2189f5ec7b7e1560a1856a88`;
+the frozen before runtime uses `8164d45e0a3aab8926d92f59c9996daafbfa0dc9c550d0ddbd2a4ee6fc877ca7`.
+Base and dependency changes are included in these observations. In particular, current main's
+hash membership implementation contributes most of Q12's improvement. These are measurements of
+two software states on a shared machine, rather than an isolated attribution of every gain to this
+slice change or a latency guarantee.
+
+The direct half-open slice count returned the Q7 oracle's independently summed **97,212** records
+on every repetition. Its warm total median fell from **458.4 ms to 72.1 ms**, and its fresh-process
+query median from **3,407.2 ms to 467.7 ms**. It removes candidate-object and timestamp-field work
+but does not meet the study's 15 ms estimate. Grouping and repeated slices remain substantial costs.
+
+Median total query latency (milliseconds):
+
+| Query | Before warm | Current warm | Before cold | Current cold |
+| --- | ---: | ---: | ---: | ---: |
+| Q4 | 1,161.2 | 387.0 | 6,280.6 | 4,122.7 |
+| Q6 | 13,449.6 | 4,418.4 | 30,737.2 | 22,330.0 |
+| Q7 | 575.3 | 230.2 | 4,511.1 | 2,878.0 |
+| Q8 | 643.1 | 307.4 | 4,686.1 | 3,086.3 |
+| Q9 | 699.4 | 275.5 | 4,889.3 | 3,085.9 |
+| Q11 | 36,207.2 | 14,061.3 | 39,743.4 | 15,260.4 |
+| Q12 | 288,564.5 | 149.7 | 260,748.2 | 4,468.1 |
+
 ## Historical validation results (2026-10-03)
 
 These historical figures measured implementation revision
