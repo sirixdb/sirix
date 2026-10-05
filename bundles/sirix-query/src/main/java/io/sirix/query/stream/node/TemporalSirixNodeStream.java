@@ -23,6 +23,7 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.AbstractTemporalAxis;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -41,7 +42,7 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
   private final XmlDBCollection collection;
 
   /** Optional node test whose rejected readers remain owned by this stream. */
-  private final NodeType test;
+  private final @Nullable NodeType test;
 
   /**
    * Constructor.
@@ -119,7 +120,7 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
   }
 
   @Override
-  public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
+  public @Nullable AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
     while (axis.hasNext()) {
       final var rtx = axis.next();
       boolean accepted = false;

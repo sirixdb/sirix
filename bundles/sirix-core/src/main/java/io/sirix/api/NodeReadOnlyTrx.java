@@ -98,8 +98,8 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
 
   /**
    * Returns the hash used to probe the name dictionary. Hash collisions can give a stored name a
-   * different key. For exact matching, resolve the stored key with {@link #nameForKey(int)} and
-   * compare the name.
+   * different key. For exact matching, compare the name resolved from its stored key in the
+   * appropriate dictionary.
    *
    * @param name name, i.e., local part, URI, or prefix
    * @return initial dictionary probe hash for the given name
@@ -107,9 +107,10 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   int keyForName(String name);
 
   /**
-   * Get name for key. This is used for efficient key testing.
+   * Resolves a stored name key using the dictionary for the current node kind. For XML namespace URI
+   * keys, use {@link XmlNodeReadOnlyTrx#getNamespaceURI()} instead.
    *
-   * @param key key, i.e., local part key, URI key, or prefix key.
+   * @param key stored name key in the current node kind's dictionary
    * @return String containing name for given key
    */
   String nameForKey(int key);

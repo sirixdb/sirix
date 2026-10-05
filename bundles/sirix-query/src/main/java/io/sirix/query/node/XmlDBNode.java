@@ -1646,7 +1646,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<? extends Node<?>> performStep(final Axis axis, final NodeType test) {
+  public @Nullable Stream<? extends Node<?>> performStep(final Axis axis, final NodeType test) {
     requireNonNull(axis);
     requireNonNull(test);
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> temporalAxis = switch (axis) {
