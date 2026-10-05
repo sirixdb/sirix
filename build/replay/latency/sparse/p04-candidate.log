@@ -1,0 +1,65 @@
+ADMITTED,2026-10-05T22:45:11Z
+WARNING: Using incubator modules: jdk.incubator.vector
+RUN,p04-candidate,pid=3073764,java=25.0.3,identity=true,warmups=8,samples=9
+JVM,p04-candidate,maxHeap=3221225472,arguments=[-XX:ThreadPriorityPolicy=1, -XX:+UnlockExperimentalVMOptions, -XX:+EnableJVMCIProduct, -XX:+EnableJVMCI, -XX:-UnlockExperimentalVMOptions, -ea, -Xms512m, -Xmx3g, --add-opens=java.base/sun.nio.ch=ALL-UNNAMED, --add-opens=java.base/java.nio=ALL-UNNAMED, --add-modules=jdk.incubator.vector, --enable-native-access=ALL-UNNAMED, -XX:+EnableDynamicAgentLoading, -XX:+UnlockDiagnosticVMOptions, -XX:+DebugNonSafepoints, --add-modules=jdk.incubator.vector, -Dfile.encoding=UTF-8, -Djava.io.tmpdir=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/tmp, -Dlogback.configurationFile=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/latency/quiet.xml, -Dsirix.replay.workDiag=false, -Dsirix.hot.mergeDiag=false, -Dsirix.replay.bench.scenarios=sparse]
+COLUMNS,label,scenario,iteration,metric,nanos,threadAllocatedBytes,recordVisits,createdIdentities,stagedRecords,ancestorSteps,sidecarReads,fallbackPages,pathSteps,bookkeepingOperations
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/2026.0/2447494f7842ca377b4ccdba2089a8da5c1d1b50/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+SAMPLE,p04-candidate,sparse,0,bulkAppendCommit,10255005,1331008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,0,publicCompactDiff,1625702,59008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,0,publicMaterializedDiff,1323619,58952,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,0,replayRead,901574,28096,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,0,unchangedPublicDiff,590975,17200,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,0,revisionCopy,20222623,3913768,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,bulkAppendCommit,9860558,1331184,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,publicCompactDiff,1923949,59008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,publicMaterializedDiff,1246773,58952,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,replayRead,903601,28320,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,unchangedPublicDiff,679453,17200,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,1,revisionCopy,18624160,3917728,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,bulkAppendCommit,7850041,1331576,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,publicCompactDiff,1360613,59008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,publicMaterializedDiff,954130,60592,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,replayRead,657085,28096,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,unchangedPublicDiff,407482,17200,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,2,revisionCopy,17289069,3913064,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,bulkAppendCommit,7821384,1331776,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,publicCompactDiff,1463075,59008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,publicMaterializedDiff,982041,58952,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,replayRead,482696,28096,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,unchangedPublicDiff,282580,17200,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,3,revisionCopy,18818253,3913296,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,bulkAppendCommit,7797047,1331096,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,publicCompactDiff,872495,59008,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,publicMaterializedDiff,659818,58952,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,replayRead,441646,28096,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,unchangedPublicDiff,361000,17200,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,4,revisionCopy,17004757,3913496,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,bulkAppendCommit,8882354,1330568,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,publicCompactDiff,1380203,57632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,publicMaterializedDiff,1152705,57576,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,replayRead,746437,27904,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,unchangedPublicDiff,378690,17136,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,5,revisionCopy,16914447,3913304,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,bulkAppendCommit,6699856,1330168,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,publicCompactDiff,760577,57944,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,publicMaterializedDiff,576998,57640,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,replayRead,454096,27936,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,unchangedPublicDiff,243803,17136,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,6,revisionCopy,18409627,3913424,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,bulkAppendCommit,7390425,1330696,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,publicCompactDiff,1027009,57632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,publicMaterializedDiff,833144,57576,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,replayRead,501635,27904,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,unchangedPublicDiff,300891,17136,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,7,revisionCopy,21032503,3977192,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,bulkAppendCommit,6466048,1329752,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,publicCompactDiff,740700,57632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,publicMaterializedDiff,534063,57576,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,replayRead,424918,27904,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,unchangedPublicDiff,255390,17136,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p04-candidate,sparse,8,revisionCopy,16713079,3912216,-1,-1,-1,-1,-1,-1,-1,-1
+END,p04-candidate,sink=1355244352
+# [StorageProfile] dump called: enabled=false byKind.size=0

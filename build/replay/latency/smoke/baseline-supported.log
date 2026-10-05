@@ -1,0 +1,71 @@
+ADMITTED,2026-10-05T22:26:58Z
+WARNING: Using incubator modules: jdk.incubator.vector
+RUN,smoke-baseline,pid=2622788,java=25.0.3,identity=false,warmups=1,samples=2
+JVM,smoke-baseline,maxHeap=3221225472,arguments=[-XX:ThreadPriorityPolicy=1, -XX:+UnlockExperimentalVMOptions, -XX:+EnableJVMCIProduct, -XX:+EnableJVMCI, -XX:-UnlockExperimentalVMOptions, -ea, -Xms512m, -Xmx3g, --add-opens=java.base/sun.nio.ch=ALL-UNNAMED, --add-opens=java.base/java.nio=ALL-UNNAMED, --add-modules=jdk.incubator.vector, --enable-native-access=ALL-UNNAMED, -XX:+EnableDynamicAgentLoading, -XX:+UnlockDiagnosticVMOptions, -XX:+DebugNonSafepoints, --add-modules=jdk.incubator.vector, -Dfile.encoding=UTF-8, -Djava.io.tmpdir=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/tmp, -Dlogback.configurationFile=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/latency/quiet.xml, -Dsirix.replay.workDiag=true, -Dsirix.hot.mergeDiag=true, -Dsirix.replay.bench.scenarios=append,unchanged,deep,moves,restore]
+COLUMNS,label,scenario,iteration,metric,nanos,threadAllocatedBytes,recordVisits,createdIdentities,stagedRecords,ancestorSteps,sidecarReads,fallbackPages,pathSteps,bookkeepingOperations
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/2026.0/2447494f7842ca377b4ccdba2089a8da5c1d1b50/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+SAMPLE,smoke-baseline,append,0,bulkAppendCommit,144316755,38398040,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,0,publicCompactDiff,79876553,37541264,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,0,publicMaterializedDiff,66742241,37352648,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,0,replayRead,63247253,37234544,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,0,unchangedPublicDiff,1016023,17328,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,0,revisionCopy,336303602,51479912,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,bulkAppendCommit,134903121,38007472,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,publicCompactDiff,58794888,36691016,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,publicMaterializedDiff,50316014,36174040,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,replayRead,42121087,35928264,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,unchangedPublicDiff,592377,16888,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,append,1,revisionCopy,230738191,50096072,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,bulkAppendCommit,8137756,1435368,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,publicCompactDiff,35491918,5834960,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,publicMaterializedDiff,13351288,5705648,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,replayRead,14317984,5717904,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,unchangedPublicDiff,322000,17072,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,0,revisionCopy,183640019,12699176,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,bulkAppendCommit,7385407,1435648,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,publicCompactDiff,35676649,5769768,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,publicMaterializedDiff,13366409,5705648,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,replayRead,14434316,4931448,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,unchangedPublicDiff,320012,17072,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,unchanged,1,revisionCopy,171456924,12696744,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,bulkAppendCommit,10790336,1810616,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,publicCompactDiff,2455015,360880,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,publicMaterializedDiff,2054040,360824,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,replayRead,2231026,371632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,unchangedPublicDiff,430656,17496,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,0,revisionCopy,26059755,4603304,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,bulkAppendCommit,9786933,1810144,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,publicCompactDiff,855070,360880,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,publicMaterializedDiff,699084,360824,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,replayRead,656716,371632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,unchangedPublicDiff,215440,17496,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,deep,1,revisionCopy,16271758,4604600,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,sourceMutationCommit,4141931,1302472,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,publicCompactDiff,420524,74760,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,publicMaterializedDiff,433064,98048,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,replayRead,551860,130400,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,unchangedPublicDiff,164003,17456,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,0,revisionCopy,11660373,3885968,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,sourceMutationCommit,4070811,1302472,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,publicCompactDiff,527553,74760,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,publicMaterializedDiff,595253,98048,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,replayRead,778927,130400,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,unchangedPublicDiff,248136,17456,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,moves,1,revisionCopy,10949675,3886048,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,sourceMutationCommit,3847096,1298928,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,publicCompactDiff,313256,35184,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,publicMaterializedDiff,179750,35128,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,replayRead,210428,47184,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,restorationPublicDiff,334172,44632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,0,revisionCopy,11285065,3965792,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,sourceMutationCommit,4575017,1298928,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,publicCompactDiff,341140,35184,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,publicMaterializedDiff,164094,35128,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,replayRead,171280,47184,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,restorationPublicDiff,302826,44632,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,smoke-baseline,restore,1,revisionCopy,10975029,3965272,-1,-1,-1,-1,-1,-1,-1,-1
+END,smoke-baseline,sink=556668
+# [StorageProfile] dump called: enabled=false byKind.size=0

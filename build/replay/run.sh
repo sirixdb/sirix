@@ -3,4 +3,8 @@ heavy() { while :; do a=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/memi
 export GRADLE_USER_HOME="$PWD/build/replay/gradle-home"
 export GRADLE_RO_DEP_CACHE=/home/johannes/.gradle/caches
 export TMPDIR="$PWD/build/replay/tmp"
-heavy taskset -c 0-11 ./gradlew -Dorg.gradle.jvmargs=-Xmx2g -Dmaven.repo.local="$PWD/build/replay/m2" --no-daemon --max-workers=2 -PtestHeapMin=256m -PtestHeapMax=2g "$@"
+validation_guard=()
+if [ -n "${SIRIX_REPLAY_VALIDATION_SECONDS:-}" ]; then
+  validation_guard=(bash build/replay/admit-validation.sh)
+fi
+heavy "${validation_guard[@]}" taskset -c 0-11 ./gradlew -Dorg.gradle.jvmargs=-Xmx2g -Dmaven.repo.local="$PWD/build/replay/m2" --no-daemon --max-workers=2 -PtestHeapMin=256m -PtestHeapMax=2g "$@"

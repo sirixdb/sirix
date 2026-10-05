@@ -4,7 +4,7 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 23:03 Berlin)
+## Current checkpoint (2026-10-06 01:51 Berlin)
 
 The branch is rebased on origin/main af9f20e5a, including the separately owned tombstone
 recreation and restore-key fix. Production identity routing is dbcb19f8f; its sole rebase
@@ -19,18 +19,36 @@ outdated structural-hash expectation and seven skips. Both Java formatting check
 All XML is archived under full-core-query-1-results. The query expectation now includes
 revisions 4/5, whose neighboring insertions change hash-covered sibling links.
 
-Current uncommitted edits remove the generated allocation workaround, enable upstream
-R16 coverage, retire its known-limitation row and add an explicit sidecar-free historical
-matrix with actual fork settings printed. gate8-rebase-focused passed those changes, the complete generated matrix, exact
-core/query budgets and query integration tests. It will be followed by the four-version
-forced-recompute matrix and
-final full core/query suites on the rebased branch.
+Commit c10f64aae removes the generated allocation workaround, enables upstream
+R16 coverage, retires its known-limitation row and adds an explicit sidecar-free historical
+matrix with actual fork settings printed. gate8-rebase-focused passed 413 core and 111
+query tests, including the complete generated matrix, exact core/query budgets and query
+integration tests. The four-version forced-recompute matrix passed 150 tests per version,
+zero failures/errors/skips, with all fork configurations verified and formatting clean.
+Measure latency before final full core/query suites, so any performance
+repair is covered by that last full validation.
 
 Gate 8 also requires pinned alternating latency acceptance. The standalone harness,
 artifact exporter, deadline-aware fork runner and paired 5000-draw bootstrap are prepared
-under build/replay/latency but are not compiled or measured yet. No no-mistakes run, push
+under build/replay/latency. Both artifacts compile, their external dependency hashes and
+JVM options match. Baseline smoke reproduced the known sparse-trie CPU loop; candidate
+all-scenario and baseline supported-scenario smoke runs then passed. Primary 12-pair,
+extended six-pair and candidate-only sparse six-fork campaigns are complete. Every
+paired metric's lower bound is below 1.05. Primary copy improves 93.66 to 34.16 ms;
+source append ratio 1.075 (CI 1.007–1.128) and extended unchanged-prefix estimates
+leave material source/public/copy slowdowns unresolved and are explicit in report.md.
+The final full core/query suites and formatting passed: core 13912 tests (77 skips),
+query 2573 (7 skips), zero failures/errors, 53m55s. Both complete XML archives and
+summaries are retained. Normal FULL/DIFFERENTIAL/INCREMENTAL each pass 150/150, completing
+the final branch's historical matrix alongside normal SLIDING_SNAPSHOT from the full
+suite and all four forced runs. All eight migration gates are complete. Commit the
+evidence and hand off to Firstmate; no no-mistakes run or push has started.
+No no-mistakes run, push
 or done handoff. Stop remains 04:00 Berlin on October 6; no validation may extend past
 03:40. The private Maven repository build/replay/m2 and heavy runner remain in use.
+The final full run will use SIRIX_REPLAY_VALIDATION_SECONDS=4500 and
+SIRIX_REPLAY_VALIDATION_DEADLINE=2026-10-06T01:40Z; the runner checks admission after
+acquiring its heavy slot and reserves timeout grace before the cutoff.
 
 ## Contract and concrete implementation
 
@@ -85,7 +103,7 @@ or done handoff. Stop remains 04:00 Berlin on October 6; no validation may exten
 7. [done: bounded transition/path work and mutation-proven counters] Work budgets: record visits, created identities, staged records, ancestor
    work, sidecar reads, fallback page visits. Guard append unchanged prefixes, no-op
    page reuse and sparse gaps; preserve every existing bound.
-8. [pending] Full core/query suites, exact docs/VERIFICATION.md work-budget block,
+8. [done: full suites, complete matrix, unchanged budgets and paired measurements] Full core/query suites, exact docs/VERIFICATION.md work-budget block,
    formatting and pinned alternating paired latency campaign; then commit/handoff.
    Firstmate starts no-mistakes after the first done handoff; pipeline owns push.
 
@@ -763,3 +781,113 @@ async frozen-epoch preparation and post-hardening publication boundary.
 
 Continue with four forced-sidecar-free historical runs; the runner verifies the actual
 versioning/forceRecompute settings from each fork's output and archives each result.
+
+## Forced-recompute matrix passed (2026-10-05 23:52 Berlin)
+
+FULL, DIFFERENTIAL, INCREMENTAL and SLIDING_SNAPSHOT each pass 150 tests with no
+failures/errors/skips. Every log records its requested versioning and forceRecompute=true;
+all four formatting checks pass. XML and summaries are under forced-matrix-*-results.
+The first FULL test run also passed, but editing run.sh while its shell waited caused
+that wrapper to exit 127 after Gradle success. Its original log is preserved as
+forced-matrix-FULL-wrapper-interrupted.log. The corrected runner was syntax checked and
+the entire matrix rerun successfully; do not edit any active shell script again.
+
+Next export immutable baseline af9f20e5a and candidate c10f64aae artifacts, then smoke
+all latency fixtures before the alternating acceptance campaign. Exported dependencies
+and JVM options must match. Benchmark heap is 512 MiB/3 GiB with the project's test JVM
+options, matching the historical report's heap configuration. No collector flag is
+forced; inspection of actual exported options corrected the earlier ZGC assumption,
+because core's test task replaces the root project's initial JVM options.
+No latency claim yet. The deadline guard for the final full suite was verified with
+admitted and rejected non-JVM commands.
+
+## Latency sampling plan, fixed before acceptance data
+
+Primary append workload: 12 matched fork pairs, alternating AB/BA, 24 untimed warmups
+and 17 measured fresh-database iterations per fork (204 samples per variant/metric).
+Extended unchanged/deep/sparse/moves/restore workloads: six matched pairs, eight warmups
+and nine measured iterations per scenario/fork. Diagnostics are disabled for timed
+acceptance; smoke/diagnostic forks are separate and excluded. Use the fixed-seed paired
+fork-block bootstrap (5000 draws) without discarding slow successful samples. A confirmed
+regression is the lower 95% ratio bound above 1.05 and requires investigation/repair,
+not an altered sample-selection rule. Retain baseline unsupported cases explicitly.
+
+Export completed at 23:53 Berlin: baseline af9f20e5a (1663 class/resource files), candidate
+c10f64aae (1685), same Java/JVM options and exact external dependency paths/SHA-256 hashes.
+The working candidate bundles are restored and clean. The smoke pair has one warmup and
+two measured iterations per scenario with counters enabled; it is fixture validation only.
+
+## Sparse baseline smoke limitation (2026-10-06 00:24 Berlin)
+
+Baseline af9f20e5a completed append/unchanged/deep smoke samples, then consumed a core
+without completing the three-node append after a trillion-key reservation. A SIGQUIT
+dump from this lane's own JVM shows main in prepareRecordPage -> addParentHash ->
+adaptHashesInPostorderTraversal -> insertSubtreeInternal. Preserved complete output in
+latency/smoke/p00-baseline.log, then terminated only that verified own JVM; wrapper exit
+143 is intentional, not a completed benchmark fork. No acceptance samples came from it.
+This is the sparse trie aliasing source defect already repaired by rebased commit
+1a6088b67 and covered by 24 direct sparse-source configurations (see gate 3 evidence).
+
+Do not rerun the hanging baseline sparse case inside paired acceptance. The primary
+append plan is unchanged. Extended matched pairs cover unchanged/deep/moves/restore;
+measure candidate sparse separately with six forks, eight warmups and nine samples,
+retaining the unsupported baseline witness and making no paired sparse ratio claim.
+Candidate all-six-scenario smoke and baseline five-scenario smoke now run separately.
+Fork logs print ADMITTED timestamps after slot acquisition; campaign queue timestamps
+are labeled queued, so a limiter wait is distinguishable from JVM execution time.
+
+## Latency campaigns complete; final suites started (2026-10-06 00:47 Berlin)
+
+All expected primary (24), extended (12) and candidate-only sparse (6) forks completed;
+all sample cardinalities and END markers validate. Paired results use all 5000 fixed-seed
+bootstrap draws. No lower bound exceeds the specified 1.05 regression threshold.
+Primary copy is 34.16 ms versus 93.66 ms (CI ratio 0.334–0.384); authoritative replay
+read is 2.93 ms versus 30.25 ms. Primary source append's higher point estimate and
+extended workload uncertainty are explicitly retained; these are not equivalence or
+production-tail-latency claims. Candidate sparse copy is 20.95 ms, with no baseline ratio
+because baseline source insertion does not complete. Full raw samples, allocations,
+diagnostic counters, manifests and methodology are under latency/, summarized in its
+report.md. Every existing work-budget bound is unchanged.
+
+Final command: SIRIX_REPLAY_VALIDATION_SECONDS=4500 and
+SIRIX_REPLAY_VALIDATION_DEADLINE=2026-10-06T01:40Z build/replay/run.sh
+:sirix-core:test :sirix-query:test :sirix-core:spotlessJavaCheck
+:sirix-query:spotlessJavaCheck --continue. Log: full-core-query-final.log. It compiles
+the restored candidate source and runs the entire combined rebased suites with 2 GiB
+test heaps. Do not edit active runner scripts. Archive XML before any further tests.
+
+After archiving the full results, complete normal-mode coverage on this branch by running
+run-normal-matrix.sh for FULL, DIFFERENTIAL and INCREMENTAL with forceRecompute=false.
+Their earlier normal-mode passes predated the prerequisite rebase. The rebased forced
+matrix covers all four types; the final full suite supplies normal SLIDING_SNAPSHOT.
+No production change motivates this repeat: it makes the requested historical matrix
+explicit on the final combined branch. Use a 600-second admission budget per run with
+the same 01:40 UTC deadline; no overlapping JVMs or edited active runners.
+
+## Final full suites green (2026-10-06 01:45 Berlin)
+
+full-core-query-final completed successfully in 53m55s. Core: 13912 tests, zero failures
+or errors, 77 skipped, 1121 suites. Query: 2573 tests, zero failures or errors, seven
+skipped, 270 suites. Both spotlessJavaCheck tasks pass (up-to-date against unchanged
+production Java). XML and summaries are archived under full-core-query-final-results
+before starting any further test run. The full core log confirms normal
+SLIDING_SNAPSHOT/forceRecompute=false. Remaining normal FULL/DIFFERENTIAL/INCREMENTAL
+runs use run-normal-matrix.sh with the 600-second per-run guard and 01:40 UTC cutoff.
+
+## Migration gate 8 complete (2026-10-06 01:51 Berlin)
+
+The three final normal-mode runs each pass 150/150, zero failures/errors/skips, with
+their actual versioning/forceRecompute=false settings checked. Their XML and summaries
+are retained under normal-matrix-*-results. Together with the final full suite's normal
+SLIDING_SNAPSHOT and the four forced-recompute runs, every historical configuration is
+explicit on the combined branch. All formatting and repository whitespace checks pass.
+No work-budget bound was widened. Production source remains the benchmarked/tested
+c10f64aae; the final evidence commit adds only build/replay files. No jobs remain active.
+
+The matched latency rule is satisfied: no paired metric has a lower 95% bound above
+1.05. This does not prove equivalence: source append's 7.5% higher point estimate and
+the extended unchanged-prefix uncertainty remain prominent in latency/report.md.
+Copy improves to 34.16 ms versus 93.66 ms on the primary workload; sparse baseline
+noncompletion is retained rather than replaced with a fabricated comparison. Final
+handoff is the first done gate only; Firstmate must instruct no-mistakes before that
+pipeline starts, and the pipeline owns push. Merge still needs explicit approval.

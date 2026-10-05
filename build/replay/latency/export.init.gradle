@@ -1,0 +1,34 @@
+import org.gradle.api.tasks.compile.JavaCompile
+
+projectsEvaluated {
+    def core = rootProject.project(':sirix-core')
+    def campaign = new File(rootProject.projectDir, 'build/replay/latency')
+    def variant = System.getProperty('sirix.replay.bench.variant')
+    if (variant == null || !(variant ==~ /[a-z0-9-]+/)) throw new GradleException('Set -Dsirix.replay.bench.variant=<label>')
+    def artifact = new File(campaign, variant)
+    def benchmarkCompile = core.tasks.register('compileReplayLatency', JavaCompile) {
+        dependsOn core.tasks.named('classes')
+        source = new File(campaign, 'ReplayLatency.java')
+        classpath = core.sourceSets.main.runtimeClasspath
+        destinationDirectory = new File(artifact, 'harness')
+        javaCompiler = core.tasks.named('compileJava', JavaCompile).get().javaCompiler
+        options.compilerArgs.addAll(['--enable-preview', '--add-modules', 'jdk.incubator.vector'])
+    }
+    core.tasks.register('exportReplayLatency') {
+        dependsOn benchmarkCompile
+        doLast {
+            artifact.mkdirs()
+            def classes = new File(artifact, 'classes')
+            core.sync {
+                from core.sourceSets.main.output
+                into classes
+            }
+            def ownOutputs = core.sourceSets.main.output.files.collect { it.canonicalFile } as Set
+            def dependencies = core.sourceSets.main.runtimeClasspath.files.findAll { !ownOutputs.contains(it.canonicalFile) }
+            def entries = [classes.canonicalPath, new File(artifact, 'harness').canonicalPath] + dependencies.collect { it.canonicalPath }
+            new File(artifact, 'classpath.txt').text = entries.join(File.pathSeparator)
+            new File(artifact, 'java.txt').text = core.tasks.named('compileJava', JavaCompile).get().javaCompiler.get().metadata.installationPath.file('bin/java').asFile.canonicalPath
+            new File(artifact, 'jvm-args.txt').text = core.tasks.named('test').get().jvmArgs.join('\n') + '\n'
+        }
+    }
+}

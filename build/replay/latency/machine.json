@@ -1,0 +1,12 @@
+{
+  "recorded_utc": "2026-10-05T22:01:28.660795+00:00",
+  "kernel": "6.8.0-138-generic",
+  "machine": "x86_64",
+  "logical_cpus": 20,
+  "model": "12th Gen Intel(R) Core(TM) i7-12700H",
+  "microcode": "0x43b",
+  "requested_cpus": "0-11",
+  "governor_cpu0": "powersave",
+  "mem_total": "MemTotal:       32527200 kB",
+  "shared_laptop": true
+}
