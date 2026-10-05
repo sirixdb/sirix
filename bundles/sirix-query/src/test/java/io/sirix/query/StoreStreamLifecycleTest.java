@@ -10,6 +10,7 @@ import io.brackit.query.node.stream.ArrayStream;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -202,7 +203,7 @@ final class StoreStreamLifecycleTest {
       private boolean first = true;
 
       @Override
-      public NodeSubtreeParser next() {
+      public @Nullable NodeSubtreeParser next() {
         if (first) {
           first = false;
           return parser;
@@ -246,7 +247,7 @@ final class StoreStreamLifecycleTest {
       private int index;
 
       @Override
-      public NodeSubtreeParser next() {
+      public @Nullable NodeSubtreeParser next() {
         if (index == parsers.length) {
           consumed.countDown();
           return null;
