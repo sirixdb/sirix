@@ -395,8 +395,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
-  private XmlDBCollection createCollection(final String collName, final String optResName,
-      final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
+  private XmlDBCollection createCollection(final String collName, final @Nullable String optResName,
+      final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -433,9 +433,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
   }
 
   /**
-   * Import documents concurrently, returning only after every import has committed and closed its
-   * transaction. The executor belongs to this call so failure, stream exhaustion and interruption all
-   * drain the workers before the parser stream or database can be closed by the caller.
+   * Keep the executor scoped to this call: it must drain submitted imports before the parser stream
+   * closes, including when parsing, stream iteration or the caller's wait fails.
    */
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
