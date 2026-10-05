@@ -641,7 +641,7 @@ before any other finish step, then releases the run (`:2300-2308`).
   heap with one 128 KiB read buffer per run, encoding leaves as keys stream past, so the heap holds at
   most one leaf's keys beyond those buffers; the merge asserts it read exactly the spilled row count
   (`:172-192`, `:390-434`; the reader's buffer is `IO_BUFFER_BYTES`, `:47`, `:525`). Each leaf takes the
-  largest prefix that fits `ProjectionSortedLeaf`'s bounds, halving the row count until it does
+  largest prefix that fits the encoded chunk target (6 KiB, at most 256 rows), halving the row count until it does
   (`:254-269`). The sparse directory's header is written
   last (§6.1.3).
 - **Cleanup and failure.** Run files are deleted after the merge, and again when the build is released
@@ -772,13 +772,14 @@ earlier encoder threw on such a row and failed the build.
 
 #### 6.1.2 Sorted leaf (`ProjectionSortedLeaf`)
 
-One format for data leaves, directory nodes and group summaries
-(`proj/ProjectionSortedLeaf.java:12-36`):
+`ProjectionSortedLeaf` chooses the smaller of two current encoding schemes: prefix-compressed
+rows, and byte-addressable dictionary/delta columns for eligible numeric tuples. The prefix form
+also represents directory nodes and group summaries:
 
 | Off | Width | Field |
 |---|---|---|
 | 0 | i32 | magic `0x314C5350` "PSL1" |
-| 4 | u8 | version 1 |
+| 4 | u8 | prefix scheme 1 |
 | 5 | u16 | rows (1..256) |
 | 7 | u16 | prefixBytes |
 | 9 | prefixBytes | common prefix of first and last key |
@@ -791,36 +792,51 @@ themselves; keys unique and strictly increasing; `open` validates every entry an
 (`:63-66`, `:143-150`). Mutation is copy-on-write: `withInserted`, `withRemoved`, `withReplaced`,
 `rewrite` (`:381-500`).
 
+The column scheme (`ProjectionSortedDataBlock`, scheme 2) stores an ordered dictionary of leading
+fields, optional per-row dictionary IDs, and fixed-byte-width delta columns for the final long,
+record key and up to four payload words. Width zero denotes a constant column. Its header contains
+exact value extrema; opening validates dimensions, dictionary order, row order and extrema.
+Positional reads and binary search do not decompress preceding rows.
+
+`ProjectionSortedChunks` packs ordinary data and directory chunks within 8 KiB, targeting 6 KiB;
+data chunks still hold at most 256 rows. A single oversized tuple may use the leaf codec's 64 KiB
+bound. These limits are independent of blob residence: up to 512 bytes is inline in the HOT entry,
+with larger payloads stored by verified side reference. Each encoded chunk is its own copy-on-write
+unit; there is no whole-leaf overflow layout or reader for an earlier sorted-view format.
+
 #### 6.1.3 Directory (`ProjectionSortedDirectory`)
 
-A sparse copy-on-write fence tree over sorted leaves, at most 8 levels; nodes are sorted leaves whose
-key is a child's first key and whose payload is a 4-byte child id; a new tree becomes visible only
-when its header is published (`proj/ProjectionSortedDirectory.java:14-37`, `:1134-1141`).
+A sparse copy-on-write fence tree over sorted chunks, at most 32 levels. Direct nodes hold each
+child's first key and a 4-byte child id. When two full fences cannot fit together,
+`ProjectionSortedDirectoryNode` stores bounded child/separator-id pairs and resolves the individual
+separator records. A new tree becomes visible only when its header is published.
 
-**Header, version 3**, `31 + fieldCount` bytes (`:49-95`):
+**Header, version 5**, `39 + fieldCount` bytes:
 
 | Off | Width | Field |
 |---|---|---|
 | 0 | i32 | magic `0x31445350` "PSD1" |
-| 4 | u8 | version 3 |
-| 5 | u8 | height (0..8) |
+| 4 | u8 | version 5 |
+| 5 | u8 | height (0..32) |
 | 6 | i32 | rootId (0 = empty) |
 | 10 | i32 | nodeCount |
 | 14 | i32 | dataLeafCount |
 | 18 | i32 | maxLeafId |
 | 22 | i64 | **unencodableRows** |
-| 30 | u8 | key-layout field count (1..255) |
-| 31 | n | key-layout field shapes |
+| 30 | i64 | missing aggregate rows; −1 for a non-aggregate layout |
+| 38 | u8 | key-layout field count (1..255) |
+| 39 | n | key-layout field shapes |
 
 Invariants checked on parse: `rootId == 0 ⇔ dataLeafCount == 0 ⇔ height == 0`; `rootId ≤ nodeCount`;
-`maxLeafId ≥ dataLeafCount`; `unencodableRows ≥ 0`; the trailing bytes must be a valid `Layout`
-(`:54-75`). Ids are high-water marks and never reused; a leaf cursor checks that it visited exactly
+`maxLeafId ≥ dataLeafCount`; `unencodableRows ≥ 0`; the missing-value count must agree with the
+aggregate layout; the trailing bytes must be a valid `Layout`. Earlier header versions are rejected. Ids are high-water marks and never reused; a leaf cursor checks that it visited exactly
 `dataLeafCount` leaves (`:317-322`).
 
 Read API (`Accessor`): `findLeafId`, `seek`/`first`, `unencodableRows`, `layout`, the range walkers
 `leaves()`, `leaves(from, upperExclusive)`, `leafIds(from, upper, maximum)` (null beyond `maximum`)
 and `leafCount(from, upper, cap)` (the whole view needs no walk), plus the cursor's `skipPrefix`,
-`skipPrefixCapturingLast` and `moveToLastPrefixLeaf`; all reads are scalar (`:139-250`, `:405-500`).
+`skipPrefixCapturingLast` and `moveToLastPrefixLeaf`. Selective metadata and point-data reads share
+one seek admission; rows within an owned chunk do not promote its native page (§8.5).
 The range walkers are what confines every route to the prefix range.
 
 Build: `Builder` appends strictly increasing leaves (ids 1..N), counts the trailing run of
@@ -855,14 +871,17 @@ summaries. **16 leaf ids per 272-byte chunk** — "small enough to live inline i
 chunk written by a build therefore never becomes a staged side page, and maintenance later in the
 same transaction can still replace it" (`proj/ProjectionSortedLeafBounds.java:15-28`).
 
-Chunk (272 bytes): i32 magic `0x31425350` "PSB1", u8 version 1, u8 log2 leaves per chunk = 4, 2 zero
-bytes, u64 valid bitmap (bit `(leafId − 1) & 15`), then 16 × (i64 min, i64 max), little-endian
-(`:22-26`, `:111-117`, `:325-336`).
+Chunk (272 bytes): i32 magic `0x31425350` "PSB1", u8 version 2, u8 log2 leaves per chunk = 4,
+2 zero bytes, then a u64 flags word and 16 × (i64 min, i64 max), little-endian. Flags 0–15 mark
+valid bounds; flags 16–31 prove that the corresponding chunk contains one group. Remaining bits
+must be zero, and a single-group proof requires valid bounds. Earlier bounds versions are rejected.
+A valid proof lets a reader synthesize the group's summary from its directory fence and extrema.
+Direct summary replacement/removal clears this proof and invalidates the group-extrema tree.
 
 - Invalidate an entry before changing its source; a chunk read by `getBlob` aliases an immutable page
   and is cloned before modification (`:35-46`, `:49-108`).
 - `read`/`readUnordered`: null above `MAX_CANDIDATE_LEAVES = 2^20` data leaves ("bound the four
-  primitive candidate arrays to 24 MiB; larger views retain the streaming scan"); collects the leaf
+  primitive candidate arrays to 25 MiB; larger views retain the streaming scan"); collects the leaf
   ids of the queried range with the directory cursor, then reads the **distinct chunks in batches of
   1024 via `readBlobBatch`** (a failed or tiny batch falls back to scalar reads); a missing chunk or
   clear valid bit returns null (the query declines); a duplicate id or `min > max` throws
@@ -882,16 +901,25 @@ builds it, so this is a contract violation, not a decline). The upper bound is
 among the winners or at the K+1 cut line**, because the interpreter breaks ties by document order,
 which a key-ordered page does not carry (`:82-86`, `:642-657`).
 
-Dispatch (`:130-203`):
+Dispatch:
 
-1. SPAN_DESC, no intent log, `sortedSpanBounds` → `ProjectionSortedSpanScan.topK` over the range (§6.1.7);
-2. min-only, `sortedMinBounds` → `topKFromBounds` over the range;
-3. otherwise `topKFromSummaries` (parallel lanes when the **range** holds at least
+1. no intent log and an eligible group-extrema tree → `ProjectionSortedGroupSma.topK`;
+2. SPAN_DESC, no intent log → `ProjectionSortedSpanScan.topK` over the range (§6.1.7);
+3. min-only → `topKFromBounds` over the range;
+4. otherwise `topKFromSummaries` (parallel lanes when the **range** holds at least
    `LEAVES_PER_SUMMARY_WORKER` = 1024 leaves per worker, at most `sortedSummaryMaxWorkers` = 4 and
    never more than the CPU count, each lane with its own reader at the caller's revision — the leaf
    count is taken with `directory.leafCount(prefix, upper, …)`, which never walks the whole view);
-4. fallback: a directory cursor seeked to `prefix`, over full keys, with `skipPrefix` jumps, stopping
+5. fallback: a directory cursor seeked to `prefix`, over full keys, with `skipPrefix` jumps, stopping
    at the first key that does not start with `prefix`.
+
+The group-extrema tree is optional metadata in the current format, maintained only while groups
+are no more numerous than data chunks. It stores one exact group min/max per entry in bounded
+inline nodes. Wide group keys or missing aggregate values decline it. A transaction-private path
+cache avoids repeated node decoding during edits; proven interior edits preserve extrema,
+insert-only batches combine extrema exactly, and removed endpoints trigger an exact group scan.
+Queries resolve its header/nodes selectively and retain verified immutable payloads under the HOT
+cache byte budget. Missing or invalidated trees use the remaining exact routes.
 
 `topKFromBounds` (MIN_ASC) visits leaves of the range in ascending leaf-min order and stops once K+1
 groups are retained and the next leaf's minimum exceeds `scores[K]`; each summary is validated
@@ -910,7 +938,7 @@ Best-first SPAN_DESC top-K for groups that may span many leaves
 3. `buildUpperBounds`: each maximal run of leaves starting with the same group, plus its predecessor,
    gets a span upper bound from combined leaf extrema (saturating);
 4. priority: a max-heap over ordinals when the range has ≥ `CACHE_SIZE * 8` = 1024 leaves
-   (`heapSpanPriority`), else an indirect sort;
+   else an indirect sort;
 5. `visit`: stop once K+1 groups are retained and `upper[ordinal] < scores[K]` (strict, so ties reach
    the fallback); a run member completes its run (reading the run's last leaf and the leaf before it);
    otherwise read the leaf's summary and offer its groups;
@@ -1400,7 +1428,7 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 |---|---|---|---|---|
 | record page | `PageReference` → `KeyValueLeafPage` | budget / 2 (bytes) | global `ClockSweeper` second chance above 80 % (100 ms cycle, 10 % scan), guarded pages skipped; inline eviction above 110 % | `sirix.cache.recordPage` |
 | record page fragment | fragment offset → `KeyValueLeafPage` | budget × 3/16 | same | `sirix.cache.recordPageFragment` |
-| HOT complete leaves, raw fragments and resolved-slot mini pages | durable `PageReference` → HOT view | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches | see owner |
+| HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for copied payloads | see owner |
 | page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (the byte budget passed in is ignored) | Caffeine size | `sirix.cache.page.max.entries` |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
 | HOT lookup | `HOTLookupKey` → node keys | 1 024..65 536 entries, budget-derived | set-associative | `sirix.hotLookupCache.maxEntries` |
@@ -2026,9 +2054,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | Property | Default | Effect | Cite |
 |---|---|---|---|
 | `sirix.projection.sortedLookahead` | 8 (1..64) | candidate summary leaves fetched together | `proj/ProjectionSortedGroupScan.java:32-43` |
-| `sirix.projection.sortedGroupSummaries` / `sortedSpanBounds` / `sortedMinBounds` / `parallelSortedSummaries` | T | sorted top-K routes | `:130-147` |
-| `sirix.projection.batchSortedSummaries` / `sortedSummaryMaxWorkers` | true / 4 (1..8) | summary windows | `:25-30` |
-| `sirix.projection.heapSpanPriority` / `denseSpanBounds` | T / T | span scan priority and bound indexing | `proj/ProjectionSortedSpanScan.java:154-182` |
+| `sirix.projection.sortedSummaryMaxWorkers` | 4 (1..8) | summary worker ceiling | `proj/ProjectionSortedGroupScan.java` |
 | `sirix.projection.coalesceBlobBatches` | T | coalesced blob batch reads | `proj/ProjectionIndexHOTStorage.java:3973-3976` |
 | `sirix.projection.batchPhysicalOrder` | T | batched fence physical order | `proj/ProjectionIndexFences.java:117-121` |
 | `sirix.projection.parallelColumnDirectory` / `parallelWalk` / `overlapDirectoryLoad` / `directoryWindows` | T / F / T / F | directory loading | `proj/ProjectionIndexHOTStorage.java:2319-2326`, `:2697-2703`; `proj/ProjectionIndexCatalog.java:105`, `:781-790` |

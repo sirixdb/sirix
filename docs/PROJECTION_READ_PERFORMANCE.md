@@ -89,9 +89,9 @@ Read intent controls cache admission:
   scope remembers one bounded, detached metadata miss. A successful point seek can admit it only
   if the data read did not consume the scope's single admission. Failed seeks and scans discard it.
 - `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
-  many slots. Advancing a point cursor declares scan intent; consuming another row promotes its
-  physical leaf through the guarded loader. Writers and shared-page backends use the ordinary
-  complete loader.
+  many slots. A sorted cursor consumes its owned logical chunk without native promotion. Needing
+  another chunk, or skipping a prefix, promotes through the guarded loader. Writers and shared-page
+  backends use the ordinary complete loader.
 
 Mini pages hold only bounded packed results and durable side-reference provenance. They use the
 normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on one
@@ -102,6 +102,19 @@ fences every stripe.
 Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB and the
 heap ceiling below, taken from that complete allowance. Complete adoption discards the corresponding
 mini page.
+
+Committed sorted slots also have a byte-bounded `ProjectionBlobCache`. It retains private copies of
+length/hash-verified payloads under database/resource identity, committed root offset and integrity,
+revision and logical slot. Hits return copies; no mutable shared array or native guard escapes.
+Cold point misses use selective slot resolution. One successful seek may admit its data payload or,
+if that opportunity remains unused, one deferred routing payload. An abandoned open admits neither.
+Group-tree reads use selective slot resolution and the same bounded retention.
+
+This cache reserves half the mini-page allowance from the remaining complete-HOT share, preserving
+the total HOT budget. Its fixed associative sets account for retained bytes and object/table
+allowances, reject payloads above 32 KiB, and evict within their byte limits. Resource/database clear,
+truncate and rollback invalidate entries and fence in-flight admissions by generation. Allocator
+pressure also clears the retained payloads. Writers bypass this committed-payload cache.
 
 HOT cache sweepers skip guarded images.
 
@@ -115,13 +128,13 @@ residency. The native half keeps the pre-existing off-heap fragment share in ful
 pressure listener still behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
 unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the native fragment
 share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
-reserving mini pages. The compact half and the mini cache retain heap instead, are each charged
-their packed bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
+reserving mini pages and sorted payloads. The compact half and the mini cache retain heap instead,
+are each charged their packed bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
 `sirix.hotHeapCache.maxBytes` — one sixteenth of `Runtime.maxMemory()` by default, floored at
 32 × 64 KiB. The property accepts positive byte counts; malformed or non-positive values use the
 default. The compact half spends no native fragment allowance; the mini reservation comes from the
-complete-leaf share described above. A heap-resident image holds no allocator frame, so each heap
-cache has its own clock sweeper rather than relying on allocator pressure. Point fragment walks,
+complete-leaf share described above. A heap-resident image holds no allocator frame, so the compact
+fragment and mini caches have their own clock sweepers rather than relying on allocator pressure. Point fragment walks,
 including walks answered from cached raw images, contribute to `EngineWorkCounters.HOT_LEAF_LOADS`;
 older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or mini-page hits
 contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.
@@ -358,9 +371,10 @@ Each inserted or removed key is classified from its own bytes, so the count foll
 extra reads. Initial builds and explicit summary rebuilding count a leaf's missing values only
 when it has no summary: a summarized leaf provably holds none. Non-aggregate layouts need no count.
 
-Data chunks target 384 encoded bytes and have a 512-byte inline limit, except a single oversized
-tuple. Eligible numeric keys and covering payloads use byte-addressable dictionary and delta
-columns; other shapes use prefix rows. The smaller representation wins. Directory nodes use
+Data chunks target 6 KiB, with an 8 KiB packing cap and at most 256 rows, except a single
+oversized tuple. Packing is independent of blob residence: payloads up to 512 bytes live inline;
+larger encoded chunks use verified side references. Eligible numeric keys and covering payloads use
+byte-addressable dictionary and delta columns; other shapes use prefix rows. The smaller representation wins. Directory nodes use
 bounded prefix rows, with individual separator references when two full fences cannot fit.
 The old whole-leaf overflow layout is not a supported sorted-view format.
 
@@ -368,6 +382,13 @@ Bounds hold extrema for sixteen chunk IDs plus an exact single-group proof mask.
 group key comes from its directory fence, letting reads synthesize its summary without fetching
 another record. Replacing or deleting the summary clears the proof before publication. Missing
 proofs use ordinary summaries; malformed proof bits and earlier bounds formats are rejected.
+
+An eligible `ProjectionSortedGroupSma` adds one exact min/max entry per logical group above the
+chunk summaries. It is maintained only while groups do not outnumber chunks; missing aggregate
+values and group keys wider than 128 encoded bytes decline this acceleration. A private edit-path
+node cache bounds repeated metadata decoding. Interior changes retain their proven extrema;
+insert-only changes combine existing and inserted extrema exactly; removed endpoints use an exact
+post-edit group scan. Invalidated or retired trees leave the bounds/summary/key routes available.
 
 Memory and maintenance cost:
 
