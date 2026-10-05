@@ -2,6 +2,7 @@ package io.sirix.query.compiler.translator;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
@@ -24,6 +25,8 @@ import io.sirix.axis.filter.xml.TextFilter;
 import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.path.summary.PathNode;
+import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
@@ -37,6 +40,7 @@ import io.brackit.query.function.FunctionExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.service.xml.xpath.expr.UnionAxis;
+import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
@@ -76,6 +80,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 import static io.sirix.query.stream.node.TemporalSirixNodeStream.isSimpleNodeTest;
 
@@ -521,6 +526,57 @@ public class SirixTranslator extends TopDownTranslator {
     }
   }
 
+  private static final class PathSummaryMatches {
+    private final Long2ObjectMap<BitSet> matchesByPath = new Long2ObjectOpenHashMap<>();
+    private final IncludeSelf self;
+    private long databaseId;
+    private long resourceId;
+    private int revision;
+    private @Nullable QNm name;
+
+    private PathSummaryMatches(final IncludeSelf self) {
+      this.self = self;
+    }
+
+    private BitSet match(final XmlNodeReadOnlyTrx rtx, final PathSummaryReader reader, final QNm qName) {
+      final long pcr = rtx.isDocumentRoot()
+          ? Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
+          : rtx.getPathNodeKey();
+      final ResourceConfiguration configuration = rtx.getResourceSession().getResourceConfig();
+      final int currentRevision = rtx.getRevisionNumber();
+      if (databaseId != configuration.getDatabaseId() || resourceId != configuration.getID()
+          || revision != currentRevision || !qName.equals(name)) {
+        matchesByPath.clear();
+        databaseId = configuration.getDatabaseId();
+        resourceId = configuration.getID();
+        revision = currentRevision;
+        name = qName;
+      }
+      BitSet matches = matchesByPath.get(pcr);
+      if (matches == null) {
+        reader.moveTo(pcr);
+        final int contextLevel = reader.getLevel();
+        final int minLevel = self == IncludeSelf.YES
+            ? contextLevel
+            : contextLevel + 1;
+        matches = reader.match(qName, minLevel, NodeKind.ELEMENT);
+        for (int candidate = matches.nextSetBit(0); candidate >= 0; candidate = matches.nextSetBit(candidate + 1)) {
+          long ancestorKey = candidate;
+          PathNode ancestor = reader.getPathNodeForPathNodeKey(ancestorKey);
+          while (ancestor != null && ancestor.getLevel() > contextLevel) {
+            ancestorKey = ancestor.getParentKey();
+            ancestor = reader.getPathNodeForPathNodeKey(ancestorKey);
+          }
+          if (ancestorKey != pcr) {
+            matches.clear(candidate);
+          }
+        }
+        matchesByPath.put(pcr, matches);
+      }
+      return matches;
+    }
+  }
+
   /**
    * {@code child::} optimization.
    *
@@ -530,7 +586,7 @@ public class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final Long2ObjectMap<BitSet> filterMap;
+    private final PathSummaryMatches filterMap;
 
     /**
      * Constructor.
@@ -539,7 +595,7 @@ public class SirixTranslator extends TopDownTranslator {
      */
     private Child(final Axis axis) {
       super(axis);
-      filterMap = new Long2ObjectOpenHashMap<>();
+      filterMap = new PathSummaryMatches(IncludeSelf.NO);
     }
 
     @Override
@@ -550,18 +606,11 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceSession().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
-          && test.getQName() != null && rtx.getChildCount() > CHILD_THRESHOLD) {
+          && test.getQName() != null && (rtx.isElement() || rtx.isDocumentRoot())
+          && rtx.getChildCount() > CHILD_THRESHOLD) {
         try {
-          final long pcr = dbNode.getPCR();
-          BitSet matches = filterMap.get(pcr);
           final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
-          if (matches == null) {
-            reader.moveTo(pcr);
-            final int level = reader.getLevel() + 1;
-            final QNm name = test.getQName();
-            matches = reader.match(name, level);
-            filterMap.put(pcr, matches);
-          }
+          final BitSet matches = filterMap.match(rtx, reader, test.getQName());
           // No matches.
           if (matches.cardinality() == 0) {
             reader.close();
@@ -598,7 +647,7 @@ public class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final Long2ObjectMap<BitSet> filterMap;
+    private final PathSummaryMatches filterMap;
 
     /**
      * Constructor.
@@ -610,7 +659,7 @@ public class SirixTranslator extends TopDownTranslator {
       self = axis == Axis.DESCENDANT_OR_SELF
           ? IncludeSelf.YES
           : IncludeSelf.NO;
-      filterMap = new Long2ObjectOpenHashMap<>();
+      filterMap = new PathSummaryMatches(self);
     }
 
     @SuppressWarnings("ConstantConditions")
@@ -622,20 +671,13 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceSession().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
-          && test.getQName() != null && rtx.getDescendantCount() > DESCENDANT_THRESHOLD) {
+          && test.getQName() != null && (rtx.isElement() || rtx.isDocumentRoot())
+          && rtx.getDescendantCount() > DESCENDANT_THRESHOLD) {
         try {
-          final long pcr = dbNode.getPCR();
-          BitSet matches = filterMap.get(pcr);
           final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
-          if (matches == null) {
-            reader.moveTo(pcr);
-            final int level = self == IncludeSelf.YES
-                ? reader.getLevel()
-                : reader.getLevel() + 1;
-            final QNm name = test.getQName();
-            matches = reader.match(name, level);
-            filterMap.put(pcr, matches);
-          }
+          final BitSet matches = filterMap.match(rtx, reader, test.getQName());
+          final boolean matchingSelf = self == IncludeSelf.YES && rtx.isElement()
+              && matches.get((int) rtx.getPathNodeKey()) && test.getQName().equals(rtx.getName());
           // No matches.
           if (matches.cardinality() == 0) {
             reader.close();
@@ -651,7 +693,9 @@ public class SirixTranslator extends TopDownTranslator {
             // Match at the same level.
             if (self == IncludeSelf.YES && matchLevel == level) {
               reader.close();
-              return new SirixNodeStream(new SelfAxis(rtx), dbNode.getCollection());
+              return matchingSelf
+                  ? new SirixNodeStream(new SelfAxis(rtx), dbNode.getCollection())
+                  : new EmptyStream<>();
             }
             // Match at the next level (single child-path).
             if (matchLevel == level + 1) {
@@ -724,7 +768,9 @@ public class SirixTranslator extends TopDownTranslator {
 
               // Match at the same level.
               if (self == IncludeSelf.YES && matchLevel == level) {
-                axisQueue.addLast(new SelfAxis(rtx));
+                if (matchingSelf) {
+                  axisQueue.addLast(new SelfAxis(rtx));
+                }
               }
               // Match at the next level (single child-path).
               else if (matchLevel == level + 1) {
@@ -737,10 +783,10 @@ public class SirixTranslator extends TopDownTranslator {
                 axisQueue.addLast(buildQuery(rtx, names));
               }
             }
-            io.sirix.api.Axis axis = new UnionAxis(rtx, axisQueue.pollFirst(), axisQueue.pollFirst());
+            var axis = axisQueue.removeFirst();
             final int size = axisQueue.size();
             for (i = 0; i < size; i++) {
-              axis = new UnionAxis(rtx, axis, axisQueue.pollFirst());
+              axis = new UnionAxis(rtx, axis, axisQueue.removeFirst());
             }
             reader.close();
             return new SirixNodeStream(axis, dbNode.getCollection());

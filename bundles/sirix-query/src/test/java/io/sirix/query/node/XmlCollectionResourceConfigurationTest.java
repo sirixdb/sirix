@@ -13,6 +13,7 @@ import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -102,18 +103,18 @@ class XmlCollectionResourceConfigurationTest {
         final XmlDBCollection collection = store.create("collection");
         assertNotNull(collection);
         assertEquals(0, collection.getDocumentCount());
-        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertDuplicateRejected(store);
         assertSame(collection, store.lookup("collection"));
         assertNotNull(collection.add("added", new DocumentParser("<value>one</value>")));
         assertConfiguration(collection, "added", versioning, pathSummary, false);
         writeHistory(collection, "added");
-        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertDuplicateRejected(store);
         assertSame(collection, store.lookup("collection"));
         assertEquals(1, collection.getDocumentCount());
         assertHistory(collection, "added");
       }
       try (final BasicXmlDBStore store = configuredStore(location, versioning, pathSummary)) {
-        assertThrows(DocumentException.class, () -> store.create("collection"));
+        assertDuplicateRejected(store);
         final XmlDBCollection collection = store.lookup("collection");
         assertNotNull(collection);
         assertEquals(1, collection.getDocumentCount());
@@ -121,6 +122,25 @@ class XmlCollectionResourceConfigurationTest {
         assertHistory(collection, "added");
       }
     }
+  }
+
+  @Test
+  void filesystemCreationFailuresAreNotReportedAsDuplicates() throws Exception {
+    final Path blocker = Files.writeString(directory.resolve("blocked"), "preserved");
+    try (final BasicXmlDBStore store = configuredStore(directory, VersioningType.SLIDING_SNAPSHOT, true)) {
+      for (final String name : new String[] {"blocked", "blocked/collection"}) {
+        final DocumentException failure = assertThrows(DocumentException.class, () -> store.create(name));
+        assertTrue(failure.getMessage().contains("Could not create document with name " + name));
+        assertFalse(failure.getMessage().contains("exists"));
+        assertEquals("preserved", Files.readString(blocker));
+      }
+      assertNotNull(store.create("available"));
+    }
+  }
+
+  private static void assertDuplicateRejected(final BasicXmlDBStore store) {
+    final DocumentException failure = assertThrows(DocumentException.class, () -> store.create("collection"));
+    assertTrue(failure.getMessage().contains("Document with name collection exists!"));
   }
 
   private static BasicXmlDBStore configuredStore(final Path location, final VersioningType versioning,

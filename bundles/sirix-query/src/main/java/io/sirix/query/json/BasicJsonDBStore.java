@@ -487,7 +487,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (!Databases.createJsonDatabase(dbConf)) {
-        throw new DocumentException("Document with name %s exists!", name);
+        if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
+          throw new DocumentException("Document with name %s exists!", name);
+        }
+        throw new DocumentException("Could not create document with name %s", name);
       }
 
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());

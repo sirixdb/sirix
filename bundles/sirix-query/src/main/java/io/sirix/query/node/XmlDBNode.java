@@ -333,7 +333,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           } else {
             otherNodeKey = node.nodeKey;
           }
-          for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
+          for (final var axis = new FollowingAxis(rtx); axis.hasNext();) {
             if (axis.nextLong() == otherNodeKey) {
               return true;
             }
@@ -366,7 +366,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           } else {
             otherNodeKey = node.nodeKey;
           }
-          for (final Axis axis = new PrecedingAxis(rtx); axis.hasNext();) {
+          for (final var axis = new PrecedingAxis(rtx); axis.hasNext();) {
             if (axis.nextLong() == otherNodeKey) {
               return true;
             }

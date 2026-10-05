@@ -323,7 +323,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
       if (!Databases.createXmlDatabase(dbConf)) {
-        throw new DocumentException("Document with name %s exists!", name);
+        if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
+          throw new DocumentException("Document with name %s exists!", name);
+        }
+        throw new DocumentException("Could not create document with name %s", name);
       }
 
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());

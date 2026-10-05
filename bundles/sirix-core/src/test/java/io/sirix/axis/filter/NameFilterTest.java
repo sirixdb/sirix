@@ -29,6 +29,11 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.axis.filter.xml.XmlNameFilter;
+import io.brackit.query.atomic.QNm;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class NameFilterTest {
 
@@ -59,6 +64,33 @@ public class NameFilterTest {
 
     rtx.moveTo(7L);
     FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
+  }
+
+  @Test
+  public void expandedElementNamesUseNamespaceURIAndLocalName() {
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+    assertTrue(rtx.moveTo(1));
+    final QNm name = rtx.getName();
+    assertNotNull(name);
+    assertTrue(new XmlNameFilter(rtx,
+        new QNm(name.getNamespaceURI(), "alias", name.getLocalName())).filter());
+    assertFalse(new XmlNameFilter(rtx,
+        new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
+    assertTrue(new XmlNameFilter(rtx, name.toString()).filter());
+    assertFalse(new XmlNameFilter(rtx, "alias:" + name.getLocalName()).filter());
+  }
+
+  @Test
+  public void expandedAttributeNamesUseTheirStoredNamespaceURI() {
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+    assertTrue(rtx.moveTo(1));
+    assertTrue(rtx.moveToAttribute(0));
+    final QNm name = rtx.getName();
+    assertNotNull(name);
+    assertTrue(new XmlNameFilter(rtx, name).filter());
+    assertFalse(new XmlNameFilter(rtx,
+        new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
+    assertTrue(new XmlNameFilter(rtx, name.toString()).filter());
   }
 
 }
