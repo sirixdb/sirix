@@ -304,6 +304,19 @@ try (var database = Databases.openJsonDatabase(dbPath)) {
 }
 ```
 
+For XML collections, the `sirix-query` module provides
+[`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
+Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
+resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
+`xml:store(..., false())`, or `xml:load(..., false())`. Reopening a collection with different store
+settings affects future additions; existing resources retain their persisted configuration.
+The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
+
+The single-argument `create(name)` overload of the XML store and
+[`BasicJsonDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/json/BasicJsonDBStore.java)
+creates an empty collection. It rejects an existing database without replacing it and reports
+filesystem creation failures separately from duplicates.
+
 ### Query Updates
 
 XQuery `insert nodes` preserves the source sequence order at every insertion position:

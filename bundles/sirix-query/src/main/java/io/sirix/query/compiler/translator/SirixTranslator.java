@@ -526,6 +526,10 @@ public class SirixTranslator extends TopDownTranslator {
     }
   }
 
+  /**
+   * Worker-local path-summary matches. Compiled accessors are shared by parallel FLWOR execution,
+   * so document identity, cache lookup and publication must stay in the same worker.
+   */
   private static final class PathSummaryMatches {
     private final Long2ObjectMap<BitSet> matchesByPath = new Long2ObjectOpenHashMap<>();
     private final IncludeSelf self;
@@ -584,7 +588,7 @@ public class SirixTranslator extends TopDownTranslator {
    */
   private static final class Child extends Accessor {
     /**
-     * Map with PCR <=> matching nodes.
+     * Worker-local cache; see {@link PathSummaryMatches} for the ownership invariant.
      */
     private final ThreadLocal<PathSummaryMatches> filterMap;
 
@@ -645,7 +649,7 @@ public class SirixTranslator extends TopDownTranslator {
     private final IncludeSelf self;
 
     /**
-     * Map with PCR <=> matching nodes.
+     * Worker-local cache; see {@link PathSummaryMatches} for the ownership invariant.
      */
     private final ThreadLocal<PathSummaryMatches> filterMap;
 

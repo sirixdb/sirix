@@ -104,7 +104,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final SirixDeweyID deweyID;
 
   /**
-   * Create a new {@link NodeReadOnlyTrx} and move to node key.
+   * Restore the shared transaction cursor to this wrapper's node.
    */
   private void moveRtx() {
     rtx.moveTo(nodeKey);
@@ -130,13 +130,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     moveRtx();
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      // Compare node key, revision, and resource to ensure full identity
-      // Same node key in different revisions or resources are NOT the same node
       return node.nodeKey == nodeKey && isSameDocument(node);
     }
     return false;
   }
 
+  /** Node keys and Dewey IDs are local to one database/resource revision. */
   private boolean isSameDocument(final XmlDBNode node) {
     final ResourceConfiguration configuration = rtx.getResourceSession().getResourceConfig();
     final ResourceConfiguration otherConfiguration = node.rtx.getResourceSession().getResourceConfig();

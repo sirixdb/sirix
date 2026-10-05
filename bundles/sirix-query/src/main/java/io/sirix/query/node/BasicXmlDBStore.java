@@ -191,7 +191,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
 
     /**
-     * Set the hash type (default: file backend).
+     * Set the hash type.
      *
      * @param hashType hash type
      * @return this builder instance
@@ -202,7 +202,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
 
     /**
-     * Set the storage type (default: file backend).
+     * Set the storage type.
      *
      * @param storageType storage type
      * @return this builder instance

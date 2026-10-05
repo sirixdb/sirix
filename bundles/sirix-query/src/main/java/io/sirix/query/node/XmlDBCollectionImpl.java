@@ -78,7 +78,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   private final Map<InstantDocumentData, XmlDBNode> instantDocumentDataToXmlDBNodes;
 
   /**
-   * Constructor.
+   * Construct a collection with resource defaults from {@link BasicXmlDBStore#newBuilder()}.
    *
    * @param name collection name
    * @param database Sirix {@link Database} reference
