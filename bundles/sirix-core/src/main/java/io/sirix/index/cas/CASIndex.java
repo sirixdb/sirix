@@ -80,7 +80,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final Type contentType = indexDef.getContentType();
     if (filter != null && (requiresValueResidual(filter.getMin(), contentType)
         || requiresValueResidual(filter.getMax(), contentType) || !CASKeySerializer.isByteOrderPreserving(contentType)
-        || isDecimalType(contentType) && filter.getPCRs().size() != 1)) {
+        || (isDecimalType(contentType) && filter.getPCRs().size() != 1))) {
       return openRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
           filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
@@ -251,7 +251,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
             reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
       } else {
         entries = scanMin == null
-            ? reader.iteratorTo(new CASValue(scanMax, type, pcr), includeMax)
+            ? reader.iteratorTo(new CASValue(requireNonNull(scanMax), type, pcr), includeMax)
             : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
       }
     } else {
@@ -308,6 +308,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   private static boolean inRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
       final boolean minInclusive, final boolean maxInclusive, final Type type) {
     final boolean string = type.instanceOf(Type.STR);
+    // Matching the exact type descriptor avoids a redundant cast; distinct descriptors still cast.
+    @SuppressWarnings("ReferenceEquality")
     final Atomic typed = value.type() == type
         ? value
         : AtomicUtil.toType(value, type);
@@ -321,7 +323,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         : string
             ? compareCodePoints(typed.stringValue(), max.stringValue())
             : typed.compareTo(max);
-    return (lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive);
+    return (lower > 0 || (lower == 0 && minInclusive)) && (upper < 0 || (upper == 0 && maxInclusive));
   }
 
   private static @Nullable NodeReferences exactRangeMatches(final StorageEngineReader storageEngineReader,
@@ -620,9 +622,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
     if (filter != null && filter.getKey() != null
         && (requiresValueResidual(filter.getKey(), indexDef.getContentType())
-            || isDecimalType(indexDef.getContentType()) && pcrsRequested.size() != 1
-            || !CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())
-                && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1))) {
+            || (isDecimalType(indexDef.getContentType()) && pcrsRequested.size() != 1)
+            || (!CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())
+                && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1)))) {
       return openComparisonWithResidual(storageEngineReader, reader, indexDef, filter, pcrsRequested);
     }
 

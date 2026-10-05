@@ -60,13 +60,16 @@ import static java.util.Objects.requireNonNull;
  * <li><b>Large sets:</b> Roaring64Bitmap native serialization - compressed, efficient</li>
  * </ul>
  *
- * <h2>Format</h2>
+ * <h2>Inline payload formats</h2>
  * 
  * <pre>
  * Packed format:  [0x00][count:1][nodeKey0:8][nodeKey1:8]...[nodeKeyN:8]
  * Roaring format: [0xFF][roaring bitmap bytes...]
  * Tombstone:      [0xFE] (empty bitmap, marks deletion)
  * </pre>
+ *
+ * Referenced chunk markers ({@link #REFERENCED_FORMAT}) must be resolved through their owning
+ * leaf's side map before decoding an inline payload.
  *
  * @author Johannes Lichtenberger
  */

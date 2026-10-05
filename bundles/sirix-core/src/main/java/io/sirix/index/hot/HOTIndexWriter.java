@@ -68,9 +68,9 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexWriter<K extends Comparable<? super K>> extends AbstractHOTIndexWriter<K> {
 
   /**
-   * Thread-local buffer for key serialization. The largest escaped CAS prefix is 504 bytes; its chunk
-   * trailer and optional delta suffix fit in 512 bytes. NAME keys grow the buffer when their
-   * serialized names need more room.
+   * Thread-local buffer for key serialization. Covers {@link CASKeySerializer#maxSerializedLength}
+   * plus the chunk trailer and optional delta suffix. NAME keys grow the buffer when their serialized
+   * names need more room.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
@@ -123,7 +123,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    *
    * @param storageEngineWriter the storage engine writer
    * @param keySerializer the key serializer
-   * @param indexType the index type (PATH, CAS, NAME)
+   * @param indexType the posting index type (PATH, CAS, NAME, VALIDTIME)
    * @param indexNumber the index number
    */
   private HOTIndexWriter(StorageEngineWriter storageEngineWriter, HOTKeySerializer<K> keySerializer,
@@ -199,14 +199,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * <p>
    * Per-revision write cost grows with the size of the slot value rewritten on update. Without
    * chunking, every commit that touches a single nodeKey on a popular logical key rewrites the whole
-   * bitmap (potentially MBs). With chunking, only the one Roaring chunk of the modified nodeKey is
-   * rewritten — typical chunk size is a few hundred bytes.
+   * bitmap (potentially MBs). Chunking bounds the affected payload; hot CAS and VALIDTIME chunks
+   * further reduce rewriting through the delta/fold path described in docs/DISK_FORMAT.md, "CAS and
+   * VALIDTIME posting chunks".
    * </p>
    *
    * <p>
-   * If the chunk slot already exists, {@link HOTLeafPage#mergeWithNodeRefs} handles the OR-merge of
-   * the new bit into the existing chunk's bitmap; failure paths (page split / compact) are inherited
-   * unchanged from the per-slot write.
+   * Each node key follows the same mutation path as {@link #indexNodeKey(Comparable, long)},
+   * including membership checks and delta/fold handling for hot CAS and VALIDTIME chunks.
    * </p>
    *
    * @param key the logical index key (e.g. a {@code QNm} for NAME, a {@code CASValue} for CAS)
@@ -650,9 +650,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * <p>
    * Range-scans composite keys in {@code [(prefix, 0), (prefix, 0xFFFFFFFF)]} via
    * {@link HOTTrieReader#lowerBound} (Phase 0b — Binna §4.2) so the seek is O(tree-height) even when
-   * the smallest existing chunkIdx for {@code key} is {@code > 0}. For every matching chunk slot the
-   * value bitmap is decoded and each bit16 is expanded to a full 64-bit nodeKey via
-   * {@code (chunkIdx << 16) | bit16}.
+   * the smallest existing chunkIdx for {@code key} is {@code > 0}. Referenced bases are resolved
+   * before decoding; CAS and VALIDTIME deltas are applied in stored order. Each bit16 is expanded to
+   * a full 64-bit nodeKey via {@code (chunkIdx << 16) | bit16}.
    * </p>
    *
    * @param key the logical index key

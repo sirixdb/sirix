@@ -66,7 +66,7 @@ public final class StorageProfile {
   /**
    * Record one page write.
    *
-   * @param kind simple class name of the page (e.g. {@code KeyValueLeafPage}).
+   * @param kind the page label returned by {@link #pageKind(Page)}
    * @param rawBytes serialized size before byteHandler compression (LZ4).
    * @param diskBytes serialized size as written to disk (post-compression).
    */

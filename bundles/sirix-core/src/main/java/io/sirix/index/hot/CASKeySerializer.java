@@ -421,7 +421,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * This ensures that byte comparison matches numeric comparison:
    * </p>
    * <ul>
-   * <li>NaN is canonicalized to MAX_VALUE (sorts last)</li>
+   * <li>NaN uses its own sentinel above every real value (sorts last)</li>
    * <li>Positive values: XOR sign bit</li>
    * <li>Negative values: XOR all bits</li>
    * </ul>
@@ -690,7 +690,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * matches signed numeric order. Unlike {@link #encodeNumericOrderPreserving}, the value is not
    * routed through {@code double}, so integers above 2<sup>53</sup> keep full precision. The encoding
    * is exact for the entire signed 64-bit range; xs:integer magnitudes beyond {@code Long} range are
-   * narrowed by {@link Numeric#longValue()}.
+   * saturated by {@link #saturatingLong(Numeric)}.
    * </p>
    */
   private int encodeIntegerOrderPreserving(Atomic value, byte[] dest, int offset) {
@@ -898,12 +898,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Whether a numeric probe survives its encoder unchanged.
    *
    * <p>
-   * The numeric encoders are fixed-width but NOT lossless: {@code encodeIntegerOrderPreserving}
-   * narrows through {@code Numeric#longValue()} and {@code encodeNumericOrderPreserving} funnels
-   * decimals through {@code double}, so values that differ past the encoder's precision share one key
-   * and one merged posting list. The test is a round trip rather than a range check — encode the
-   * value the way the serializer will and ask whether it comes back equal — because that is exactly
-   * the property the seek depends on, and it needs no per-type precision arithmetic.
+   * Saturated integers, capped decimal suffixes, and float narrowing can merge distinct values into
+   * one posting list. Check the probe using its codec's loss rule; a decimal's double prefix alone
+   * does not imply information loss when its normalized exact suffix fits. NaN requires special
+   * equality handling even though its sentinel is distinct from every real value.
    * </p>
    *
    * @param value the probe
@@ -927,11 +925,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return Double.isNaN(d) || (double) (float) d != d;
     }
     if (id == TYPE_DOUBLE) {
-      // For these two the encoder IS the double, so the key round-trips by construction:
+      // The double encoder keeps the double, so the key round-trips by construction:
       // encodeNumericOrderPreserving stores numeric.doubleValue() verbatim, a float widens to double
-      // exactly, and equality on an xs:double/xs:float index is therefore double equality. Only NaN
-      // loses anything, because the encoder canonicalizes it onto Double.MAX_VALUE's key. Infinities
-      // are NOT saturated — encodeNumericOrderPreserving touches only NaN, so they keep their own
+      // exactly, and equality on an xs:double index is therefore double equality. NaN requires
+      // special equality handling. Infinities are NOT saturated, so they keep their own
       // distinct bit patterns and round-trip like any other value.
       //
       // Testing these through the decimal round trip below reported very nearly every value lossy:
@@ -955,18 +952,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return truncates(value, id);
     }
     if (id != TYPE_INTEGER) {
-      // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
-      // unsound rather than merely expensive. It asked "is the PROBE exactly a double", but the
-      // collision that matters is between the probe's key and a STORED value's key, and the probe
-      // cannot see the stored values. A probe of 0.5 IS exactly a double and was reported lossless,
-      // so the re-check was switched off — while a stored 0.5000000000000000001 encodes to that same
-      // double and came back as a hit for `eq 0.5`. Answering true for every decimal is sound, and no
-      // slower in practice: the old test already said true for every non-dyadic literal, which is
-      // essentially every price and measurement anyone indexes.
-      //
-      // This costs the EQUALITY path a re-check and nothing else. The range gates deliberately do not
-      // consult this predicate for the numeric families, because their fallback re-derived its
-      // comparison value from the very same narrowed key — see CASIndex#openHOTIndexWithRangeFilter.
+      // An unknown numeric codec cannot prove that its encoding distinguishes the probe.
       return true;
     }
     // Lossless across the whole signed 64-bit range and SATURATING outside it, so a probe inside the
@@ -1017,14 +1003,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    *
    * <p>
    * <b>Truncation is not the only way a CAS key loses information</b>, and the two are reported
-   * differently. Numeric NARROWING is detected by {@link #narrowsNumeric} and reported here:
-   * {@link #encodeNumericOrderPreserving} routes {@code xs:decimal} through {@code doubleValue()} and
-   * {@link #encodeIntegerOrderPreserving} narrows through {@code longValue()}, so values differing
-   * past the encoder's precision share one key and one posting list. The re-check a {@code true}
-   * answer triggers in {@code CASIndex} is TYPED — it picks a numeric or a byte comparison from the
-   * INDEX's content type rather than from the candidate's node kind — so it closes the narrowing case
-   * as well as the truncation one. Dispatching on the node instead is what made a numeric index over
-   * XML compare {@code "1.50"} against {@code "1.5"} lexically and drop the row.
+   * differently. {@link #narrowsNumeric} detects capped decimal suffixes, saturating integers, and
+   * float narrowing. An uncapped decimal's normalized exact suffix distinguishes values sharing a
+   * double prefix. The re-check a {@code true} answer triggers in {@code CASIndex} is TYPED — it
+   * picks a numeric or a byte comparison from the INDEX's content type rather than from the
+   * candidate's node kind — so it closes the narrowing case as well as the truncation one.
+   * Dispatching on the node instead is what made a numeric index over XML compare {@code "1.50"}
+   * against {@code "1.5"} lexically and drop the row.
    * </p>
    *
    * <p>
@@ -1124,8 +1109,8 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       final BigDecimal exact = exactDecimalOrNull(value);
       // Ordinary decimals settle this without formatting or allocating. Normalize only a value
       // whose precision and scale cannot prove that its suffix fits.
-      return exact == null || plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
-          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1;
+      return exact == null || (plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
+          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1);
     }
     if ((POLICY[id] & LEXICAL) == 0) {
       return false;

@@ -258,10 +258,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Guard lifecycle: - Acquired when cursor moves to a page - Released when cursor moves to a
    * DIFFERENT page - Released on transaction close
    * <p>
-   * This matches database cursor semantics: only the "current" page is guarded. Node keys are
-   * primitives (copied from MemorySegments), so old pages can be evicted after cursor moves away.
+   * Temporary record reads can retain a saved pin through {@link #preserveRecordPageGuard()}.
+   * Otherwise only the current page is guarded. Node keys are primitives (copied from
+   * MemorySegments), so old pages can be evicted after the cursor moves away.
    */
-  private PageGuard currentPageGuard;
+  private @Nullable PageGuard currentPageGuard;
 
   /**
    * Cached name page of this revision.

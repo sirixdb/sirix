@@ -572,8 +572,8 @@ public final class HOTBulkBuilder {
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
-    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
-        && lastByte - firstByte >= 8 && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
+    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) && lastByte - firstByte >= 8
+        && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
       throw new IllegalArgumentException("HOT discriminative bit exceeds maximum key length");
     }
     final long pageKey = pageKeyAllocator.getAsLong();

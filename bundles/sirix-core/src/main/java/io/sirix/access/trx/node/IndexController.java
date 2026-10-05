@@ -342,8 +342,8 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   CASFilter createCASFilter(Set<String> paths, @Nullable Atomic key, SearchMode mode, PCRCollector pcrCollector)
       throws PathException;
 
-  CASFilterRange createCASFilterRange(Set<String> paths, Atomic min, Atomic max, boolean incMin, boolean incMax,
-      PCRCollector pcrCollector) throws PathException;
+  CASFilterRange createCASFilterRange(Set<String> paths, @Nullable Atomic min, @Nullable Atomic max, boolean incMin,
+      boolean incMax, PCRCollector pcrCollector) throws PathException;
 
   Iterator<NodeReferences> openPathIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, PathFilter filter);
 

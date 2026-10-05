@@ -290,24 +290,23 @@ Namespaced name (with either an empty or non-empty prefix):
 The stored framing is owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks);
 allocate serialization buffers using `maxSerializedLength`, not the former unescaped key size.
 The table below describes the **atomic codecs before framing**. Type ids are stable and do not
-depend on `Type.ordinal()` (`CASKeySerializer`'s `typeId` and policy table).
+depend on `Type.ordinal()` (`CASKeySerializer`'s `getTypeId` and policy table).
 
 | Id | Type | Value bytes | Encoding |
 |---|---|---|---|
-| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | ≤ 236 | string encoding, capped after zero escaping |
-| 1 | STRING | ≤ 236 | UTF-8 prefix with at most 236 escaped bytes; zero escapes stay whole (a multi-byte UTF-8 sequence may be split) |
+| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | bounded prefix | string encoding; stored cap owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
+| 1 | STRING | bounded prefix | UTF-8 (a multi-byte sequence may be split); stored cap owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
 | 2 | BOOLEAN | 1 | `0x00` / `0x01`; lexical `"true"` or `"1"` is true (`:305-310`, `:645-669`) |
 | 3 | DOUBLE | 8 | IEEE order-preserving transform (below) |
 | 4 | FLOAT | 8 | narrowed to `float`, then encoded as a double (`:296-304`, `:364-376`) |
 | 5 | INTEGER and subtypes | 8 | saturating conversion to `long`, `^ SIGN_FLIP`, big-endian (`:289-291`, `:604-643`, `:688-718`) |
 | 6 | burned | — | intentionally unused (`:745-748`) |
-| 7 | DECIMAL | 8 + ≤ 237 + 1 | double prefix, exact suffix, terminator (`:449-535`) |
+| 7 | DECIMAL | 8 + bounded suffix + 1 | double prefix, normalized exact suffix, sign-dependent terminator; suffix budget owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
 | 8, 9, 10 | DATETIME, DATE, TIME | 10 | `InstantKeyCodec`: year `^0x8000` (u16 BE), month, day, hours, minutes, micros (u32 BE), after UTC canonicalization; untimezoned = UTC (`idx/InstantKeyCodec.java:51-57`, `:81-82`, `:102-120`) |
 
 Double encoding (`:349-426`): non-numeric atomics are parsed with `Double.parseDouble` (failure →
 0.0); `-0.0` becomes `+0.0`; NaN becomes `0xFFFF_FFFF_FFFF_FFFF`, above `+∞`; otherwise
-`bits ^ 0x8000…` for `d ≥ 0` and `bits ^ 0xFFFF…` for `d < 0`, written big-endian. The comments
-at `:344` and `:848-849` still say NaN maps onto `Double.MAX_VALUE`; the code does not.
+`bits ^ 0x8000…` for `d ≥ 0` and `bits ^ 0xFFFF…` for `d < 0`, written big-endian.
 
 Atomic decimal codec: the 8-byte double prefix, then `stripTrailingZeros().toPlainString()` as ASCII
 (bitwise complemented for negative values), then a terminator `0x00` (positive) or `0xFF`
@@ -354,9 +353,10 @@ Byte order equals key order within each serializer, except:
 
 | Case | Why | Where compensated |
 |---|---|---|
-| CAS strings of ≥ 235 escaped UTF-8 bytes | a value within one byte of the 236-byte cap can collide with a longer value when the next zero escape cannot fit | `CASIndex` re-checks candidates against the documents when `losesInformation` holds (`idx/cas/CASIndex.java:613-623`) |
+| Capped CAS lexical values | the stored prefix can collide with longer values, including when the next zero escape cannot fit | `CASKeySerializer.truncates` selects the document-value residual described in §4.4.3 |
+| Capped CAS decimal suffixes | distinct normalized decimals can share the stored suffix | `CASKeySerializer.truncates` selects residual comparisons; `hasCappedDecimalSuffix` detects capped candidates from stored bytes (§4.4.3) |
 | CAS string bounds containing unpaired surrogates | UTF-8 encoding would replace the original literal | open that side of the scan and compare the original bounds as residuals; see §4.4.3 |
-| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`hot/CASKeySerializer.java:478-483`) | `narrowsNumeric` (`:829-928`) |
+| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`CASKeySerializer.encodeDecimalOrderPreserving`) | capped or multi-PCR comparisons use §4.4.3; uncapped single-PCR ranges retain byte ordering |
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
@@ -543,7 +543,7 @@ container pages; it contains no body layout for either HOT page kind. This secti
 | `MAX_KEY_VALUE_LENGTH` | 0xFFFF | suffix and value length limit (u16 fields) | `:184`, `:2227-2234` |
 | `FLAG_OVERFLOW_PAGE_REFS` | 0x01 | envelope flag: side-reference map present | `:124` |
 | min free space before split | 128 bytes | `needsSplit()` is true below 128 free bytes or at 512 entries | `:2324-2333` |
-| side-map key | `(ownerSlotKey << 16) \| subId` with `abs(ownerSlotKey) < 2^47` and `subId ≤ 0xFFFF` | | `:127`, `:148-162` |
+| side-map key | validated by `HOTLeafPage.overflowPageRefKey` | projection owner slot or posting owner token, plus sub-id; posting layout in [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) | `HOTLeafPage.overflowPageRefKey` |
 | `MAX_HOT_LEAF_SIDE_REFERENCES` | 512 × 65 536 | format ceiling of the side map | `page/PageKind.java:6460-6461` |
 
 #### 3.2.2 In-memory layout
@@ -1026,28 +1026,41 @@ iterator without opening HOT when supplied paths resolve to no PCRs; see the
 revision's node keys while the path summary describes the query revision, so CAS checks for stale
 PCRs (`idx/cas/CASIndex.java:599-605`).
 
-For an `xs:string` ordering bound containing an unpaired surrogate, the shared `CASIndex`
-boundary opens that side without serializing replacement bytes. An encodable opposite
-bound remains eligible for a bounded scan. Every returned key is checked against both
-original bounds, with their original inclusivity, using the
+`CASIndex.openRangeWithResidual` handles capped lexical values (including OTHER types) and decimal
+exact suffixes for equality and ordering comparisons, with one or several requested path classes.
+Encodable capped bounds stay on an eligible byte-ordered cursor, relaxed to inclusive so values
+sharing the bound's stored key are retained. A lexical bound containing an unpaired surrogate opens
+that side without serializing replacement bytes; an encodable opposite bound can still constrain
+the cursor. Path-class filtering and both original bounds, with their original inclusivity, remain
+in force. Comparisons use the index's declared type and, for `xs:string`, the
 [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
-Path-class filtering still applies. If a stored key reaches the escaped-value cap, the
-residual reads each candidate's original document value rather than comparing the
-decoded prefix; a separate record reader preserves the index cursor for read-only
-transactions, while a writer supplies its own uncommitted records. Losslessly encodable
-bounds keep their existing scan path. This boundary serves `IndexExpr`, the vectorized
-executor and the public JSON/XML CAS scan functions (`CASIndex.openStringRangeWithResidual`,
-`exactStringRangeMatches`).
+
+`exactRangeMatches` reads original document values for capped candidates. A capped decimal
+candidate is detected from its stored suffix length, not its decoded normalized value: decoding
+can shorten a truncated suffix ending in zeros and hide the information loss. An unpaired-surrogate
+bound requires document values for every candidate;
+otherwise uncapped candidates can be compared from their decoded keys. Read-only transactions use
+a separate record reader; a writer-backed view uses `getTransactionView()` and preserves the caller's
+pinned record-page guard with `preserveRecordPageGuard()`. Losslessly encodable bounds keep their
+existing scan path. This boundary serves `IndexExpr`, the vectorized executor and the public
+JSON/XML CAS scan functions. `CASCappedLexicalViewTest` and `CASCappedDecimalViewTest` cover
+uncommitted, historical, and cold-reopened comparisons across all four versioning types.
 
 ### 4.5 Incremental insert
 
 #### 4.5.1 Driver
 
 Before the ordinary mutation driver, `HOTIndexWriter` checks a hot CAS/VALIDTIME chunk's membership
-against its base and bounded live deltas. `ChunkView` reuses a decoded base only after comparing all
-current payload bytes under the leaf guard; deltas on the base leaf need no second descent, while
-cross-leaf deltas use a stamp-validated batch walk. An effective update appends a slot or folds in
-memory and replaces the base once. Failed delta writes or folds mark the transaction rollback-only.
+against its base and bounded live deltas. `ChunkView` retains decoded membership for up to 256 hot
+chunks under the transaction intent log's generation and per-index writer-ownership epoch. A cache
+hit avoids rereading the base and deltas; a miss reads the base under its leaf guard, with no second
+descent when every delta is on that leaf, and a stamp-validated batch walk otherwise. Successful
+delta writes update the cached membership. An addition above its high-water mark is provably new;
+other additions and removals check membership. A fold removes that view; posting replacements,
+structural publications, writer switches, and generation changes invalidate the index's views.
+Reaching the cache bound clears the retained views. Reuse lasts only between invalidations and
+folds. An effective update appends a slot or folds in memory and replaces the base once. Failed
+delta writes or folds mark the transaction rollback-only.
 The thresholds and stored layout are owned by
 [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks).
 
@@ -1801,7 +1814,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Area | Suites | Establishes |
 |---|---|---|
 | Formal model | `index/hot/HOTFormalModelTest` (3) | clean-room model (64-bit keys, leaf capacity 4, fanout 4): `validate(bulkBuild(S))` empty over 6 generators × 8 sizes × 100 seeds = 4 800 key sets; in-order leaves sorted; every indirect subtree equals the bulk build of its keys (`:22-26`, `:351`, `:403-430`). Independent of production code |
-| Bulk builder | `index/hot/HOTBulkBuilderTest` (7) | production `HOTBulkBuilder` against the test validator and a routing oracle: adversarial, variable-length, degenerate sizes, determinism, multi-mask, leaf count = fitting-subtree oracle (`:31-56`) |
+| Bulk builder | [`index/hot/HOTBulkBuilderTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTBulkBuilderTest.java) | production `HOTBulkBuilder` against the test validator and a routing oracle: adversarial, variable-length, degenerate sizes, determinism, multi-mask, leaf count = fitting-subtree oracle, CAS/VALIDTIME key-length limits |
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
@@ -1991,9 +2004,6 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 
 ### 8.2 Code comments that contradict the code
 
-- `hot/CASKeySerializer.java:344`, `:848-849` (NaN onto `Double.MAX_VALUE`) vs all-ones key (`:392-409`);
-  `:612-613` ("narrowed by `Numeric#longValue()`") vs saturation (`:688-718`); `:948-950` (decimal via
-  `doubleValue()`) vs exact suffix.
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
 - `page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
 - `hot/AbstractHOTIndexReader.java` Javadoc cites `HOTRangeCursor#isOutOfRange`, which does not exist

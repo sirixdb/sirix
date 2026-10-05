@@ -117,13 +117,28 @@ public interface StorageEngineReader extends AutoCloseable {
 
   boolean hasTrxIntentLog();
 
+  /**
+   * The view that includes this reader's uncommitted records when it belongs to a writer. A
+   * standalone read-only transaction returns itself. The returned view shares this transaction's
+   * lifetime; callers must not close it independently.
+   *
+   * @return the associated writer view, or this read-only reader
+   */
   StorageEngineReader getTransactionView();
 
+  /** A scope whose close restores the caller's previously pinned record page. */
   interface RecordPageGuard extends AutoCloseable {
     @Override
     void close();
   }
 
+  /**
+   * Preserve the current record-page pin while temporary record reads use this transaction. Closing
+   * the scope releases the temporary pin and restores the saved one, keeping a caller's node cursor
+   * valid across candidate-value checks. Scopes must close in reverse acquisition order.
+   *
+   * @return the scope to close after the temporary reads
+   */
   RecordPageGuard preserveRecordPageGuard();
 
   /**

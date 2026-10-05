@@ -70,8 +70,10 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Claim decoded posting views for one writer and return its ownership epoch. An epoch changes
    * whenever another writer takes over or the index is invalidated, even if a mutation prelude has
-   * already reclaimed ownership before the next cache lookup. Zero never proves ownership.
+   * already reclaimed ownership before the next cache lookup. Zero never proves ownership. Ownership
+   * belongs to the exact writer instance, so the comparison deliberately uses identity.
    */
+  @SuppressWarnings("ReferenceEquality")
   public long claimHOTPostingViewOwner(final long scope, final Object writer) {
     Objects.requireNonNull(writer);
     if (hotPostingViewOwners == null) {

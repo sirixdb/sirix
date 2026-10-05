@@ -281,8 +281,11 @@ atomic value's existing order-preserving encoding with `00` escaped as `00 FF`, 
 The value is capped at **236 escaped bytes**, ending before an escape that cannot fit in full.
 This leaves room for the header, terminator, four-byte chunk index and four-byte delta suffix
 within a 256-byte stored key: MultiMask byte positions range from 0 to 255. Over-long values
-share a key and retain the existing document-value re-check. Framing keeps logical keys
-prefix-free without changing the atomic ordering or the direct path-class read.
+share a key and require a document-value re-check. Decimal exact suffixes reserve room for a
+fully escaped eight-byte double prefix and their own terminator; their bound is
+`CASKeySerializer.MAX_DECIMAL_SUFFIX_BYTES`. Capped suffixes also share a key. Candidate
+re-checking is specified in [HOT index specification §4.4.3](HOT_INDEX_SPECIFICATION.md#443-index-level-ranges).
+Framing keeps logical keys prefix-free without changing the atomic ordering or the direct path-class read.
 VALIDTIME prefixes remain fixed at 17 bytes.
 
 For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
