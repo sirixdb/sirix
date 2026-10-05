@@ -25,12 +25,18 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
 import io.sirix.service.json.replay.JsonIdentityDeltaReader;
+import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayRecord;
 import io.sirix.service.json.replay.JsonReplaySnapshotOracle;
 import io.sirix.service.json.replay.JsonReplayGraphValidator;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import io.sirix.settings.StringCompressionType;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.cache.IndexLogKey;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -66,8 +72,11 @@ final class JsonIdentityImportTest {
   }
 
   static Stream<Arguments> configurations() {
-    return Stream.of(VersioningType.values()).flatMap(versioning -> Stream.of(HashType.values())
-        .flatMap(hash -> Stream.of(false, true).map(dewey -> Arguments.of(versioning, hash, dewey))));
+    return Stream.of(VersioningType.values())
+                 .flatMap(
+                     versioning -> Stream.of(HashType.values())
+                                         .flatMap(hash -> Stream.of(false, true)
+                                                                .map(dewey -> Arguments.of(versioning, hash, dewey))));
   }
 
   @ParameterizedTest
@@ -82,8 +91,8 @@ final class JsonIdentityImportTest {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), JsonNodeTrx.Commit.NO);
         writer.commit();
         assertTrue(writer.moveTo(1));
-        writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("[{\"x\":1},{}]"),
-            JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
+        writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("[{\"x\":1},{}]"), JsonNodeTrx.Commit.NO,
+            JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
         assertTrue(writer.moveTo(5));
         writer.moveSubtreeToFirstChild(4);
         assertTrue(writer.moveTo(3));
@@ -126,6 +135,101 @@ final class JsonIdentityImportTest {
 
   @ParameterizedTest
   @MethodSource("configurations")
+  void authoritativeDeltasMatchIndependentSnapshotsAcrossSparseEpochs(final VersioningType versioning,
+      final HashType hash, final boolean dewey) throws Exception {
+    final Path sourcePath = directory.resolve("delta-source");
+    final Path targetPath = directory.resolve("delta-target");
+    try (final var database = create(sourcePath, versioning, hash, dewey);
+        final var source = database.beginResourceSession("resource")) {
+      try (final var writer = source.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), JsonNodeTrx.Commit.NO);
+        writer.commit();
+        assertTrue(writer.moveTo(1));
+        writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("[{\"x\":1},{}]"), JsonNodeTrx.Commit.NO,
+            JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.YES);
+        assertTrue(writer.moveTo(5));
+        writer.moveSubtreeToFirstChild(4);
+        assertTrue(writer.moveTo(3));
+        writer.remove();
+        writer.commit();
+        writer.commit();
+        writer.getStorageEngineReader().getActualRevisionRootPage().setMaxNodeKeyInDocumentIndex(1_000_000_000_000L);
+        writer.commit();
+        assertTrue(writer.moveTo(1));
+        writer.insertNumberValueAsLastChild(7);
+        writer.commit();
+        assertTrue(writer.moveTo(4));
+        writer.setNumberValue(2);
+        writer.setObjectKeyName("renamed");
+        writer.commit();
+        assertTrue(writer.moveTo(1_000_000_000_001L));
+        writer.remove();
+        writer.commit();
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+      final var shadow = new Long2ObjectOpenHashMap<JsonReplayRecord>();
+      for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
+        try (final var reader = source.beginNodeReadOnlyTrx(revision)) {
+          final JsonIdentityDelta delta;
+          if (revision == 1) {
+            delta = JsonIdentityDeltaReader.snapshot(reader, revision);
+          } else {
+            try (final var base = source.beginNodeReadOnlyTrx(revision - 1)) {
+              delta = JsonIdentityDeltaReader.between(base, reader, revision);
+              final var reference = JsonReplaySnapshotOracle.between(base, reader, revision);
+              assertEquals(reference.manifest(), delta.manifest());
+              assertEquals(reference.puts(), delta.puts(), "exact changed records in revision " + revision);
+              assertEquals(reference.deletes(), delta.deletes(), "exact removed identities in revision " + revision);
+            }
+          }
+          for (final long removed : delta.deletes()) {
+            shadow.remove(removed);
+          }
+          shadow.putAll(delta.puts());
+          final var expected = new Long2ObjectOpenHashMap<JsonReplayRecord>();
+          reader.moveToDocumentRoot();
+          final var axis = new DescendantAxis(reader, IncludeSelf.YES);
+          while (axis.hasNext()) {
+            expected.put(axis.nextLong(), JsonReplayRecord.capture(reader));
+          }
+          assertEquals(expected, shadow, "independent target snapshot at revision " + revision);
+          if (revision == 3 || revision == 4) {
+            assertTrue(delta.puts().isEmpty(), "no-op/frontier-only epoch must not rewrite records");
+            assertTrue(delta.deletes().isEmpty());
+          }
+          ((InternalJsonNodeTrx) writer).importRevision(delta, reader);
+          assertEquals(revision, target.getMostRecentRevisionNumber());
+          try (final var copied = target.beginNodeReadOnlyTrx(revision)) {
+            assertSnapshot(reader, copied, 0);
+            JsonReplayGraphValidator.validate(copied);
+          }
+          assertPaths(source, revision, target, revision);
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
+        try (final var expected = source.beginNodeReadOnlyTrx(revision);
+            final var actual = target.beginNodeReadOnlyTrx(revision)) {
+          assertSnapshot(expected, actual, 0);
+        }
+        assertPaths(source, revision, target, revision);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("configurations")
   void snapshotReferenceTransitionsRestoreDeletedIdentities(final VersioningType versioning, final HashType hash,
       final boolean dewey) throws Exception {
     final Path sourcePath = directory.resolve("restore-source");
@@ -157,7 +261,11 @@ final class JsonIdentityImportTest {
       for (int revision = 2; revision <= 4; revision++) {
         try (final var base = source.beginNodeReadOnlyTrx(revision - 1);
             final var reader = source.beginNodeReadOnlyTrx(revision)) {
-          final var delta = JsonReplaySnapshotOracle.between(base, reader, revision);
+          final var reference = JsonReplaySnapshotOracle.between(base, reader, revision);
+          final var delta = JsonIdentityDeltaReader.between(base, reader, revision);
+          assertEquals(reference.manifest(), delta.manifest());
+          assertEquals(reference.puts(), delta.puts());
+          assertEquals(reference.deletes(), delta.deletes());
           ((InternalJsonNodeTrx) writer).importRevision(delta, reader);
           assertEquals(revision, target.getMostRecentRevisionNumber());
         }
@@ -183,6 +291,73 @@ final class JsonIdentityImportTest {
   }
 
   @ParameterizedTest
+  @MethodSource("configurations")
+  void authoritativeDeltasResolveOverflowReplacementAndDeletion(final VersioningType versioning, final HashType hash,
+      final boolean dewey) throws Exception {
+    final Path sourcePath = directory.resolve("overflow-source");
+    final Path targetPath = directory.resolve("overflow-target");
+    final String overflow = "🧪x".repeat(KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY / 4 + 1024);
+    try (final var database = create(sourcePath, versioning, hash, dewey, true);
+        final var source = database.beginResourceSession("resource");
+        final var writer = source.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"short\"]"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      for (final String value : new String[] {overflow, "inline again", "changed-" + overflow}) {
+        assertTrue(writer.moveTo(2));
+        writer.setStringValue(value);
+        writer.commit();
+      }
+      assertTrue(writer.moveTo(2));
+      writer.remove();
+      writer.commit();
+      writer.commit();
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, versioning, hash, dewey, true);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx()) {
+      try (final var reader = source.beginNodeReadOnlyTrx(2)) {
+        final var page = (KeyValueLeafPage) reader.getStorageEngineReader()
+                                                  .getRecordPage(new IndexLogKey(IndexType.DOCUMENT, 0, -1, 2))
+                                                  .page();
+        assertFalse(page.getReferences().isEmpty(), "the fixture must include a real overflow reference");
+      }
+      for (int revision = 1; revision <= 6; revision++) {
+        try (final var reader = source.beginNodeReadOnlyTrx(revision)) {
+          final JsonIdentityDelta delta;
+          if (revision == 1) {
+            delta = JsonIdentityDeltaReader.snapshot(reader, revision);
+          } else {
+            try (final var base = source.beginNodeReadOnlyTrx(revision - 1)) {
+              delta = JsonIdentityDeltaReader.between(base, reader, revision);
+              final var reference = JsonReplaySnapshotOracle.between(base, reader, revision);
+              assertEquals(reference.puts(), delta.puts());
+              assertEquals(reference.deletes(), delta.deletes());
+            }
+          }
+          ((InternalJsonNodeTrx) writer).importRevision(delta, reader);
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= 6; revision++) {
+        try (final var original = source.beginNodeReadOnlyTrx(revision);
+            final var copy = target.beginNodeReadOnlyTrx(revision)) {
+          assertSnapshot(original, copy, 0);
+          JsonReplayGraphValidator.validate(copy);
+        }
+        assertPaths(source, revision, target, revision);
+      }
+    }
+  }
+
+  @ParameterizedTest
   @EnumSource(VersioningType.class)
   void snapshotPreservesAllPayloadsAndSparseNameBindings(final VersioningType versioning) throws Exception {
     final String overflow = "🧪x".repeat(256);
@@ -194,9 +369,9 @@ final class JsonIdentityImportTest {
           final var source = sourceDb.beginResourceSession("resource");
           final var target = targetDb.beginResourceSession("resource")) {
         try (final var writer = source.beginNodeTrx()) {
-          final String json = "[{\"Aa\":-17,\"BB\":1.000,\"array\":[null,true,false,\"\"],"
-              + "\"object\":{\"unicode\":\"" + overflow + "\"},\"nil\":null,\"boolean\":true},"
-              + "\"" + overflow + "\",3.14159,null,false]";
+          final String json =
+              "[{\"Aa\":-17,\"BB\":1.000,\"array\":[null,true,false,\"\"]," + "\"object\":{\"unicode\":\"" + overflow
+                  + "\"},\"nil\":null,\"boolean\":true}," + "\"" + overflow + "\",3.14159,null,false]";
           writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           assertTrue(writer.moveTo(3));
           assertEquals("Aa", writer.getName().getLocalName());
@@ -254,11 +429,13 @@ final class JsonIdentityImportTest {
         final JsonIndexController controller = session.getRtxIndexController(1);
         for (int definition = 0; definition < 2; definition++) {
           final var pathDefinition = controller.getIndexes().getIndexDef(definition, IndexType.PATH);
-          assertEquals(LongSet.of(4, 9), collect(controller.openPathIndex(reader.getStorageEngineReader(), pathDefinition,
-              controller.createPathFilter(Set.of("/[]/tags"), reader))));
+          assertEquals(LongSet.of(4, 9), collect(controller.openPathIndex(reader.getStorageEngineReader(),
+              pathDefinition, controller.createPathFilter(Set.of("/[]/tags"), reader))));
           final var casDefinition = controller.getIndexes().getIndexDef(definition, IndexType.CAS);
-          assertEquals(LongSet.of(6, 10), collect(controller.openCASIndex(reader.getStorageEngineReader(), casDefinition,
-              controller.createCASFilter(Set.of("/[]/tags/[]"), new Str("b"), SearchMode.EQUAL, new JsonPCRCollector(reader)))));
+          assertEquals(LongSet.of(6, 10),
+              collect(
+                  controller.openCASIndex(reader.getStorageEngineReader(), casDefinition, controller.createCASFilter(
+                      Set.of("/[]/tags/[]"), new Str("b"), SearchMode.EQUAL, new JsonPCRCollector(reader)))));
         }
         final int nameId = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID();
         final var nameDefinition = controller.getIndexes().getIndexDef(nameId, IndexType.NAME);
@@ -272,8 +449,8 @@ final class JsonIdentityImportTest {
     return Set.of(IndexDefs.createPathIdxDef(Set.of(), 0, IndexDef.DbType.JSON),
         IndexDefs.createPathIdxDef(Set.of(parse("/[]/tags", PathParser.Type.JSON)), 1, IndexDef.DbType.JSON),
         IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON),
-        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(), 0, IndexDef.DbType.JSON),
-        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/[]/tags/[]", PathParser.Type.JSON)), 1, IndexDef.DbType.JSON));
+        IndexDefs.createCASIdxDef(false, Type.STR, Set.of(), 0, IndexDef.DbType.JSON), IndexDefs.createCASIdxDef(false,
+            Type.STR, Set.of(parse("/[]/tags/[]", PathParser.Type.JSON)), 1, IndexDef.DbType.JSON));
   }
 
   private static LongSet collect(final Iterator<NodeReferences> references) {
@@ -290,8 +467,11 @@ final class JsonIdentityImportTest {
   @ParameterizedTest
   @ValueSource(strings = {"identities-staged", "links-installed", "derived-state-finalized", "before-publish"})
   void failureCannotPublishAnyStagingPhase(final String failurePhase) {
-    try (final var sourceDb = create(directory.resolve("source"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
-        final var targetDb = create(directory.resolve("target"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
+    try (
+        final var sourceDb =
+            create(directory.resolve("source"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
+        final var targetDb =
+            create(directory.resolve("target"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
       try (final var writer = source.beginNodeTrx()) {
@@ -299,8 +479,7 @@ final class JsonIdentityImportTest {
             JsonNodeTrx.Commit.NO);
         writer.commit();
       }
-      try (final var reader = source.beginNodeReadOnlyTrx(1);
-          final var writer = target.beginNodeTrx(1)) {
+      try (final var reader = source.beginNodeReadOnlyTrx(1); final var writer = target.beginNodeTrx(1)) {
         final var delta = JsonIdentityDeltaReader.snapshot(reader, 1);
         JsonNodeTrxImpl.replayTestHook = (phase, transaction) -> {
           assertEquals(0, target.getMostRecentRevisionNumber());
@@ -348,10 +527,23 @@ final class JsonIdentityImportTest {
 
   private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning,
       final HashType hash, final boolean dewey) {
+    return create(path, versioning, hash, dewey, false);
+  }
+
+  private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning,
+      final HashType hash, final boolean dewey, final boolean rawStrings) {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     final var database = Databases.openJsonDatabase(path);
-    database.createResource(ResourceConfiguration.newBuilder("resource").storageType(StorageType.FILE_CHANNEL)
-        .versioningApproach(versioning).hashKind(hash).useDeweyIDs(dewey).buildPathStatistics(true).build());
+    final var config = ResourceConfiguration.newBuilder("resource")
+                                            .storageType(StorageType.FILE_CHANNEL)
+                                            .versioningApproach(versioning)
+                                            .hashKind(hash)
+                                            .useDeweyIDs(dewey)
+                                            .buildPathStatistics(true);
+    if (rawStrings) {
+      config.stringCompressionType(StringCompressionType.NONE);
+    }
+    database.createResource(config.build());
     return database;
   }
 
@@ -385,15 +577,23 @@ final class JsonIdentityImportTest {
       if (key != 0) {
         final int previous = source.getPreviousRevisionNumber();
         final int modified = source.getNode().getLastModifiedRevisionNumber();
-        assertEquals(previous < 0 ? previous : (previous - revisionOffset > 0 ? previous - revisionOffset : -1), target.getPreviousRevisionNumber());
-        assertEquals(modified < 0 ? modified : Math.max(1, modified - revisionOffset), target.getNode().getLastModifiedRevisionNumber());
+        assertEquals(previous < 0
+            ? previous
+            : (previous - revisionOffset > 0
+                ? previous - revisionOffset
+                : -1),
+            target.getPreviousRevisionNumber());
+        assertEquals(modified < 0
+            ? modified
+            : Math.max(1, modified - revisionOffset), target.getNode().getLastModifiedRevisionNumber());
       }
       final NodeKind kind = source.getKind();
       switch (kind) {
         case STRING_VALUE, OBJECT_NAMED_STRING -> assertEquals(source.getValue(), target.getValue());
         case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> assertEquals(source.getNumberValue(), target.getNumberValue());
         case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> assertEquals(source.getBooleanValue(), target.getBooleanValue());
-        default -> { }
+        default -> {
+        }
       }
     }
     assertFalse(actual.hasNext(), "unexpected copied identity");
@@ -447,10 +647,15 @@ final class JsonIdentityImportTest {
     assertEquals(expected.doubleTyped, actual.doubleTyped);
     assertArrayEquals(expected.minBytes, actual.minBytes);
     assertArrayEquals(expected.maxBytes, actual.maxBytes);
-    assertArrayEquals(expected.hll == null ? null : expected.hll.serialize(),
-        actual.hll == null ? null : actual.hll.serialize());
+    assertArrayEquals(expected.hll == null
+        ? null
+        : expected.hll.serialize(),
+        actual.hll == null
+            ? null
+            : actual.hll.serialize());
     // The serialized comparison also checks the package-private page-presence bitmap.
-    try (final var expectedBytes = Bytes.elasticHeapByteBuffer(); final var actualBytes = Bytes.elasticHeapByteBuffer()) {
+    try (final var expectedBytes = Bytes.elasticHeapByteBuffer();
+        final var actualBytes = Bytes.elasticHeapByteBuffer()) {
       expected.writeTo(expectedBytes);
       actual.writeTo(actualBytes);
       assertArrayEquals(expectedBytes.toByteArray(), actualBytes.toByteArray());

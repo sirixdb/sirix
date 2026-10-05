@@ -18,11 +18,11 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /**
  * Rebuilds the complete logical path namespace for the initial snapshot import. Subsequent epochs
- * must feed changed path records only. No source page, dictionary buffer or mutable statistic is shared.
+ * must feed changed path records only. No source page, dictionary buffer or mutable statistic is
+ * shared.
  */
 public final class JsonReplayPaths {
-  private JsonReplayPaths() {
-  }
+  private JsonReplayPaths() {}
 
   public static void rebuild(final JsonNodeReadOnlyTrx source, final StorageEngineWriter target,
       final JsonReplayManifest manifest) {
@@ -43,8 +43,8 @@ public final class JsonReplayPaths {
         final StructNode original = paths.getStorageEngineReader().getRecord(key, IndexType.PATH_SUMMARY, 0);
         final StructNode copy;
         if (original instanceof PathNode path) {
-          final var pathCopy = new PathNode(paths.getName(), path.getPathKind(), path.getReferences(),
-              path.getLevel(), key, path.getParentKey(), manifest.mapPreviousRevision(path.getPreviousRevisionNumber()),
+          final var pathCopy = new PathNode(paths.getName(), path.getPathKind(), path.getReferences(), path.getLevel(),
+              key, path.getParentKey(), manifest.mapPreviousRevision(path.getPreviousRevisionNumber()),
               manifest.mapLastModifiedRevision(path.getLastModifiedRevisionNumber()), (SirixDeweyID) null,
               path.getFirstChildKey(), path.getLastChildKey(), path.getRightSiblingKey(), path.getLeftSiblingKey(),
               path.getChildCount(), path.getDescendantCount(), path.getURIKey(), path.getPrefixKey(),
@@ -67,8 +67,8 @@ public final class JsonReplayPaths {
       for (final long key : oldKeys) {
         target.removeRecord(key, IndexType.PATH_SUMMARY, 0);
       }
-      final var sourcePage = paths.getStorageEngineReader()
-          .getPathSummaryPage(paths.getStorageEngineReader().getActualRevisionRootPage());
+      final var sourcePage =
+          paths.getStorageEngineReader().getPathSummaryPage(paths.getStorageEngineReader().getActualRevisionRootPage());
       target.getPathSummaryPage(target.getActualRevisionRootPage()).setMaxNodeKey(0, sourcePage.getMaxNodeKey(0));
     }
   }

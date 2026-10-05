@@ -152,9 +152,14 @@ final class BasicJsonDiffWorkBudgetTest {
     for (final boolean deweyIDs : new boolean[] {false, true}) {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-          .storageType(StorageType.FILE_CHANNEL).versioningApproach(REPLAY_VERSIONING)
-          .hashKind(hashType).useDeweyIDs(deweyIDs).build();
-      try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+                                                                .storageType(StorageType.FILE_CHANNEL)
+                                                                .versioningApproach(REPLAY_VERSIONING)
+                                                                .hashKind(hashType)
+                                                                .useDeweyIDs(deweyIDs)
+                                                                .build();
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
           final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder("[[");
@@ -173,13 +178,15 @@ final class BasicJsonDiffWorkBudgetTest {
         writer.commit();
         final CursorWork work = new CursorWork();
         work.skippedRoot = 2;
-        final var capture = WorkCapture.of(work.insertedChildMoves, work.childMoves, work.siblingMoves)
-            .call(() -> new BasicJsonDiff(database.getName()).generateDiff(countingSession(session, work),
-                1, 2, 0, 0, false));
+        final var capture =
+            WorkCapture.of(work.insertedChildMoves, work.childMoves, work.siblingMoves)
+                       .call(() -> new BasicJsonDiff(database.getName()).generateDiff(countingSession(session, work), 1,
+                           2, 0, 0, false));
         assertEquals(1, JsonParser.parseString(capture.result()).getAsJsonObject().getAsJsonArray("diffs").size());
-        capture.work().assertZero(work.insertedChildMoves, "small public edit must not descend into unchanged sibling")
-            .assertAtMost(work.childMoves, 6, "only root and changed branch may be descended")
-            .assertAtMost(work.siblingMoves, 6, "unchanged sibling elements must not be walked");
+        capture.work()
+               .assertZero(work.insertedChildMoves, "small public edit must not descend into unchanged sibling")
+               .assertAtMost(work.childMoves, 6, "only root and changed branch may be descended")
+               .assertAtMost(work.siblingMoves, 6, "unchanged sibling elements must not be walked");
       }
     }
   }

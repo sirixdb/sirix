@@ -4,20 +4,23 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 02:21 Berlin)
+## Current checkpoint (2026-10-05 02:41 Berlin)
 
-Source repair is the independently reviewable first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02.
-Its final focused run passes all 267 source/hash/bulk/diff invocations with unchanged budget
-bounds; formatting passed. Full source-only core run had 13,161 tests with five identified
-failures, all covered by the subsequent green focused run. Full suites still need a final
-rerun after replay is complete. Details: source-repair-verification.md.
+Source hash/count repair is the first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02;
+its focused suite passes 267/267. Sparse trie growth is a separate follow-up, 0067f38b3,
+with 24 source-only cases through 2^52. See their verification/finding files below.
 
-Replay WIPs have been restored on top as 8e9bc4e03 and 153292b65; the selective plan stash
-was applied and retained as a backup. Continue gate 2 with the snapshot oracle unchanged.
-The prerequisite tombstone fix has not appeared in the local origin/main ref or inbox;
-do not duplicate it. Page-walk and shadow-test drafts remain outside production sources
-under build/replay until gate 2 is established. No production replay switch or latency
-acceptance claim, no push, and no no-mistakes pipeline.
+Gates 1–3 now have the typed contract, snapshot/import seam and authoritative page delta
+in shadow validation. Latest focused run: 116/116 (109 import/oracle cases plus seven
+public diff budgets), including real overflow references, restoration after revert,
+trie growth, no-op/frontier-only epochs and cold history. Continue gate 4 epoch/failure
+coverage, then generated shrinking, derived-index integration, work budgets and final
+full suites/latency in order. JsonResourceCopy remains unchanged.
+
+The prerequisite legacy allocator/tombstone fix has not appeared in the local origin/main
+ref or inbox; do not duplicate it and rebase when it lands. No production routing switch,
+performance acceptance, push or no-mistakes pipeline. The 03:40 validation cutoff and
+03:40–03:55 save/park window remain in force.
 
 ## Contract and concrete implementation
 
@@ -59,9 +62,9 @@ acceptance claim, no push, and no no-mistakes pipeline.
 2. [done: initial seam/oracle] Independent full-snapshot test reconstruction and private import seam;
    explicit keys/gaps/frontier, stage-failure rollback tests. Rebase onto the separate
    tombstone/recreate/restore fix when firstmate reports it landed; do not duplicate it.
-3. [pending] Authoritative delta discovery; shadow hook compares delta-applied graph to
+3. [done: initial shadow validation] Authoritative delta discovery; shadow hook compares delta-applied graph to
    separately enumerated full target snapshot before enabling production routing.
-4. [pending] Commit/revert/rollback/async epoch coverage; exact manifest base validation.
+4. [in progress] Commit/revert/rollback/async epoch coverage; exact manifest base validation.
 5. [pending] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
@@ -254,3 +257,49 @@ Proceed to gate 3: pair authoritative document tries, compare complete reconstru
 logical slots, and validate the resulting delta against the independently enumerated
 full-snapshot reference. Public JsonResourceCopy stays on its old path until the later
 acceptance gates pass. No production routing switch is included in this checkpoint.
+
+## Gate 3 implementation (2026-10-05 02:24 Berlin)
+
+JsonDocumentDeltaWalk pairs immutable indirect tries, aligns different trie heights
+through virtual zero-offset ancestors, and skips only equal durable resource/offset and
+fragment-chain references. Changed leaves resolve through getRecordPage and guarded
+logical-slot bitmaps, including overflow slots. JsonIdentityDeltaReader.between validates
+consecutive committed same-resource epochs and restores both cursor positions. It never
+reads presentation sidecars or scans the numeric allocation frontier.
+
+The shadow regression compares the exact PUT/DELETE set against JsonReplaySnapshotOracle,
+a separate full-tree enumeration, then compares every imported revision and path summary
+against the original source after cold reopen. Cases include R16, no-op and frontier-only
+commits, a trillion-key gap with trie growth, value/name updates and sparse deletion.
+The draft is now in production sources but remains uncalled by JsonResourceCopy. Compile
+and shadow validation are next; later acceptance gates remain pending.
+
+## Sparse-source follow-up (2026-10-05 02:29 Berlin)
+
+First shadow run compiled; 68/92 tests passed. All 24 new cases failed while building the
+SOURCE fixture, before delta discovery: a trillion-key jump aliased an existing record,
+and renaming later found NUMBER_VALUE at the array's key 1. KeyedTrieWriter only grew
+when pageKey equaled the next capacity boundary, assuming sequential allocation. It now
+grows repeatedly until the key fits and rejects invalid offsets before narrowing them.
+SparseDocumentIdentityTest directly checks jumps across multiple levels (through 2^52),
+ordered links/values/counts/frontier and cold history on all 24 configurations. This is
+a separate follow-up to explicit-key import, unrelated to the other lane's tombstone fix.
+The fix and shadow run need validation; retain the first failure in delta-shadow-1-results/.
+
+## Gate 3 first green (2026-10-05 02:34 Berlin)
+
+The sparse growth fix is a separate commit 0067f38b3. Its rerun passes 126/126 invocations:
+24 direct sparse-source cases, ten keyed-trie integrations, 85 import/shadow cases and
+seven public diff budgets. The authoritative PUT/DELETE sets match independently
+enumerated complete snapshots for all 24 configurations. Add direct authoritative
+restoration comparison and real overflow-reference replacement/deletion before closing
+this gate. Existing manual snapshot-field and path-summary assertions remain intact.
+
+## Gate 3 expanded shadow verification (2026-10-05 02:41 Berlin)
+
+116/116 pass in delta-shadow-3.log and delta-shadow-3-results/: 109 import/oracle cases
+plus seven public-diff budgets. Deleted-key restoration now compares authoritative and
+reference deltas exactly. Oversized strings are verified to have real overflow references;
+all 24 configurations copy inline → overflow → inline → overflow → deletion → no-op,
+then compare every cold-reopened graph and path summary. Formatting applied successfully.
+Production copy is still unchanged; epoch acceptance is next.

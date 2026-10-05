@@ -15,8 +15,8 @@ public final class JsonIdentityDelta {
   private final Long2ObjectMap<JsonReplayRecord> puts;
   private final LongSet deletes;
 
-  JsonIdentityDelta(final JsonReplayManifest manifest,
-      final Long2ObjectMap<JsonReplayRecord> puts, final LongSet deletes) {
+  JsonIdentityDelta(final JsonReplayManifest manifest, final Long2ObjectMap<JsonReplayRecord> puts,
+      final LongSet deletes) {
     this.manifest = Objects.requireNonNull(manifest);
     Objects.requireNonNull(puts);
     Objects.requireNonNull(deletes);

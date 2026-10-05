@@ -108,10 +108,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * Lazy SIMD-friendly localName → PathNodes index. Built on first call to
-   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)})
-   * from {@link #qnmMapping}; invalidated by {@link #putQNameMapping} /
-   * {@link #removeQNameMapping}. PathSummary mutations are rare relative to
-   * lookups so the rebuild cost amortises trivially.
+   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)}) from
+   * {@link #qnmMapping}; invalidated by {@link #putQNameMapping} / {@link #removeQNameMapping}.
+   * PathSummary mutations are rare relative to lookups so the rebuild cost amortises trivially.
    */
   private final PathLocalNameIndex localNameIndex = new PathLocalNameIndex();
 
@@ -122,8 +121,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * O(1) child path node lookups: {@code (parentNodeKey, childName, childKind) -> childPathNodeKey}.
-   * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather
-   * than a hash of it.
+   * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather than
+   * a hash of it.
    */
   private PathSummaryChildIndex childLookupCache;
 
@@ -162,7 +161,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
 
       final int maxNrOfNodes =
-          (int) this.storageEngineReader.getPathSummaryPage(this.storageEngineReader.getActualRevisionRootPage()).getMaxNodeKey(0);
+          (int) this.storageEngineReader.getPathSummaryPage(this.storageEngineReader.getActualRevisionRootPage())
+                                        .getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
       pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
@@ -182,8 +182,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
 
           // Populate parent-child lookup cache for O(1) lookups
-          childLookupCache.put(pathNode.getParentKey(), this.getName(), pathNode.getPathKind(),
-                               pathNode.getNodeKey());
+          childLookupCache.put(pathNode.getParentKey(), this.getName(), pathNode.getPathKind(), pathNode.getNodeKey());
 
           nodesLoaded++;
           // assert Objects.equals(this.getName(), pathNode.getName());
@@ -219,11 +218,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Find a child path node by parent key, name, and kind in O(1) time. This is much faster than
    * iterating through all children with ChildAxis.
    *
-   * <p>The answer is exact in both directions: {@link PathSummaryChildIndex} stores the whole
-   * triple in the slot, so a hit is the child that was actually inserted and a miss really means
-   * the parent has no such child. It previously probed a map keyed on a lossy pack of the triple
-   * and returned whatever it found, which merged sibling names whose hashes collided into a single
-   * path node.
+   * <p>
+   * The answer is exact in both directions: {@link PathSummaryChildIndex} stores the whole triple in
+   * the slot, so a hit is the child that was actually inserted and a miss really means the parent has
+   * no such child. It previously probed a map keyed on a lossy pack of the triple and returned
+   * whatever it found, which merged sibling names whose hashes collided into a single path node.
    *
    * @param parentNodeKey the parent path node key
    * @param childName the child name to find
@@ -282,7 +281,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Remove a child from the lookup cache. Called when a path node is deleted.
    *
-   * <p>Removal is exact too, which the lossy key could not manage: it dropped the single entry two
+   * <p>
+   * Removal is exact too, which the lossy key could not manage: it dropped the single entry two
    * colliding sibling names shared, so deleting one orphaned the other and the survivor read as
    * absent.
    *
@@ -456,14 +456,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Find every PathNode whose local name equals {@code localName}, regardless of
-   * namespace URI or path depth. Used by the query-time PathStatistics short-circuit
-   * in {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the
-   * caller passes {@code "age"} and unions the stats across all matching paths.
+   * Find every PathNode whose local name equals {@code localName}, regardless of namespace URI or
+   * path depth. Used by the query-time PathStatistics short-circuit in
+   * {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the caller passes
+   * {@code "age"} and unions the stats across all matching paths.
    *
-   * <p>Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths),
-   * so a linear walk over {@link #qnmMapping} is faster than maintaining a second
-   * index. Returns an empty list if no path matches.
+   * <p>
+   * Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths), so a linear walk
+   * over {@link #qnmMapping} is faster than maintaining a second index. Returns an empty list if no
+   * path matches.
    */
   public List<PathNode> findPathsByLocalName(final String localName) {
     assertNotClosed();
@@ -477,10 +478,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns
-   * {@code true} when at least one path's QNm has the given localName.
-   * Allocates nothing on the hot path; SIMD-scans {@link #qnmMapping}'s dense
-   * localName-key array and stops on the first verified hit.
+   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns {@code true} when at
+   * least one path's QNm has the given localName. Allocates nothing on the hot path; SIMD-scans
+   * {@link #qnmMapping}'s dense localName-key array and stops on the first verified hit.
    */
   public boolean containsLocalName(final String localName) {
     assertNotClosed();
@@ -677,25 +677,26 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent:
-   * the referenced instance must carry the node key the structural pointer names, and it must
-   * be the instance {@link #pathNodeMapping} currently holds for that key.
+   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent: the
+   * referenced instance must carry the node key the structural pointer names, and it must be the
+   * instance {@link #pathNodeMapping} currently holds for that key.
    *
-   * <p>The in-memory parent/child/sibling references are wired once, at bulk-load time (see
+   * <p>
+   * The in-memory parent/child/sibling references are wired once, at bulk-load time (see
    * {@code LevelOrderSettingInMemoryInstancesAxis}). {@link PathSummaryWriter} mutations do NOT
    * rewire them — a structural fix-up goes through {@code prepareRecordForModification}, which
-   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by
-   * its old neighbours. Following such a stale twin resurrects removed subtrees: a
-   * {@code PostOrderAxis} walk then computes node keys that no longer resolve
-   * ("Failed to move to nodeKey: N", issue #1099). The identity check against the mapping
-   * degrades those cases to the authoritative {@link #moveTo(long)} path; in read-only readers
-   * the mapping and the reference graph hold the same instances, so the fast path still always
-   * hits there.
+   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by its
+   * old neighbours. Following such a stale twin resurrects removed subtrees: a {@code PostOrderAxis}
+   * walk then computes node keys that no longer resolve ("Failed to move to nodeKey: N", issue
+   * #1099). The identity check against the mapping degrades those cases to the authoritative
+   * {@link #moveTo(long)} path; in read-only readers the mapping and the reference graph hold the
+   * same instances, so the fast path still always hits there.
    *
-   * <p>During construction ({@code init}) the mapping is still being populated from the very
-   * instances being wired, so the reference is trusted as before.
+   * <p>
+   * During construction ({@code init}) the mapping is still being populated from the very instances
+   * being wired, so the reference is trusted as before.
    *
-   * @param target      the in-memory referenced instance (may be {@code null})
+   * @param target the in-memory referenced instance (may be {@code null})
    * @param expectedKey the node key the structural pointer of the current node names
    * @return {@code true} if the cursor moved to {@code target}
    */
@@ -720,8 +721,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (!node.hasParent()) {
       return false;
     }
-    if (node instanceof PathNode pathNode
-        && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
+    if (node instanceof PathNode pathNode && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
       return true;
     }
     return moveTo(node.getParentKey());

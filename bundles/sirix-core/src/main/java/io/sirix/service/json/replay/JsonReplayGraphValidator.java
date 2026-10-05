@@ -15,8 +15,7 @@ import it.unimi.dsi.fastutil.longs.LongSets;
 public final class JsonReplayGraphValidator {
   private static final int WIDTH = 5;
 
-  private JsonReplayGraphValidator() {
-  }
+  private JsonReplayGraphValidator() {}
 
   public static void validate(final JsonNodeReadOnlyTrx transaction) {
     validate(transaction, LongSets.emptySet());
@@ -39,13 +38,12 @@ public final class JsonReplayGraphValidator {
         if (node.getLastChildKey() != frames.getLong(offset + 2)
             || config.storeChildCount() && node.getChildCount() != children
             || config.hashType != HashType.NONE && node.getDescendantCount() != descendants) {
-          throw new IllegalStateException("Replay child links or counts disagree at " + key
-              + ": last=" + node.getLastChildKey() + "/" + frames.getLong(offset + 2)
-              + ", children=" + node.getChildCount() + "/" + children
-              + ", descendants=" + node.getDescendantCount() + "/" + descendants);
+          throw new IllegalStateException("Replay child links or counts disagree at " + key + ": last="
+              + node.getLastChildKey() + "/" + frames.getLong(offset + 2) + ", children=" + node.getChildCount() + "/"
+              + children + ", descendants=" + node.getDescendantCount() + "/" + descendants);
         }
-        if (key == 0 && (node.getKind() != NodeKind.JSON_DOCUMENT || children > 1
-            || node.getParentKey() != -1 || node.getLeftSiblingKey() != -1 || node.getRightSiblingKey() != -1)) {
+        if (key == 0 && (node.getKind() != NodeKind.JSON_DOCUMENT || children > 1 || node.getParentKey() != -1
+            || node.getLeftSiblingKey() != -1 || node.getRightSiblingKey() != -1)) {
           throw new IllegalStateException("Invalid replay document root");
         }
         frames.size(offset);
@@ -90,8 +88,8 @@ public final class JsonReplayGraphValidator {
     };
   }
 
-  private static void push(final StorageEngineReader reader, final LongArrayList frames,
-      final LongOpenHashSet visited, final long key, final long frontier) {
+  private static void push(final StorageEngineReader reader, final LongArrayList frames, final LongOpenHashSet visited,
+      final long key, final long frontier) {
     if (key < 0 || key > frontier || !visited.add(key)) {
       throw new IllegalStateException("Cycle, duplicate or out-of-frontier replay identity " + key);
     }

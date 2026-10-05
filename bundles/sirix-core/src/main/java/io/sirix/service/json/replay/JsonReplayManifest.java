@@ -7,8 +7,9 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Exact committed epochs and allocation contract for the internal identity replay protocol. */
-public record JsonReplayManifest(int version, Path sourceResource, UUID sourceIdentity, int baseRevision, int targetRevision,
-    int destinationRevision, long baseFrontier, long targetFrontier, boolean deweyIDs, HashType hashType) {
+public record JsonReplayManifest(int version, Path sourceResource, UUID sourceIdentity, int baseRevision,
+    int targetRevision, int destinationRevision, long baseFrontier, long targetFrontier, boolean deweyIDs,
+    HashType hashType) {
   public static final int VERSION = 1;
 
   public JsonReplayManifest {
@@ -28,7 +29,9 @@ public record JsonReplayManifest(int version, Path sourceResource, UUID sourceId
       return sourceRevision;
     }
     final int mapped = sourceRevision - (targetRevision - destinationRevision);
-    return mapped > 0 ? mapped : -1;
+    return mapped > 0
+        ? mapped
+        : -1;
   }
 
   /** Older live state first becomes available at the initial snapshot boundary of a copied suffix. */

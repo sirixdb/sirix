@@ -57,21 +57,24 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   static Stream<Arguments> laterParentConfigurations() {
-    return Stream.of(VersioningType.values()).flatMap(versioning -> Stream.of(false, true)
-        .flatMap(dewey -> Stream.of(false, true).map(recompute -> Arguments.of(versioning, dewey, recompute))));
+    return Stream.of(VersioningType.values())
+                 .flatMap(versioning -> Stream.of(false, true)
+                                              .flatMap(dewey -> Stream.of(false,
+                                                  true).map(recompute -> Arguments.of(versioning, dewey, recompute))));
   }
 
   @ParameterizedTest
   @MethodSource("laterParentConfigurations")
-  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning,
-      final boolean deweyIDs, final boolean recompute) throws Exception {
+  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning, final boolean deweyIDs,
+      final boolean recompute) throws Exception {
     final var configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-        .storageType(StorageType.FILE_CHANNEL)
-        .versioningApproach(versioning)
-        .useDeweyIDs(deweyIDs)
-        .build();
-    try (final var database = JsonTestHelper.getDatabaseWithResourceConfig(
-        JsonTestHelper.PATHS.PATH1.getFile(), configuration);
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .useDeweyIDs(deweyIDs)
+                                                   .build();
+    try (
+        final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), configuration);
         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       seed(session, "[0]");
       try (final var wtx = session.beginNodeTrx()) {
@@ -1047,9 +1050,8 @@ final class JsonBulkInsertDiffRegressionTest {
 
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (
-        final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(),
-                config(deweyIDs, source.getResourceConfig().versioningType));
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(),
+            config(deweyIDs, source.getResourceConfig().versioningType));
         final var destination = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = source.beginNodeReadOnlyTrx(1);
         final var wtx = destination.beginNodeTrx()) {

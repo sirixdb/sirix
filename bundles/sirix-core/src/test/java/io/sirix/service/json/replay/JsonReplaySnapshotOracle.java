@@ -8,8 +8,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /** Test-only reference transition: independently enumerate both complete physical trees. */
 public final class JsonReplaySnapshotOracle {
-  private JsonReplaySnapshotOracle() {
-  }
+  private JsonReplaySnapshotOracle() {}
 
   public static JsonIdentityDelta between(final JsonNodeReadOnlyTrx before, final JsonNodeReadOnlyTrx after,
       final int destinationRevision) {

@@ -4525,12 +4525,10 @@ final class JsonNodeTrxImpl extends
         || !manifest.sourceResource().equals(sourceConfig.getResource().toAbsolutePath().normalize())
         || !manifest.sourceIdentity().equals(sourceConfig.resourceUuid)
         || manifest.targetRevision() != source.getRevisionNumber()
-        || manifest.targetFrontier() != source.getMaxNodeKey()
-        || manifest.destinationRevision() != getRevisionNumber()
+        || manifest.targetFrontier() != source.getMaxNodeKey() || manifest.destinationRevision() != getRevisionNumber()
         || manifest.deweyIDs() != sourceConfig.areDeweyIDsStored
-        || manifest.deweyIDs() != targetConfig.areDeweyIDsStored
-        || manifest.hashType() != sourceConfig.hashType || manifest.hashType() != targetConfig.hashType
-        || sourceConfig.withPathSummary != targetConfig.withPathSummary
+        || manifest.deweyIDs() != targetConfig.areDeweyIDsStored || manifest.hashType() != sourceConfig.hashType
+        || manifest.hashType() != targetConfig.hashType || sourceConfig.withPathSummary != targetConfig.withPathSummary
         || sourceConfig.withPathStatistics != targetConfig.withPathStatistics
         || sourceConfig.storeChildCount() != targetConfig.storeChildCount()) {
       throw new IllegalArgumentException("Identity replay source, epoch or resource configuration mismatch");
@@ -4541,8 +4539,7 @@ final class JsonNodeTrxImpl extends
         throw new IllegalArgumentException("Initial identity import requires a fresh destination");
       }
     } else if (!replaySourceResource.equals(manifest.sourceResource())
-        || !manifest.sourceIdentity().equals(replaySourceIdentity)
-        || replaySourceRevision != manifest.baseRevision()
+        || !manifest.sourceIdentity().equals(replaySourceIdentity) || replaySourceRevision != manifest.baseRevision()
         || manifest.targetRevision() != replaySourceRevision + 1
         || replayDestinationRevision + 1 != manifest.destinationRevision()
         || getMaxNodeKey() != manifest.baseFrontier()) {
@@ -4570,7 +4567,8 @@ final class JsonNodeTrxImpl extends
       }
       replayCheckpoint("identities-staged");
       for (final var record : delta.puts().values()) {
-        final StructNode staged = storageEngineWriter.prepareRecordForModification(record.key(), IndexType.DOCUMENT, -1);
+        final StructNode staged =
+            storageEngineWriter.prepareRecordForModification(record.key(), IndexType.DOCUMENT, -1);
         JsonReplayNodeFactory.link(staged, record);
         storageEngineWriter.persistRecord(staged, IndexType.DOCUMENT, -1);
       }
@@ -4626,7 +4624,7 @@ final class JsonNodeTrxImpl extends
     replayNotifyIndex(key, IndexController.ChangeType.DELETE);
     if (getKind().playsObjectKeyRole()) {
       storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
-          .removeName(getNameKey(), getKind(), storageEngineWriter);
+                         .removeName(getNameKey(), getKind(), storageEngineWriter);
     }
   }
 

@@ -104,7 +104,9 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
       }
       case OBJECT_NAMED_BOOLEAN -> {
         if (node instanceof ObjectNamedBooleanNode fused) {
-          return fused.getValue() ? STR_TRUE : STR_FALSE;
+          return fused.getValue()
+              ? STR_TRUE
+              : STR_FALSE;
         }
         throw new IllegalStateException("Unexpected node type for fused boolean value: " + node.getClass());
       }
