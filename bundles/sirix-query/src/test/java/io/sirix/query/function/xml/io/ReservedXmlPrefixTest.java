@@ -2,6 +2,7 @@ package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
 import io.brackit.query.QueryException;
+import io.brackit.query.atomic.QNm;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ReservedXmlPrefixTest {
   private static final String XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
@@ -80,6 +82,90 @@ final class ReservedXmlPrefixTest {
     assertEquals("first", run(versioningType, "string(" + leaf + "/@Aa)"));
     assertEquals("second", run(versioningType, "string(" + leaf + "/@BB)"));
     assertEquals("0", run(versioningType, "declare namespace p='urn:missing'; count(" + leaf + "/@p:lang)"));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void storedAttributeNamesSurviveCommittedRename(final VersioningType versioningType) {
+    run(versioningType, "xn:store('reserved','resource1',<leaf old='x'/>)");
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToAttributeByName(new QNm("old")));
+      wtx.setName(new QNm("new"));
+      wtx.commit();
+    }
+    final String leaf = "xn:doc('reserved','resource1')/leaf";
+    assertEquals("1", run(versioningType, "count(" + leaf + "/@new)"));
+    assertEquals("x", run(versioningType, "string(" + leaf + "/attribute::attribute(new))"));
+    assertEquals("0", run(versioningType, "count(" + leaf + "/@old)"));
+    assertEquals("1", run(versioningType, "count(" + leaf + "/attribute::attribute(new,xs:untypedAtomic))"));
+    assertEquals("1", run(versioningType, "count(" + leaf + "/attribute::node())"));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void storedAttributeNamesSurviveCommittedCollisionHeadDeletion(final VersioningType versioningType) {
+    run(versioningType, "xn:store('reserved','resource1',<leaf Aa='first' BB='second'/>)");
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToAttributeByName(new QNm("Aa")));
+      wtx.remove();
+      wtx.commit();
+    }
+    final String leaf = "xn:doc('reserved','resource1')/leaf";
+    assertEquals("second", run(versioningType, "string(" + leaf + "/@BB)"));
+    assertEquals("second", run(versioningType, "string(" + leaf + "/attribute::attribute(BB))"));
+    assertEquals("0", run(versioningType, "count(" + leaf + "/@Aa)"));
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToFirstChild());
+      wtx.insertElementAsFirstChild(new QNm("child"));
+      wtx.insertAttribute(new QNm("BB"), "third");
+      wtx.commit();
+    }
+    assertEquals("second", run(versioningType, "string(" + leaf + "/@BB)"));
+    assertEquals("third", run(versioningType, "string(" + leaf + "/child/@BB)"));
+    assertEquals("0", run(versioningType, "count(" + leaf + "/child/@Aa)"));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void storedAttributeNamespacesSurviveCommittedCollisionHeadDeletion(final VersioningType versioningType) {
+    run(versioningType, "xn:store('reserved','resource1',<leaf>"
+        + "<drop xmlns:a='urn:Aa' a:gone='first'/><keep xmlns:b='urn:BB' b:lang='second'/></leaf>)");
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToFirstChild());
+      wtx.remove();
+      wtx.commit();
+    }
+    final String prolog = "declare namespace alias='urn:BB'; ";
+    final String leaf = "xn:doc('reserved','resource1')/leaf";
+    assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/@alias:lang)"));
+    assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/attribute::attribute(alias:lang))"));
+    assertEquals("0",
+        run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/keep/@alias:lang)"));
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToFirstChild());
+      wtx.insertElementAsFirstChild(new QNm("child"));
+      wtx.insertNamespace(new QNm("urn:BB", "b", ""));
+      assertTrue(wtx.moveToParent());
+      wtx.insertAttribute(new QNm("urn:BB", "b", "lang"), "third");
+      wtx.commit();
+    }
+    assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/@alias:lang)"));
+    assertEquals("third", run(versioningType, prolog + "string(" + leaf + "/child/@alias:lang)"));
+    assertEquals("0",
+        run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/child/@alias:lang)"));
   }
 
   @ParameterizedTest

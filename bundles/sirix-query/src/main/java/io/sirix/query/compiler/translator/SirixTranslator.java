@@ -738,12 +738,16 @@ public class SirixTranslator extends TopDownTranslator {
         }
         final StorageEngineReader reader = rtx.getStorageEngineReader();
         final NamePage names = reader.getNamePage(reader.getActualRevisionRootPage());
-        final int localNameKey = names.keyForName(name.getLocalName(), NodeKind.ATTRIBUTE, reader);
-        final int namespaceKey = names.keyForName(name.getNamespaceURI(), NodeKind.NAMESPACE, reader);
+        final String localName = name.getLocalName();
+        final String namespaceURI = Objects.toString(name.getNamespaceURI(), "");
+        final int localNameKey = names.keyForName(localName, NodeKind.ATTRIBUTE, reader);
+        final int namespaceKey = names.keyForName(namespaceURI, NodeKind.NAMESPACE, reader);
         return new SirixNodeStream(new FilterAxis<>(axis, new AbstractFilter<XmlNodeReadOnlyTrx>(rtx) {
           @Override
           public boolean filter() {
-            return rtx.getLocalNameKey() == localNameKey && rtx.getURIKey() == namespaceKey;
+            return (rtx.getLocalNameKey() == localNameKey || localName.equals(rtx.nameForKey(rtx.getLocalNameKey())))
+                && (rtx.getURIKey() == namespaceKey
+                    || namespaceURI.equals(Objects.toString(rtx.getNamespaceURI(), "")));
           }
         }), dbNode.getCollection());
       }
