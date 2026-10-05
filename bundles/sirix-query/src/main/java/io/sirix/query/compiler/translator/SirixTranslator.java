@@ -520,7 +520,7 @@ public class SirixTranslator extends TopDownTranslator {
       }
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AttributeAxis axis = new AttributeAxis(rtx);
-      if (test instanceof AnyNodeType) {
+      if (test instanceof AnyNodeType || rtx.getAttributeCount() == 0) {
         return new SirixNodeStream(axis, dbNode.getCollection());
       }
       if (test instanceof AttributeType && test.getType() == null) {
