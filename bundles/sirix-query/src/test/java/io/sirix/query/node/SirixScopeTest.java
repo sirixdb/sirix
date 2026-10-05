@@ -21,8 +21,8 @@ final class SirixScopeTest {
   @Test
   void resolvesLocalAndInheritedNamespacesDespiteSharedCursorMoves() {
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).build()) {
-      final var collection = store.create("scope", new DocumentParser(
-          "<root xmlns='urn:default' xmlns:p='urn:parent' xmlns:q='urn:other'>"
+      final var collection =
+          store.create("scope", new DocumentParser("<root xmlns='urn:default' xmlns:p='urn:parent' xmlns:q='urn:other'>"
               + "<child xmlns:p='urn:child'><leaf xmlns=''/></child></root>"));
       final XmlDBNode root = collection.getDocument("resource1").getFirstChild();
       final Scope rootScope = root.getScope();

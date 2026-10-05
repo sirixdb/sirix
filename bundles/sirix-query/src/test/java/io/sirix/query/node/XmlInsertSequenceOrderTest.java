@@ -72,11 +72,11 @@ final class XmlInsertSequenceOrderTest {
                 "<p:parent xmlns:p='urn:a'><p:child xmlns:p='urn:b'/><leaf xmlns='urn:c'><plain xmlns=''/></leaf></p:parent>",
                 "<p:parent xmlns:p=\"urn:a\"><p:child xmlns:p=\"urn:b\"/><leaf xmlns=\"urn:c\"><plain xmlns=\"\"/></leaf></p:parent>",
                 ""), COMMENT_PI_TEXT(
-                "(comment {'first'}, processing-instruction marker {'second'}, text {'third'}, <last/>)",
-                "<!-- first --><?marker second?>third<last/>", ""), PI(
-                    "processing-instruction marker {'second with spaces'}", "<?marker second with spaces?>", ""), ATTRIBUTES(
-            "(attribute a {'one'}, attribute b {'two'}, <c/>, text {'three'}, <d/>)", "<c/>three<d/>",
-            " a=\"one\" b=\"two\"");
+                    "(comment {'first'}, processing-instruction marker {'second'}, text {'third'}, <last/>)",
+                    "<!-- first --><?marker second?>third<last/>",
+                    ""), PI("processing-instruction marker {'second with spaces'}", "<?marker second with spaces?>",
+                        ""), ATTRIBUTES("(attribute a {'one'}, attribute b {'two'}, <c/>, text {'three'}, <d/>)",
+                            "<c/>three<d/>", " a=\"one\" b=\"two\"");
 
     final String expression;
     final String children;
@@ -172,7 +172,8 @@ final class XmlInsertSequenceOrderTest {
         final var context = SirixQueryContext.createWithNodeStore(store)) {
       assertAll(() -> assertXmlEquals(expected, serialize(chain, context, SOURCE, content)),
           () -> assertXmlEquals(expected, serialize(chain, context, "xml:doc('order','resource1',2)", content)),
-          () -> assertXmlEquals(DOCUMENT, serialize(chain, context, "xml:doc('order','resource1',1)", Content.ELEMENTS)));
+          () -> assertXmlEquals(DOCUMENT,
+              serialize(chain, context, "xml:doc('order','resource1',1)", Content.ELEMENTS)));
     }
   }
 
@@ -208,11 +209,15 @@ final class XmlInsertSequenceOrderTest {
         } else if (node.getKind() == Kind.PROCESSING_INSTRUCTION) {
           processingInstructions++;
           assertEquals("marker", node.getName().getLocalName());
-          assertEquals(content == Content.PI ? "second with spaces" : "second", node.getValue().stringValue());
+          assertEquals(content == Content.PI
+              ? "second with spaces"
+              : "second", node.getValue().stringValue());
         }
       }
     }
-    assertEquals(content == Content.COMMENT_PI_TEXT ? 1 : 0, comments);
+    assertEquals(content == Content.COMMENT_PI_TEXT
+        ? 1
+        : 0, comments);
     assertEquals(1, processingInstructions);
   }
 
