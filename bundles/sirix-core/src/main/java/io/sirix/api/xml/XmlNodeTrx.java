@@ -258,7 +258,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param target target of processing instruction
    * @param content content of processing instruction
-   * @throws SirixException if element node couldn't be inserted as first child
+   * @throws SirixException if the processing instruction couldn't be inserted as left sibling
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
@@ -270,7 +270,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param target target of processing instruction
    * @param content content of processing instruction
-   * @throws SirixException if element node couldn't be inserted as first child
+   * @throws SirixException if the processing instruction couldn't be inserted as right sibling
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
@@ -282,7 +282,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param target target of processing instruction
    * @param content content of processing instruction
-   * @throws SirixException if element node couldn't be inserted as first child
+   * @throws SirixException if the processing instruction couldn't be inserted as first child
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */

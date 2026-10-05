@@ -10,7 +10,9 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
 
 /**
- * Sirix scope.
+ * Namespace scope anchored to a stored XML element. Nodes share the transaction cursor, so scope
+ * operations must reposition it to the owning element even when other node accesses have moved it.
+ * Prefix resolution searches local declarations before ancestors and restores the owning element.
  *
  * @author Johannes Lichtenberger
  *
@@ -49,7 +51,9 @@ public final class SirixScope implements Scope {
           rtx.moveTo(nodeKey);
           rtx.moveToNamespace(index++);
           final int prefixKey = rtx.getPrefixKey();
-          final String prefix = prefixKey == -1 ? "" : rtx.nameForKey(prefixKey);
+          final String prefix = prefixKey == -1
+              ? ""
+              : rtx.nameForKey(prefixKey);
           rtx.moveToParent();
           return prefix;
         }
@@ -99,7 +103,9 @@ public final class SirixScope implements Scope {
       if ("xml".equals(prefix)) {
         return "http://www.w3.org/XML/1998/namespace";
       }
-      return prefixVocID == -1 ? "" : null;
+      return prefixVocID == -1
+          ? ""
+          : null;
     } finally {
       rtx.moveTo(nodeKey);
     }

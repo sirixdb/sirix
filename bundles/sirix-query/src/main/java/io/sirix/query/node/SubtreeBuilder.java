@@ -42,7 +42,10 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   /** Start node key. */
   private long startNodeKey;
 
-  /** Stack of namespace mappings. */
+  /**
+   * Mappings pending for the next element. Local declarations must be retained even when an ancestor
+   * declares the same prefix, since the namespace URI may differ or be undeclared.
+   */
   private final Deque<QNm> namespaces;
 
   /**
@@ -147,7 +150,9 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   }
 
   @Override
-  public void endMapping(final String prefix) throws DocumentException {}
+  public void endMapping(final String prefix) throws DocumentException {
+    // startElement consumes pending mappings; the stored element retains their namespace scope.
+  }
 
   @Override
   public void comment(final Atomic content) throws DocumentException {
