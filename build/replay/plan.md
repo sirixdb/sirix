@@ -4,38 +4,35 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 21:35 Berlin)
+## Current checkpoint (2026-10-05 21:54 Berlin)
 
-Resumed from a365648eb; isolation, assigned branch and no-mistakes doctor verified.
-Inbox 005 acknowledged: stop 2026-10-06 04:00 Berlin, validation cutoff 03:40.
-CAS builder defect reproduced on plain origin/main 71be74062 (4/4 failures), then
-fixed independently in f6688ece7: 129/129 selected tests and formatting pass.
+Isolation and assigned branch verified on resume. Inbox 005 sets the stop at
+2026-10-06 04:00 Berlin; no validation round may extend past 03:40. The private
+Maven repository build/replay/m2 and heavy runner remain in use.
 
-Gates 1–6 are implemented and validated in shadow. The projection identity-epoch seam
-passes 375/375 focused cases and all 144 generated configurations with independent
-NAME/PATH/CAS/projection queries, full identity graphs and path summaries after cold
-reopen. Valid-time, sorted rows, filtered memberships, multi-batch permutations, empty
-bootstrap/restoration and all four initial/later rollback checkpoints pass. The 51
-selected existing core/projection work-budget cases and formatting checks also pass.
+Gates 1–7 are complete. Projection epoch import is committed in bac72b467;
+incremental path-record/cache maintenance in 76d48c70d; bounded graph validation
+and mutation-proven work budgets in bc85f8315. Gate-7 final validation passed
+604/604 cases, including all 144 generated configurations, forged invalid graphs,
+index/path oracles and every existing core/projection budget. Formatting passes.
+The projection-identity-import key is resolved.
 
-Evidence: projection-epoch-5.log/results (375); generated-index-1.log/results (two smoke
-configurations plus 51 budgets); generated-index-2.log/results (144 configurations,
-five minutes). No failures/errors/skips. The projection-identity-import key is resolved.
-Gate 6 is committed in bac72b467. Incremental path-record import/cache repair is committed
-in 76d48c70d (377 focused cases green). Gate 7 is implemented and validated: bounded graph validation, work diagnostics,
-new mutation-proven budgets, all identity suites and all 144 generated configurations pass. Production JsonResourceCopy still uses the old path.
+Independent source repairs include f6688ece7 (CAS cursor restoration) and
+56052a8cd (pipelined JSON sidecar preparation/publication). The latter passes
+242/242 final cases, including all generated histories and work budgets; the old
+async cache errors no longer occur. Details and failed/passing logs appear below.
 
-Initial imports retire only the fresh declaration epoch, preserve all logical definitions
-across failure, and build once on a virgin tree. Later imports capture old/final membership
-and final order, use bounded incremental row edits and reconcile valid-time intervals.
-Filtered PATH/CAS entries of unchanged descendants are bracketed when their containing
-path is renamed or reparented. requireVirginTreeForInitialBuild remains unchanged.
+The working tree now routes complete public revision copies only through typed
+identity deltas and removes the old private key-sorted allocator. Snapshot subtree
+copying and public diff behavior stay intact. Initial public-copy selection passes
+160/160 cases, including all 16 R16 modes; the FULL/DIFFERENTIAL/INCREMENTAL R1–R18
+matrix and 17 new suffix/preflight cases now pass (177 tests per remaining mode).
+SLIDING_SNAPSHOT passed 160 tests in the initial route selection.
 
-Production JsonResourceCopy is still unchanged. Gate 7 bounded graph/path work and new
-budgets, gate 8 full suites, prerequisite tombstone rebase, latency acceptance and final
-routing remain pending. Upstream checked: the prerequisite is not on main yet. The
-private Maven repository build/replay/m2 and memory-gated runner remain in use.
-No new benchmark campaign after the applicable cutoff. No push, pipeline or done handoff.
+Gate 8 remains: finish public-copy matrix, rebase the separately owned tombstone fix
+when it lands, full core/query suites (query fork 2 GiB), exact work-budget block,
+formatting and pinned paired latency acceptance. Main remains bb2881586; prerequisite
+not landed. No benchmark campaign, no-mistakes run, push or done handoff yet.
 
 ## Contract and concrete implementation
 
@@ -646,3 +643,22 @@ Async source follow-up final validation: 242 tests, zero failures/errors/skips,
 including all 144 generated configurations and all core/projection budgets; formatting
 passes. No cache-serialization errors occur in async-sidecar-final.log. Final XML is
 archived in async-sidecar-final-results. Independent fix ready to commit.
+
+
+Production routing now uses the validated identity protocol exclusively for complete
+history copies. The key-sorted fragment allocator and public-sidecar replay scheduler
+are removed from JsonResourceCopy; allocating snapshot copying and the public explicit
+copyNodeWithKey API remain. Public diff methods retain behavior and JSON shape.
+`production-copy-1` passes the historical regressions including all 16 R16
+version/Dewey/recompute combinations, snapshot copying and public diff budgets.
+Full versioning matrix and new history-suffix/preflight integration cases follow.
+The separate async source repair is committed in 56052a8cd (242 final tests green).
+
+
+Production-copy matrix passes: FULL, DIFFERENTIAL and INCREMENTAL each 177/177,
+zero failures/errors/skips; the initial SLIDING_SNAPSHOT selection passed 160/160.
+Each run includes R16's own all-version/Dewey/recompute expansion. New 17-case public
+integration coverage verifies suffix revision metadata/identity, source document or
+sole-value cursors, and rejection of partial-history placement or dirty destinations
+without discarding their state. Formatting and git diff --check pass. Production
+route ready for its own commit; full core/query suites follow under the same limiter.

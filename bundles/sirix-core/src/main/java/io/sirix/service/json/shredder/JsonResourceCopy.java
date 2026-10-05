@@ -21,11 +21,7 @@
 
 package io.sirix.service.json.shredder;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.json.InsertOperations;
+import io.sirix.access.trx.node.json.InternalJsonNodeTrx;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.NullValue;
@@ -37,48 +33,23 @@ import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.api.visitor.JsonNodeVisitor;
-import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
-import io.sirix.axis.visitor.VisitorDescendantAxis;
-import io.sirix.diff.JsonDiffSerializer;
-import io.sirix.diff.JsonDiffSidecar;
 import io.sirix.node.NodeKind;
-import io.sirix.node.immutable.json.ImmutableArrayNode;
-import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.json.ObjectNamedArrayNode;
-import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
-import io.sirix.service.json.BasicJsonDiff;
-import io.sirix.settings.Fixed;
+import io.sirix.service.json.replay.JsonIdentityDeltaReader;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
-import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Copy a resource or a subtree into another resoure. even copy all changes and revisions between a
- * given revision/transaction.
+ * Copy an allocating subtree snapshot or replicate complete resource revisions by persistent node
+ * identity. Presentation diffs are independent of the history import protocol.
  */
 public final class JsonResourceCopy implements Callable<Void> {
-
-  private final String INSERT = InsertOperations.INSERT.getName();
-  private final String UPDATE = InsertOperations.UPDATE.getName();
-  private final String DELETE = InsertOperations.DELETE.getName();
 
   private final JsonResourceSession readResourceSession;
 
@@ -159,9 +130,10 @@ public final class JsonResourceCopy implements Callable<Void> {
 
     /**
      * Copy and commit the initial source revision and each later revision up to the most recent
-     * revision. Source node keys are preserved using
-     * {@link JsonNodeTrx#copyNodeWithKey(JsonNodeReadOnlyTrx, InsertPosition)}. Snapshot-only copying
-     * instead allocates destination keys normally.
+     * revision. Requires a fresh destination document, matching resource configuration and the source
+     * document (or its sole top-level value) at AS_FIRST_CHILD. Keys, topology, allocation frontier and
+     * stored Dewey IDs are preserved. A history suffix maps its initial source revision to destination
+     * revision one. Snapshot-only copying allocates destination keys normally.
      *
      * @return this builder instance
      */
@@ -203,317 +175,46 @@ public final class JsonResourceCopy implements Callable<Void> {
     this.copyAllRevisionsUpToMostRecent = builder.copyAllRevisionsUpToMostRecent;
   }
 
+  @Override
   public Void call() {
-    rtx.moveTo(startNodeKey);
-
-    insert();
-
+    requireMove(rtx.moveTo(startNodeKey), "copy source", startNodeKey);
     if (copyAllRevisionsUpToMostRecent) {
-      preserveAllocationFrontier(rtx);
-      wtx.commit();
-
-      for (var revision = rtx.getRevisionNumber() + 1; revision <= rtx.getResourceSession()
-                                                                      .getMostRecentRevisionNumber(); revision++) {
-        try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision);
-            final var previousRevision = readResourceSession.beginNodeReadOnlyTrx(revision - 1)) {
-          // Validate the raw sidecar once, but do not hydrate jsonFragment operations into full
-          // strings: replay copies those subtrees directly from rtxOnRevision and must stay bounded.
-          final var updateOperationsFile =
-              readResourceSession.getResourceConfig()
-                                 .getResource()
-                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                 .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json");
-          JsonObject sidecar;
-          try {
-            sidecar = JsonDiffSidecar.read(updateOperationsFile, readResourceSession.getResourceConfig().getName(),
-                revision - 1, revision, readResourceSession.getResourceConfig().areDeweyIDsStored);
-          } catch (final IOException | RuntimeException e) {
-            // A sidecar written before the integrity envelope (or damaged since) must not abort a
-            // copy whose earlier revisions are ALREADY committed — that leaves a partial copy.
-            // The sidecar only caches the diff: recompute it from the two source revisions.
-            final Path resourcePath = readResourceSession.getResourceConfig().getResource();
-            final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
-            sidecar = JsonParser
-                                .parseString(new BasicJsonDiff(databaseName).generateDiffForReplay(readResourceSession,
-                                    revision - 1, revision))
-                                .getAsJsonObject();
-          }
-
-          replay(
-              JsonDiffSidecar.normalizeReplacements(sidecar.getAsJsonArray("diffs"), previousRevision, rtxOnRevision),
-              previousRevision, rtxOnRevision);
-          wtx.commit();
-        }
-      }
+      copyRevisionHistory();
     } else {
+      insert();
       commit.commit(wtx);
     }
-
     return null;
   }
 
-  private void executeDelete(final long nodeKey) {
-    requireMove(wtx.moveTo(nodeKey), "delete destination", nodeKey);
-    wtx.remove();
-  }
-
-  private void executeUpdate(JsonObject updateObject, JsonNodeReadOnlyTrx rtxOnRevision) {
-    final var key = updateObject.get("nodeKey").getAsLong();
-    requireMove(wtx.moveTo(key), "update destination", key);
-
-    if (updateObject.has("name")) {
-      wtx.setObjectKeyName(updateObject.get("name").getAsString());
+  private void copyRevisionHistory() {
+    if (!(wtx instanceof final InternalJsonNodeTrx importer)) {
+      throw new IllegalArgumentException("Identity history copy requires an internal JSON transaction");
     }
-    if (!updateObject.has("type")) {
-      return;
+    if (insert != InsertPosition.AS_FIRST_CHILD || !wtx.isDocumentRoot()
+        || !rtx.isDocumentRoot() && rtx.getParentKey() != 0) {
+      throw new IllegalArgumentException(
+          "Identity history copy requires a complete source document and destination root");
     }
-
-    requireMove(rtxOnRevision.moveTo(key), "update source", key);
-    switch (updateObject.get("type").getAsString()) {
-      case "boolean" -> wtx.setBooleanValue(rtxOnRevision.getBooleanValue());
-      case "string" -> wtx.setStringValue(rtxOnRevision.getValue());
-      case "number" -> wtx.setNumberValue(rtxOnRevision.getNumberValue());
-      default -> throw new IllegalStateException("Unsupported replay update type: " + updateObject.get("type"));
+    if (wtx.getRevisionNumber() != 1 || wtx.getMaxNodeKey() != 0 || wtx.hasFirstChild()) {
+      throw new IllegalArgumentException("Identity history copy requires a fresh destination");
     }
-  }
-
-  private void executeMove(final JsonObject moveObject, final JsonNodeReadOnlyTrx source) {
-    final long nodeKey = moveObject.get("nodeKey").getAsLong();
-    final long anchor = moveObject.get("insertPositionNodeKey").getAsLong();
-    requireMove(wtx.moveTo(anchor), "move destination", anchor);
-    requireMove(source.moveTo(nodeKey), "move source", nodeKey);
-    switch (InsertPosition.ofString(moveObject.get("insertPosition").getAsString())) {
-      case AS_FIRST_CHILD -> wtx.moveSubtreeToFirstChild(nodeKey);
-      case AS_RIGHT_SIBLING -> wtx.moveSubtreeToRightSibling(nodeKey);
-      default -> throw new IllegalStateException("Unsupported replay move position");
-    }
-    requireMove(wtx.moveTo(nodeKey), "moved destination", nodeKey);
-    if (source.getKind().playsObjectKeyRole() && !Objects.equals(wtx.getName(), source.getName())) {
-      wtx.setObjectKeyName(source.getName().getLocalName());
-    }
-    switch (source.getKind()) {
-      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> {
-        if (wtx.getBooleanValue() != source.getBooleanValue()) {
-          wtx.setBooleanValue(source.getBooleanValue());
-        }
+    final int firstRevision = rtx.getRevisionNumber();
+    final int lastRevision = readResourceSession.getMostRecentRevisionNumber();
+    importer.importRevision(JsonIdentityDeltaReader.snapshot(rtx, 1), rtx);
+    for (int revision = firstRevision + 1; revision <= lastRevision; revision++) {
+      try (final var source = readResourceSession.beginNodeReadOnlyTrx(revision);
+          final var previous = readResourceSession.beginNodeReadOnlyTrx(revision - 1)) {
+        importer.importRevision(JsonIdentityDeltaReader.between(previous, source, revision - firstRevision + 1),
+            source);
       }
-      case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
-        if (!Objects.equals(wtx.getNumberValue(), source.getNumberValue())) {
-          wtx.setNumberValue(source.getNumberValue());
-        }
-      }
-      case STRING_VALUE, OBJECT_NAMED_STRING -> {
-        if (!Objects.equals(wtx.getValue(), source.getValue())) {
-          wtx.setStringValue(source.getValue());
-        }
-      }
-      default -> {
-      }
-    }
-  }
-
-  private void replay(final JsonArray operations, final JsonNodeReadOnlyTrx previousRevision,
-      final JsonNodeReadOnlyTrx source) {
-    final LongSet retainedKeys = JsonDiffSidecar.retainedNodeKeys(operations, previousRevision);
-    final var roots = new LongOpenHashSet(operations.size());
-    final var placements = new ArrayList<JsonObject>(operations.size());
-    long temporaryObject = Fixed.NULL_NODE_KEY.getStandardProperty();
-    long temporaryArray = Fixed.NULL_NODE_KEY.getStandardProperty();
-    for (final var operation : operations) {
-      final JsonObject object = operation.getAsJsonObject();
-      if (object.has(INSERT)) {
-        roots.add(object.getAsJsonObject(INSERT).get("nodeKey").getAsLong());
-        placements.add(object);
-      } else if (object.has(DELETE)) {
-        final long key = object.getAsJsonObject(DELETE).get("nodeKey").getAsLong();
-        if (previousRevision.moveTo(key)) {
-          final NodeKind kind = previousRevision.getKind();
-          if (kind == NodeKind.OBJECT || kind == NodeKind.OBJECT_NAMED_OBJECT) {
-            temporaryObject = key;
-          } else if (kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-            temporaryArray = key;
-          }
-        }
-      }
-    }
-    allocateFragments(placements, roots, retainedKeys, source, temporaryObject, temporaryArray);
-    JsonDiffSerializer.orderMoves(placements, source);
-    for (final var placement : placements) {
-      executeMove(placement.getAsJsonObject(INSERT), source);
-    }
-    for (final var operation : operations) {
-      final JsonObject object = operation.getAsJsonObject();
-      if (object.has(UPDATE)) {
-        executeUpdate(object.getAsJsonObject(UPDATE), source);
-      }
-    }
-    for (final var operation : operations) {
-      final JsonObject object = operation.getAsJsonObject();
-      if (object.has(DELETE)) {
-        final long key = object.getAsJsonObject(DELETE).get("nodeKey").getAsLong();
-        if (!retainedKeys.contains(key)) {
-          executeDelete(key);
-        }
-      }
-    }
-    preserveAllocationFrontier(source);
-  }
-
-  private void preserveAllocationFrontier(final JsonNodeReadOnlyTrx source) {
-    final long unusedKeys = source.getMaxNodeKey() - wtx.getMaxNodeKey();
-    if (unusedKeys > 0) {
-      wtx.getStorageEngineWriter().getActualRevisionRootPage().reserveKeyRangeInDocumentIndex(unusedKeys);
-    }
-  }
-
-  private void allocateFragments(final List<JsonObject> placements, final LongSet roots, final LongSet retainedKeys,
-      final JsonNodeReadOnlyTrx source, final long temporaryObject, final long temporaryArray) {
-    final var fragments = createFragmentCursors(placements, roots, retainedKeys, source);
-    Long2LongOpenHashMap temporaryParents = null;
-    final var ancestorPath = new LongArrayList();
-    while (!fragments.isEmpty()) {
-      final FragmentCursor fragment = fragments.remove();
-      final long key = fragment.key;
-      requireMove(source.moveTo(key), "allocation source", key);
-      final NodeKind kind = source.getKind();
-      long parent = source.getParentKey();
-      while (parent != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        if (wtx.moveTo(parent) && compatibleParent(kind, wtx.getKind())) {
-          break;
-        }
-        if (temporaryParents == null) {
-          temporaryParents = new Long2LongOpenHashMap();
-          temporaryParents.defaultReturnValue(Fixed.NULL_NODE_KEY.getStandardProperty());
-        }
-        final long cacheKey = kind.playsObjectKeyRole()
-            ? parent
-            : -parent - 1;
-        final long cached = temporaryParents.get(cacheKey);
-        if (cached != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          parent = cached;
-          requireMove(wtx.moveTo(parent), "cached allocation parent", parent);
-          break;
-        }
-        ancestorPath.add(cacheKey);
-        requireMove(source.moveTo(parent), "allocation ancestor", parent);
-        parent = source.getParentKey();
-      }
-      if (parent == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        parent = kind.playsObjectKeyRole()
-            ? temporaryObject
-            : temporaryArray;
-        requireMove(wtx.moveTo(parent), "temporary allocation parent", parent);
-      }
-      if (temporaryParents != null) {
-        for (int index = 0; index < ancestorPath.size(); index++) {
-          temporaryParents.put(ancestorPath.getLong(index), parent);
-        }
-        ancestorPath.clear();
-      }
-      copyAllocatedNode(source, key);
-      if (fragment.advance()) {
-        fragments.add(fragment);
-      }
-    }
-  }
-
-  private PriorityQueue<FragmentCursor> createFragmentCursors(final List<JsonObject> placements, final LongSet roots,
-      final LongSet retainedKeys, final JsonNodeReadOnlyTrx source) {
-    final var fragments = new PriorityQueue<FragmentCursor>(Math.max(1, placements.size()),
-        Comparator.comparingLong(fragment -> fragment.key));
-    for (final var placement : placements) {
-      final long key = placement.getAsJsonObject(INSERT).get("nodeKey").getAsLong();
-      if (!retainedKeys.contains(key)) {
-        requireMove(source.moveTo(key), "fragment source", key);
-        final var cursor = new FragmentCursor(copyAxis(source, roots, key), roots, key);
-        if (cursor.advance()) {
-          fragments.add(cursor);
-        }
-      }
-    }
-    return fragments;
-  }
-
-  private void copyAllocatedNode(final JsonNodeReadOnlyTrx source, final long key) {
-    requireMove(source.moveTo(key), "allocation source", key);
-    final InsertPosition position;
-    if (!wtx.isDocumentRoot() && wtx.hasLastChild()) {
-      wtx.moveToLastChild();
-      position = InsertPosition.AS_RIGHT_SIBLING;
-    } else {
-      position = InsertPosition.AS_FIRST_CHILD;
-    }
-    // Deleted keys below the frontier can become live again after a revert. copyNodeWithKey
-    // rejects live collisions and preserves the frontier when importing such a key.
-    wtx.copyNodeWithKey(source, position);
-  }
-
-  private static boolean compatibleParent(final NodeKind kind, final NodeKind parentKind) {
-    return kind.playsObjectKeyRole()
-        ? parentKind == NodeKind.OBJECT || parentKind == NodeKind.OBJECT_NAMED_OBJECT
-        : parentKind == NodeKind.ARRAY || parentKind == NodeKind.OBJECT_NAMED_ARRAY
-            || parentKind == NodeKind.JSON_DOCUMENT;
-  }
-
-  private static final class FragmentCursor {
-    private final Axis axis;
-    private final LongSet roots;
-    private final long root;
-    private long key;
-
-    private FragmentCursor(final Axis axis, final LongSet roots, final long root) {
-      this.axis = axis;
-      this.roots = roots;
-      this.root = root;
-    }
-
-    private boolean advance() {
-      while (axis.hasNext()) {
-        key = axis.nextLong();
-        if (key == root || !roots.contains(key)) {
-          return true;
-        }
-      }
-      return false;
     }
   }
 
   private static void requireMove(final boolean moved, final String role, final long nodeKey) {
     if (!moved) {
-      throw new IllegalStateException("JSON revision copy cannot resolve " + role + " node " + nodeKey);
+      throw new IllegalStateException("Cannot resolve " + role + " node " + nodeKey);
     }
-  }
-
-  private static Axis copyAxis(final JsonNodeReadOnlyTrx source, final LongSet roots, final long root) {
-    return VisitorDescendantAxis.newBuilder(source).includeSelf().visitor(new JsonNodeVisitor() {
-      @Override
-      public VisitResult visit(final ImmutableArrayNode node) {
-        return node.getNodeKey() != root && roots.contains(node.getNodeKey())
-            ? VisitResultType.SKIPSUBTREE
-            : VisitResultType.CONTINUE;
-      }
-
-      @Override
-      public VisitResult visit(final ImmutableObjectNode node) {
-        return node.getNodeKey() != root && roots.contains(node.getNodeKey())
-            ? VisitResultType.SKIPSUBTREE
-            : VisitResultType.CONTINUE;
-      }
-
-      @Override
-      public VisitResult visit(final ObjectNamedArrayNode node) {
-        return node.getNodeKey() != root && roots.contains(node.getNodeKey())
-            ? VisitResultType.SKIPSUBTREE
-            : VisitResultType.CONTINUE;
-      }
-
-      @Override
-      public VisitResult visit(final ObjectNamedObjectNode node) {
-        return node.getNodeKey() != root && roots.contains(node.getNodeKey())
-            ? VisitResultType.SKIPSUBTREE
-            : VisitResultType.CONTINUE;
-      }
-    }).build();
   }
 
   private void insert() {
@@ -548,11 +249,7 @@ public final class JsonResourceCopy implements Callable<Void> {
       // OBJECT_NAMED_* records carry the value inline (primitive leaves) or own a real subtree
       // (structural). Children of OBJECT_NAMED_OBJECT are inner fields and MUST be inserted
       // normally — the previous skip-on-parent-OBJECT_KEY guard is no longer needed.
-      if (copyAllRevisionsUpToMostRecent) {
-        wtx.copyNodeWithKey(rtx, insertPosition);
-      } else {
-        processNode(wtx, rtx, insertPosition);
-      }
+      processNode(wtx, rtx, insertPosition);
       rtx.moveTo(key);
 
       isFirst = false;
