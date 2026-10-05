@@ -1,6 +1,5 @@
 package io.sirix.query.function.jn;
 
-import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;

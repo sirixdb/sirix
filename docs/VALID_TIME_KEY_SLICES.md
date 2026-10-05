@@ -136,7 +136,9 @@ Run the complete `:sirix-core:test :sirix-query:test` suites and the work-budget
 [VERIFICATION.md](VERIFICATION.md), with the same private Maven repository. On the shared laptop,
 every Gradle or Maven invocation runs under the captured memory-gated two-slot `heavy()` limiter.
 All runs, including the full suites, use two Gradle workers, a 512 MB initial/2 GiB maximum test
-heap and a 2 GiB maximum Gradle heap.
+heap and a 2 GiB maximum Gradle heap. The complete query suite also requires a worktree-local
+Gradle init script setting its test task's `forkEvery = 1` and `maxParallelForks = 1`, supplied
+with `-I` so every test class runs in a fresh worker within the same heap cap.
 
 The new budget decorates a real transaction. Before demand and during exact-key counting it permits
 zero candidate moves, timestamp reads, and object-constructor child-pointer reads. The first `next()`
@@ -252,7 +254,11 @@ These are cold-process measurements, not a forced OS-page-cache eviction. Also r
 twelve direct-call queries and byte-compare all twelve TSVs at both tiers. Timing results are recorded only after these checks pass.
 
 
-## Current verification (2026-10-05)
+## Retained verification (2026-10-05)
+
+This evidence predates the subsequent optimizer-generated UDF capability fix and removal of the
+five-argument public scan. It does not validate the final source; source-bound revalidation belongs
+to the Test phase.
 
 Source `46da5ab1f7d56a3bafe7aee6a3749528b99c6114` passed the complete core suite
 (**13,111 tests**, zero failures/errors, 77 skips) and the complete query suite
@@ -265,7 +271,7 @@ passed separately with zero skips and live counter diagnostics. Captures show ze
 timestamp reads for exact counts, one object on first demand, and zero interval/posting references
 for empty probes. The isolated UDF count/demand guard is enabled and passed. Both new regressions
 failed before the half-open change: end-equal records were included and the internal target could
-be called directly. The current test also executes the internal rewrite before confirming it
+be called directly. The internal-rewrite regression also executes the rewrite before confirming it
 remains absent from query-text function resolution.
 
 [Verification provenance](bench/validtime-slice/halfopen-verification.json) records the source and
@@ -273,25 +279,26 @@ runtime fingerprints, suite/budget counts, actual heap policy and oracle checks.
 [100k work-counter captures](bench/validtime-slice/halfopen-work-counters.txt) retain the printed
 measurements. Subsequent source fixes or rebases require refreshed source-bound validation.
 
-## Current timing observations (2026-10-05)
+## Retained timing observations (2026-10-05)
 
 The measured implementation is `46da5ab1f7d56a3bafe7aee6a3749528b99c6114`, including public
-half-open `jn:open-bitemporal`, direct SH1 calls and the preceding correctness fixes. Fresh stores
-used the unchanged loader's natural publication batching. All twelve TSVs matched the read-only
+half-open `jn:open-bitemporal`, direct SH1 calls and the preceding correctness fixes. These timings
+predate the later comparison-UDF and public-scan changes and are not measurements of the final source.
+Fresh stores used the unchanged loader's natural publication batching. All twelve TSVs matched the read-only
 oracles byte-for-byte at both t25k and t100k; each timing repetition checked its oracle too.
 The complete repetitions are retained in [halfopen-results.csv](bench/validtime-slice/halfopen-results.csv)
 and [halfopen-direct-results.csv](bench/validtime-slice/halfopen-direct-results.csv).
 
 The before runtime is frozen source `79c7ab99e769300dffd1ab51d8f65ec8b9501818`, using its original
-strict-end wrapper and a separately rebuilt compatible store. The current runtime uses direct
+strict-end wrapper and a separately rebuilt compatible store. The measured runtime uses direct
 public calls. Both ran on the shared laptop with the kit's 512 MB initial/2 GiB maximum heap,
 1 GiB direct-memory limit and FILE_CHANNEL storage. Warm medians discard the first of ten
 repetitions (three for Q6/Q11); cold medians use three fresh JVMs. Opening and canonicalization
 are outside total query latency, which is compile + full iteration + serialization.
 
-The current Brackit SHA-256 is `d72e8ea6fb8cb8730961049ca71f82da0e5d580e2189f5ec7b7e1560a1856a88`;
+The measured Brackit SHA-256 is `d72e8ea6fb8cb8730961049ca71f82da0e5d580e2189f5ec7b7e1560a1856a88`;
 the frozen before runtime uses `8164d45e0a3aab8926d92f59c9996daafbfa0dc9c550d0ddbd2a4ee6fc877ca7`.
-Base and dependency changes are included in these observations. In particular, current main's
+Base and dependency changes are included in these observations. In particular, the measured revision's
 hash membership implementation contributes most of Q12's improvement. These are measurements of
 two software states on a shared machine, rather than an isolated attribution of every gain to this
 slice change or a latency guarantee.
@@ -303,7 +310,7 @@ but does not meet the study's 15 ms estimate. Grouping and repeated slices remai
 
 Median total query latency (milliseconds):
 
-| Query | Before warm | Current warm | Before cold | Current cold |
+| Query | Before warm | Measured warm | Before cold | Measured cold |
 | --- | ---: | ---: | ---: | ---: |
 | Q4 | 1,161.2 | 387.0 | 6,280.6 | 4,122.7 |
 | Q6 | 13,449.6 | 4,418.4 | 30,737.2 | 22,330.0 |

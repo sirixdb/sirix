@@ -3,8 +3,8 @@
 `HashMembershipStage` handles single-equality semi/anti-joins in a `where` clause:
 
 ```xquery
-let $new := local:slice('contracts', $D, $V)
-for $a in local:slice('contracts', $A, $V)
+let $new := jn:open-bitemporal('bt', 'contracts', $D, $V)
+for $a in jn:open-bitemporal('bt', 'contracts', $A, $V)
 where empty(for $b in $new where $b.id eq $a.id return $b.id)
 return $a
 ```

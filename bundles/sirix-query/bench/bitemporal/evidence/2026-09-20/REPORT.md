@@ -36,8 +36,9 @@ per-query row counts and hashes are in `t25k-exactness.json`; the complete compa
 
 The Sirix query manifest asserted the persisted VALIDTIME definitions before execution and
 recorded every route in `t25k-sirix-routes.json`. Q4, Q6-Q9, Q11 and Q12 required the strict
-`valid < vt` residual because `jn:open-bitemporal` currently returns the valid-end boundary
-inclusively while SH1 intervals are half-open. Q1-Q3, Q5 and Q10 used explicit point/range
+`valid < vt` residual because the measured revision returned the valid-end boundary
+inclusively while SH1 intervals are half-open. Current serving routes are in the
+[benchmark README](../../README.md#queries-and-sirix-routes). Q1-Q3, Q5 and Q10 used explicit point/range
 predicates and did not require that residual.
 
 The original pre-repair T25k attempt failed at E11 in `HOTLeafPage.rebuildForShorterPrefix`; its

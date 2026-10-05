@@ -48,8 +48,8 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
         : point instanceof DateTime dateTime
             ? dateTime
             : null;
-    final DateTime value = captured instanceof DateTime dateTime
-        && (!(point instanceof Variable variable) || variable.getType() == null
+    final DateTime value =
+        captured instanceof DateTime dateTime && (!(point instanceof Variable variable) || variable.getType() == null
             || (variable.getType().getCardinality() != Cardinality.Zero
                 && variable.getType().getItemType().matches(dateTime)))
                     ? dateTime

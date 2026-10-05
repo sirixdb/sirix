@@ -12,7 +12,6 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
-import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
 import io.sirix.index.interval.IntervalDomain;

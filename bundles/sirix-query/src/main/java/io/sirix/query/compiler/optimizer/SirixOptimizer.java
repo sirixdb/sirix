@@ -410,8 +410,8 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-      // Valid-time FIRST: it consumes a FLWOR stabbing predicate into a jn:scan-valid-time-index
-      // call before the CAS path inspects FilterExprs. Each walker is narrowly scoped and leaves
+      // Valid-time FIRST: fold stabbing predicates before the CAS path inspects FilterExprs.
+      // Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
       ast = new JsonValidTimeStep(jsonItemStore).rewrite(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);

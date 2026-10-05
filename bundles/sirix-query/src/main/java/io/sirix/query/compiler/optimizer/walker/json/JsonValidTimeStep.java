@@ -190,7 +190,7 @@ public final class JsonValidTimeStep extends Walker {
     }
 
     // ---- All conditions met: rewrite. ----
-    // New loop source: jn:scan-valid-time-index(jn:doc(DB,RES), P).
+    // Mark the source for direct translation; fields and comparison modes stay internal.
     final AST scanCall = new AST(XQ.FunctionCall, SCAN_VALID_TIME_INDEX);
     scanCall.setProperty(ScanValidTimeIndex.DEFERRED_POINT, true);
     scanCall.addChild(docFn.copyTree());
@@ -333,8 +333,8 @@ public final class JsonValidTimeStep extends Walker {
    * <p>
    * Only the inclusive/half-open ordering operators that define interval containment are accepted:
    * LE/LT and GE/GT (value or general). EQ/NE and anything else fail the match. Strictness is
-   * preserved for both rewrites. The plain-FLWOR overload runs the original comparisons when its
-   * revision cannot prove complete, exact, ordered array coverage.
+   * preserved for both rewrites. The internal plain-FLWOR helper runs the original comparisons when
+   * its revision cannot prove complete, exact, ordered array coverage.
    * </p>
    */
   private static @Nullable Bound decodeBound(final AST cmp, final Object loopVar) {

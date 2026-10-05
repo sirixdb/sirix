@@ -36,10 +36,10 @@ import java.time.Instant;
 import java.util.function.Supplier;
 
 /**
- * Internal scan function over a valid-time (bitemporal) interval index. Given a document and a
- * valid time instant, returns every record OBJECT whose {@code [validFrom, validTo]} interval
- * contains the instant — the index-scan analog of {@code jn:scan-cas-index-range}, and the rewrite
- * target the optimizer ({@code JsonValidTimeStep}) emits for a plain FLWOR stabbing predicate.
+ * Public closed scan over a valid-time interval index, with an internal optimizer comparison
+ * helper. Given a document and a valid time instant, returns every record OBJECT whose
+ * {@code [validFrom, validTo]} interval contains the instant — the index-scan analog of
+ * {@code jn:scan-cas-index-range}.
  *
  * <ul>
  * <li><code>jn:scan-valid-time-index($doc as json-item(), $validTime as xs:dateTime) as json-item()*</code></li>
@@ -48,10 +48,10 @@ import java.util.function.Supplier;
  * <p>
  * Backs onto {@link ValidTimeIntervalIndex}: exact millisecond intervals yield sorted keys without
  * reading timestamp fields; exceptional intervals retain exact verification. Objects are
- * constructed on demand. The optimizer's internal comparison helper preserves strictness and original
- * field casts. If no VALIDTIME index exists on the resource (e.g. the function is called directly
- * rather than via the optimizer), it transparently falls back to the exact linear scan so results
- * are always correct.
+ * constructed on demand. The optimizer's internal comparison helper preserves strictness and
+ * original field casts. If no VALIDTIME index exists on the resource (e.g. the function is called
+ * directly rather than via the optimizer), it transparently falls back to the exact linear scan so
+ * results are always correct.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -69,9 +69,11 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   public ScanValidTimeIndex() {
-    super(SCAN_VALID_TIME_INDEX, new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
-        new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.One),
-        new SequenceType(AtomicType.DATI, Cardinality.One)), true);
+    super(SCAN_VALID_TIME_INDEX,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
+            new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.One)),
+        true);
   }
 
   @Override
