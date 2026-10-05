@@ -4,6 +4,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.axis.AbstractAxis;
 import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
 import io.sirix.axis.ChildAxis;
@@ -39,7 +40,6 @@ import io.sirix.query.function.jn.temporal.OpenBitemporal;
 import io.brackit.query.function.FunctionExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
-import io.sirix.service.xml.xpath.expr.UnionAxis;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -527,8 +527,8 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   /**
-   * Worker-local path-summary matches. Compiled accessors are shared by parallel FLWOR execution,
-   * so document identity, cache lookup and publication must stay in the same worker.
+   * Worker-local path-summary matches. Compiled accessors are shared by parallel FLWOR execution, so
+   * document identity, cache lookup and publication must stay in the same worker.
    */
   private static final class PathSummaryMatches {
     private final Long2ObjectMap<BitSet> matchesByPath = new Long2ObjectOpenHashMap<>();
@@ -728,7 +728,7 @@ public class SirixTranslator extends TopDownTranslator {
             }
           }
           // Matches on same level.
-          final Deque<io.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
+          final Deque<AbstractAxis> axisQueue = new ArrayDeque<>(matches.cardinality());
           if (onSameLevel) {
             for (int j = level, nodeLevel = getLevel(dbNode); j > nodeLevel; j--) {
               // Build a set and turn it into a list for sorting.
@@ -755,7 +755,7 @@ public class SirixTranslator extends TopDownTranslator {
                   : new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx)));
             }
 
-            io.sirix.api.Axis axis = axisQueue.pop();
+            AbstractAxis axis = axisQueue.pop();
             for (int k = 0, size = axisQueue.size(); k < size; k++) {
               axis = new NestedAxis(axis, axisQueue.pop());
             }
@@ -763,7 +763,6 @@ public class SirixTranslator extends TopDownTranslator {
             return new SirixNodeStream(axis, dbNode.getCollection());
           } else {
             // Matches on different levels.
-            // TODO: Use ConcurrentUnionAxis.
             level = getLevel(dbNode);
             for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
               reader.moveTo(i);
@@ -787,13 +786,11 @@ public class SirixTranslator extends TopDownTranslator {
                 axisQueue.addLast(buildQuery(rtx, names));
               }
             }
-            var axis = axisQueue.removeFirst();
-            final int size = axisQueue.size();
-            for (i = 0; i < size; i++) {
-              axis = new UnionAxis(rtx, axis, axisQueue.removeFirst());
+            while (axisQueue.size() > 1) {
+              axisQueue.addLast(new OrderedUnionAxis(rtx, axisQueue.removeFirst(), axisQueue.removeFirst()));
             }
             reader.close();
-            return new SirixNodeStream(axis, dbNode.getCollection());
+            return new SirixNodeStream(axisQueue.removeFirst(), dbNode.getCollection());
           }
         } catch (final SirixException e) {
           throw new QueryException(new QNm(e.getMessage()), e);
@@ -814,8 +811,8 @@ public class SirixTranslator extends TopDownTranslator {
     }
 
     // Build the query.
-    private static io.sirix.api.Axis buildQuery(final XmlNodeReadOnlyTrx rtx, final Deque<QNm> names) {
-      io.sirix.api.Axis axis =
+    private static AbstractAxis buildQuery(final XmlNodeReadOnlyTrx rtx, final Deque<QNm> names) {
+      AbstractAxis axis =
           new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx), new XmlNameFilter(rtx, names.pop()));
       for (int i = 0, size = names.size(); i < size; i++) {
         axis = new NestedAxis(axis,
@@ -850,8 +847,7 @@ public class SirixTranslator extends TopDownTranslator {
     }
   }
 
-  private static io.sirix.api.Axis getAxis(final NodeType test, final XmlNodeReadOnlyTrx trx,
-      final io.sirix.api.Axis innerAxis) {
+  private static AbstractAxis getAxis(final NodeType test, final XmlNodeReadOnlyTrx trx, final AbstractAxis innerAxis) {
     final FilterAxis<XmlNodeReadOnlyTrx> axis;
 
     switch (test.getNodeKind()) {
