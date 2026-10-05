@@ -97,6 +97,9 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -111,10 +114,13 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import io.sirix.service.json.replay.JsonIdentityDelta;
 import io.sirix.service.json.replay.JsonReplayPaths;
 import io.sirix.service.json.replay.JsonReplayHistory;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.interval.json.JsonValidTimeIndexListener;
 import io.sirix.service.json.replay.JsonReplayGraphValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
@@ -4559,11 +4565,36 @@ final class JsonNodeTrxImpl extends
         || getMaxNodeKey() != manifest.baseFrontier()) {
       throw new IllegalArgumentException("Identity replay does not name the destination's exact base epoch");
     }
+    final Set<IndexDef> initialDefinitions = manifest.baseRevision() == 0
+        ? Set.copyOf(indexController.getIndexes().getIndexDefs())
+        : Set.of();
     beginCompoundOperation();
     try {
       checkAccessAndCommit();
+      if (!initialDefinitions.isEmpty()) {
+        // Preflight guarantees a fresh, clean document epoch. The only uncommitted state belongs
+        // to these declarations. Abort their exact load owners and retire their fresh trees;
+        // completed-tree builds must still pass the ordinary virgin-tree guard.
+        rollback();
+      }
+      final boolean indexedTransition =
+          manifest.baseRevision() != 0 && (indexController.hasProjectionIndex() || indexController.hasValidTimeIndex())
+              && (!delta.puts().isEmpty() || !delta.deletes().isEmpty());
+      if (indexedTransition) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          if (listener instanceof final ProjectionIndexChangeListener projection) {
+            projection.beginIdentityImport(delta);
+          } else if (listener instanceof final JsonValidTimeIndexListener validTime) {
+            validTime.beginIdentityImport(delta);
+          }
+        }
+      }
+      final LongSet additionalIndexKeys = replayAdditionalIndexKeys(delta);
       // Direct record import cannot truthfully emit a public mutation sidecar. Cache miss is safe.
       suppressUpdateDiffs = true;
+      for (final long key : additionalIndexKeys) {
+        replayNotifyIndex(key, IndexController.ChangeType.DELETE);
+      }
       for (final long key : delta.deletes()) {
         replayRemoveDerivedState(key);
       }
@@ -4604,6 +4635,21 @@ final class JsonNodeTrxImpl extends
       for (final long key : delta.puts().keySet()) {
         replayNotifyIndex(key, IndexController.ChangeType.INSERT);
       }
+      for (final long key : additionalIndexKeys) {
+        replayNotifyIndex(key, IndexController.ChangeType.INSERT);
+      }
+      if (indexedTransition) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          if (listener instanceof final ProjectionIndexChangeListener projection) {
+            projection.completeIdentityImport();
+          } else if (listener instanceof final JsonValidTimeIndexListener validTime) {
+            validTime.completeIdentityImport();
+          }
+        }
+      }
+      if (!initialDefinitions.isEmpty()) {
+        ((JsonIndexController) indexController).completeInitialIdentityImport(initialDefinitions, this);
+      }
       moveToDocumentRoot();
       replayCheckpoint("derived-state-finalized");
       replayCheckpoint("before-publish");
@@ -4616,6 +4662,9 @@ final class JsonNodeTrxImpl extends
       if (resourceSession.getMostRecentRevisionNumber() < manifest.destinationRevision()) {
         try {
           rollback();
+          if (!initialDefinitions.isEmpty()) {
+            ((JsonIndexController) indexController).restoreInitialIdentityDeclarations(initialDefinitions, this);
+          }
         } catch (final RuntimeException | Error cleanupFailure) {
           if (cleanupFailure != failure) {
             try {
@@ -4630,6 +4679,57 @@ final class JsonNodeTrxImpl extends
     } finally {
       endCompoundOperation();
     }
+  }
+
+  /**
+   * A renamed path class can keep its PCR while changing a filtered index's membership. Such a
+   * descendant need not have a document PUT. Bracket its index entry using the old/final namespace
+   * without rewriting its unchanged identity or its name reference count.
+   */
+  private LongSet replayAdditionalIndexKeys(final JsonIdentityDelta delta) {
+    boolean filtered = false;
+    for (final IndexDef definition : indexController.getIndexes().getIndexDefs()) {
+      if ((definition.isPathIndex() || definition.isCasIndex()) && !definition.getPaths().isEmpty()) {
+        filtered = true;
+        break;
+      }
+    }
+    if (!filtered) {
+      return LongSets.emptySet();
+    }
+    final LongSet additional = new LongOpenHashSet();
+    final LongSet visited = new LongOpenHashSet();
+    for (final var target : delta.puts().values()) {
+      final long root = target.key();
+      if (!moveTo(root) || visited.contains(root)) {
+        continue;
+      }
+      final String oldName = getKind().playsObjectKeyRole()
+          ? getName().getLocalName()
+          : null;
+      if (getParentKey() == target.parent() && getKind() == target.kind() && Objects.equals(oldName, target.name())) {
+        continue;
+      }
+      for (;;) {
+        final long key = getNodeKey();
+        if (visited.add(key)) {
+          if (!delta.puts().containsKey(key) && !delta.deletes().contains(key)) {
+            additional.add(key);
+          }
+          if (moveToFirstChild()) {
+            continue;
+          }
+        }
+        while (getNodeKey() != root && !hasRightSibling()) {
+          moveToParent();
+        }
+        if (getNodeKey() == root) {
+          break;
+        }
+        moveToRightSibling();
+      }
+    }
+    return additional;
   }
 
   private void replayRemoveDerivedState(final long key) {

@@ -4,30 +4,38 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 18:07 Berlin, resumed)
+## Current checkpoint (2026-10-05 20:44 Berlin)
 
-Clean branch checkpoint a365648eb restored; isolation and no-mistakes doctor verified.
-The inbox is empty. Firstmate authorized the projection epoch import seam in the
-relaunch brief. Gates 1–5 remain implemented in shadow; gate 6 resumes now. Keep the
-projection-identity-import key open until its projection oracle passes.
+Resumed from a365648eb; isolation, assigned branch and no-mistakes doctor verified.
+Inbox 005 acknowledged: stop 2026-10-06 04:00 Berlin, validation cutoff 03:40.
+CAS builder defect reproduced on plain origin/main 71be74062 (4/4 failures), then
+fixed independently in f6688ece7: 129/129 selected tests and formatting pass.
 
-First reproduce the ordinary-array CAS complete-tree builder discrepancy on plain
-main in this same isolated worktree, retaining the test/log under build/replay, then
-return to the assigned branch and land a separate source fix if reproduced. No second
-worktree or checkout directory will be created. The existing private Maven repository
-build/replay/m2 (initially empty at task setup) and memory-gated run.sh remain in use.
+Gates 1–6 are implemented and validated in shadow. The projection identity-epoch seam
+passes 375/375 focused cases and all 144 generated configurations with independent
+NAME/PATH/CAS/projection queries, full identity graphs and path summaries after cold
+reopen. Valid-time, sorted rows, filtered memberships, multi-batch permutations, empty
+bootstrap/restoration and all four initial/later rollback checkpoints pass. The 51
+selected existing core/projection work-budget cases and formatting checks also pass.
 
-Projection import will explicitly collect an epoch's old/final affected record roots,
-remove old ordered memberships before changing document links, and install final
-memberships in document order through bounded incremental maintenance. Initial
-load declarations retain logical config and retire only their own uncommitted physical
-state; completed-tree build is allowed only on a genuinely virgin tree. Preserve
-requireVirginTreeForInitialBuild. Initial and later failure rollback/retry are mandatory.
+Evidence: projection-epoch-5.log/results (375); generated-index-1.log/results (two smoke
+configurations plus 51 budgets); generated-index-2.log/results (144 configurations,
+five minutes). No failures/errors/skips. The projection-identity-import key is resolved.
+Gate 6 is ready for its own commit. No validation job remains active at this checkpoint.
+Next: gate 7 bounded transition validation, incremental path-summary import/cache repair
+and replay work counters/budgets. Production JsonResourceCopy still uses the old path.
+
+Initial imports retire only the fresh declaration epoch, preserve all logical definitions
+across failure, and build once on a virgin tree. Later imports capture old/final membership
+and final order, use bounded incremental row edits and reconcile valid-time intervals.
+Filtered PATH/CAS entries of unchanged descendants are bracketed when their containing
+path is renamed or reparented. requireVirginTreeForInitialBuild remains unchanged.
 
 Production JsonResourceCopy is still unchanged. Gate 7 bounded graph/path work and new
 budgets, gate 8 full suites, prerequisite tombstone rebase, latency acceptance and final
-routing remain pending. No benchmark campaign will start after the brief's 05:00 Berlin
-cutoff. No push, pipeline run or completion handoff yet.
+routing remain pending. Upstream checked: the prerequisite is not on main yet. The
+private Maven repository build/replay/m2 and memory-gated runner remain in use.
+No new benchmark campaign after the applicable cutoff. No push, pipeline or done handoff.
 
 ## Contract and concrete implementation
 
@@ -75,7 +83,7 @@ cutoff. No push, pipeline run or completion handoff yet.
 5. [done: fixed seeds, shrinking and sidecar independence] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
-6. [in progress: authorized projection identity-epoch seam] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
+6. [done: complete derived-index identity epochs and independent queried oracles] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
    links, counts, frontier, revision metadata, hashes, stored Dewey IDs, queried indexes
    and path summaries. Include equal-value swaps, later parents, deleted-key restore,
    sparse reservations, replacement survivors and empty/no-op revisions.
@@ -408,3 +416,98 @@ that cannot finish before 03:40, preserve work and retire own jobs by 03:55.
 CAS fix validation: 129/129 invocations pass (cas-fixed-1.log and cas-fixed-1-results/),
 including eight new versioned regressions, existing CAS suites and all 109 import cases.
 Spotless Java apply passes; no work bound changed. The source fix is committed independently.
+
+## Projection epoch seam implementation (2026-10-05 18:17 Berlin)
+
+JsonIndexController.completeInitialIdentityImport builds only after the final graph/path
+namespace exists. A preflight-proven fresh document epoch retires its uncommitted index
+declarations by rollback; definitions are captured locally, and failure restores both
+primitive declarations and owned projection load-start declarations in the new empty
+writer. No committed tree is reset and requireVirginTreeForInitialBuild is unchanged.
+
+ProjectionIndexChangeListener.beginIdentityImport captures explicit old affected record
+memberships and structural keys whose parent/sibling/path changed. Completion collects
+final memberships, removes old memberships in batches of at most 256, invalidates only
+changed local labels, mints final labels and installs the rows in document order through
+the existing incremental row-group editor. Ordinary PUT notifications do not enter
+the append-only loader. Relocated containing subtrees discover their projected roots;
+unchanged prefixes are not enumerated merely because an ancestor count/hash changed.
+
+First validation queued through heavy(): projection-epoch-1.log (derived-index, import,
+history and epoch oracles). Must pass before closing projection-identity-import.
+Additional multi-batch and changed-container coverage is planned before gate 7.
+
+Projection epoch run 1: 315/327 pass. All 12 failures are copied valid-time intervals
+with Dewey IDs enabled; the source's independently queried indexes pass. Every
+projection assertion reached passes. These failures reveal the valid-time listener's
+ordinary contiguous-event assumption when replay PUT/DELETE keys arrive unordered.
+Evidence retained in projection-epoch-1.log and projection-epoch-1-results/.
+
+JsonValidTimeIndexListener now captures complete old intervals for changed old/final
+objects before staging, suppresses primitive events during the epoch, and reconciles
+exact final intervals once per affected object. The second run also includes a
+360-row two-container permutation, deletion and restoration across maintenance batch
+boundaries, full and suffix snapshots, all 24 configurations. It is queued under
+projection-epoch-2.log; the prior 303 import/history/epoch cases remain in the selection.
+
+Extended JsonIdentityGraphGeneratedTest with JsonIdentityIndexOracle: every generated
+copy declares NAME/PATH/CAS/projection indexes; each cold revision compares all queried
+memberships, value postings, ordered projected identities, field presence, scalar values
+and representation proofs against independent source document walks. The streams and
+seeds are unchanged. This added oracle is not in run 2 and still requires validation.
+
+While run 2 remains queued for the shared limiter, strengthened its nested-container
+fixture to include removal and re-entry of a whole record set by renaming its array
+field, including the last instance of a path class (seven source revisions). Identity
+epoch capture treats logical name changes as changed subtree membership even when a
+path class is renamed in place and keeps its numeric PCR. The fixture also declares
+a sorted covering view and independently checks its persisted keys/values after cold
+reopen through ProjectionIdentityEpochOracle. No virgin-tree guard is changed.
+
+Filtered PATH/CAS membership also depends on path names, even for descendants whose
+document record stays identical. The importer now brackets additional unchanged
+descendant index entries under renamed/reparented nodes, with a visited set to skip
+overlapping subtrees. This runs only when a filtered PATH/CAS definition exists; it
+does not stage those records or alter their name counts. The nested-container test
+also queries all postings of filtered indexes, so stale entries cannot hide behind
+a query filter after the selected array is renamed away. Still awaiting run 2.
+
+
+## Gate 7 review notes while the gate 6 validation queues
+
+The paired document/history walkers already skip identical durable regions. Per-epoch
+full scans still exist in JsonReplayGraphValidator.validate, JsonReplayPaths.rebuild,
+and PathSummaryReader.reloadAfterImport. Count cache reconstruction as real replay
+work; merely changing path-record persistence would leave a hidden whole-namespace scan.
+The index listeners' pathSummaryImported invalidation may also reseed matching PCRs.
+Maintain independent full source/target snapshot validation in tests while bounding the
+production import path. JsonIdentityDelta has a package-private constructor and only
+committed authoritative readers create it; preserve that trust boundary if validation
+uses induction from the exact base epoch. Do not claim reciprocal link checks alone
+prove sibling reachability or acyclicity. No gate 7 implementation or acceptance yet.
+
+
+Gate 6 oracle refinement during the run-3 limiter wait: generated copies now query
+PATH and CAS postings per source path as well as globally, and numeric-column safety
+checks respect the persisted format's sticky conservative flags. A new 24-configuration
+empty-document fixture bootstraps declarations before any record set exists, creates
+and removes the whole document, then restores its identities from history. The focused
+run includes that fixture; generated fixed-seed operation streams are unchanged.
+
+
+Gate 6 run 3: 375 invocations, 351 pass and 24 multi-batch permutation cases fail.
+Valid-time reconciliation, all four initial/later failure checkpoints, prior graph/epoch/
+history tests and the 24 empty-document bootstrap/restoration configurations pass.
+The multi-batch removal phase re-extracted retained rows from the final document,
+where a not-yet-drained row may already be deleted. It now holds a committed base reader
+and base path summary only while draining old membership batches. Final row installation
+still uses final document state, and metadata keeps the writer epoch. Run-3 XML retained
+in build/replay/projection-epoch-3-results. This correction awaits its own rerun.
+
+
+Gate 6 accepted (2026-10-05 20:44 Berlin): 375 focused cases, 144 full generated
+configurations, 51 existing core/projection work budgets and formatting are green.
+The source CAS visitor repair remains the independent f6688ece7 commit. The new epoch
+seam does not weaken requireVirginTreeForInitialBuild, use an unordered append loader,
+or model an epoch as one subtree move. Old/final membership edits are bounded batches;
+retained old rows use the committed base until removal completes. Gate 7 follows.

@@ -176,6 +176,7 @@ final class JsonIdentityGraphGeneratedTest {
         throw failure;
       }
     }
+    JsonIdentityIndexOracle.clearCaches();
     Databases.clearGlobalCaches();
     // All three sidecar states read the same authoritative immutable history. The second fixed
     // seed builds its history with diffs disabled, so that contract is tested independently too.
@@ -187,6 +188,7 @@ final class JsonIdentityGraphGeneratedTest {
           final var target = targetDb.beginResourceSession("resource");
           final var writer = target.beginNodeTrx(config.threshold(), config.mode())) {
         alterSidecars(source, sidecars);
+        JsonIdentityIndexOracle.declare(writer);
         for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
           try (final var reader = source.beginNodeReadOnlyTrx(revision)) {
             assertGraph(reader, config.hash());
@@ -208,6 +210,7 @@ final class JsonIdentityGraphGeneratedTest {
           }
         }
       }
+      JsonIdentityIndexOracle.clearCaches();
       Databases.clearGlobalCaches();
       try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
           final var targetDb = Databases.openJsonDatabase(targetPath);
@@ -218,6 +221,7 @@ final class JsonIdentityGraphGeneratedTest {
           try (final var original = source.beginNodeReadOnlyTrx(revision);
               final var copied = target.beginNodeReadOnlyTrx(revision)) {
             assertSnapshot(original, copied, 0);
+            JsonIdentityIndexOracle.assertIndexes(original, copied);
             assertGraph(copied, config.hash());
             JsonReplayGraphValidator.validate(copied);
           }
