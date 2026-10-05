@@ -4,27 +4,30 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 03:29 Berlin)
+## Current checkpoint (2026-10-05 18:07 Berlin, resumed)
 
-Gates 1–5 are implemented in the private shadow path. Source structural/hash repair is
-90d4fdd87; sparse trie growth is 0067f38b3; writer-epoch/page-guard source follow-ups are
-57a97a90a. Gate 4 passed 279/279 (3e69ccd77). Gate 5 passed the complete generated matrix
-144/144 plus 33 core work-budget invocations (4c0f97a83).
+Clean branch checkpoint a365648eb restored; isolation and no-mistakes doctor verified.
+The inbox is empty. Firstmate authorized the projection epoch import seam in the
+relaunch brief. Gates 1–5 remain implemented in shadow; gate 6 resumes now. Keep the
+projection-identity-import key open until its projection oracle passes.
 
-Gate 6 is BLOCKED on projection identity-epoch integration after repeated attempts, per
-worker rule 5. Exact findings and reproducible saved test/patch:
-`build/replay/projection-identity-findings.md` and `build/replay/repro/`.
-The tested history-only change is retained: 24 node-history cases plus 279 existing
-import/epoch cases passed in derived-1.log. Later experimental projection changes were
-saved and removed from the live tree after derived-6.log reported 327 tests / 28 failures.
-No test/oracle/work bound was weakened. No own job remains running.
+First reproduce the ordinary-array CAS complete-tree builder discrepancy on plain
+main in this same isolated worktree, retaining the test/log under build/replay, then
+return to the assigned branch and land a separate source fix if reproduced. No second
+worktree or checkout directory will be created. The existing private Maven repository
+build/replay/m2 (initially empty at task setup) and memory-gated run.sh remain in use.
 
-JsonResourceCopy remains unchanged. The prerequisite native tombstone/legacy allocator
-fix has not appeared in the local origin/main ref or inbox; do not duplicate it and
-rebase when it lands. Production routing, bounded import work, full final suites and
-latency acceptance remain pending. No push, PR, no-mistakes run or done handoff.
-Await firstmate resolution of key `projection-identity-import` before resuming. The
-03:40 validation cutoff and 03:40–03:55 save/park window also remain in force.
+Projection import will explicitly collect an epoch's old/final affected record roots,
+remove old ordered memberships before changing document links, and install final
+memberships in document order through bounded incremental maintenance. Initial
+load declarations retain logical config and retire only their own uncommitted physical
+state; completed-tree build is allowed only on a genuinely virgin tree. Preserve
+requireVirginTreeForInitialBuild. Initial and later failure rollback/retry are mandatory.
+
+Production JsonResourceCopy is still unchanged. Gate 7 bounded graph/path work and new
+budgets, gate 8 full suites, prerequisite tombstone rebase, latency acceptance and final
+routing remain pending. No benchmark campaign will start after the brief's 05:00 Berlin
+cutoff. No push, pipeline run or completion handoff yet.
 
 ## Contract and concrete implementation
 
@@ -72,7 +75,7 @@ Await firstmate resolution of key `projection-identity-import` before resuming. 
 5. [done: fixed seeds, shrinking and sidecar independence] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
-6. [blocked: projection identity-epoch seam] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
+6. [in progress: authorized projection identity-epoch seam] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
    links, counts, frontier, revision metadata, hashes, stored Dewey IDs, queried indexes
    and path summaries. Include equal-value swaps, later parents, deleted-key restore,
    sparse reservations, replacement survivors and empty/no-op revisions.
