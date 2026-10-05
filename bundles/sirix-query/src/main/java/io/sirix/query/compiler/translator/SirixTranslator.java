@@ -586,7 +586,7 @@ public class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final PathSummaryMatches filterMap;
+    private final ThreadLocal<PathSummaryMatches> filterMap;
 
     /**
      * Constructor.
@@ -595,7 +595,7 @@ public class SirixTranslator extends TopDownTranslator {
      */
     private Child(final Axis axis) {
       super(axis);
-      filterMap = new PathSummaryMatches(IncludeSelf.NO);
+      filterMap = ThreadLocal.withInitial(() -> new PathSummaryMatches(IncludeSelf.NO));
     }
 
     @Override
@@ -610,7 +610,7 @@ public class SirixTranslator extends TopDownTranslator {
           && rtx.getChildCount() > CHILD_THRESHOLD) {
         try {
           final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
-          final BitSet matches = filterMap.match(rtx, reader, test.getQName());
+          final BitSet matches = filterMap.get().match(rtx, reader, test.getQName());
           // No matches.
           if (matches.cardinality() == 0) {
             reader.close();
@@ -647,7 +647,7 @@ public class SirixTranslator extends TopDownTranslator {
     /**
      * Map with PCR <=> matching nodes.
      */
-    private final PathSummaryMatches filterMap;
+    private final ThreadLocal<PathSummaryMatches> filterMap;
 
     /**
      * Constructor.
@@ -659,7 +659,7 @@ public class SirixTranslator extends TopDownTranslator {
       self = axis == Axis.DESCENDANT_OR_SELF
           ? IncludeSelf.YES
           : IncludeSelf.NO;
-      filterMap = new PathSummaryMatches(self);
+      filterMap = ThreadLocal.withInitial(() -> new PathSummaryMatches(self));
     }
 
     @SuppressWarnings("ConstantConditions")
@@ -675,7 +675,7 @@ public class SirixTranslator extends TopDownTranslator {
           && rtx.getDescendantCount() > DESCENDANT_THRESHOLD) {
         try {
           final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
-          final BitSet matches = filterMap.match(rtx, reader, test.getQName());
+          final BitSet matches = filterMap.get().match(rtx, reader, test.getQName());
           final boolean matchingSelf = self == IncludeSelf.YES && rtx.isElement()
               && matches.get((int) rtx.getPathNodeKey()) && test.getQName().equals(rtx.getName());
           // No matches.
