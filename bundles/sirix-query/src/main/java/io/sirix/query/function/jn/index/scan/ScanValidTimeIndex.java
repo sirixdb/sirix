@@ -5,7 +5,6 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.atomic.Int32;
-import io.brackit.query.atomic.Str;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.function.AbstractFunction;
@@ -15,7 +14,6 @@ import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.type.AnyJsonItemType;
-import io.brackit.query.jdm.type.AnyItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
@@ -50,7 +48,7 @@ import java.util.function.Supplier;
  * <p>
  * Backs onto {@link ValidTimeIntervalIndex}: exact millisecond intervals yield sorted keys without
  * reading timestamp fields; exceptional intervals retain exact verification. Objects are
- * constructed on demand. The optimizer's five-argument overload preserves strictness and original
+ * constructed on demand. The optimizer's internal comparison helper preserves strictness and original
  * field casts. If no VALIDTIME index exists on the resource (e.g. the function is called directly
  * rather than via the optimizer), it transparently falls back to the exact linear scan so results
  * are always correct.
@@ -71,37 +69,18 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   public ScanValidTimeIndex() {
-    this(new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
+    super(SCAN_VALID_TIME_INDEX, new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
         new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.One),
-        new SequenceType(AtomicType.DATI, Cardinality.One)));
-  }
-
-  private ScanValidTimeIndex(final Signature signature) {
-    super(SCAN_VALID_TIME_INDEX, signature, true);
-  }
-
-  /** Internal overload retaining the exact lower/upper comparison modes and fallback field names. */
-  public static ScanValidTimeIndex forComparisons() {
-    return new ScanValidTimeIndex(new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
-        new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.One),
-        new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany), new SequenceType(AtomicType.STR, Cardinality.One),
-        new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INR, Cardinality.One)));
+        new SequenceType(AtomicType.DATI, Cardinality.One)), true);
   }
 
   @Override
   public Sequence execute(final @Nullable StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 2 && args.length != 5) {
-      throw new QueryException(new QNm("Expected 2 or 5 arguments for a valid-time index scan"));
+    if (args.length != 2) {
+      throw new QueryException(new QNm("Expected 2 arguments for a valid-time index scan"));
     }
 
     final JsonDBItem document = (JsonDBItem) args[0];
-
-    if (args.length == 5) {
-      final String from = ((Str) args[2]).stringValue();
-      final String to = ((Str) args[3]).stringValue();
-      final int mode = ((IntNumeric) args[4]).intValue();
-      return comparisonScan(sctx, ctx, document, () -> args[1], from, to, mode, !(args[1] instanceof DateTime));
-    }
 
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
@@ -125,36 +104,47 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   }
 
   public static Sequence comparisonScan(final @Nullable StaticContext sctx, final QueryContext ctx,
-      final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
-      final int mode) {
-    return comparisonScan(sctx, ctx, document, point, from, to, mode, true);
-  }
-
-  private static Sequence comparisonScan(final @Nullable StaticContext sctx, final QueryContext ctx,
-      final @Nullable JsonDBItem document, final Supplier<Sequence> point, final String from, final String to,
-      final int mode, final boolean deferPoint) {
+      final @Nullable JsonDBItem document, final Supplier<Sequence> point, final @Nullable DateTime capturedPoint,
+      final String from, final String to, final int mode) {
     if (mode < 0 || mode > 127) {
       throw new QueryException(new QNm("Invalid valid-time comparison mode"));
     }
     if (!(document instanceof Array) || ((Array) ValidTimeFilter.currentDocument(document)).len() == 0) {
       return new ItemSequence();
     }
-    final var sequence = new AbstractSequence() {
-      private @Nullable Sequence selected;
+    return new AbstractSequence() {
+      private @Nullable Sequence selected = capturedPoint == null
+          ? null
+          : indexed(() -> capturedPoint);
+
+      private @Nullable Sequence indexed(final Supplier<Sequence> value) {
+        final ValidTimeConfig config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
+        return config != null && from.equals(config.getNormalizedValidFromPath())
+            && to.equals(config.getNormalizedValidToPath())
+                ? ValidTimeIntervalIndex.comparisonSequence(document, value, config, (mode & 1) != 0, (mode & 2) != 0)
+                : null;
+      }
 
       private Sequence selected() {
         if (selected == null) {
-          final ValidTimeConfig config = document.getResourceSession().getResourceConfig().getValidTimeConfig();
-          if (config != null && from.equals(config.getNormalizedValidFromPath())
-              && to.equals(config.getNormalizedValidToPath())) {
-            selected =
-                ValidTimeIntervalIndex.comparisonSequence(document, point, config, (mode & 1) != 0, (mode & 2) != 0);
-          }
+          selected = indexed(point);
           if (selected == null) {
             selected = ValidTimeFilter.comparisonScanSequence(document, point, from, to, mode, sctx, ctx);
           }
         }
         return selected;
+      }
+
+      @Override
+      public boolean isRepeatable() {
+        return selected != null && selected.isRepeatable();
+      }
+
+      @Override
+      public @Nullable IntNumeric knownSize() {
+        return selected == null
+            ? null
+            : selected.knownSize();
       }
 
       @Override
@@ -201,9 +191,5 @@ public final class ScanValidTimeIndex extends AbstractFunction {
         };
       }
     };
-    // A captured DateTime is already evaluated; expose the selected producer's UDF capabilities.
-    return deferPoint
-        ? sequence
-        : sequence.selected();
   }
 }

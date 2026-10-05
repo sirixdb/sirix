@@ -252,7 +252,6 @@ public final class JNFun {
     Functions.predefine(new ScanCASIndexRange());
     Functions.predefine(new ScanNameIndex());
     Functions.predefine(new ScanValidTimeIndex());
-    Functions.predefine(ScanValidTimeIndex.forComparisons());
 
     // diff
     Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,

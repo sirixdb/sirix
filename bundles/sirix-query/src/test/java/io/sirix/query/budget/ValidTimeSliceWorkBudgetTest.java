@@ -996,49 +996,80 @@ final class ValidTimeSliceWorkBudgetTest {
         if (!includeUserFunction) {
           return;
         }
-        final String declaration = """
+        final String[] declarations = new String[130];
+        declarations[0] = """
             declare function local:slice($p as xs:dateTime) {
               for $x in jn:open-bitemporal('budget','rows',xs:dateTime('2099-01-01T00:00:00Z'),$p)
               where $p lt xs:dateTime($x.vt) return $x
             };
             """;
+        declarations[1] = "declare function local:slice($p as xs:dateTime) { " + plainSlice + " }; ";
+        for (int mode = 0; mode < 128; mode++) {
+          final String from = comparison("vf", true, (mode & 1) != 0, (mode & 8) != 0, (mode & 32) != 0);
+          final String to = comparison("vt", false, (mode & 2) != 0, (mode & 16) != 0, (mode & 64) != 0);
+          final String predicate = (mode & 4) == 0
+              ? from + " and " + to
+              : to + " and " + from;
+          declarations[mode + 2] = "declare function local:slice($p as xs:dateTime) { "
+              + "for $x in jn:doc('budget','rows')[] where " + predicate + " return $x }; ";
+        }
         final String call = "local:slice(xs:dateTime('2024-01-01T00:00:00Z'))";
-        clearInvocations(cursor);
-        assertEquals(count, ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(
-            observedContext)).intValue());
-        verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
-        final String indexWrapped = """
-            declare function local:index-slice($d) {
-              jn:scan-valid-time-index($d,xs:dateTime('2024-01-01T00:00:00Z'),'vf','vt',2)
-            };
-            count(local:index-slice(jn:doc('budget','rows')))
-            """;
-        assertEquals(count, ((Numeric) new Query(observedChain, indexWrapped).evaluate(observedContext)).intValue());
-        verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
-        final Sequence wrapped = new Query(observedChain, declaration + call).execute(observedContext);
-        final long firstKey;
-        try (var iterator = wrapped.iterate()) {
+        for (final String declaration : declarations) {
+          clearInvocations(cursor);
+          assertEquals(count, ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(
+              observedContext)).intValue());
           verify(cursor, never()).getFirstChildKey();
-          firstKey = ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey();
-          verify(cursor, times(1)).getFirstChildKey();
-        }
-        // Closing one reader must not consume the UDF result for another reader or a later count.
-        try (var iterator = wrapped.iterate()) {
-          assertEquals(firstKey, ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey());
+          verify(cursor, never()).getValue();
+          final Sequence wrapped = new Query(observedChain, declaration + call).execute(observedContext);
+          final long firstKey;
+          try (var iterator = wrapped.iterate()) {
+            verify(cursor, never()).getFirstChildKey();
+            firstKey = ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey();
+            verify(cursor, times(1)).getFirstChildKey();
+          }
+          // Closing one reader must not consume the UDF result for another reader or a later count.
+          try (var iterator = wrapped.iterate()) {
+            assertEquals(firstKey, ((JsonDBItem) Objects.requireNonNull(iterator.next())).getNodeKey());
+            verify(cursor, times(2)).getFirstChildKey();
+          }
+          assertEquals(count, wrapped.size().intValue());
           verify(cursor, times(2)).getFirstChildKey();
+          verify(cursor, never()).getValue();
+          final String typed = declaration + """
+              declare function local:typed($p as xs:dateTime) as xs:string* { local:slice($p) };
+              count(local:typed(xs:dateTime('2024-01-01T00:00:00Z')))
+              """;
+          assertEquals(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, assertThrows(QueryException.class,
+              () -> new Query(observedChain, typed).evaluate(observedContext)).getCode());
         }
-        assertEquals(count, wrapped.size().intValue());
-        verify(cursor, times(2)).getFirstChildKey();
-        verify(cursor, never()).getValue();
-        final String typed = declaration + """
-            declare function local:typed($p as xs:dateTime) as xs:string* { local:slice($p) };
-            count(local:typed(xs:dateTime('2024-01-01T00:00:00Z')))
-            """;
-        assertEquals(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, assertThrows(QueryException.class,
-            () -> new Query(observedChain, typed).evaluate(observedContext)).getCode());
       }
     }
+  }
+
+  private static String comparison(final String field, final boolean start, final boolean strict, final boolean general,
+      final boolean mirror) {
+    final String operator = general
+        ? (strict
+            ? "<"
+            : "<=")
+        : (strict
+            ? "lt"
+            : "le");
+    final String swapped = general
+        ? (strict
+            ? ">"
+            : ">=")
+        : (strict
+            ? "gt"
+            : "ge");
+    final String bound = "xs:dateTime($x." + field + ")";
+    if (mirror) {
+      return start
+          ? "$p " + swapped + " " + bound
+          : bound + " " + swapped + " $p";
+    }
+    return start
+        ? bound + " " + operator + " $p"
+        : "$p " + operator + " " + bound;
   }
 }

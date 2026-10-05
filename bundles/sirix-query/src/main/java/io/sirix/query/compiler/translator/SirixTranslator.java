@@ -55,6 +55,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -64,6 +65,7 @@ import io.brackit.query.compiler.translator.PipelineStrategy;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.expr.DeclVariable;
+import io.brackit.query.expr.BoundVariable;
 import io.brackit.query.operator.Operator;
 import io.sirix.query.compiler.operator.HashMembershipJoin;
 import io.sirix.query.compiler.operator.HashMembershipJoin.Binding;
@@ -80,6 +82,7 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
+import io.brackit.query.util.Whitespace;
 import java.util.ArrayDeque;
 import java.util.BitSet;
 import java.util.Deque;
@@ -216,9 +219,21 @@ public class SirixTranslator extends TopDownTranslator {
     }
     if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
         && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
-      return new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+      final AST pointNode = node.getChild(1);
+      Expr point = expr(pointNode, true);
+      if (pointNode.getType() == XQ.FunctionCall) {
+        try {
+          point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
+        } catch (final QueryException ignored) {
+        }
+      }
+      final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
           ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
           ((IntNumeric) node.getChild(4).getValue()).intValue());
+      if (point instanceof BoundVariable variable) {
+        table.resolve(variable.getName(), scan);
+      }
+      return scan;
     }
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))

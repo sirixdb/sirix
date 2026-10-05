@@ -221,7 +221,7 @@ public final class JsonValidTimeStep extends Walker {
             : 0);
     scanCall.addChild(new AST(XQ.Int, new Int32(mode)));
     forBind.replaceChild(1, scanCall);
-    // The overload checks exactness at this evaluation's revision; an unsafe shape executes the
+    // The helper checks exactness at this evaluation's revision; an unsafe shape executes the
     // original two comparisons over the full array with their original short-circuit order.
     forBind.replaceChild(2, selection.getChild(selection.getChildCount() - 1).copyTree());
 

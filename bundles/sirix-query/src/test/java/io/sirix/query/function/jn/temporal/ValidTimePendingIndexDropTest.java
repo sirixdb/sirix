@@ -229,8 +229,9 @@ final class ValidTimePendingIndexDropTest {
         }
         assertNull(iterator.next());
       }
-      assertCount(chain, context, "jn:scan-valid-time-index(" + source + "," + POINT + ",'vf','vt'," + mode + ")",
-          counts[mode]);
+      final String wrapped = "declare function local:slice($p as xs:dateTime) { for $x in " + source
+          + "[] where " + comparison(mode).replace(POINT, "$p") + " return $x }; count(local:slice(" + POINT + "))";
+      assertEquals(counts[mode], ((Numeric) new Query(chain, wrapped).evaluate(context)).intValue(), wrapped);
       assertCount(chain, context, "for $x in " + source + "[] where " + comparison(mode) + " return $x", counts[mode]);
     }
     assertCount(chain, context, "jn:scan-valid-time-index(" + source + "," + POINT + ")", counts[0]);

@@ -5,7 +5,6 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.atomic.QNm;
-import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.PathParser;
@@ -82,7 +81,7 @@ final class ValidTimeEmptySourceTest {
       };
       final StaticContext staticContext = mock(StaticContext.class);
       for (int mode = 0; mode < 128; mode++) {
-        assertEmpty(ScanValidTimeIndex.comparisonScan(staticContext, context, document, point, "vf", "vt", mode));
+        assertEmpty(ScanValidTimeIndex.comparisonScan(staticContext, context, document, point, null, "vf", "vt", mode));
         assertEmpty(ValidTimeFilter.comparisonScanSequence(document, point, "vf", "vt", mode, staticContext, context));
       }
       assertEquals(0, evaluations.get());
@@ -104,12 +103,15 @@ final class ValidTimeEmptySourceTest {
   }
 
   @Test
-  void comparisonBoundarySkipsConfigurationForNonArraysAndTheComparisonOverload() {
+  void comparisonBoundarySkipsConfigurationAndDeferredPointsForNonArrays() {
     final JsonDBItem source = mock(JsonDBItem.class);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store)) {
-      final Sequence[] args = {source, null, new Str("vf"), new Str("vt"), Int32.ZERO};
-      assertEmpty(ScanValidTimeIndex.forComparisons().execute(mock(StaticContext.class), context, args));
+      for (int mode = 0; mode < 128; mode++) {
+        assertEmpty(ScanValidTimeIndex.comparisonScan(mock(StaticContext.class), context, source, () -> {
+          throw new AssertionError("non-array evaluated its deferred point");
+        }, null, "vf", "vt", mode));
+      }
       verify(source, never()).getTrx();
       verify(source, never()).getResourceSession();
     }

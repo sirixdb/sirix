@@ -83,18 +83,18 @@ raw results, and emit the same canonical TSV bytes.
 | 1 | point belief at E24 | revision scan + half-open predicate | no |
 | 2 | point belief at E12 | revision scan + half-open predicate | no |
 | 3 | valid-range price extrema | revision scan + strict overlap | no |
-| 4 | corrections, system-time self-join | VALIDTIME + generic join | yes |
+| 4 | corrections, system-time self-join | VALIDTIME + generic join | no |
 | 5 | one entity's publication history | revision scan per publication | no |
-| 6 | grouped publication evolution | VALIDTIME + generic group | yes |
-| 7 | latest grouped exposure | VALIDTIME + generic group | yes |
-| 8 | supplier/grade distribution | VALIDTIME + generic group | yes |
-| 9 | supplier temporal join/group | VALIDTIME + generic join/group | yes |
+| 6 | grouped publication evolution | VALIDTIME + generic group | no |
+| 7 | latest grouped exposure | VALIDTIME + generic group | no |
+| 8 | supplier/grade distribution | VALIDTIME + generic group | no |
+| 9 | supplier temporal join/group | VALIDTIME + generic join/group | no |
 | 10 | interval-overlap product join | revision scans + generic join/group | no |
-| 11 | daily temporal aggregation | VALIDTIME + generic group | yes |
-| 12 | disappearance anti-join/group | VALIDTIME + [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants) + generic group | yes |
+| 11 | daily temporal aggregation | VALIDTIME + generic group | no |
+| 12 | disappearance anti-join/group | VALIDTIME + [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants) + generic group | no |
 
-Q4, Q6-Q9, Q11 and Q12 express SH1's half-open model through `local:slice`, adding `valid < vt`
-to the closed `jn:open-bitemporal` source. Physical predicate folding, lazy evaluation, and dependency
+Q4, Q6-Q9, Q11 and Q12 call `jn:open-bitemporal` directly, using its half-open validity
+(`valid-from <= valid < valid-to`) without an additional strict end residual. Physical predicate folding, lazy evaluation, and dependency
 requirements are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag

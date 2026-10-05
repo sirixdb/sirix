@@ -170,7 +170,7 @@ final class ValidTimeMutableSliceTest {
       final JsonDBArraySlice empty = (JsonDBArraySlice) whole.range(Int32.ONE, Int32.ONE);
       assertResults(fixture, ScanValidTimeIndex.comparisonScan(null, fixture.context(), empty, () -> {
         throw new AssertionError("empty slice evaluated its deferred point");
-      }, "vf", "vt", 2), List.of());
+      }, null, "vf", "vt", 2), List.of());
     }
   }
 
@@ -283,8 +283,8 @@ final class ValidTimeMutableSliceTest {
   }
 
   private static Sequence comparisons(final Fixture fixture, final JsonDBItem document, final int mode) {
-    return ScanValidTimeIndex.comparisonScan(null, fixture.context(), document, () -> new DateTime(POINT), "vf", "vt",
-        mode);
+    return ScanValidTimeIndex.comparisonScan(null, fixture.context(), document, () -> new DateTime(POINT), null, "vf",
+        "vt", mode);
   }
 
   private static ValidTimeConfig config(final Fixture fixture) {

@@ -112,6 +112,9 @@ final class ValidTimeLazySliceTest {
       final QueryException exception = assertThrows(QueryException.class, () -> new Query(chain,
           "jn:open-bitemporal-slice('slice','indexed'," + TRANSACTION + "," + POINT + ",'vt',4," + POINT + ")"));
       assertEquals(ErrorCode.ERR_UNDEFINED_FUNCTION, exception.getCode());
+      final QueryException scanException = assertThrows(QueryException.class, () -> new Query(chain,
+          "jn:scan-valid-time-index(jn:doc('slice','indexed')," + POINT + ",'vf','vt',2)"));
+      assertEquals(ErrorCode.ERR_UNDEFINED_FUNCTION, scanException.getCode());
     }
   }
 
@@ -1061,6 +1064,10 @@ final class ValidTimeLazySliceTest {
           assertNotNull(iterator);
         }
         assertNull(actualRows.get(Int32.ZERO), predicate);
+        if (!json.equals("[]")) {
+          assertFalse(actualRows.isRepeatable(), predicate);
+          assertNull(actualRows.knownSize(), predicate);
+        }
         if (json.equals("[]")) {
           assertEquals(0, expectedRows == null
               ? 0

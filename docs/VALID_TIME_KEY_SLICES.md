@@ -206,9 +206,11 @@ For exact candidates, the known cardinality comes from index keys without constr
 retaining a built-in temporal residual report an unknown cardinality. Mutable
 views still use the existing fallback.
 
-The five-argument scan overload returns its selected producer directly when the point is already a
-captured `DateTime`. Expression-supplied points retain their deferred wrapper so empty sources and
-point-evaluation errors keep their existing semantics.
+Optimizer-generated comparison scans retain the selected immutable producer's repeatability and
+known cardinality for valid literal points and already captured `DateTime` tuple bindings. Capability
+inspection never invokes the deferred point expression; other points and fallback scans retain
+their existing evaluation and error timing. Comparison modes are internal to the optimizer,
+and the public `jn:scan-valid-time-index` remains a two-argument function.
 
 Brackit preserves return-type validation and normalizes empty/singleton UDF results to their
 existing scalar representation. That normalization may construct a singleton object, and unknown
@@ -217,7 +219,9 @@ count constructs zero objects, and the first requested item constructs one.
 
 `ValidTimeSliceWorkBudgetTest.userFunctionCountDoesNotMaterializeTheSlice` is enabled and guards
 two- and 64-row counts, first-item demand, independent readers after early close, and constrained
-return-type errors. Direct-call and direct-FLWOR zero-read bounds remain unchanged. The standalone
+return-type errors through both bitemporal and plain comparison rewrites. The plain comparison
+UDFs cover all strict/inclusive, value/general, operand-direction, and conjunct-order combinations.
+Direct-call and direct-FLWOR zero-read bounds remain unchanged. The standalone
 [UdfMaterializationRepro.java](bench/validtime-slice/io/sirix/query/bench/validtime/UdfMaterializationRepro.java)
 needs only Brackit and implements the same producer protocol: both the direct count and the trivial
 UDF wrapper construct zero items. Unmarked producers retain Brackit's conservative eager behavior.
