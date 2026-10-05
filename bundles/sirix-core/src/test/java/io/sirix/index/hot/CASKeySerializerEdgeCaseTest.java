@@ -404,8 +404,23 @@ final class CASKeySerializerEdgeCaseTest {
         assertTrue(bytes.length + 2 * Integer.BYTES <= 1 << Byte.SIZE);
         final CASValue decoded = CASKeySerializer.INSTANCE.deserialize(bytes, 0, bytes.length);
         assertTrue(CASKeySerializer.losesInformation(value, Type.DEC));
+        assertTrue(CASKeySerializer.truncates(value, Type.DEC));
+        assertTrue(CASKeySerializer.hasCappedDecimalSuffix(bytes, 0, bytes.length));
         assertTrue(CASKeySerializer.losesInformation(decoded.getAtomicValue(), Type.DEC));
         assertArrayEquals(bytes, key(decoded.getAtomicValue(), Type.DEC));
+      }
+    }
+
+    @Test
+    void storedDecimalCapSurvivesTrailingZeroNormalization() {
+      for (final String sign : new String[] {"", "-"}) {
+        final Dec value = new Dec(sign + "0.1" + "0".repeat(220) + "1");
+        final byte[] bytes = key(value, Type.DEC);
+        final CASValue decoded = CASKeySerializer.INSTANCE.deserialize(bytes, 0, bytes.length);
+        assertTrue(CASKeySerializer.hasCappedDecimalSuffix(bytes, 0, bytes.length));
+        assertFalse(CASKeySerializer.truncates(decoded.getAtomicValue(), Type.DEC));
+        final byte[] shortKey = key(new Dec(sign + "0.1"), Type.DEC);
+        assertFalse(CASKeySerializer.hasCappedDecimalSuffix(shortKey, 0, shortKey.length));
       }
     }
 
@@ -420,16 +435,12 @@ final class CASKeySerializerEdgeCaseTest {
     }
 
     @Test
-    @DisplayName("a numeric bound never reports truncation, however lossy it is")
-    void numericBoundsDoNotTruncate() {
-      // The split that keeps range queries on the bounded cursor. Numeric narrowing is monotone, so
-      // the cursor still places every stored key correctly against the bound; only truncation breaks
-      // the ordering. A range caller consulting losesInformation instead paid an O(index) scan to
-      // reach the identical answer.
+    @DisplayName("ordinary numeric bounds retain their bounded cursor path")
+    void ordinaryNumericBoundsDoNotTruncate() {
+      // Numeric narrowing and a capped decimal suffix are separate. Ordinary decimals keep their
+      // exact suffix and therefore do not need a document-value residual.
       assertFalse(CASKeySerializer.truncates(new Dec(new BigDecimal("19.99")), Type.DEC));
-      // Lossless for equality too, now that the key carries the exact value. The two predicates stay
-      // separate because they still diverge on the LEXICAL family, where a bound past the cap
-      // truncates, and there both predicates answer true.
+      // The suffix also makes ordinary decimal equality exact.
       assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC),
           "an ordinary decimal bound is exact in the key");
     }

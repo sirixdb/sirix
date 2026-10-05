@@ -63,7 +63,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   }
 
   private static StorageEngineReader transactionView(final StorageEngineReader reader) {
-    return reader.hasTrxIntentLog() ? reader.getTransactionView() : reader;
+    return reader.hasTrxIntentLog()
+        ? reader.getTransactionView()
+        : reader;
   }
 
   /**
@@ -76,24 +78,23 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     final Type contentType = indexDef.getContentType();
-    if (filter != null && (requiresLexicalResidual(filter.getMin(), contentType)
-        || requiresLexicalResidual(filter.getMax(), contentType)
-        || !CASKeySerializer.isByteOrderPreserving(contentType))) {
-      return openLexicalRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
+    if (filter != null && (requiresValueResidual(filter.getMin(), contentType)
+        || requiresValueResidual(filter.getMax(), contentType) || !CASKeySerializer.isByteOrderPreserving(contentType)
+        || isDecimalType(contentType) && filter.getPCRs().size() != 1)) {
+      return openRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
           filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
 
     // Bounded-cursor fast path. Bound inclusivity is enforced inside the cursor, on each group's
-    // logical key bytes. Capped or unencodable string bounds take the residual path above: their
+    // logical key bytes. Capped decimal or lexical bounds take the residual path above: their
     // shared posting groups need the original document values to enforce the requested bounds.
     // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
     // order over the serialized key, which is the value order only for the families
     // CASKeySerializer encodes deliberately. Types for which isByteOrderPreserving reports false
     // fall through to the full scan below, which compares typed atomics via CASFilterRange#inRange.
     //
-    // Numeric narrowing is separate from lexical truncation. Its encoder is monotone, and a scan
-    // over decoded keys would recover the same narrowed values at O(index) cost. Preserve the
-    // existing bounded numeric path rather than gating it on losesInformation.
+    // Numeric narrowing is separate from capped decimal suffixes and lexical values. Preserve the
+    // ordinary bounded numeric path rather than gating it on every kind of information loss.
     if (filter != null && filter.getPCRs().size() == 1 && (filter.getMin() != null || filter.getMax() != null)
         && CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
       final Set<Long> pcrsRequested = filter.getPCRs();
@@ -191,8 +192,17 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
-  private static boolean requiresLexicalResidual(final @Nullable Atomic bound, final Type type) {
+  private static boolean requiresValueResidual(final @Nullable Atomic bound, final Type type) {
     return CASKeySerializer.truncates(bound, type) || hasLossyStringBound(bound, type);
+  }
+
+  private static boolean isDecimalType(final Type type) {
+    return type.instanceOf(Type.DEC) && !type.instanceOf(Type.INR);
+  }
+
+  private static boolean hasCappedDecimalSuffix(final Map.Entry<CASValue, NodeReferences> entry) {
+    return !(entry instanceof AbstractHOTIndexReader.RawKeyBytes raw)
+        || CASKeySerializer.hasCappedDecimalSuffix(raw.rawKeyBytes(), 0, raw.rawKeyLength());
   }
 
   private static boolean hasLossyStringBound(final @Nullable Atomic bound, final Type type) {
@@ -215,17 +225,24 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   // Open only an unencodable side; keep encodable bounds on the cursor, including capped bounds
   // relaxed to inclusive. Original bounds and inclusivity remain the document-value residual.
-  private static Iterator<NodeReferences> openLexicalRangeWithResidual(final StorageEngineReader storageEngineReader,
+  private static Iterator<NodeReferences> openRangeWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min,
       final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
     final Type type = indexDef.getContentType();
-    final Atomic minBound = min == null ? null : AtomicUtil.toType(min, type);
-    final Atomic maxBound = max == null ? null : AtomicUtil.toType(max, type);
-    final Atomic scanMin = hasLossyStringBound(minBound, type) ? null : minBound;
-    final Atomic scanMax = hasLossyStringBound(maxBound, type) ? null : maxBound;
+    final Atomic minBound = min == null
+        ? null
+        : AtomicUtil.toType(min, type);
+    final Atomic maxBound = max == null
+        ? null
+        : AtomicUtil.toType(max, type);
+    final Atomic scanMin = hasLossyStringBound(minBound, type)
+        ? null
+        : minBound;
+    final Atomic scanMax = hasLossyStringBound(maxBound, type)
+        ? null
+        : maxBound;
     final Iterator<Map.Entry<CASValue, NodeReferences>> entries;
-    if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type)
-        && (scanMin != null || scanMax != null)) {
+    if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type) && (scanMin != null || scanMax != null)) {
       final long pcr = pcrs.iterator().next();
       final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
       final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
@@ -246,6 +263,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       acceptedPCRs[i++] = pcr;
     }
     final boolean readValues = hasLossyStringBound(minBound, type) || hasLossyStringBound(maxBound, type);
+    final boolean decimal = isDecimalType(type);
     return new CloseForwardingIterator(entries) {
       private @Nullable NodeReferences next;
 
@@ -260,11 +278,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
             continue;
           }
           final CASValue key = entry.getKey();
-          if (readValues || CASKeySerializer.truncates(key.getAtomicValue(), type)) {
-            next = exactLexicalRangeMatches(storageEngineReader, entry.getValue(), minBound, maxBound, minInclusive,
+          if (readValues || (decimal
+              ? hasCappedDecimalSuffix(entry)
+              : CASKeySerializer.truncates(key.getAtomicValue(), type))) {
+            next = exactRangeMatches(storageEngineReader, entry.getValue(), minBound, maxBound, minInclusive,
                 maxInclusive, type);
-          } else if (inLexicalRange(key.getAtomicValue(), minBound, maxBound, minInclusive,
-              maxInclusive, type)) {
+          } else if (inRange(key.getAtomicValue(), minBound, maxBound, minInclusive, maxInclusive, type)) {
             next = entry.getValue();
           }
           if (next != null) {
@@ -286,10 +305,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
-  private static boolean inLexicalRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
+  private static boolean inRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
       final boolean minInclusive, final boolean maxInclusive, final Type type) {
     final boolean string = type.instanceOf(Type.STR);
-    final Atomic typed = value.type() == type ? value : AtomicUtil.toType(value, type);
+    final Atomic typed = value.type() == type
+        ? value
+        : AtomicUtil.toType(value, type);
     final int lower = min == null
         ? 1
         : string
@@ -303,7 +324,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return (lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive);
   }
 
-  private static @Nullable NodeReferences exactLexicalRangeMatches(final StorageEngineReader storageEngineReader,
+  private static @Nullable NodeReferences exactRangeMatches(final StorageEngineReader storageEngineReader,
       final NodeReferences candidates, final @Nullable Atomic min, final @Nullable Atomic max,
       final boolean minInclusive, final boolean maxInclusive, final Type type) {
     final long candidateCount = candidates.cardinality();
@@ -332,7 +353,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
           } else {
             continue;
           }
-          if (inLexicalRange(new Str(value), min, max, minInclusive, maxInclusive, type)) {
+          if (inRange(new Str(value), min, max, minInclusive, maxInclusive, type)) {
             if (kept == matching.length) {
               matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
             }
@@ -560,7 +581,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  private static Iterator<NodeReferences> openLossyLexicalComparison(final StorageEngineReader storageEngineReader,
+  private static Iterator<NodeReferences> openComparisonWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final CASFilter filter,
       final Set<Long> pcrsRequested) {
     if (pcrsRequested.size() == 1 && resolvesToADifferentPathClass(filter, indexDef, pcrsRequested)) {
@@ -571,11 +592,11 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       return Collections.emptyIterator();
     }
     if (mode == SearchMode.EQUAL) {
-      return openLexicalRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested,
-          filter.getKey(), filter.getKey(), true, true);
+      return openRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, filter.getKey(),
+          filter.getKey(), true, true);
     }
     final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
-    return openLexicalRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
+    return openRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
         ? filter.getKey()
         : null,
         lower
@@ -598,10 +619,11 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         : filter.getPCRs();
 
     if (filter != null && filter.getKey() != null
-        && (requiresLexicalResidual(filter.getKey(), indexDef.getContentType())
+        && (requiresValueResidual(filter.getKey(), indexDef.getContentType())
+            || isDecimalType(indexDef.getContentType()) && pcrsRequested.size() != 1
             || !CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())
                 && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1))) {
-      return openLossyLexicalComparison(storageEngineReader, reader, indexDef, filter, pcrsRequested);
+      return openComparisonWithResidual(storageEngineReader, reader, indexDef, filter, pcrsRequested);
     }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it
@@ -690,7 +712,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // content-type gate as the range-filter path: byte order decides these bounds, so a type whose
       // key bytes are its raw lexical form must use the typed comparison in the full scan instead.
       //
-      // Capped string bounds already took the residual path above. Relaxing a cursor alone would
+      // Capped decimal or lexical bounds already took the residual path above. Relaxing a cursor alone
+      // would
       // keep the shared posting group but also return values outside the requested comparison.
       if (CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
         final boolean inclusive = mode == SearchMode.GREATER_OR_EQUAL || mode == SearchMode.LOWER_OR_EQUAL;

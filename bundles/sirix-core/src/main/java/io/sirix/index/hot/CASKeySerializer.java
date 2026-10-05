@@ -952,19 +952,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // prefix exactly as an over-long string does. The suffix is bounded, so the
       // allocation here is paid by a query that is genuinely ambiguous rather than by every price
       // lookup.
-      final BigDecimal exact = exactDecimalOrNull(value);
-      if (exact == null) {
-        return true;
-      }
-      // Only a LENGTH is wanted here, so formatting the value to get one was the whole cost of this
-      // check on every decimal equality query — the second full normalization per query, after the
-      // encoder's. plainDecimalLength bounds it from precision and scale without allocating, and the
-      // bound is exact for the unstripped form, so a value comfortably inside the budget (which is
-      // every ordinary indexed decimal) settles it in
-      // arithmetic. The formatting survives only where the bound cannot decide, which is where the
-      // key genuinely may not be injective and a re-check was going to be paid for anyway.
-      return plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
-          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1;
+      return truncates(value, id);
     }
     if (id != TYPE_INTEGER) {
       // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
@@ -1040,10 +1028,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * </p>
    *
    * <p>
-   * RANGE callers must not consult this predicate; they want {@link #truncates}. Numeric narrowing is
-   * monotone, so a bounded cursor still places every stored key correctly against the bound, and the
-   * O(index) fallback a {@code true} answer used to trigger re-derived its comparison value from the
-   * very same narrowed key — the identical answer at vastly higher cost.
+   * Range callers use {@link #truncates} to distinguish capped lexical values and decimal suffixes
+   * from numeric narrowing. Capped bounds need inclusive candidate cursors and document-value checks;
+   * the other numeric encoders retain their bounded cursor path.
    * </p>
    *
    * @param value the atomic being probed for, may be {@code null}
@@ -1112,21 +1099,18 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * Whether serializing {@code value} under {@code type} TRUNCATES it — the lexical half of
-   * {@link #losesInformation}, reported on its own because the two halves need opposite remedies.
+   * Whether serializing {@code value} under {@code type} can share a capped lexical value or decimal
+   * suffix with another value. A value exactly at the cap also needs a document-value check.
    *
    * <p>
-   * A truncated bound breaks the bounded cursor's ordering, and no re-derivation from the stored key
-   * can repair it, because the bytes the encoder dropped are not in the index either. Numeric
-   * narrowing is different: the encoder is monotone, so the cursor still places every stored key
-   * correctly against the bound, and a caller that reacts to narrowing by abandoning the cursor pays
-   * an O(index) scan to reach exactly the same answer. Range callers therefore consult THIS, not
-   * {@link #losesInformation}.
+   * A capped bound needs an inclusive candidate cursor even for an exclusive comparison: values on
+   * either side can share its key. Document values settle that comparison. Numeric narrowing is
+   * separate and does not use this truncation predicate.
    * </p>
    *
    * @param value the bound being serialized, may be {@code null}
    * @param type the index's declared content type
-   * @return {@code true} when the encoder caps {@code value} at {@link #MAX_STRING_VALUE_BYTES}
+   * @return {@code true} when a capped key may also represent another value
    */
   public static boolean truncates(final @Nullable Atomic value, final Type type) {
     if (value == null) {
@@ -1136,6 +1120,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   private static boolean truncates(final Atomic value, final short id) {
+    if (id == TYPE_DECIMAL) {
+      final BigDecimal exact = exactDecimalOrNull(value);
+      // Ordinary decimals settle this without formatting or allocating. Normalize only a value
+      // whose precision and scale cannot prove that its suffix fits.
+      return exact == null || plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
+          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1;
+    }
     if ((POLICY[id] & LEXICAL) == 0) {
       return false;
     }
@@ -1159,6 +1150,37 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return false;
     }
     return escapedUtf8Length(str) >= MAX_STRING_VALUE_BYTES - 1;
+  }
+
+  /**
+   * Whether a framed decimal key filled its exact suffix budget. Inspect the stored bytes because
+   * decoding and normalizing a capped suffix ending in zeroes can hide the truncation.
+   *
+   * @param bytes the framed logical CAS key
+   * @param offset the key's offset
+   * @param length the key's length
+   * @return whether the postings require document-value comparisons
+   */
+  public static boolean hasCappedDecimalSuffix(final byte[] bytes, final int offset, final int length) {
+    Objects.checkFromIndexSize(offset, length, bytes.length);
+    if (length < HEADER_BYTES + Long.BYTES + MAX_DECIMAL_SUFFIX_BYTES + 2 || bytes[offset + Long.BYTES] != 0
+        || bytes[offset + Long.BYTES + 1] != TYPE_DECIMAL) {
+      return false;
+    }
+    int valueBytes = 0;
+    for (int i = offset + HEADER_BYTES, end = offset + length; i + 1 < end; i++) {
+      if (bytes[i] == 0) {
+        final int next = bytes[++i] & 0xFF;
+        if (next == 0) {
+          return valueBytes >= Long.BYTES + MAX_DECIMAL_SUFFIX_BYTES;
+        }
+        if (next != 0xFF) {
+          throw new IllegalArgumentException("invalid CAS key escape");
+        }
+      }
+      valueBytes++;
+    }
+    throw new IllegalArgumentException("CAS logical key has no terminator");
   }
 
   /**
