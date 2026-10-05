@@ -4624,13 +4624,13 @@ final class JsonNodeTrxImpl extends
       moveToDocumentRoot();
       replayCheckpoint("links-installed");
       JsonReplayGraphValidator.validate(this, delta.puts().keySet());
-      JsonReplayPaths.rebuild(source, storageEngineWriter, manifest);
+      final var importedPaths = JsonReplayPaths.importChanges(source, storageEngineWriter, manifest);
       JsonReplayHistory.importChanges(source, storageEngineWriter, manifest);
       if (pathSummaryWriter != null) {
-        pathSummaryWriter.getPathSummary().reloadAfterImport();
+        pathSummaryWriter.getPathSummary().applyImportedChanges(importedPaths.records(), importedPaths.logicalRoots());
       }
       for (final var listener : indexController.getChangeListenerSnapshot()) {
-        listener.pathSummaryImported();
+        listener.pathSummaryImported(importedPaths.namespaceChanged());
       }
       for (final long key : delta.puts().keySet()) {
         replayNotifyIndex(key, IndexController.ChangeType.INSERT);

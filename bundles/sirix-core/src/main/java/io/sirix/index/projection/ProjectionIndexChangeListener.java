@@ -1229,7 +1229,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   @Override
   public void pathSummaryImported() {
-    seeded = false;
+    pathSummaryImported(true);
+  }
+
+  @Override
+  public void pathSummaryImported(final boolean namespaceChanged) {
+    if (namespaceChanged) {
+      seeded = false;
+    }
     resolvedRecordMemo = null;
     arrayRootInstances = null;
   }

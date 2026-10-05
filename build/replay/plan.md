@@ -511,3 +511,33 @@ The source CAS visitor repair remains the independent f6688ece7 commit. The new 
 seam does not weaken requireVirginTreeForInitialBuild, use an unordered append loader,
 or model an epoch as one subtree move. Old/final membership edits are bounded batches;
 retained old rows use the committed base until removal completes. Gate 7 follows.
+
+## Gate 7 implementation order
+
+1. JsonReplayPaths.importChanges reuses JsonReplayPageWalk over committed PATH_SUMMARY
+   tries; it compares complete logical records/statistics, imports only differences and
+   maps revision metadata. PathSummaryReader.applyImportedChanges updates just replaced
+   cache entries and affected cached path matches. No initial source path-reader build
+   is needed merely to enumerate records. Logical-path cache invalidation must include
+   unchanged descendants of a renamed/reparented path node.
+2. Retain JsonReplayGraphValidator as the independent full oracle; add a bounded import
+   validator around the sealed authoritative-delta/base-epoch contract. Document the
+   inductive proof and validate affected links/records rather than claiming local
+   reciprocal links alone prove global acyclicity.
+3. Add gated replay counters and non-vacuous, mutation-checked budgets for changed-page
+   visits, records, created identities, staging, ancestors, sidecars and bookkeeping.
+   Include no-op, append beside large untouched regions and sparse frontier fixtures.
+   Account for writer/cache lifecycle work as well as the helper's explicit loops.
+
+
+Gate 7 path substep: path-delta-1 passes 377/377 focused and two-configuration generated
+cases, with formatting. JsonReplayPaths now compares authoritative path tries directly,
+including logical names, topology, revision metadata, frontier and serialized statistics.
+Only changed path records are staged. The writer-owned path reader repairs exact QName/
+child mappings and cached path matches for affected logical subtrees; unchanged descendant
+expressions beneath a rename cannot reuse their old PathNode cache. Statistics-only
+changes preserve cached PCR matches. Projection epoch memoization is always invalidated,
+while path membership reseeding occurs only when the namespace changed. No full source
+path reader or full post-import cache reconstruction is needed by this substep. The
+remaining graph validator is still a full walk; work counters and budgets remain pending.
+Evidence: build/replay/path-delta-1.log and path-delta-1-results.

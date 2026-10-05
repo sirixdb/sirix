@@ -40,6 +40,8 @@ import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongHash;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
@@ -127,6 +129,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private PathSummaryChildIndex childLookupCache;
 
   private boolean init = true;
+
+  /** Imported ancestor renames must not reuse expressions cached on untouched descendant nodes. */
+  private boolean importedPathExpressions;
 
   /**
    * Private constructor.
@@ -910,7 +915,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     final Path<QNm> pathFromNode = node.getPath();
-    if (pathFromNode != null) {
+    if (!importedPathExpressions && pathFromNode != null) {
       return pathFromNode;
     }
     final long nodeKey = getNodeKey();
@@ -937,7 +942,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
     moveTo(nodeKey);
     assert currNode != null;
-    currNode.setPath(path);
+    if (!importedPathExpressions) {
+      currNode.setPath(path);
+    }
     return path;
   }
 
@@ -1224,22 +1231,109 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Refresh this writer-owned view after a private import installed a complete logical namespace.
-   * Preserve the reader object held by index listeners, but discard every derived lookup cache.
+   * Install changed cache entries after a private identity import. Null entries remove a path;
+   * logical roots name renamed/reparented/created/deleted path classes, including their descendants.
+   * Existing cached path queries are repaired in place instead of rescanning the whole namespace.
    */
-  public void reloadAfterImport() {
+  public void applyImportedChanges(final Long2ObjectMap<StructNode> records, final LongSet logicalRoots) {
     assertNotClosed();
+    requireNonNull(records);
+    requireNonNull(logicalRoots);
     if (!storageEngineReader.hasTrxIntentLog()) {
-      throw new IllegalStateException("Only a private write transaction may reload imported paths");
+      throw new IllegalStateException("Only a private write transaction may import paths");
     }
-    final PathSummaryReader rebuilt = new PathSummaryReader(storageEngineReader, resourceSession);
-    currentNode = rebuilt.currentNode;
-    pathNodeMapping = rebuilt.pathNodeMapping;
-    qnmMapping.clear();
-    qnmMapping.putAll(rebuilt.qnmMapping);
-    childLookupCache = rebuilt.childLookupCache;
-    pathCache.clear();
+    if (records.isEmpty()) {
+      return;
+    }
+    final long savedKey = currentNode.getNodeKey();
+    // Remove every old binding before adding any new binding; renamed paths can exchange slots.
+    for (final var keys = records.keySet().iterator(); keys.hasNext();) {
+      final long key = keys.nextLong();
+      final StructNode old = key < pathNodeMapping.length
+          ? pathNodeMapping[(int) key]
+          : null;
+      if (old instanceof final PathNode path) {
+        final QNm oldName = nameOf(path);
+        final Set<PathNode> named = qnmMapping.get(oldName);
+        if (named != null) {
+          named.remove(path);
+          if (named.isEmpty()) {
+            qnmMapping.remove(oldName);
+          }
+        }
+        childLookupCache.remove(path.getParentKey(), oldName, path.getPathKind());
+      }
+    }
+    for (final var entry : records.long2ObjectEntrySet()) {
+      final long key = entry.getLongKey();
+      final StructNode node = entry.getValue();
+      if (node == null) {
+        if (key < pathNodeMapping.length) {
+          pathNodeMapping[(int) key] = null;
+        }
+      } else {
+        putMapping(key, node);
+        if (node instanceof final PathNode path) {
+          final QNm name = nameOf(path);
+          qnmMapping.computeIfAbsent(name, ignored -> new HashSet<>()).add(path);
+          childLookupCache.put(path.getParentKey(), name, path.getPathKind(), key);
+        }
+      }
+    }
     localNameIndex.invalidate();
+    if (!logicalRoots.isEmpty()) {
+      importedPathExpressions = true;
+      refreshImportedPathMatches(logicalRoots);
+    }
+    if (!moveTo(savedKey)) {
+      moveToDocumentRoot();
+    }
+  }
+
+  private void refreshImportedPathMatches(final LongSet logicalRoots) {
+    if (pathCache.isEmpty()) {
+      return;
+    }
+    final LongSet affected = new LongOpenHashSet();
+    final LongArrayList pending = new LongArrayList(logicalRoots.size());
+    for (final var roots = logicalRoots.iterator(); roots.hasNext();) {
+      pending.add(roots.nextLong());
+    }
+    while (!pending.isEmpty()) {
+      final long key = pending.removeLong(pending.size() - 1);
+      if (!affected.add(key)) {
+        continue;
+      }
+      if (!moveTo(key)) {
+        for (final LongSet matches : pathCache.values()) {
+          matches.remove(key);
+        }
+        continue;
+      }
+      final PathNode node = getPathNode();
+      if (node == null) {
+        throw new IllegalStateException("Imported path class is not a path node: " + key);
+      }
+      final Path<QNm> actual = getPath();
+      for (final var entry : pathCache.entrySet()) {
+        final Path<QNm> pattern = entry.getKey();
+        final LongSet matches = entry.getValue();
+        if (node.getLevel() >= pattern.getLength()
+            && pattern.isAttribute() == (node.getPathKind() == NodeKind.ATTRIBUTE) && pattern.matches(actual)) {
+          matches.add(key);
+        } else {
+          matches.remove(key);
+        }
+      }
+      long child = node.getFirstChildKey();
+      while (child >= 0) {
+        pending.add(child);
+        if (!moveTo(child)) {
+          throw new IllegalStateException("Missing imported path child " + child);
+        }
+        child = getRightSiblingKey();
+      }
+    }
   }
 
   public void clearCache() {
