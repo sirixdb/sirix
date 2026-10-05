@@ -4343,8 +4343,8 @@ stored resource (old revision) ───────────────┘ 
 
 Identity is preserved exactly where it should be: a matched node is updated or moved in place and keeps
 its node key, an inserted subtree is fresh material copied from the new tree, and a deletion is old
-material with no partner. \code{FMES} is wired to the function \code{xn:import(\$coll, \$res, \$doc)}
-(registered under both the \code{xn:} and \code{sdb:} libraries) and is reachable from a small CLI as
+material with no partner. \code{FMES} is wired to the function \code{xn:import}
+(registered signatures are defined in \code{XMLFun}) and is reachable from a small CLI as
 well. A full JSON port exists (\code{JsonFMSE}, sharing its matching core \code{FMSEAlgorithm} with the
 XML driver), but it is not yet bound to any import function, so as a user-facing feature FMES is
 XML-only today. Two implementation notes are worth recording. The paper's ``in-order'' traversal is
@@ -4714,11 +4714,11 @@ xn:doc('db','lib')/library/book[1]/title/text()
 (* time travel: open the resource as of a wall-clock instant, then query it *)
 xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book
 
-(* the edit script between two revisions, in the same JSON change format as jn:diff *)
+(* the XQuery Update script that replays the changes from revision 1 to revision 2 *)
 xn:diff('db','lib', 1, 2)
 
 (* fold an external document in as an identity-preserving structural delta (FMES; XML-only) *)
-xn:import('db','lib', doc("/path/to/new-library.xml"))
+xn:import('db','lib', '/path/to/new-library.xml')
 
 (* store-level sdb: functions work on XML items too *)
 sdb:item-history(xn:doc('db','lib')/library/book[1])
@@ -8233,12 +8233,11 @@ jn:open('db','res', xs:dateTime("2026-03-01T00:00:00Z")).store.book[0].price
 (* XPath navigation + time travel over an XML resource (App.~O) *)
 xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book[1]/title/text()
 
-(* fold an external XML document in as an identity-preserving structural delta (FMES; XML-only) *)
-xn:import('db','lib', doc("/path/to/new-library.xml"))
-
 (* store-level temporal accessors work on XML items too *)
 sdb:item-history(xn:doc('db','lib')/library/book[1])
 \end{diagramS}
+
+For the XML-only FMES import example, see Section~\ref{app:xml}.
 
 \dcap{Aggregations and grouping (set-oriented / vectorised where covered)}
 \begin{diagramS}
