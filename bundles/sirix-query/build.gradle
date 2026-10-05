@@ -295,6 +295,28 @@ test {
     jvmArgs = baseArgs
 }
 
+def temporalNodeReaderLifetimeGenericTest = tasks.register('temporalNodeReaderLifetimeGenericTest', Test) {
+    group = 'verification'
+    description = 'Checks temporal reader ownership with generic accessors in a separate JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest'
+    }
+    def standardTest = tasks.named('test', Test).get()
+    jvmArgs = standardTest.jvmArgs
+    minHeapSize = standardTest.minHeapSize
+    maxHeapSize = standardTest.maxHeapSize
+    systemProperties = standardTest.systemProperties
+    systemProperty 'org.sirix.xquery.optimize.accessor', 'false'
+}
+
+tasks.named('test', Test).configure {
+    systemProperty 'org.sirix.xquery.optimize.accessor', System.getProperty('org.sirix.xquery.optimize.accessor', 'true')
+    dependsOn temporalNodeReaderLifetimeGenericTest
+}
+
 // Scale-bench runner: shreds a configurable record count and runs all 9
 // analytical queries, printing ms and result sizes. Usage (via Gradle):
 //   ./gradlew :sirix-query:scaleBench -Pscale.args="10000000 false 1" \

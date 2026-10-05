@@ -51,11 +51,17 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   protected XmlNodeReadOnlyTrx computeNext() {
     while (axis.hasNext()) {
       final XmlNodeReadOnlyTrx rtx = axis.next();
-      final boolean filterResult = doFilter(rtx);
-      if (filterResult) {
-        return rtx;
+      boolean accepted = false;
+      try {
+        if (doFilter(rtx)) {
+          accepted = true;
+          return rtx;
+        }
+      } finally {
+        if (!accepted) {
+          rtx.close();
+        }
       }
-      rtx.close();
     }
 
     return endOfData();
@@ -80,6 +86,11 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
    */
   public AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getAxis() {
     return axis;
+  }
+
+  @Override
+  public void close() {
+    axis.close();
   }
 
   @Override

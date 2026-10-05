@@ -5,6 +5,18 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.AbstractTemporalNode;
 import io.brackit.query.jdm.type.NodeType;
+import io.brackit.query.jdm.type.AttributeType;
+import io.brackit.query.jdm.type.CommentType;
+import io.brackit.query.jdm.type.DocumentType;
+import io.brackit.query.jdm.type.ElementType;
+import io.brackit.query.jdm.type.TextType;
+import io.sirix.axis.filter.xml.AttributeFilter;
+import io.sirix.axis.filter.xml.CommentFilter;
+import io.sirix.axis.filter.xml.DocumentRootNodeFilter;
+import io.sirix.axis.filter.xml.ElementFilter;
+import io.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
+import io.sirix.axis.filter.xml.TextFilter;
+import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.api.Axis;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -57,6 +69,53 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
     this.axis = requireNonNull(axis);
     this.collection = requireNonNull(collection);
     this.test = requireNonNull(test);
+  }
+
+  public static TemporalSirixNodeStream create(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
+      final XmlNodeReadOnlyTrx trx, final XmlDBCollection collection, final NodeType test) {
+    requireNonNull(test);
+    return isSimpleNodeTest(test)
+        ? new TemporalSirixNodeStream(getTemporalAxis(test, trx, axis), collection)
+        : new TemporalSirixNodeStream(axis, collection, test);
+  }
+
+  public static boolean isSimpleNodeTest(final NodeType test) {
+    // Partial wildcards, type restrictions and nested document tests require NodeType.matches.
+    return test.getType() == null && (test instanceof ElementType || test instanceof AttributeType
+        || test instanceof TextType || test instanceof CommentType
+        || (test instanceof DocumentType documentType && documentType.getElementType() == null));
+  }
+
+  private static AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getTemporalAxis(final NodeType test,
+      final XmlNodeReadOnlyTrx trx, final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> innerAxis) {
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
+
+    switch (test.getNodeKind()) {
+      case COMMENT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
+      case ELEMENT -> {
+        if (test.getQName() == null) {
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx));
+        } else {
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx),
+              new XmlNameFilter(trx, test.getQName()));
+        }
+      }
+      case TEXT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
+      case ATTRIBUTE -> {
+        if (test.getQName() == null) {
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx));
+        } else {
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx),
+              new XmlNameFilter(trx, test.getQName()));
+        }
+      }
+      case DOCUMENT -> {
+        return new TemporalXmlNodeReadFilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
+      }
+      default -> throw new AssertionError(); // Must not happen.
+    }
+
+    return axis;
   }
 
   @Override

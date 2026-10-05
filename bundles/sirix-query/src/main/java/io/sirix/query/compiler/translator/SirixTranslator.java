@@ -3,7 +3,6 @@ package io.sirix.query.compiler.translator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
 import io.sirix.axis.ChildAxis;
@@ -16,22 +15,13 @@ import io.sirix.axis.ParentAxis;
 import io.sirix.axis.PrecedingAxis;
 import io.sirix.axis.PrecedingSiblingAxis;
 import io.sirix.axis.SelfAxis;
-import io.sirix.axis.AbstractTemporalAxis;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.AttributeFilter;
 import io.sirix.axis.filter.xml.CommentFilter;
 import io.sirix.axis.filter.xml.DocumentRootNodeFilter;
 import io.sirix.axis.filter.xml.ElementFilter;
-import io.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
 import io.sirix.axis.filter.xml.TextFilter;
 import io.sirix.axis.filter.xml.XmlNameFilter;
-import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
-import io.sirix.axis.temporal.FirstAxis;
-import io.sirix.axis.temporal.PrefetchedFutureAxis;
-import io.sirix.axis.temporal.LastAxis;
-import io.sirix.axis.temporal.NextAxis;
-import io.sirix.axis.temporal.PrefetchedPastAxis;
-import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
@@ -42,7 +32,6 @@ import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
-import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.service.xml.xpath.expr.UnionAxis;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -71,11 +60,6 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.Node;
-import io.brackit.query.jdm.type.AttributeType;
-import io.brackit.query.jdm.type.CommentType;
-import io.brackit.query.jdm.type.DocumentType;
-import io.brackit.query.jdm.type.ElementType;
-import io.brackit.query.jdm.type.TextType;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
@@ -85,6 +69,8 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import static io.sirix.query.stream.node.TemporalSirixNodeStream.isSimpleNodeTest;
 
 /**
  * Translates queries (optimizes currently path-expressions if {@code OPTIMIZE} is set to true).
@@ -252,279 +238,8 @@ public class SirixTranslator extends TopDownTranslator {
       case XQ.FOLLOWING_SIBLING -> new FollowingSibling(Axis.FOLLOWING_SIBLING);
       case XQ.PRECEDING -> new Preceding(Axis.PRECEDING);
       case XQ.PRECEDING_SIBLING -> new PrecedingSibling(Axis.PRECEDING_SIBLING);
-      case XQ.FUTURE -> new Future(Axis.FUTURE);
-      case XQ.FUTURE_OR_SELF -> new Future(Axis.FUTURE_OR_SELF);
-      case XQ.PAST -> new Past(Axis.PAST);
-      case XQ.PAST_OR_SELF -> new Past(Axis.PAST_OR_SELF);
-      case XQ.PREVIOUS -> new Previous(Axis.PREVIOUS);
-      case XQ.NEXT -> new Next(Axis.NEXT);
-      case XQ.ALL_TIMES -> new AllTime(Axis.ALL_TIME);
-      case XQ.FIRST -> new First(Axis.FIRST);
-      case XQ.LAST -> new Last(Axis.LAST);
       default -> super.axis(node);
     };
-  }
-
-  /**
-   * {@code first::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class Last extends Accessor {
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private Last(final Axis axis) {
-      super(axis);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code first::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class First extends Accessor {
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private First(final Axis axis) {
-      super(axis);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code next::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class Next extends Accessor {
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private Next(final Axis axis) {
-      super(axis);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code previous::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class Previous extends Accessor {
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private Previous(final Axis axis) {
-      super(axis);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PreviousAxis<>(rtx.getResourceSession(), rtx);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PreviousAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code all-time::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class AllTime extends Accessor {
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private AllTime(final Axis axis) {
-      super(axis);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code past::} and {@code past-or-self::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class Past extends Accessor {
-    /**
-     * Determine if self is included or not.
-     */
-    private final IncludeSelf mSelf;
-
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private Past(final Axis axis) {
-      super(axis);
-      mSelf = axis == Axis.PAST
-          ? IncludeSelf.NO
-          : IncludeSelf.YES;
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, mSelf);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, mSelf);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
-  }
-
-  /**
-   * {@code future::} and {@code future-or-self::} optimization.
-   *
-   * @author Johannes Lichtenberger
-   */
-  private static final class Future extends Accessor {
-    /**
-     * Determine if self is included or not.
-     */
-    private final IncludeSelf includeSelf;
-
-    /**
-     * Constructor.
-     *
-     * @param axis the axis to evaluate
-     */
-    private Future(final Axis axis) {
-      super(axis);
-      includeSelf = axis == Axis.FUTURE
-          ? IncludeSelf.NO
-          : IncludeSelf.YES;
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
-      return isSimpleNodeTest(test)
-          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
-          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
-    }
-
-    @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
-      final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
-      return new TemporalSirixNodeStream(axis, dbNode.getCollection());
-    }
   }
 
   /**
@@ -1044,45 +759,6 @@ public class SirixTranslator extends TopDownTranslator {
       }
       return level;
     }
-  }
-
-  private static boolean isSimpleNodeTest(final NodeType test) {
-    // Partial wildcards, type restrictions and nested document tests require NodeType.matches.
-    return test.getType() == null && (test instanceof ElementType || test instanceof AttributeType
-        || test instanceof TextType || test instanceof CommentType
-        || (test instanceof DocumentType documentType && documentType.getElementType() == null));
-  }
-
-  private static AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getTemporalAxis(final NodeType test,
-      final XmlNodeReadOnlyTrx trx, final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> innerAxis) {
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
-
-    switch (test.getNodeKind()) {
-      case COMMENT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
-      case ELEMENT -> {
-        if (test.getQName() == null) {
-          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx));
-        } else {
-          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx),
-              new XmlNameFilter(trx, test.getQName()));
-        }
-      }
-      case TEXT -> axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
-      case ATTRIBUTE -> {
-        if (test.getQName() == null) {
-          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx));
-        } else {
-          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx),
-              new XmlNameFilter(trx, test.getQName()));
-        }
-      }
-      case DOCUMENT -> {
-        return new TemporalXmlNodeReadFilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
-      }
-      default -> throw new AssertionError(); // Must not happen.
-    }
-
-    return axis;
   }
 
   private static io.sirix.api.Axis getAxis(final NodeType test, final XmlNodeReadOnlyTrx trx,

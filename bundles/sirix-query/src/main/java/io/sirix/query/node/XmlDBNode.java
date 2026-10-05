@@ -36,7 +36,7 @@ import io.brackit.query.node.parser.NavigationalSubtreeParser;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
-import io.sirix.api.Axis;
+import io.brackit.query.jdm.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -173,7 +173,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isDescendantOf(node.deweyID);
         } else {
-          for (final Axis axis = new AncestorAxis(rtx); axis.hasNext();) {
+          for (final var axis = new AncestorAxis(rtx); axis.hasNext();) {
             axis.nextLong();
             if (node.getImmutableNode().getNodeKey() == rtx.getNodeKey()) {
               retVal = true;
@@ -315,7 +315,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
-          for (final Axis axis = new FollowingAxis(rtx); axis.hasNext();) {
+          for (final var axis = new FollowingAxis(rtx); axis.hasNext();) {
             axis.nextLong();
             if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
@@ -335,7 +335,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
-          for (final Axis axis = new PrecedingAxis(rtx); axis.hasNext();) {
+          for (final var axis = new PrecedingAxis(rtx); axis.hasNext();) {
             axis.nextLong();
             if (rtx.getNodeKey() == node.getNodeKey()) {
               return true;
@@ -493,7 +493,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   private String expandString() {
     final StringBuilder buffer = new StringBuilder();
-    final Axis axis = new DescendantAxis(rtx);
+    final var axis = new DescendantAxis(rtx);
     while (axis.hasNext()) {
       axis.nextLong();
       if (rtx.isText()) {
@@ -1646,8 +1646,24 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<? extends Node<?>> performStep(final io.brackit.query.jdm.Axis axis, final NodeType test) {
-    return null;
+  public Stream<? extends Node<?>> performStep(final Axis axis, final NodeType test) {
+    requireNonNull(axis);
+    requireNonNull(test);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> temporalAxis = switch (axis) {
+      case FIRST -> new FirstAxis<>(rtx.getResourceSession(), getRtx());
+      case LAST -> new LastAxis<>(rtx.getResourceSession(), getRtx());
+      case NEXT -> new NextAxis<>(rtx.getResourceSession(), getRtx());
+      case PREVIOUS -> new PreviousAxis<>(rtx.getResourceSession(), getRtx());
+      case PAST -> new PrefetchedPastAxis<>(rtx.getResourceSession(), getRtx(), IncludeSelf.NO);
+      case PAST_OR_SELF -> new PrefetchedPastAxis<>(rtx.getResourceSession(), getRtx(), IncludeSelf.YES);
+      case FUTURE -> new PrefetchedFutureAxis<>(rtx.getResourceSession(), getRtx(), IncludeSelf.NO);
+      case FUTURE_OR_SELF -> new PrefetchedFutureAxis<>(rtx.getResourceSession(), getRtx(), IncludeSelf.YES);
+      case ALL_TIME -> new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), getRtx());
+      default -> null;
+    };
+    return temporalAxis == null
+        ? null
+        : TemporalSirixNodeStream.create(temporalAxis, rtx, collection, test);
   }
 
   @Override
