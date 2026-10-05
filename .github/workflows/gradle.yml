@@ -73,15 +73,6 @@ jobs:
           key: build-${{ github.run_id }}
       - name: Test sirix-core
         run: ./gradlew :sirix-core:test -PcoreTestLane=${{ matrix.lane }} --info --stacktrace
-      - name: Upload core test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-test-reports-${{ matrix.lane }}
-          path: |
-            bundles/sirix-core/build/test-results/test
-            bundles/sirix-core/build/reports/tests/test
-          retention-days: 14
 
   TestQuery:
     name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli

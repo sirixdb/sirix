@@ -74,18 +74,18 @@ reduced workloads. Workflow triggers and the `Build` prerequisite are unchanged,
 so both jobs run on every previously covered pull request, main push, release
 branch push and scheduled run. `fail-fast: false` lets both finish after a failure.
 `Deploy` still depends on `TestCore`, which now requires both matrix jobs to
-succeed. Query and cross-platform jobs are unchanged. Each core lane uploads its
-XML and HTML reports even after failure for exact per-class timing and diagnostics.
+succeed. Query and cross-platform jobs are unchanged.
 
 ## Verification
 
-Use Gradle's `--test-dry-run` on the unpartitioned task and on both lanes, saving
-`bundles/sirix-core/build/test-results/test` after each invocation. Compare the
-multisets of `(classname, name)` from XML `testcase` elements: lane intersection
-must be empty and lane union must exactly equal the unpartitioned discovery.
+Use Gradle's `--test-dry-run --info` on the unpartitioned task and on both lanes,
+saving each invocation's log. Count the test cases Gradle reports as `SKIPPED`
+in each discovery log. Both lane counts must be nonzero and their sum must equal
+the unpartitioned count at the same commit with the same test configuration.
+Together with the complementary class filters above, this establishes an empty
+intersection and a lane union equal to the unpartitioned discovery.
 This exercises Gradle/JUnit discovery and the real include/exclude behavior.
 A discovery pass skips execution and is coverage evidence, not a correctness run.
 
 The PR's CI must execute both lanes successfully. Read each job's start/end times
-from GitHub and compare them with the unchanged 35-minute cap. The uploaded XML
-reports also allow measuring class durations accurately in later tuning.
+from GitHub and compare them with the unchanged 35-minute cap.
