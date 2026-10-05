@@ -56,7 +56,8 @@ final class CASCappedLexicalViewTest {
   @TempDir
   File directory;
 
-  private record StoredValue(String path, String value) {}
+  private record StoredValue(String path, String value) {
+  }
 
   @AfterEach
   void clearCaches() {
@@ -96,8 +97,8 @@ final class CASCappedLexicalViewTest {
 
   @ParameterizedTest
   @MethodSource("views")
-  void filtersUseExactValuesInThePostingView(final VersioningType versioning, final boolean bulk,
-      final Type type, final String[] values) throws Exception {
+  void filtersUseExactValuesInThePostingView(final VersioningType versioning, final boolean bulk, final Type type,
+      final String[] values) throws Exception {
     final var databasePath = directory.toPath().resolve("database");
     final var snapshots = new ArrayList<Map<Long, StoredValue>>();
     final var expected = new HashMap<Long, StoredValue>();
@@ -197,9 +198,12 @@ final class CASCappedLexicalViewTest {
   }
 
   private static long nodeKey(final Map<Long, StoredValue> expected, final String path, final String value) {
-    return expected.entrySet().stream()
+    return expected.entrySet()
+                   .stream()
                    .filter(entry -> entry.getValue().path().equals(path) && entry.getValue().value().equals(value))
-                   .mapToLong(Map.Entry::getKey).findFirst().orElseThrow();
+                   .mapToLong(Map.Entry::getKey)
+                   .findFirst()
+                   .orElseThrow();
   }
 
   private static long cursorKey(final JsonNodeReadOnlyTrx trx) {
@@ -234,13 +238,20 @@ final class CASCappedLexicalViewTest {
       final String[] values) throws Exception {
     final long cursor = cursorKey(trx);
     final StorageEngineReader cursorReader = trx.getStorageEngineReader();
-    final NodeStorageEngineReader recordReader = (NodeStorageEngineReader) (cursorReader instanceof StorageEngineWriter writer
-        ? writer.getStorageEngineReader()
-        : cursorReader);
+    final NodeStorageEngineReader recordReader =
+        (NodeStorageEngineReader) (cursorReader instanceof StorageEngineWriter writer
+            ? writer.getStorageEngineReader()
+            : cursorReader);
     final KeyValueLeafPage page = recordReader.getCurrentPage();
-    final int guards = page == null ? 0 : page.getGuardCount();
+    final int guards = page == null
+        ? 0
+        : page.getGuardCount();
     final Type type = definition.getContentType();
-    final String shortValue = type == Type.HEX || type == Type.B64 ? "" : type == Type.AURI ? "urn:a" : "a";
+    final String shortValue = type == Type.HEX || type == Type.B64
+        ? ""
+        : type == Type.AURI
+            ? "urn:a"
+            : "a";
     final String[] probes = {shortValue, values[0], values[1], values[2], values[3]};
     for (final Set<String> paths : List.of(Set.of(TITLE), Set.of(ALIAS), Set.of(TITLE, ALIAS))) {
       for (final String value : probes) {
@@ -268,11 +279,15 @@ final class CASCappedLexicalViewTest {
           assertCursor(trx, cursor, recordReader, page, guards);
         }
       }
-      final String[][] bounds = {{values[0], values[3]}, {values[1], values[1]},
-          {null, values[1]}, {values[1], null}, {shortValue, values[1]}, {values[1], shortValue}, {null, null}};
+      final String[][] bounds = {{values[0], values[3]}, {values[1], values[1]}, {null, values[1]}, {values[1], null},
+          {shortValue, values[1]}, {values[1], shortValue}, {null, null}};
       for (final String[] bound : bounds) {
-        final Atomic min = bound[0] == null ? null : AtomicUtil.toType(new Str(bound[0]), type);
-        final Atomic max = bound[1] == null ? null : AtomicUtil.toType(new Str(bound[1]), type);
+        final Atomic min = bound[0] == null
+            ? null
+            : AtomicUtil.toType(new Str(bound[0]), type);
+        final Atomic max = bound[1] == null
+            ? null
+            : AtomicUtil.toType(new Str(bound[1]), type);
         for (final boolean includeMin : new boolean[] {false, true}) {
           for (final boolean includeMax : new boolean[] {false, true}) {
             final TreeSet<Long> wanted = new TreeSet<>();
@@ -281,9 +296,13 @@ final class CASCappedLexicalViewTest {
                 continue;
               }
               final Atomic atomic = AtomicUtil.toType(new Str(entry.getValue().value()), type);
-              final int lower = min == null ? 1 : atomic.compareTo(min);
-              final int upper = max == null ? -1 : atomic.compareTo(max);
-              if ((lower > 0 || lower == 0 && includeMin) && (upper < 0 || upper == 0 && includeMax)) {
+              final int lower = min == null
+                  ? 1
+                  : atomic.compareTo(min);
+              final int upper = max == null
+                  ? -1
+                  : atomic.compareTo(max);
+              if ((lower > 0 || (lower == 0 && includeMin)) && (upper < 0 || (upper == 0 && includeMax))) {
                 wanted.add(entry.getKey());
               }
             }
@@ -307,8 +326,10 @@ final class CASCappedLexicalViewTest {
     }
   }
 
-  private static TreeSet<Long> postings(final Iterator<NodeReferences> iterator) throws Exception {
-    try (final AutoCloseable closeable = iterator instanceof AutoCloseable resource ? resource : null) {
+  private static Set<Long> postings(final Iterator<NodeReferences> iterator) throws Exception {
+    try (final AutoCloseable closeable = iterator instanceof AutoCloseable resource
+        ? resource
+        : null) {
       final TreeSet<Long> actual = new TreeSet<>();
       while (iterator.hasNext()) {
         final LongIterator nodes = iterator.next().nodeKeyIterator();

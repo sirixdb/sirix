@@ -279,8 +279,8 @@ final class HOTIndirectPageSplitFaithfulTest {
 
     final BiNode leafSplit =
         HOTIncrementalInsert.splitLeafPage(splittable, beKey(0L), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-    final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(node, leafSplit, 0, 1,
-        IndexType.CAS, allocator::getAndIncrement);
+    final HOTIndirectPage integrated =
+        HOTIncrementalInsert.addEntry(node, leafSplit, 0, 1, IndexType.CAS, allocator::getAndIncrement);
     final PageReference rootRef = swizzle(integrated);
 
     assertEquals(3, integrated.getNumChildren(), "the fold adds one child to the 2-child node");
@@ -560,9 +560,8 @@ final class HOTIndirectPageSplitFaithfulTest {
         }
         mergedLeaves.add(mergedLeaf);
 
-        final PageReference mergedRef =
-            HOTIncrementalInsert.mergeBiNodePairedLeaves(root, i, mergedLeaf, 1,
-                IndexType.CAS, allocator::getAndIncrement);
+        final PageReference mergedRef = HOTIncrementalInsert.mergeBiNodePairedLeaves(root, i, mergedLeaf, 1,
+            IndexType.CAS, allocator::getAndIncrement);
         final String label = "WIDE_SPAN size=" + size + " pair=" + i;
         if (mergedRef.getPage() instanceof HOTIndirectPage) {
           sawCompoundResult = true;
@@ -608,9 +607,8 @@ final class HOTIndirectPageSplitFaithfulTest {
     final HOTIndirectPage mini = HOTBulkBuilder.assembleIndirect(new int[] {1}, new int[] {0, 1},
         new PageReference[] {ref00, ref01}, 1, 1, IndexType.CAS, allocator::getAndIncrement);
 
-    final PageReference resultRef =
-        HOTIncrementalInsert.replaceAdjacentPairAndCompress(parent, 0, swizzle(mini), 1,
-            IndexType.CAS, allocator::getAndIncrement);
+    final PageReference resultRef = HOTIncrementalInsert.replaceAdjacentPairAndCompress(parent, 0, swizzle(mini), 1,
+        IndexType.CAS, allocator::getAndIncrement);
     assertTrue(resultRef.getPage() instanceof HOTIndirectPage);
     final HOTIndirectPage result = (HOTIndirectPage) resultRef.getPage();
     assertArrayEquals(new int[] {0}, HOTIncrementalInsert.discriminativeBits(result));
@@ -654,9 +652,8 @@ final class HOTIndirectPageSplitFaithfulTest {
     final HOTIndirectPage mini = HOTBulkBuilder.assembleIndirect(new int[] {1, 2}, new int[] {0, 2, 3},
         new PageReference[] {ref000, ref010, ref011}, 1, 1, IndexType.CAS, allocator::getAndIncrement);
     final PageReference miniRef = swizzle(mini);
-    assertThrows(IllegalArgumentException.class,
-        () -> HOTIncrementalInsert.replaceChildRangeAndCompress(parent, 0, 2, miniRef, 1,
-            IndexType.CAS, allocator::getAndIncrement));
+    assertThrows(IllegalArgumentException.class, () -> HOTIncrementalInsert.replaceChildRangeAndCompress(parent, 0, 2,
+        miniRef, 1, IndexType.CAS, allocator::getAndIncrement));
 
     final PageReference resultRef = HOTIncrementalInsert.replaceChildRangeAndCompress(parent, range.fromInclusive(),
         range.toExclusive(), miniRef, 1, IndexType.CAS, allocator::getAndIncrement);
@@ -758,9 +755,8 @@ final class HOTIndirectPageSplitFaithfulTest {
         for (int e = 0; e < right.getEntryCount(); e++) {
           assertTrue(mergedLeaf.put(right.getKey(e), right.getValue(e)));
         }
-        final PageReference mergedRef =
-            HOTIncrementalInsert.mergeBiNodePairedLeaves(afterSplit, slot, mergedLeaf, 1,
-                IndexType.CAS, allocator::getAndIncrement);
+        final PageReference mergedRef = HOTIncrementalInsert.mergeBiNodePairedLeaves(afterSplit, slot, mergedLeaf, 1,
+            IndexType.CAS, allocator::getAndIncrement);
         assertEquals(targetKeys, collectKeys(mergedRef.getPage()),
             label + ": split then merge must round-trip to the original key set");
         assertClean(mergedRef, label);

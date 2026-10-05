@@ -126,8 +126,8 @@ final class StraddleCanonicityProbe {
         closeLeaves(built.rootPage());
         continue;
       }
-      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(root, 1,
-          IndexType.CAS, allocator::getAndIncrement);
+      final HOTIncrementalInsert.BiNode split =
+          HOTIncrementalInsert.splitIndirect(root, 1, IndexType.CAS, allocator::getAndIncrement);
       final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
           ? split.left()
           : split.right();

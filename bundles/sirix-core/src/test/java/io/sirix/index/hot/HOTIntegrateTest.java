@@ -61,10 +61,8 @@ final class HOTIntegrateTest {
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(rootLeaf, rootLeaf.getKey(0), VALUE, 1, IndexType.CAS,
         allocator::getAndIncrement);
     final PageReference rootRef = built.rootReference();
-    final PageReference newRoot = HOTIncrementalInsert
-                                                      .integrate(new HOTIndirectPage[0], new PageReference[] {rootRef},
-                                                          new int[0], 0, biNode, 1, IndexType.CAS, allocator::getAndIncrement)
-                                                      .rootRef();
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[0], new PageReference[] {rootRef},
+        new int[0], 0, biNode, 1, IndexType.CAS, allocator::getAndIncrement).rootRef();
 
     assertSame(rootRef, newRoot, "depth-0 integration re-points the index-root reference");
     assertCleanAndRoutes(newRoot, keys, "direct-new-root");
@@ -99,11 +97,9 @@ final class HOTIntegrateTest {
     final BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // integrate folds the BiNode in via addEntry — a clean canonical fold.
-    final PageReference newRoot = HOTIncrementalInsert
-                                                      .integrate(new HOTIndirectPage[] {half},
-                                                          new PageReference[] {halfRef, half.getChildReference(slot)},
-                                                          new int[] {slot}, 1, biNode, 1, IndexType.CAS, allocator::getAndIncrement)
-                                                      .rootRef();
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
+        new PageReference[] {halfRef, half.getChildReference(slot)}, new int[] {slot}, 1, biNode, 1, IndexType.CAS,
+        allocator::getAndIncrement).rootRef();
     assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
     assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
     assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
@@ -134,7 +130,8 @@ final class HOTIntegrateTest {
                                                       .integrate(new HOTIndirectPage[] {root},
                                                           new PageReference[] {built.rootReference(),
                                                               root.getChildReference(slot)},
-                                                          new int[] {slot}, 1, biNode, 1, IndexType.CAS, allocator::getAndIncrement)
+                                                          new int[] {slot}, 1, biNode, 1, IndexType.CAS,
+                                                          allocator::getAndIncrement)
                                                       .rootRef();
     final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
     assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");

@@ -1238,20 +1238,19 @@ final class HOTStructuralPropertyTest {
         final ByteKey key = physical.get(i);
         // Delta slots participate in the physical ordering even though they are not extra chunks.
         if (i > 0 && physical.get(i - 1).compareTo(key) >= 0) {
-          throw new PropertyViolation(check, "slot " + i + " (" + key + ") does not sort above slot " + (i - 1)
-              + " (" + physical.get(i - 1) + ")");
+          throw new PropertyViolation(check,
+              "slot " + i + " (" + key + ") does not sort above slot " + (i - 1) + " (" + physical.get(i - 1) + ")");
         }
         if (supportsDeltas && !expected.contains(key) && key.bytes.length > PostingDeltas.SUFFIX_BYTES) {
           final long suffix = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
           if (PostingDeltas.isDelta(suffix)
               && suffix <= (PostingDeltas.suffix(PostingDeltas.MAX_SEQ, true) & 0xFFFFFFFFL)) {
-            final ByteKey base =
-                new ByteKey(Arrays.copyOf(key.bytes, key.bytes.length - PostingDeltas.SUFFIX_BYTES));
+            final ByteKey base = new ByteKey(Arrays.copyOf(key.bytes, key.bytes.length - PostingDeltas.SUFFIX_BYTES));
             // Establish the logical boundary through the reference, not a chunk trailer's high bit.
             // A full unsigned chunk index is a base key, and unrelated keys must still fail below.
             if ((expected.contains(base) || emptyBases.contains(base))
-                && (HOTKeySerializer.readChunkIdx(base.bytes, 0, base.bytes.length) & 0xFFFFFFFFL)
-                    <= PostingDeltas.MAX_CHUNK_IDX) {
+                && (HOTKeySerializer.readChunkIdx(base.bytes, 0, base.bytes.length)
+                    & 0xFFFFFFFFL) <= PostingDeltas.MAX_CHUNK_IDX) {
               continue;
             }
           }

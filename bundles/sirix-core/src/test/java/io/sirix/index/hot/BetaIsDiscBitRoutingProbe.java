@@ -548,8 +548,8 @@ final class BetaIsDiscBitRoutingProbe {
     if (node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
       return node;
     }
-    final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, 1,
-        IndexType.CAS, allocator::getAndIncrement);
+    final HOTIncrementalInsert.BiNode split =
+        HOTIncrementalInsert.splitIndirect(node, 1, IndexType.CAS, allocator::getAndIncrement);
     return HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, split.discriminativeBitIndex(), split.left(),
         split.right(), split.height());
   }

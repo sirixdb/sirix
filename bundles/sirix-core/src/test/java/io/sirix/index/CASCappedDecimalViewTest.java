@@ -293,7 +293,7 @@ final class CASCappedDecimalViewTest {
               final int upper = max == null
                   ? -1
                   : atomic.compareTo(max);
-              if ((lower > 0 || lower == 0 && includeMin) && (upper < 0 || upper == 0 && includeMax)) {
+              if ((lower > 0 || (lower == 0 && includeMin)) && (upper < 0 || (upper == 0 && includeMax))) {
                 wanted.add(entry.getKey());
               }
             }
@@ -317,7 +317,7 @@ final class CASCappedDecimalViewTest {
     }
   }
 
-  private static TreeSet<Long> postings(final Iterator<NodeReferences> iterator) throws Exception {
+  private static Set<Long> postings(final Iterator<NodeReferences> iterator) throws Exception {
     try (final AutoCloseable closeable = iterator instanceof AutoCloseable resource
         ? resource
         : null) {

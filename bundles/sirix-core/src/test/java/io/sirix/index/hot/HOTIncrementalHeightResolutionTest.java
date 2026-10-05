@@ -44,8 +44,7 @@ final class HOTIncrementalHeightResolutionTest {
             new PageReference[] {swizzle(first), swizzle(second), unresolvedTallThird, swizzle(fourth)}, 3);
 
     try {
-      assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2,
+      assertThrows(IllegalStateException.class, () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2,
           IndexType.PATH, new AtomicLong(30)::getAndIncrement));
     } finally {
       first.close();

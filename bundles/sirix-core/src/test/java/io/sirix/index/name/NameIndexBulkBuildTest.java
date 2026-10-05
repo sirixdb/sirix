@@ -171,8 +171,8 @@ final class NameIndexBulkBuildTest {
             if (mode != BuildMode.INCREMENTAL) {
               session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
             }
-            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
-                definitions, names, expected);
+            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(), definitions,
+                names, expected);
             snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
             trx.commit();
 
@@ -183,8 +183,8 @@ final class NameIndexBulkBuildTest {
             final long insertedKey = trx.getNodeKey();
             assertEquals(name, trx.getName());
             keys.add(insertedKey);
-            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
-                definitions, names, expected);
+            lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(), definitions,
+                names, expected);
             snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
             trx.commit();
 
@@ -192,8 +192,8 @@ final class NameIndexBulkBuildTest {
               assertTrue(trx.moveTo(key));
               trx.remove();
               keys.remove(key);
-              lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
-                  definitions, names, expected);
+              lookups(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(), definitions,
+                  names, expected);
               snapshots.put(trx.getRevisionNumber(), Set.copyOf(keys));
               trx.commit();
             }
@@ -221,8 +221,12 @@ final class NameIndexBulkBuildTest {
     final String prefix = "x".repeat(300);
     final StringBuilder json = new StringBuilder(160_000).append("[{\"a\":0");
     for (int i = 0; i < 513; i++) {
-      json.append(",\"").append(prefix).append((char) ('0' + i / 100))
-          .append((char) ('0' + i / 10 % 10)).append((char) ('0' + i % 10)).append("\":0");
+      json.append(",\"")
+          .append(prefix)
+          .append((char) ('0' + i / 100))
+          .append((char) ('0' + i / 10 % 10))
+          .append((char) ('0' + i % 10))
+          .append("\":0");
     }
     json.append("}]");
     final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
@@ -253,8 +257,8 @@ final class NameIndexBulkBuildTest {
               trx.commit();
             }
             session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(definition), trx);
-            assertAllNamePostings(session.getWtxIndexController(trx.getRevisionNumber()),
-                trx.getStorageEngineReader(), definition, expected);
+            assertAllNamePostings(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+                definition, expected);
             snapshots.put(trx.getRevisionNumber(), Set.copyOf(expected));
             trx.commit();
 

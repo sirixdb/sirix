@@ -73,8 +73,8 @@ final class HOTBulkBuilderTest {
     final PageReference[] children = {new PageReference(), new PageReference()};
     for (final IndexType type : new IndexType[] {IndexType.CAS, IndexType.VALIDTIME}) {
       assertThrows(IllegalArgumentException.class,
-          () -> HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 256 * Byte.SIZE}, new int[] {0, 1},
-              children, 1, 1, type, allocator::getAndIncrement));
+          () -> HOTBulkBuilder.assembleIndirect(new int[] {10 * Byte.SIZE, 256 * Byte.SIZE}, new int[] {0, 1}, children,
+              1, 1, type, allocator::getAndIncrement));
     }
     assertEquals(1, allocator.get());
   }
@@ -82,8 +82,8 @@ final class HOTBulkBuilderTest {
   @Test
   void singleMaskRoutesPositionsBeyondUnsignedByteRange() {
     final PageReference[] children = {new PageReference(), new PageReference()};
-    try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {300 * Byte.SIZE},
-        new int[] {0, 1}, children, 1, 1, IndexType.NAME, () -> 1)) {
+    try (final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(new int[] {300 * Byte.SIZE}, new int[] {0, 1},
+        children, 1, 1, IndexType.NAME, () -> 1)) {
       final byte[] key = new byte[301];
       assertEquals(300, node.getInitialBytePos());
       assertEquals(0, node.findChildIndex(key, key.length));

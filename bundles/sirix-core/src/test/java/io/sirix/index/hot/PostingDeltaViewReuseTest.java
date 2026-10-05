@@ -25,6 +25,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 import static java.util.Objects.requireNonNull;
@@ -54,8 +55,8 @@ final class PostingDeltaViewReuseTest {
   private <K extends Comparable<? super K>> void exercise(final VersioningType versioning, final IndexType type,
       final HOTKeySerializer<K> serializer, final K firstKey, final K secondKey) {
     final Path path = directory.resolve(type.name());
-    final TreeSet<Long> first = new TreeSet<>();
-    final TreeSet<Long> second = new TreeSet<>();
+    final SortedSet<Long> first = new TreeSet<>();
+    final SortedSet<Long> second = new TreeSet<>();
     final List<long[][]> revisions = new ArrayList<>();
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
@@ -138,13 +139,13 @@ final class PostingDeltaViewReuseTest {
     }
   }
 
-  private static long[][] snapshot(final TreeSet<Long> first, final TreeSet<Long> second) {
+  private static long[][] snapshot(final SortedSet<Long> first, final SortedSet<Long> second) {
     return new long[][] {first.stream().mapToLong(Long::longValue).toArray(),
         second.stream().mapToLong(Long::longValue).toArray()};
   }
 
   private static <K extends Comparable<? super K>> void assertCurrent(final HOTIndexWriter<K> writer, final K firstKey,
-      final K secondKey, final TreeSet<Long> first, final TreeSet<Long> second) {
+      final K secondKey, final SortedSet<Long> first, final SortedSet<Long> second) {
     final long[][] expected = snapshot(first, second);
     assertArrayEquals(expected[0], requireNonNull(writer.get(firstKey, SearchMode.EQUAL)).toSortedArray());
     assertArrayEquals(expected[1], requireNonNull(writer.get(secondKey, SearchMode.EQUAL)).toSortedArray());

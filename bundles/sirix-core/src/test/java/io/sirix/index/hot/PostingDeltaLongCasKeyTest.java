@@ -338,7 +338,7 @@ final class PostingDeltaLongCasKeyTest {
             final int upper = max == null
                 ? -1
                 : original.compareTo(max);
-            if ((lower > 0 || includeMin && lower == 0) && (upper < 0 || includeMax && upper == 0)) {
+            if ((lower > 0 || (includeMin && lower == 0)) && (upper < 0 || (includeMax && upper == 0))) {
               expected.add(valueKeys[row]);
             }
           }
@@ -372,7 +372,7 @@ final class PostingDeltaLongCasKeyTest {
     }
   }
 
-  private static TreeSet<Long> rangePostings(final Iterator<NodeReferences> hits) {
+  private static Set<Long> rangePostings(final Iterator<NodeReferences> hits) {
     final TreeSet<Long> actual = new TreeSet<>();
     while (hits.hasNext()) {
       final LongIterator nodeKeys = hits.next().nodeKeyIterator();

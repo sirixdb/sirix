@@ -74,8 +74,8 @@ final class HOTSplitHalfTrieConditionTest {
       final int upperHalfMsb = HOTIncrementalInsert.mostSignificantLiveBit(NODE_BITS, NODE_PARTIALS, 1, 3);
       assertEquals(4, upperHalfMsb, "bit 0 is constant above the split, so bit 4 is all the upper half keeps");
 
-      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, 2,
-          IndexType.VALIDTIME, allocator::getAndIncrement);
+      final HOTIncrementalInsert.BiNode split =
+          HOTIncrementalInsert.splitIndirect(node, 2, IndexType.VALIDTIME, allocator::getAndIncrement);
 
       assertSame(below, split.left(), "the lone lower child hangs directly under the split");
       final HOTIndirectPage upperHalf = (HOTIndirectPage) split.right().getPage();
@@ -126,8 +126,8 @@ final class HOTSplitHalfTrieConditionTest {
       final HOTIndirectPage top = HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, SIBLING_BIT,
           swizzle(leaf(allocator, leaves, 0xa8)), swizzle(leaf(allocator, leaves, 0xac)), 1);
       final HOTIndirectPage node = HOTBulkBuilder.assembleIndirect(FOLD_NODE_BITS, FOLD_NODE_PARTIALS,
-          new PageReference[] {swizzle(straddling), swizzle(upper), swizzle(top)}, 2, 1,
-          IndexType.VALIDTIME, allocator::getAndIncrement);
+          new PageReference[] {swizzle(straddling), swizzle(upper), swizzle(top)}, 2, 1, IndexType.VALIDTIME,
+          allocator::getAndIncrement);
 
       final int upperHalfMsb = HOTIncrementalInsert.mostSignificantLiveBit(FOLD_NODE_BITS, FOLD_NODE_PARTIALS, 1, 3);
       assertEquals(4, upperHalfMsb, "over the node's own children bit 4 is all the upper half keeps");

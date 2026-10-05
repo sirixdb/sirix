@@ -187,9 +187,8 @@ final class HOTExistingBitFoldPlacementTest {
       final int[] partials = withSibling
           ? new int[] {0b000, 0b001, 0b100, 0b110}
           : new int[] {0b000, 0b100, 0b110};
-      final HOTIndirectPage parent =
-          HOTBulkBuilder.assembleIndirect(new int[] {0, 2, 3}, partials, references, 1, 1,
-              IndexType.VALIDTIME, allocator::getAndIncrement);
+      final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 2, 3}, partials, references, 1, 1,
+          IndexType.VALIDTIME, allocator::getAndIncrement);
       assertOrderedAndRouted(parent);
       return new Fixture(parent, straddling);
     } catch (final RuntimeException | Error failure) {
