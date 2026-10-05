@@ -33,10 +33,12 @@ import io.sirix.query.node.BasicXmlDBStore;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Query;
+import org.custommonkey.xmlunit.Diff;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.xml.sax.SAXException;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
@@ -121,7 +123,8 @@ public final class DiffTest {
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        Assert.assertEquals(contentNewRev, contentOldRev);
+        final Diff diff = new Diff(contentNewRev, contentOldRev);
+        Assert.assertTrue(diff.toString(), diff.identical());
 
         out.reset();
       }
@@ -129,7 +132,7 @@ public final class DiffTest {
   }
 
   @Test
-  public void testMultipleDiffs() throws IOException, QueryException {
+  public void testMultipleDiffs() throws IOException, QueryException, SAXException {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
@@ -159,7 +162,8 @@ public final class DiffTest {
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        Assert.assertEquals(contentNewRev, contentOldRev);
+        final Diff diff = new Diff(contentNewRev, contentOldRev);
+        Assert.assertTrue(diff.toString(), diff.identical());
 
         out.reset();
       }

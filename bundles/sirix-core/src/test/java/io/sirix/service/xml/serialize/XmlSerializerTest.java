@@ -156,10 +156,9 @@ public class XmlSerializerTest {
   }
 
   /**
-   * Literal tab/LF/CR in attribute values are normalized to spaces by conforming parsers, and
-   * literal CR/CRLF in content to LF — so they must be serialized as character references
-   * ({@code &#x9;}/{@code &#xA;}/{@code &#xD;}) to survive a serialize→reparse round-trip
-   * unchanged.
+   * Literal tab/LF/CR in attribute values are normalized to spaces by conforming parsers, and literal
+   * CR/CRLF in content to LF — so they must be serialized as character references
+   * ({@code &#x9;}/{@code &#xA;}/{@code &#xD;}) to survive a serialize→reparse round-trip unchanged.
    */
   @Test
   public void testAttributeAndContentWhitespaceRoundTrip() throws Exception {
@@ -222,7 +221,8 @@ public class XmlSerializerTest {
           new XmlSerializer.XmlSerializerBuilder(session, 5L, out, new XmlSerializerProperties()).emitXMLDeclaration()
                                                                                                  .build();
       serializerall.call();
-      final String result = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
+      final String result =
+          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b xmlns:p=\"ns\">foo<c/></b>";
 
       assertEquals(result, out.toString());
       out.reset();

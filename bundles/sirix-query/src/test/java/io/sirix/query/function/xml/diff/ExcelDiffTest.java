@@ -166,7 +166,8 @@ public final class ExcelDiffTest {
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = out.toString(StandardCharsets.UTF_8);
 
-        Assert.assertEquals(contentNewRev, contentOldRev);
+        final Diff diff = new Diff(contentNewRev, contentOldRev);
+        Assert.assertTrue(diff.toString(), diff.identical());
 
         out.reset();
       }
