@@ -48,6 +48,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -55,6 +57,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.SplittableRandom;
 import java.util.TreeMap;
@@ -1017,12 +1020,14 @@ final class HOTStructuralPropertyTest {
   private static final class Logical<K> {
     final K key;
     final LongAVLTreeSet nodeKeys;
+    private final long[] sortedNodeKeys;
     /** Distinct {@code nodeKey >>> 16} values, ascending: the chunk slots this key occupies. */
     final int[] chunks;
 
     Logical(final K key, final LongAVLTreeSet nodeKeys) {
       this.key = key;
       this.nodeKeys = nodeKeys;
+      sortedNodeKeys = nodeKeys.toLongArray();
       int count = 0;
       int last = -1;
       for (final long nodeKey : nodeKeys) {
@@ -1045,7 +1050,7 @@ final class HOTStructuralPropertyTest {
     }
 
     long[] sortedNodeKeys() {
-      return nodeKeys.toLongArray();
+      return sortedNodeKeys;
     }
   }
 
@@ -1208,9 +1213,12 @@ final class HOTStructuralPropertyTest {
       final List<ByteKey> physical = liveSlotKeys(reader, root, true);
       final List<ByteKey> chunks = new ArrayList<>(expected.size());
       final boolean supportsDeltas = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
-      final SortedSet<ByteKey> emptyBases = supportsDeltas
-          ? emptyPostingBases(reader, physical, expected)
-          : new TreeSet<>();
+      final Set<ByteKey> membership = supportsDeltas
+          ? new HashSet<>(expected)
+          : expected;
+      final Set<ByteKey> emptyBases = supportsDeltas
+          ? emptyPostingBases(reader, physical, membership)
+          : Set.of();
       for (int i = 0; i < physical.size(); i++) {
         final ByteKey key = physical.get(i);
         // Delta slots participate in the physical ordering even though they are not extra chunks.
@@ -1218,14 +1226,14 @@ final class HOTStructuralPropertyTest {
           throw new PropertyViolation(check,
               "slot " + i + " (" + key + ") does not sort above slot " + (i - 1) + " (" + physical.get(i - 1) + ")");
         }
-        if (supportsDeltas && !expected.contains(key) && key.bytes.length > PostingDeltas.SUFFIX_BYTES) {
+        if (supportsDeltas && !membership.contains(key) && key.bytes.length > PostingDeltas.SUFFIX_BYTES) {
           final long suffix = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
           if (PostingDeltas.isDelta(suffix)
               && suffix <= (PostingDeltas.suffix(PostingDeltas.MAX_SEQ, true) & 0xFFFFFFFFL)) {
             final ByteKey base = new ByteKey(Arrays.copyOf(key.bytes, key.bytes.length - PostingDeltas.SUFFIX_BYTES));
             // Establish the logical boundary through the reference, not a chunk trailer's high bit.
             // A full unsigned chunk index is a base key, and unrelated keys must still fail below.
-            if ((expected.contains(base) || emptyBases.contains(base))
+            if ((membership.contains(base) || emptyBases.contains(base))
                 && (HOTKeySerializer.readChunkIdx(base.bytes, 0, base.bytes.length)
                     & 0xFFFFFFFFL) <= PostingDeltas.MAX_CHUNK_IDX) {
               continue;
@@ -1239,9 +1247,10 @@ final class HOTStructuralPropertyTest {
       compareSlots(check, chunks, expected);
     }
 
-    private SortedSet<ByteKey> emptyPostingBases(final StorageEngineReader reader, final List<ByteKey> physical,
-        final SortedSet<ByteKey> expected) {
-      final SortedSet<ByteKey> emptyBases = new TreeSet<>();
+    private Set<ByteKey> emptyPostingBases(final StorageEngineReader reader, final List<ByteKey> physical,
+        final Set<ByteKey> expected) {
+      final Set<ByteKey> emptyBases = new HashSet<>();
+      final Map<ByteKey, long[]> postingsByPrefix = new HashMap<>();
       final PostingLookup<K> lookup = readerLookup(reader);
       for (final ByteKey key : physical) {
         final int prefixLength = logicalKeyLength(key.bytes);
@@ -1251,16 +1260,20 @@ final class HOTStructuralPropertyTest {
         // An append-only removal may empty a chunk before its next fold. Require the public
         // posting view to contain no node keys in that independently absent reference chunk.
         final long chunk = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
-        final NodeReferences refs = lookup.get(deserializePrefix(key.bytes, prefixLength));
-        boolean empty = true;
-        if (refs != null) {
-          for (final long nodeKey : refs.toSortedArray()) {
-            if ((nodeKey >>> 16) == chunk) {
-              empty = false;
-              break;
-            }
-          }
+        final ByteKey prefix = new ByteKey(Arrays.copyOf(key.bytes, prefixLength));
+        long[] nodeKeys = postingsByPrefix.get(prefix);
+        if (nodeKeys == null) {
+          final NodeReferences refs = lookup.get(deserializePrefix(key.bytes, prefixLength));
+          nodeKeys = refs == null
+              ? new long[0]
+              : refs.toSortedArray();
+          postingsByPrefix.put(prefix, nodeKeys);
         }
+        final int found = Arrays.binarySearch(nodeKeys, chunk << 16);
+        final int first = found >= 0
+            ? found
+            : -found - 1;
+        final boolean empty = first == nodeKeys.length || (nodeKeys[first] >>> 16) != chunk;
         if (empty) {
           emptyBases.add(key);
         }
@@ -1300,7 +1313,7 @@ final class HOTStructuralPropertyTest {
           throw new PropertyViolation("reader-iterator-order",
               "logical key " + position + " is " + actualPrefix + ", reference expects " + wanted.getKey());
         }
-        final long[] wantedArray = wanted.getValue().nodeKeys.toLongArray();
+        final long[] wantedArray = wanted.getValue().sortedNodeKeys();
         final long[] actualArray = actual.getValue().toSortedArray();
         if (!Arrays.equals(wantedArray, actualArray)) {
           throw new PropertyViolation("reader-iterator-postings",
