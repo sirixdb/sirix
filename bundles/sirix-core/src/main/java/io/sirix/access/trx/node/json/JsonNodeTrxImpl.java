@@ -4407,53 +4407,68 @@ final class JsonNodeTrxImpl extends
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     try {
-      serializeUpdateDiffsWithIngestPositions(revisionNumber);
-    } finally {
-      ingestArrayPositions = null;
-      if (!nodeHashing.isBulkInsert()) {
-        beforeBulkInsertionRevisionNumber = -1;
-        suppressUpdateDiffs = false;
-        updateOperationsUnordered.clear();
+      final Runnable publish = serializeUpdateDiffsWithIngestPositions(revisionNumber);
+      if (publish != null) {
+        publish.run();
       }
+    } finally {
+      clearUpdateDiffsAfterAsyncCommit();
     }
   }
 
-  private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
+  @Override
+  protected @Nullable Runnable prepareUpdateDiffsForAsyncCommit(final int revisionNumber) {
+    return serializeUpdateDiffsWithIngestPositions(revisionNumber);
+  }
+
+  @Override
+  protected void clearUpdateDiffsAfterAsyncCommit() {
+    ingestArrayPositions = null;
+    if (!nodeHashing.isBulkInsert()) {
+      beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = false;
+      updateOperationsUnordered.clear();
+    }
+  }
+
+  private @Nullable Runnable serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
     final int oldRevisionNumber = diffStartingRevision(revisionNumber);
-    if (!nodeHashing.isBulkInsert() && !suppressUpdateDiffs && oldRevisionNumber > 0) {
+    if (nodeHashing.isBulkInsert() || suppressUpdateDiffs || oldRevisionNumber <= 0) {
+      return null;
+    }
+    final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
+        oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
+    final var jsonDiff = revisionNumber > resourceSession.getMostRecentRevisionNumber()
+        ? diffSerializer.serializeSidecarFromFrozenEpoch(this, ingestArrayPositions)
+        : ingestArrayPositions == null
+            ? diffSerializer.serializeSidecar()
+            : diffSerializer.serializeSidecar(ingestArrayPositions);
+    final Path diff = resourceSession.getResourceConfig()
+                                     .getResource()
+                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                     .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
+    // Only immutable data crosses the async hardening boundary. Do not retain this writer,
+    // its mutable operation map, ingest hints, cursor or path-summary reader in the action.
+    return () -> publishUpdateDiff(diff, jsonDiff);
+  }
 
-      final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
-          oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
-      final var jsonDiff = ingestArrayPositions == null
-          ? diffSerializer.serializeSidecar()
-          : diffSerializer.serializeSidecar(ingestArrayPositions);
-
-      // Use the same old revision number for the file name as for the diff content
-      final Path diff = resourceSession.getResourceConfig()
-                                       .getResource()
-                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                       .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
-      // The diff file is written after the storage commit is already durable, so a crash in
-      // between must not leave a torn (half-written) file behind, which readers would otherwise
-      // serve verbatim forever. Write to a temp file in the same directory and atomically move
-      // it into place.
-      final Path diffTmp = diff.resolveSibling(
-          diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
+  private static void publishUpdateDiff(final Path diff, final String jsonDiff) {
+    final Path diffTmp = diff.resolveSibling(
+        diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
+    try {
+      Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
       try {
-        Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
-        try {
-          Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
-        } catch (final AtomicMoveNotSupportedException e) {
-          Files.move(diffTmp, diff, REPLACE_EXISTING);
-        }
-      } catch (final IOException e) {
-        try {
-          Files.deleteIfExists(diffTmp);
-        } catch (final IOException removeTmpFileException) {
-          e.addSuppressed(removeTmpFileException);
-        }
-        throw new UncheckedIOException(e);
+        Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
+      } catch (final AtomicMoveNotSupportedException e) {
+        Files.move(diffTmp, diff, REPLACE_EXISTING);
       }
+    } catch (final IOException e) {
+      try {
+        Files.deleteIfExists(diffTmp);
+      } catch (final IOException removeTmpFileException) {
+        e.addSuppressed(removeTmpFileException);
+      }
+      throw new UncheckedIOException(e);
     }
   }
 

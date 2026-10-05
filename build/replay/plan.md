@@ -622,3 +622,27 @@ Evidence: gate-7-final.log/results; all mutations restored. The generated matrix
 reproduces a pre-existing pipelined source sidecar failure: serialization opens an
 unpublished new revision before hardenAndPublish. Identity replay stays correct on
 that cache miss. Prepare a separate source regression/repair before routing production.
+
+
+## Source follow-up: pipelined presentation sidecars
+
+Generated KEEP_OPEN_ASYNC_COMMIT histories exposed missing public sidecars because
+JsonDiffSerializer opened revision N before background hardening published N.
+`async-sidecar-red-1` reproduces the omission in all eight version/Dewey cases.
+Borrowing the writer after commitWritePages is too late: that step retires its read
+buffers (`async-sidecar-fixed-1`). The final design prepares immutable JSON and its
+path while the frozen writer still owns live pages, restores both borrowed cursors,
+keeps pending-map/ingest state on failed phase 1, and clears it only after phase 1
+succeeds. A callback owning only Path/String publishes atomically after hardening;
+no writer, mutable map or path reader crosses the async boundary. XML has no sidecar
+preparer; synchronous behavior keeps its existing durable reader path.
+
+`async-sidecar-fixed-2` passes selected serializer/diff/ingest budgets, async frontier
+ordering, all eight regression cases, and a held-hardening publication test proving
+no file before durability and no successor-value leakage. Extending insert ordinal
+coverage and rerunning the generated matrix before the independent fix commit.
+
+Async source follow-up final validation: 242 tests, zero failures/errors/skips,
+including all 144 generated configurations and all core/projection budgets; formatting
+passes. No cache-serialization errors occur in async-sidecar-final.log. Final XML is
+archived in async-sidecar-final-results. Independent fix ready to commit.
