@@ -41,6 +41,7 @@ final class TemporalNodeReaderLifetimeTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  @SuppressWarnings("ReferenceEquality") // Identity distinguishes the mocked test from the simple element test.
   void acceptedReaderSurvivesEarlyStreamClose(final VersioningType versioning) {
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioning).build()) {
       final var collection = store.create("history", "resource1", new DocumentParser("<root/>"));
