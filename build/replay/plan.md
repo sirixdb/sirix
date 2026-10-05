@@ -4,7 +4,7 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 02:51 Berlin)
+## Current checkpoint (2026-10-05 03:05 Berlin)
 
 Source hash/count repair is the first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02;
 its focused suite passes 267/267. Sparse trie growth is a separate follow-up, 0067f38b3,
@@ -66,10 +66,10 @@ performance acceptance, push or no-mistakes pipeline. The 03:40 validation cutof
 3. [done: initial shadow validation] Authoritative delta discovery; shadow hook compares delta-applied graph to
    separately enumerated full target snapshot before enabling production routing.
 4. [done: explicit epochs and failure validation] Commit/revert/rollback/async epoch coverage; exact manifest base validation.
-5. [in progress] Fixed-seed shrinkable operation streams across all four versioning types,
+5. [done: fixed seeds, shrinking and sidecar independence] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
-6. [pending] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
+6. [in progress] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
    links, counts, frontier, revision metadata, hashes, stored Dewey IDs, queried indexes
    and path summaries. Include equal-value swaps, later parents, deleted-key restore,
    sparse reservations, replacement survivors and empty/no-op revisions.
@@ -347,3 +347,26 @@ diffs disabled). Formatting applied. Full generated matrix remains the next vali
 
 Expected pipelined public-sidecar serialization cache misses were logged before durable
 publication; authoritative replay does not read them. No production routing switch.
+
+## Gate 5 fixed-seed oracle (2026-10-05 03:05 Berlin)
+
+`JsonIdentityGraphGeneratedTest` passes all 144 configurations: four versioning types,
+three hashes, both Dewey modes, three open commit modes and zero/positive thresholds.
+Each runs two retained fixed seeds, 28 state-relative operations, every committed
+intermediate revision, and three destination histories for present/missing/corrupt
+public sidecars; the second seed disables source diff generation. Cold independent
+oracles compare complete identities, payload, ordered topology, counts, canonical
+hashes, frontier, Dewey bytes/order, revision metadata and complete path summaries.
+The bounded shrinker produced two-operation reproducers for the source fixes above.
+
+Streams include every insertion position, fused/ordinary nodes, equal-value identity
+swaps, descendant changes, moves, replacement, ancestor deletion, gaps/reservations,
+empty/no-op revisions, rollback and deleted-identity restoration. Resumed branches
+reserve disjoint high-water ranges: native reuse of a tombstoned slot remains the
+parallel prerequisite's regression, to incorporate on rebase.
+
+`generated-3.log` completes in 3m33s with the entire generated matrix and all selected
+core `*WorkBudgetTest` classes green, without widened bounds. XML retained in
+`generated-3-results/`. Gate 6 now adds queried primitive/projection/valid-time indexes
+and exact node-history records. The importer currently omits node-history index
+maintenance; do not route production copy before correcting and validating it.
