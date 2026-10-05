@@ -12,18 +12,17 @@ import io.sirix.query.node.XmlDBNode;
 
 /**
  * <p>
- * Function for getting the number of attributes of the current node. Supported signature is:
+ * Function for getting the number of attributes of the current node.
  * </p>
- * <ul>
- * <li><code>xn:get-attribute-count($doc as xs:structured-item) as xs:int</code></li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  *
  */
 public final class GetAttributeCount extends AbstractFunction {
 
-  /** Get most recent revision function name. */
   public final static QNm GET_ATTRIBUTE_COUNT = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "attribute-count");
 
   /**

@@ -281,6 +281,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
               buffer.append(System.getProperty("line.separator"));
               // $CASES-OMITTED$
+              // fall through: the default case emits no further update statements.
             default:
               // Do nothing.
           }

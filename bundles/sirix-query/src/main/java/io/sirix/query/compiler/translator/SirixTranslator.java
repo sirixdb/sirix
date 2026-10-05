@@ -742,6 +742,8 @@ public class SirixTranslator extends TopDownTranslator {
         final String namespaceURI = Objects.toString(name.getNamespaceURI(), "");
         final int localNameKey = names.keyForName(localName, NodeKind.ATTRIBUTE, reader);
         final int namespaceKey = names.keyForName(namespaceURI, NodeKind.NAMESPACE, reader);
+        // Rename and dictionary collision-chain changes can leave equivalent expanded names
+        // with different keys. Keep resolved-name equality when the key fast path misses.
         return new SirixNodeStream(new FilterAxis<>(axis, new AbstractFilter<XmlNodeReadOnlyTrx>(rtx) {
           @Override
           public boolean filter() {
