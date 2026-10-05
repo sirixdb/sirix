@@ -40,6 +40,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import static io.sirix.diff.DiffTestHelper.assertJsonCopyStructure;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -292,25 +293,14 @@ final class JsonDeletedKeyRegressionTest {
   }
 
   private static void assertStructure(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx copy) {
+    assertJsonCopyStructure(source, copy);
     source.moveToDocumentRoot();
-    copy.moveToDocumentRoot();
-    assertEquals(source.getMaxNodeKey(), copy.getMaxNodeKey());
-    final var sourceNodes = new DescendantAxis(source, IncludeSelf.YES);
-    final var copiedNodes = new DescendantAxis(copy, IncludeSelf.YES);
-    while (sourceNodes.hasNext()) {
-      assertTrue(copiedNodes.hasNext());
-      assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
-      assertEquals(source.getKind(), copy.getKind());
-      assertEquals(source.getParentKey(), copy.getParentKey());
-      assertEquals(source.getFirstChildKey(), copy.getFirstChildKey());
-      assertEquals(source.getLastChildKey(), copy.getLastChildKey());
-      assertEquals(source.getLeftSiblingKey(), copy.getLeftSiblingKey());
-      assertEquals(source.getRightSiblingKey(), copy.getRightSiblingKey());
-      assertEquals(source.getChildCount(), copy.getChildCount());
+    final var nodes = new DescendantAxis(source, IncludeSelf.YES);
+    while (nodes.hasNext()) {
+      assertTrue(copy.moveTo(nodes.nextLong()));
       assertEquals(source.getDescendantCount(), copy.getDescendantCount());
       assertEquals(source.getDeweyID(), copy.getDeweyID());
     }
-    assertFalse(copiedNodes.hasNext());
   }
 
   private static void deleteSidecars(final JsonResourceSession session) throws Exception {

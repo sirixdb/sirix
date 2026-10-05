@@ -20,6 +20,9 @@
  */
 package io.sirix.diff;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.inOrder;
@@ -35,8 +38,11 @@ import io.sirix.utils.XmlDocumentCreator;
 import org.mockito.InOrder;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.diff.DiffFactory.DiffOptimized;
 import io.sirix.diff.DiffFactory.DiffType;
 import io.sirix.exception.SirixException;
@@ -49,6 +55,30 @@ import java.util.Set;
 public final class DiffTestHelper {
 
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
+
+  static void assertJsonCopyStructure(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx copy) {
+    final long sourceKey = source.getNodeKey();
+    final long copiedKey = copy.getNodeKey();
+    source.moveToDocumentRoot();
+    copy.moveToDocumentRoot();
+    assertEquals(source.getMaxNodeKey(), copy.getMaxNodeKey(), "copy must preserve the source allocation frontier");
+    final var sourceNodes = new DescendantAxis(source, IncludeSelf.YES);
+    final var copiedNodes = new DescendantAxis(copy, IncludeSelf.YES);
+    while (sourceNodes.hasNext()) {
+      assertTrue(copiedNodes.hasNext());
+      assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
+      assertEquals(source.getKind(), copy.getKind());
+      assertEquals(source.getParentKey(), copy.getParentKey());
+      assertEquals(source.getFirstChildKey(), copy.getFirstChildKey());
+      assertEquals(source.getLastChildKey(), copy.getLastChildKey());
+      assertEquals(source.getLeftSiblingKey(), copy.getLeftSiblingKey());
+      assertEquals(source.getRightSiblingKey(), copy.getRightSiblingKey());
+      assertEquals(source.getChildCount(), copy.getChildCount());
+    }
+    assertFalse(copiedNodes.hasNext());
+    assertTrue(source.moveTo(sourceKey));
+    assertTrue(copy.moveTo(copiedKey));
+  }
 
   static void setUp() {
     XmlTestHelper.deleteEverything();

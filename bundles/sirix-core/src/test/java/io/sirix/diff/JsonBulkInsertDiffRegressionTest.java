@@ -13,8 +13,6 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.axis.DescendantAxis;
-import io.sirix.axis.IncludeSelf;
 import io.sirix.io.StorageType;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.BasicJsonDiff;
@@ -37,6 +35,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static io.sirix.diff.DiffTestHelper.assertJsonCopyStructure;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -1013,7 +1012,7 @@ final class JsonBulkInsertDiffRegressionTest {
         final var wtx = destination.beginNodeTrx()) {
       wtx.addPreCommitHook(trx -> {
         if (wtx.getRevisionNumber() == 1) {
-          assertCopiedStructure(rtx, wtx);
+          assertJsonCopyStructure(rtx, wtx);
         }
       });
       new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
@@ -1025,34 +1024,10 @@ final class JsonBulkInsertDiffRegressionTest {
         assertEquals(serialize(source, revision), serialize(destination, revision));
         try (final var sourceRevision = source.beginNodeReadOnlyTrx(revision);
             final var copiedRevision = destination.beginNodeReadOnlyTrx(revision)) {
-          assertCopiedStructure(sourceRevision, copiedRevision);
+          assertJsonCopyStructure(sourceRevision, copiedRevision);
         }
       }
     }
-  }
-
-  private static void assertCopiedStructure(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx copy) {
-    final long sourceKey = source.getNodeKey();
-    final long copiedKey = copy.getNodeKey();
-    source.moveToDocumentRoot();
-    copy.moveToDocumentRoot();
-    assertEquals(source.getMaxNodeKey(), copy.getMaxNodeKey(), "copy must preserve the source allocation frontier");
-    final var sourceNodes = new DescendantAxis(source, IncludeSelf.YES);
-    final var copiedNodes = new DescendantAxis(copy, IncludeSelf.YES);
-    while (sourceNodes.hasNext()) {
-      assertTrue(copiedNodes.hasNext());
-      assertEquals(sourceNodes.nextLong(), copiedNodes.nextLong());
-      assertEquals(source.getKind(), copy.getKind());
-      assertEquals(source.getParentKey(), copy.getParentKey());
-      assertEquals(source.getFirstChildKey(), copy.getFirstChildKey());
-      assertEquals(source.getLastChildKey(), copy.getLastChildKey());
-      assertEquals(source.getLeftSiblingKey(), copy.getLeftSiblingKey());
-      assertEquals(source.getRightSiblingKey(), copy.getRightSiblingKey());
-      assertEquals(source.getChildCount(), copy.getChildCount());
-    }
-    assertFalse(copiedNodes.hasNext());
-    assertTrue(source.moveTo(sourceKey));
-    assertTrue(copy.moveTo(copiedKey));
   }
 
   @Test
