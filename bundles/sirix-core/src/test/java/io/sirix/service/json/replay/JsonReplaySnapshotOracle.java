@@ -29,6 +29,11 @@ public final class JsonReplaySnapshotOracle {
     return new JsonIdentityDelta(manifest, puts, deletes);
   }
 
+  /** Deliberately corrupt the epoch contract while preserving its immutable record payload. */
+  public static JsonIdentityDelta withManifest(final JsonIdentityDelta delta, final JsonReplayManifest manifest) {
+    return new JsonIdentityDelta(manifest, delta.puts(), delta.deletes());
+  }
+
   public static Long2ObjectOpenHashMap<JsonReplayRecord> snapshot(final JsonNodeReadOnlyTrx reader) {
     final long saved = reader.getNodeKey();
     final var records = new Long2ObjectOpenHashMap<JsonReplayRecord>();

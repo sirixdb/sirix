@@ -18,7 +18,9 @@ public record JsonReplayManifest(int version, Path sourceResource, UUID sourceId
     Objects.requireNonNull(hashType);
     sourceResource = sourceResource.toAbsolutePath().normalize();
     if (version != VERSION || baseRevision < 0 || targetRevision <= baseRevision || destinationRevision < 1
-        || baseFrontier < 0 || targetFrontier < 0) {
+        || destinationRevision > targetRevision || baseFrontier < 0 || targetFrontier < 0
+        || (baseRevision == 0 && (baseFrontier != 0 || destinationRevision != 1))
+        || (baseRevision != 0 && (targetRevision != baseRevision + 1 || destinationRevision < 2))) {
       throw new IllegalArgumentException("Invalid identity replay manifest");
     }
   }

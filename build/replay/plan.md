@@ -4,17 +4,18 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 02:41 Berlin)
+## Current checkpoint (2026-10-05 02:51 Berlin)
 
 Source hash/count repair is the first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02;
 its focused suite passes 267/267. Sparse trie growth is a separate follow-up, 0067f38b3,
 with 24 source-only cases through 2^52. See their verification/finding files below.
 
-Gates 1–3 now have the typed contract, snapshot/import seam and authoritative page delta
+Gates 1–4 now have the typed contract, snapshot/import seam and authoritative page delta
 in shadow validation. Latest focused run: 116/116 (109 import/oracle cases plus seven
 public diff budgets), including real overflow references, restoration after revert,
-trie growth, no-op/frontier-only epochs and cold history. Continue gate 4 epoch/failure
-coverage, then generated shrinking, derived-index integration, work budgets and final
+trie growth, no-op/frontier-only epochs and cold history. Gate 4 now passes 279/279 with exact epoch rejection, later-stage rollback/retry,
+concurrent commit serialization and source bulk/async/revert/rollback epochs. Continue
+generated shrinking, derived-index integration, work budgets and final
 full suites/latency in order. JsonResourceCopy remains unchanged.
 
 The prerequisite legacy allocator/tombstone fix has not appeared in the local origin/main
@@ -64,8 +65,8 @@ performance acceptance, push or no-mistakes pipeline. The 03:40 validation cutof
    tombstone/recreate/restore fix when firstmate reports it landed; do not duplicate it.
 3. [done: initial shadow validation] Authoritative delta discovery; shadow hook compares delta-applied graph to
    separately enumerated full target snapshot before enabling production routing.
-4. [in progress] Commit/revert/rollback/async epoch coverage; exact manifest base validation.
-5. [pending] Fixed-seed shrinkable operation streams across all four versioning types,
+4. [done: explicit epochs and failure validation] Commit/revert/rollback/async epoch coverage; exact manifest base validation.
+5. [in progress] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
 6. [pending] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
@@ -303,3 +304,22 @@ reference deltas exactly. Oversized strings are verified to have real overflow r
 all 24 configurations copy inline → overflow → inline → overflow → deletion → no-op,
 then compare every cold-reopened graph and path summary. Formatting applied successfully.
 Production copy is still unchanged; epoch acceptance is next.
+
+## Gate 4 validation (2026-10-05 02:51 Berlin)
+
+Manifest construction now rejects impossible suffix offsets, non-adjacent transition
+epochs and nonzero initial frontiers. Import preflight already enforces the exact
+source UUID/path/revision/configuration and current destination base/frontier.
+
+`JsonIdentityEpochTest` adds 170 cases: all 24 version/hash/Dewey configurations under
+KEEP_OPEN, KEEP_OPEN_ASYNC_FLUSH and KEEP_OPEN_ASYNC_COMMIT; four injected failures
+after an earlier successful import, rollback/retry and cold committed history; actual
+bulk intermediate revisions and writer replacement, source rollback/no-op/revert;
+malformed manifests, duplicate/wrong-source epochs, dirty/uncommitted input, and
+intervening destination commits/reverts. A deterministic competing commit uses the
+scheduler's transaction lock and cannot publish staged records.
+
+`epoch-1.log`: 207/207 pass. Expanded `epoch-2.log`: 279/279 pass in 43 seconds,
+including all 109 existing import/oracle cases. XML retained in matching result
+directories. Formatting applied through the memory-gated runner. Production copy
+is unchanged. No benchmark campaign, full query run or final acceptance claim.

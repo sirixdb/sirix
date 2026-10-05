@@ -525,13 +525,13 @@ final class JsonIdentityImportTest {
     }
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning,
-      final HashType hash, final boolean dewey) {
+  static Database<JsonResourceSession> create(final Path path, final VersioningType versioning, final HashType hash,
+      final boolean dewey) {
     return create(path, versioning, hash, dewey, false);
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning,
-      final HashType hash, final boolean dewey, final boolean rawStrings) {
+  static Database<JsonResourceSession> create(final Path path, final VersioningType versioning, final HashType hash,
+      final boolean dewey, final boolean rawStrings) {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     final var database = Databases.openJsonDatabase(path);
     final var config = ResourceConfiguration.newBuilder("resource")
@@ -548,7 +548,7 @@ final class JsonIdentityImportTest {
   }
 
   /** Independent complete source traversal; does not reuse replay records or their equality logic. */
-  private static void assertSnapshot(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx target,
+  static void assertSnapshot(final JsonNodeReadOnlyTrx source, final JsonNodeReadOnlyTrx target,
       final int revisionOffset) {
     source.moveToDocumentRoot();
     target.moveToDocumentRoot();
@@ -599,8 +599,8 @@ final class JsonIdentityImportTest {
     assertFalse(actual.hasNext(), "unexpected copied identity");
   }
 
-  private static void assertPaths(final JsonResourceSession source, final int sourceRevision,
-      final JsonResourceSession target, final int targetRevision) {
+  static void assertPaths(final JsonResourceSession source, final int sourceRevision, final JsonResourceSession target,
+      final int targetRevision) {
     try (final var expected = source.openPathSummary(sourceRevision);
         final var actual = target.openPathSummary(targetRevision)) {
       assertEquals(expected.getMaxNodeKey(), actual.getMaxNodeKey());
