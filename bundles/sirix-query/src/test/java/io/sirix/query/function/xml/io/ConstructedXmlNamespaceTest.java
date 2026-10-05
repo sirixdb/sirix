@@ -11,12 +11,15 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.settings.VersioningType;
+import io.sirix.service.xml.serialize.XmlSerializer;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -86,6 +89,70 @@ final class ConstructedXmlNamespaceTest {
       }
       assertEquals(expectedNames, names(versioning, "reparsed", "resource1"), serialized);
       assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void detachedSubtreeKeepsInheritedNamespaceBindings(final VersioningType versioning) {
+    final String xml = "<root xmlns='urn:outer' xmlns:p='urn:outer-prefix' xmlns:q='urn:attribute'>"
+        + "<branch xmlns='urn:inner' xmlns:p='urn:inner-prefix'><item q:flag='a'><p:child/>"
+        + "<reset xmlns='' xmlns:p='urn:local'><p:child/></reset><p:child/></item></branch></root>";
+    final String serialized;
+    try (final var store = store(versioning)) {
+      final var document = store.create("detached", "resource1", new DocumentParser(xml)).getDocument("resource1");
+      final var item = document.getFirstChild().getFirstChild().getFirstChild();
+      final ByteArrayOutputStream output = new ByteArrayOutputStream();
+      XmlSerializer.newBuilder(item.getTrx().getResourceSession(), output)
+                   .startNodeKey(item.getNodeKey())
+                   .build()
+                   .call();
+      serialized = output.toString(StandardCharsets.UTF_8);
+      store.create("detached-round-trip", "resource1", new DocumentParser(serialized));
+    }
+    assertEquals(
+        List.of("ELEMENT|urn:inner|item|", "ATTRIBUTE|urn:attribute|flag|q", "ELEMENT|urn:inner-prefix|child|p",
+            "ELEMENT||reset|", "ELEMENT|urn:local|child|p", "ELEMENT|urn:inner-prefix|child|p"),
+        names(versioning, "detached-round-trip", "resource1"), serialized);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void diffReplayKeepsInheritedBindingsFromTheSelectedRevision(final VersioningType versioning) {
+    for (final boolean replace : new boolean[] {false, true}) {
+      final String collection = replace
+          ? "diff-replace"
+          : "diff-insert";
+      try (final var store = store(versioning)) {
+        final var document = store.create(collection, "resource1",
+            new DocumentParser("<root xmlns='urn:outer' xmlns:p='urn:outer-prefix' xmlns:q='urn:attribute'>"
+                + "<branch xmlns='urn:inner' xmlns:p='urn:inner-prefix'><old/></branch></root>"))
+                                  .getDocument("resource1");
+        final long oldKey = document.getFirstChild().getFirstChild().getFirstChild().getNodeKey();
+        try (final var writer = document.getTrx().getResourceSession().beginNodeTrx()) {
+          writer.moveTo(oldKey);
+          writer.insertElementAsLeftSibling(new QNm("urn:inner", "", "added"));
+          writer.insertAttribute(new QNm("urn:attribute", "q", "flag"), "a").moveToParent();
+          writer.insertElementAsFirstChild(new QNm("urn:inner-prefix", "p", "child"));
+          final long childKey = writer.getNodeKey();
+          if (replace) {
+            writer.moveTo(oldKey);
+            writer.remove();
+          }
+          writer.commit();
+          writer.moveTo(childKey);
+          writer.setName(new QNm("urn:inner-prefix", "p", "newest"));
+          writer.commit();
+        }
+      }
+      final String diff = run(versioning, "xml:diff('" + collection + "','resource1',1,2)");
+      run(versioning, diff);
+      final List<String> expected = new ArrayList<>(List.of("ELEMENT|urn:outer|root|", "ELEMENT|urn:inner|branch|",
+          "ELEMENT|urn:inner|added|", "ATTRIBUTE|urn:attribute|flag|q", "ELEMENT|urn:inner-prefix|child|p"));
+      if (!replace) {
+        expected.add("ELEMENT|urn:inner|old|");
+      }
+      assertEquals(expected, names(versioning, collection, "resource1"), diff);
     }
   }
 
