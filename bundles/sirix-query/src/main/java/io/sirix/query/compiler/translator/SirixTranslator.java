@@ -2,6 +2,7 @@ package io.sirix.query.compiler.translator;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.AncestorAxis;
@@ -17,6 +18,7 @@ import io.sirix.axis.PrecedingAxis;
 import io.sirix.axis.PrecedingSiblingAxis;
 import io.sirix.axis.SelfAxis;
 import io.sirix.axis.AbstractTemporalAxis;
+import io.sirix.axis.filter.AbstractFilter;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.AttributeFilter;
 import io.sirix.axis.filter.xml.CommentFilter;
@@ -36,6 +38,8 @@ import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.NodeKind;
+import io.sirix.page.NamePage;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
@@ -73,6 +77,8 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.Node;
+import io.brackit.query.jdm.type.AnyNodeType;
+import io.brackit.query.jdm.type.AttributeType;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
@@ -722,14 +728,26 @@ public class SirixTranslator extends TopDownTranslator {
       }
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AttributeAxis axis = new AttributeAxis(rtx);
-      if (test.getNodeKind() == Kind.ATTRIBUTE) {
-        // AttributeAxis already restricts the kind; only a named test needs a filter.
-        final QNm name = test.getQName();
-        return new SirixNodeStream(name == null
-            ? axis
-            : new FilterAxis<>(axis, new XmlNameFilter(rtx, name)), dbNode.getCollection());
+      if (test instanceof AnyNodeType) {
+        return new SirixNodeStream(axis, dbNode.getCollection());
       }
-      return new SirixNodeStream(SirixTranslator.getAxis(test, rtx, axis), dbNode.getCollection());
+      if (test instanceof AttributeType && test.getType() == null) {
+        final QNm name = test.getQName();
+        if (name == null) {
+          return new SirixNodeStream(axis, dbNode.getCollection());
+        }
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        final NamePage names = reader.getNamePage(reader.getActualRevisionRootPage());
+        final int localNameKey = names.keyForName(name.getLocalName(), NodeKind.ATTRIBUTE, reader);
+        final int namespaceKey = names.keyForName(name.getNamespaceURI(), NodeKind.NAMESPACE, reader);
+        return new SirixNodeStream(new FilterAxis<>(axis, new AbstractFilter<XmlNodeReadOnlyTrx>(rtx) {
+          @Override
+          public boolean filter() {
+            return rtx.getLocalNameKey() == localNameKey && rtx.getURIKey() == namespaceKey;
+          }
+        }), dbNode.getCollection());
+      }
+      return new KindFilter(test, new SirixNodeStream(axis, dbNode.getCollection()));
     }
 
     @Override
