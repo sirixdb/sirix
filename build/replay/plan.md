@@ -323,3 +323,27 @@ scheduler's transaction lock and cannot publish staged records.
 including all 109 existing import/oracle cases. XML retained in matching result
 directories. Formatting applied through the memory-gated runner. Production copy
 is unchanged. No benchmark campaign, full query run or final acceptance claim.
+
+## Generated oracle source follow-ups (2026-10-05 03:00 Berlin)
+
+The first two generated configurations shrank two source-only failures before replay:
+(1) reserve a multi-billion identity range then move/delete a newly created sparse
+object: `acquireGuardForNode` consulted only the predecessor reader, which cannot
+resolve the new writer-only page; (2) insertion then moving a field to a later parent
+at a count threshold: the move retained a flyweight across writer replacement.
+
+The guard now resolves the authoritative writer page/intent log first and guards that
+frame; durable pages use their exact reference with scoped lifetime. Both real move
+entry points reacquire the moved record only when the commit check replaced the writer.
+Neither correction touches native tombstone replacement or the legacy replay allocator.
+
+`JsonStructuralEpochRegressionTest` exercises the minimized source-only cases across
+24 version/hash/Dewey configurations, three commit modes, zero/positive thresholds and
+first/left/right move positions (432 scenarios), validating canonical graphs live and
+in every cold historical revision. `generated-1.log` is the initial red shrink evidence;
+`generated-2.log` passes 26/26 reported invocations: the 24 source matrix invocations and
+two generated configurations (both fixed seeds, sidecars present/missing/corrupt and
+diffs disabled). Formatting applied. Full generated matrix remains the next validation.
+
+Expected pipelined public-sidecar serialization cache misses were logged before durable
+publication; authoritative replay does not read them. No production routing switch.

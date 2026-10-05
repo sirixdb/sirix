@@ -270,7 +270,7 @@ final class JsonStructuralHashInvariantTest {
     }
   }
 
-  private static void assertGraph(final JsonNodeReadOnlyTrx reader, final HashType hash) {
+  static void assertGraph(final JsonNodeReadOnlyTrx reader, final HashType hash) {
     try (final var bytes = Bytes.elasticHeapByteBuffer()) {
       validate(reader, 0, -1, hash, bytes, new LongOpenHashSet());
     }

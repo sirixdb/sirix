@@ -2882,7 +2882,7 @@ final class JsonNodeTrxImpl extends
         throw new IllegalStateException("Node to move must exist!");
       }
 
-      if (node instanceof StructNode toMove) {
+      if (node instanceof StructNode originalToMove) {
         final NodeKind anchorKind = getKind();
         // play the
         // OBJECT/ARRAY role under fusion, so admit them as valid move anchors.
@@ -2893,8 +2893,14 @@ final class JsonNodeTrxImpl extends
               "Move is not allowed if the anchor node is not an OBJECT, ARRAY, OBJECT_KEY, or JSON_DOCUMENT node!");
         }
 
-        checkMoveAncestors(toMove);
+        checkMoveAncestors(originalToMove);
+        final StorageEngineWriter previousWriter = storageEngineWriter;
         checkAccessAndCommit();
+        // An intermediate commit replaces the writer and invalidates its flyweight records.
+        // Resolve the source again only when that boundary actually rotated the epoch.
+        final StructNode toMove = previousWriter == storageEngineWriter
+            ? originalToMove
+            : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
 
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
@@ -3000,9 +3006,15 @@ final class JsonNodeTrxImpl extends
         throw new IllegalStateException("Node to move must exist: " + fromKey);
       }
 
-      if (node instanceof StructNode toMove) {
-        checkMoveAncestors(toMove);
+      if (node instanceof StructNode originalToMove) {
+        checkMoveAncestors(originalToMove);
+        final StorageEngineWriter previousWriter = storageEngineWriter;
         checkAccessAndCommit();
+        // An intermediate commit replaces the writer and invalidates its flyweight records.
+        // Resolve the source again only when that boundary actually rotated the epoch.
+        final StructNode toMove = previousWriter == storageEngineWriter
+            ? originalToMove
+            : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
 
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 

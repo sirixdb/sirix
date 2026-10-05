@@ -6026,6 +6026,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   public PageGuard acquireGuardForNode(final long nodeKey) {
     final var reader = (NodeStorageEngineReader) storageEngineReader;
+    reader.assertNotClosed();
+    checkArgument(nodeKey >= 0, "Node key must be non-negative");
+    final long pageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    final int revision = newRevisionRootPage.getRevision();
+    PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, pageKey, -1, revision);
+    PageReference durableReference = null;
+    if (container == null) {
+      final ReadPageResolution resolution = resolvePageForRead(pageKey, -1, IndexType.DOCUMENT, revision);
+      container = resolution.pageContainer;
+      durableReference = resolution.durableReference;
+    }
+    if (container != null) {
+      // New sparse pages exist only in the writer's intent log. The predecessor reader
+      // cannot locate them, and a same-key predecessor page would protect the wrong frame.
+      return new PageGuard((KeyValueLeafPage) container.getModified());
+    }
+    if (durableReference != null) {
+      final KeyValueLeafPage page = reader.readRecordPageFromExactReference(durableReference);
+      try {
+        return new PageGuard(page);
+      } finally {
+        // The scoped guard now owns its lifetime; do not occupy a write-cursor cache slot.
+        page.retire();
+      }
+    }
     var currentPage = reader.getCurrentPage();
     if (currentPage == null || currentPage.getPageKey() != reader.pageKey(nodeKey, IndexType.DOCUMENT)) {
       // Nothing currently guards the node's page. That is not an error state: a preceding mutation
