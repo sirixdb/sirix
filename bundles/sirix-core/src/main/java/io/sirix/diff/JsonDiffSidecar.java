@@ -1,5 +1,6 @@
 package io.sirix.diff;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -185,6 +186,7 @@ public final class JsonDiffSidecar {
    */
   public static JsonObject read(final Path path, final String expectedResource, final int expectedOldRevision,
       final int expectedNewRevision, final boolean requireDeweyMetadata) throws IOException {
+    ReplayWorkDiagnostics.sidecarRead();
     final JsonElement root;
     try (final var bufferedReader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         final var reader = new JsonReader(bufferedReader)) {

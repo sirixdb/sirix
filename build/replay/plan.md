@@ -4,7 +4,7 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 20:44 Berlin)
+## Current checkpoint (2026-10-05 21:35 Berlin)
 
 Resumed from a365648eb; isolation, assigned branch and no-mistakes doctor verified.
 Inbox 005 acknowledged: stop 2026-10-06 04:00 Berlin, validation cutoff 03:40.
@@ -21,9 +21,9 @@ selected existing core/projection work-budget cases and formatting checks also p
 Evidence: projection-epoch-5.log/results (375); generated-index-1.log/results (two smoke
 configurations plus 51 budgets); generated-index-2.log/results (144 configurations,
 five minutes). No failures/errors/skips. The projection-identity-import key is resolved.
-Gate 6 is ready for its own commit. No validation job remains active at this checkpoint.
-Next: gate 7 bounded transition validation, incremental path-summary import/cache repair
-and replay work counters/budgets. Production JsonResourceCopy still uses the old path.
+Gate 6 is committed in bac72b467. Incremental path-record import/cache repair is committed
+in 76d48c70d (377 focused cases green). Gate 7 is implemented and validated: bounded graph validation, work diagnostics,
+new mutation-proven budgets, all identity suites and all 144 generated configurations pass. Production JsonResourceCopy still uses the old path.
 
 Initial imports retire only the fresh declaration epoch, preserve all logical definitions
 across failure, and build once on a virgin tree. Later imports capture old/final membership
@@ -87,7 +87,7 @@ No new benchmark campaign after the applicable cutoff. No push, pipeline or done
    links, counts, frontier, revision metadata, hashes, stored Dewey IDs, queried indexes
    and path summaries. Include equal-value swaps, later parents, deleted-key restore,
    sparse reservations, replacement survivors and empty/no-op revisions.
-7. [pending] Work budgets: record visits, created identities, staged records, ancestor
+7. [done: bounded transition/path work and mutation-proven counters] Work budgets: record visits, created identities, staged records, ancestor
    work, sidecar reads, fallback page visits. Guard append unchanged prefixes, no-op
    page reuse and sparse gaps; preserve every existing bound.
 8. [pending] Full core/query suites, exact docs/VERIFICATION.md work-budget block,
@@ -541,3 +541,84 @@ while path membership reseeding occurs only when the namespace changed. No full 
 path reader or full post-import cache reconstruction is needed by this substep. The
 remaining graph validator is still a full walk; work counters and budgets remain pending.
 Evidence: build/replay/path-delta-1.log and path-delta-1-results.
+
+
+## Gate 7 bounded transition and budgets (2026-10-05 evening)
+
+`JsonReplayTransitionValidator` checks exact staged payloads, all old/new boundaries,
+compatible kinds and Dewey order, memoized parent chains, affected child lists and
+count contributions. Initial snapshots retain full graph validation. No-op deltas
+skip document validation; pure appends retain the already-proven base prefix and
+validate only newly created suffix identities. General permutations may walk affected
+sibling lists but never their unchanged subtrees. This is an incremental inductive
+proof over a validated base plus a complete authoritative delta, not a claim that
+reciprocal pointers alone prove reachability or acyclicity.
+
+Eight forged-delta regressions (four versioning types) reject reciprocal disconnected
+sibling rings and parent cycles with hashes, Dewey IDs and stored child counts disabled;
+rollback preserves the prior revision and valid retry succeeds. `transition-2` passes
+191 selected cases (109 import, 24 derived index, 48 projection epoch, two generated,
+eight forged graphs), plus formatting. Full history/epoch suites and 144 generated
+configurations are included in the final gate-7 selection, not yet rerun at this point.
+
+`ReplayWorkDiagnostics` is static-final gated (`sirix.replay.workDiag`, false in
+production). Record work counts actual node cursor moves AND storage lookup/prepare
+calls, including nested calls and writer reinitialization. Path steps include cached
+moves. Created/staged document identities, ancestry hops, presentation sidecar attempts,
+authoritative indirect/leaf resolutions and pending-diff map operations/entry visits
+are separately exposed through EngineWorkCounters. The diagnostic pending map is used
+only with the gate enabled. Existing bounds are unchanged.
+
+Measured across FULL/DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT in
+`replay-budget-scout-2`: append beside 4096/16384 unchanged leaves takes 2158 record
+visits, 12 authoritative pages, three creations, six stages and five ancestry hops.
+Appending beyond a trillion-key reservation takes 2153 visits and 18 pages. No-op
+and frontier-only epochs take 29 visits, six path moves and zero stages/pages/ancestry/
+sidecar reads. Whole-path-schema writer initialization is included, so these figures
+are specifically for one array PCR, not a claim that unrelated writer construction
+is constant for arbitrary schemas. R8 costs exactly three map operations per move.
+
+Mutation evidence: restoring full graph traversal fails all 12 replay fixtures
+(27776/113792 append visits for 4096/16384 prefixes; 193 visits for small no-op).
+Restoring R8 map scans fails all six fixtures (1648/25024/395008 operations for
+32/128/512 moves). Disabling immutable-region pruning fails all 12 page budgets
+(small no-op six pages instead of zero; larger append 26/74 instead of <=20).
+All three mutations were restored immediately after their runs; logs/results live
+under `build/replay/replay-budget-mutation-{1,2}*`. Deep ancestry fixture and restored
+healthy validation are the current pending run. No benchmark or production routing yet.
+
+
+Restored healthy budgets pass 26/26 (`replay-budget-healthy-1`). Shared-ancestry mutation
+fails all eight depth/version fixtures: 2673/10961 hops at depths 32/96 instead of
+97/161 (`replay-budget-mutation-3`). Validator restored. Gate-7 final selection now
+runs every identity epoch/history/index test, all 144 generated configurations,
+forged graph cases, the exact core/projection work-budget selection and formatting.
+
+
+## Gate 8 execution design (before production routing)
+
+Route only full-resource history copies through InternalJsonNodeTrx.importRevision;
+initial state uses the source snapshot and subsequent epochs use the authoritative
+reader. Keep allocating subtree snapshots and BasicJsonDiff's public shape/HASHED
+behavior. Reject unsupported historical subtree placement before changing the target.
+Run JsonBulkInsertDiffRegressionTest under each sirix.replay.versioning value (its
+existing harness chooses matching source/target configuration and R16 additionally
+expands Dewey/recompute modes explicitly), then full core/query and exact budgets.
+Rebase on the separately owned tombstone/restore fix when it lands; no duplicate fix.
+
+Latency acceptance must use the limiter, taskset 0-11, identical JVM/configuration and
+alternating matched baseline/candidate forks. Retain fork/iteration raw nanoseconds,
+allocation deltas and separate untimed work diagnostics. Include source append+commit,
+public compact/materialized and no-op diffs, authoritative replay read and complete
+copy. The reference fixture is 4096 initial + 4096 appended primitives + no-op.
+Additional fixtures cover large unchanged siblings, equal-valued moves, deep nesting,
+sparse reservations and deleted-identity restoration. Bootstrap matched fork blocks
+5000 times with a fixed seed, 95% intervals; lower ratio bound >1.05 confirms a
+regression. Report both fresh baseline/candidate medians and the report's 89–111 ms
+copy context. No latency claim is made from work-budget results alone.
+
+Gate-7 final selection passed: 604 tests, zero failures/errors/skips, formatting clean.
+Evidence: gate-7-final.log/results; all mutations restored. The generated matrix also
+reproduces a pre-existing pipelined source sidecar failure: serialization opens an
+unpublished new revision before hardenAndPublish. Identity replay stays correct on
+that cache miss. Prepare a separate source regression/repair before routing production.

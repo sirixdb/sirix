@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.json;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
@@ -121,7 +122,7 @@ import io.sirix.service.json.replay.JsonReplayPaths;
 import io.sirix.service.json.replay.JsonReplayHistory;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.sirix.index.interval.json.JsonValidTimeIndexListener;
-import io.sirix.service.json.replay.JsonReplayGraphValidator;
+import io.sirix.service.json.replay.JsonReplayTransitionValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
@@ -4599,7 +4600,9 @@ final class JsonNodeTrxImpl extends
         replayRemoveDerivedState(key);
       }
       for (final long key : delta.puts().keySet()) {
-        replayRemoveDerivedState(key);
+        if (!replayRemoveDerivedState(key)) {
+          ReplayWorkDiagnostics.identityCreated();
+        }
       }
       final var namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
       for (final var record : delta.puts().values()) {
@@ -4607,6 +4610,7 @@ final class JsonNodeTrxImpl extends
         if (name != null) {
           namePage.importJsonName(record.nameKey(), name, storageEngineWriter);
         }
+        ReplayWorkDiagnostics.recordStaged();
         storageEngineWriter.persistRecord(JsonReplayNodeFactory.stage(record, manifest, hashFunction),
             IndexType.DOCUMENT, -1);
       }
@@ -4623,7 +4627,7 @@ final class JsonNodeTrxImpl extends
       storageEngineWriter.getActualRevisionRootPage().setMaxNodeKeyInDocumentIndex(manifest.targetFrontier());
       moveToDocumentRoot();
       replayCheckpoint("links-installed");
-      JsonReplayGraphValidator.validate(this, delta.puts().keySet());
+      JsonReplayTransitionValidator.validate(this, delta);
       final var importedPaths = JsonReplayPaths.importChanges(source, storageEngineWriter, manifest);
       JsonReplayHistory.importChanges(source, storageEngineWriter, manifest);
       if (pathSummaryWriter != null) {
@@ -4732,15 +4736,16 @@ final class JsonNodeTrxImpl extends
     return additional;
   }
 
-  private void replayRemoveDerivedState(final long key) {
+  private boolean replayRemoveDerivedState(final long key) {
     if (!moveTo(key)) {
-      return;
+      return false;
     }
     replayNotifyIndex(key, IndexController.ChangeType.DELETE);
     if (getKind().playsObjectKeyRole()) {
       storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
                          .removeName(getNameKey(), getKind(), storageEngineWriter);
     }
+    return true;
   }
 
   private void replayNotifyIndex(final long key, final IndexController.ChangeType type) {

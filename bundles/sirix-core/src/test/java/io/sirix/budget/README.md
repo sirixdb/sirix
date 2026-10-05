@@ -80,6 +80,8 @@ failure table and tells the reader where the work went.
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
+| `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
+| `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
@@ -131,6 +133,13 @@ maintains, so a budget quotes the same numbers an investigation would:
   listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
+- `EngineWorkCounters.REPLAY`: cursor/storage record visits (nested delegations count), path-summary cursor
+  steps including writer reinitialization, created document identities, detached staged document records,
+  memoized ancestry hops, attempted presentation sidecar reads, authoritative indirect/leaf resolutions,
+  and pending-diff keyed operations/entry visits. `sirix.replay.workDiag` is static-final and off in
+  production; the core test fork enables it, and captures require that gate to be live. The sidecar
+  zero budget has a positive read control. These totals include lifecycle work during the capture;
+  they do not represent unique records, allocated bytes, or physical disk reads.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
@@ -163,10 +172,12 @@ maintains, so a budget quotes the same numbers an investigation would:
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture
 asserts it (`WorkCounter.requireLive()`), because a switched-off counter reads zero and zero
-satisfies every upper bound. Today that is `sirix.hot.mergeDiag`, provided in both
+satisfies every upper bound. For HOT work that is `sirix.hot.mergeDiag`, provided in both
 `bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`. Those test blocks also provide
 `sirix.validTime.scanDiag`; `ValidTimeSliceWorkBudgetTest` requires zero interval/posting references
 for empty answers and counts both kinds on nonempty answers through the same gated seam.
+Identity replay additionally
+uses `sirix.replay.workDiag`, enabled by the core test fork.
 
 **Adding a counter to the engine.** Only when a path a test must guard has none. Keep it off the hot
 path: gate it as `VersioningType` gates its merge counters if it sits on a per-record or per-page

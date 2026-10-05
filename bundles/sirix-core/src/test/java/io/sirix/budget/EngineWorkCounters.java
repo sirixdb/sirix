@@ -10,8 +10,10 @@ import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
+import io.sirix.utils.ReplayWorkDiagnostics;
 
 import java.util.List;
+import java.util.function.LongSupplier;
 
 /**
  * The storage engine's own work counters, as {@link WorkCounter}s a budget test can capture.
@@ -152,4 +154,36 @@ public final class EngineWorkCounters {
   public static final WorkCounter INDEX_CATALOGUE_LISTINGS =
       WorkCounter.alwaysOn("catalogue.directoryListings", "one listing of a resource's index-catalogue directory",
           AbstractResourceSession::indexCatalogueDirectoryListings);
+
+  // ===== Identity replay and source diff bookkeeping =======================
+
+  public static final WorkCounter REPLAY_RECORD_VISITS = replay("replay.recordVisits",
+      "one node cursor move, storage lookup or prepare call, including nested fallbacks and commit lifecycle work",
+      ReplayWorkDiagnostics::recordVisits);
+  public static final WorkCounter REPLAY_PATH_STEPS = replay("replay.pathSteps",
+      "one path-summary cursor move, including cached moves and commit-time writer initialization",
+      ReplayWorkDiagnostics::pathSteps);
+  public static final WorkCounter REPLAY_CREATED_IDENTITIES = replay("replay.createdIdentities",
+      "one staged document identity absent from the exact base epoch", ReplayWorkDiagnostics::createdIdentities);
+  public static final WorkCounter REPLAY_STAGED_RECORDS = replay("replay.stagedRecords",
+      "one detached document record staged before link installation", ReplayWorkDiagnostics::stagedRecords);
+  public static final WorkCounter REPLAY_ANCESTOR_STEPS = replay("replay.ancestorSteps",
+      "one parent hop while proving changed identities reach the validated document root",
+      ReplayWorkDiagnostics::ancestorSteps);
+  public static final WorkCounter REPLAY_SIDECAR_READS =
+      replay("replay.sidecarReads", "one attempted presentation sidecar read", ReplayWorkDiagnostics::sidecarReads);
+  public static final WorkCounter REPLAY_FALLBACK_PAGES = replay("replay.fallbackPages",
+      "one authoritative indirect-page or complete-leaf resolution, including guard retries",
+      ReplayWorkDiagnostics::fallbackPages);
+  public static final WorkCounter DIFF_BOOKKEEPING = replay("diff.bookkeepingOperations",
+      "one pending-diff keyed operation, entry visited by an iterator, or entry cleared",
+      ReplayWorkDiagnostics::bookkeepingOperations);
+  public static final List<WorkCounter> REPLAY =
+      List.of(REPLAY_RECORD_VISITS, REPLAY_PATH_STEPS, REPLAY_CREATED_IDENTITIES, REPLAY_STAGED_RECORDS,
+          REPLAY_ANCESTOR_STEPS, REPLAY_SIDECAR_READS, REPLAY_FALLBACK_PAGES, DIFF_BOOKKEEPING);
+
+  private static WorkCounter replay(final String name, final String unit, final LongSupplier read) {
+    return WorkCounter.gated(name, unit, read, "-Dsirix.replay.workDiag=true", () -> ReplayWorkDiagnostics.ENABLED);
+  }
+
 }

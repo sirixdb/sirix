@@ -1,5 +1,6 @@
 package io.sirix.index.path.summary;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.utils.ToStringHelper;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -615,6 +616,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public boolean moveTo(final long nodeKey) {
+    ReplayWorkDiagnostics.pathStep();
     assertNotClosed();
 
     if (!init && nodeKey != 0) {

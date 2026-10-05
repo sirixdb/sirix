@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -1231,6 +1232,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public DataRecord prepareRecordForModification(final long recordKey, final IndexType indexType, final int index) {
+    ReplayWorkDiagnostics.recordVisited();
     storageEngineReader.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
     requireNonNull(indexType);
@@ -1322,6 +1324,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings("unchecked")
   @Override
   public DataRecord prepareRecordForModificationDocument(final long recordKey) {
+    ReplayWorkDiagnostics.recordVisited();
     final long recordPageKey = storageEngineReader.pageKeyDocument(recordKey);
     final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
 
@@ -1615,6 +1618,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
+    ReplayWorkDiagnostics.recordVisited();
     storageEngineReader.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());

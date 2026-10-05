@@ -1,5 +1,6 @@
 package io.sirix.service.json.replay;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
@@ -59,10 +60,10 @@ final class JsonReplayPageWalk {
       return;
     }
     final IndirectPage oldPage = oldRef != null && oldHeight == height
-        ? oldReader.dereferenceIndirectPageReference(oldRef)
+        ? dereference(oldReader, oldRef)
         : null;
     final IndirectPage newPage = newRef != null && newHeight == height
-        ? newReader.dereferenceIndirectPageReference(newRef)
+        ? dereference(newReader, newRef)
         : null;
     if (oldRef != null && oldHeight == height && oldPage == null
         || newRef != null && newHeight == height && newPage == null) {
@@ -96,6 +97,11 @@ final class JsonReplayPageWalk {
       walk(populated(oldChild), Math.min(oldHeight, height - 1), populated(newChild), Math.min(newHeight, height - 1),
           childPrefix);
     }
+  }
+
+  private static IndirectPage dereference(final StorageEngineReader reader, final PageReference reference) {
+    ReplayWorkDiagnostics.fallbackPage();
+    return reader.dereferenceIndirectPageReference(reference);
   }
 
   private static boolean sameDurableRegion(final PageReference left, final PageReference right) {
@@ -132,6 +138,7 @@ final class JsonReplayPageWalk {
       return;
     }
     for (int attempt = 0; attempt < GUARD_ATTEMPTS; attempt++) {
+      ReplayWorkDiagnostics.fallbackPage();
       final var resolved = reader.getRecordPage(pageKey);
       if (resolved == null || !(resolved.page() instanceof KeyValueLeafPage page)) {
         throw new IllegalStateException("Missing record page for a populated reference: " + pageKey);

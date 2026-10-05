@@ -1,5 +1,7 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
+import io.sirix.diff.DiagnosticDiffMap;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
@@ -260,7 +262,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
-    this.updateOperationsUnordered = new Long2ObjectOpenHashMap<>();
+    this.updateOperationsUnordered = ReplayWorkDiagnostics.ENABLED
+        ? new DiagnosticDiffMap()
+        : new Long2ObjectOpenHashMap<>();
 
     this.storageEngineWriter = (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
 
