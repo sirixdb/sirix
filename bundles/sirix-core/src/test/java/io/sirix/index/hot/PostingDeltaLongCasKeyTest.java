@@ -22,6 +22,7 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -326,22 +327,7 @@ final class PostingDeltaLongCasKeyTest {
       final String max = bounds[range][1];
       for (final boolean includeMin : new boolean[] {false, true}) {
         for (final boolean includeMax : new boolean[] {false, true}) {
-          final TreeSet<Long> expected = new TreeSet<>();
-          for (int row = 0; row < valueKeys.length; row++) {
-            if (valueKeys[row] < 0) {
-              continue;
-            }
-            final String original = value(row);
-            final int lower = min == null
-                ? 1
-                : original.compareTo(min);
-            final int upper = max == null
-                ? -1
-                : original.compareTo(max);
-            if ((lower > 0 || (includeMin && lower == 0)) && (upper < 0 || (includeMax && upper == 0))) {
-              expected.add(valueKeys[row]);
-            }
-          }
+          final Set<Long> expected = expectedRange(valueKeys, min, max, includeMin, includeMax);
           final Iterator<NodeReferences> hits = controller.openCASIndex(trx.getStorageEngineReader(), def,
               controller.createCASFilterRange(Set.of(CATEGORY_PATH), min == null
                   ? null
@@ -370,6 +356,27 @@ final class PostingDeltaLongCasKeyTest {
         }
       }
     }
+  }
+
+  private static Set<Long> expectedRange(final long[] valueKeys, final @Nullable String min, final @Nullable String max,
+      final boolean includeMin, final boolean includeMax) {
+    final Set<Long> expected = new TreeSet<>();
+    for (int row = 0; row < valueKeys.length; row++) {
+      if (valueKeys[row] < 0) {
+        continue;
+      }
+      final String original = value(row);
+      final int lower = min == null
+          ? 1
+          : original.compareTo(min);
+      final int upper = max == null
+          ? -1
+          : original.compareTo(max);
+      if ((lower > 0 || (includeMin && lower == 0)) && (upper < 0 || (includeMax && upper == 0))) {
+        expected.add(valueKeys[row]);
+      }
+    }
+    return expected;
   }
 
   private static Set<Long> rangePostings(final Iterator<NodeReferences> hits) {

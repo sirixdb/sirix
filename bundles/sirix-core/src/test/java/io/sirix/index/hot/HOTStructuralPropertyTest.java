@@ -1208,32 +1208,9 @@ final class HOTStructuralPropertyTest {
       final List<ByteKey> physical = liveSlotKeys(reader, root, true);
       final List<ByteKey> chunks = new ArrayList<>(expected.size());
       final boolean supportsDeltas = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
-      final SortedSet<ByteKey> emptyBases = new TreeSet<>();
-      if (supportsDeltas) {
-        final PostingLookup<K> lookup = readerLookup(reader);
-        for (final ByteKey key : physical) {
-          final int prefixLength = logicalKeyLength(key.bytes);
-          if (key.bytes.length != prefixLength + HOTKeySerializer.CHUNK_IDX_BYTES || expected.contains(key)) {
-            continue;
-          }
-          // An append-only removal may empty a chunk before its next fold. Require the public
-          // posting view to contain no node keys in that independently absent reference chunk.
-          final long chunk = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
-          final NodeReferences refs = lookup.get(deserializePrefix(key.bytes, prefixLength));
-          boolean empty = true;
-          if (refs != null) {
-            for (final long nodeKey : refs.toSortedArray()) {
-              if ((nodeKey >>> 16) == chunk) {
-                empty = false;
-                break;
-              }
-            }
-          }
-          if (empty) {
-            emptyBases.add(key);
-          }
-        }
-      }
+      final SortedSet<ByteKey> emptyBases = supportsDeltas
+          ? emptyPostingBases(reader, physical, expected)
+          : new TreeSet<>();
       for (int i = 0; i < physical.size(); i++) {
         final ByteKey key = physical.get(i);
         // Delta slots participate in the physical ordering even though they are not extra chunks.
@@ -1260,6 +1237,35 @@ final class HOTStructuralPropertyTest {
         }
       }
       compareSlots(check, chunks, expected);
+    }
+
+    private SortedSet<ByteKey> emptyPostingBases(final StorageEngineReader reader, final List<ByteKey> physical,
+        final SortedSet<ByteKey> expected) {
+      final SortedSet<ByteKey> emptyBases = new TreeSet<>();
+      final PostingLookup<K> lookup = readerLookup(reader);
+      for (final ByteKey key : physical) {
+        final int prefixLength = logicalKeyLength(key.bytes);
+        if (key.bytes.length != prefixLength + HOTKeySerializer.CHUNK_IDX_BYTES || expected.contains(key)) {
+          continue;
+        }
+        // An append-only removal may empty a chunk before its next fold. Require the public
+        // posting view to contain no node keys in that independently absent reference chunk.
+        final long chunk = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
+        final NodeReferences refs = lookup.get(deserializePrefix(key.bytes, prefixLength));
+        boolean empty = true;
+        if (refs != null) {
+          for (final long nodeKey : refs.toSortedArray()) {
+            if ((nodeKey >>> 16) == chunk) {
+              empty = false;
+              break;
+            }
+          }
+        }
+        if (empty) {
+          emptyBases.add(key);
+        }
+      }
+      return emptyBases;
     }
 
     private SortedSet<ByteKey> expectedSlots(final Map<ByteKey, Logical<K>> source) {

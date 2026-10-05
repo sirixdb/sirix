@@ -26,6 +26,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -258,22 +259,7 @@ final class CASCappedLexicalViewTest {
         final Atomic probe = AtomicUtil.toType(new Str(value), type);
         for (final SearchMode mode : new SearchMode[] {SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER,
             SearchMode.GREATER_OR_EQUAL, SearchMode.LOWER_OR_EQUAL}) {
-          final TreeSet<Long> wanted = new TreeSet<>();
-          for (final Map.Entry<Long, StoredValue> entry : expected.entrySet()) {
-            if (paths.contains(entry.getValue().path())) {
-              final int order = AtomicUtil.toType(new Str(entry.getValue().value()), type).compareTo(probe);
-              final boolean matches = switch (mode) {
-                case EQUAL -> order == 0;
-                case LOWER -> order < 0;
-                case LOWER_OR_EQUAL -> order <= 0;
-                case GREATER -> order > 0;
-                case GREATER_OR_EQUAL -> order >= 0;
-              };
-              if (matches) {
-                wanted.add(entry.getKey());
-              }
-            }
-          }
+          final Set<Long> wanted = expectedComparison(expected, paths, probe, mode, type);
           assertEquals(wanted, postings(controller.openCASIndex(reader, definition,
               controller.createCASFilter(paths, probe, mode, new JsonPCRCollector(trx)))), "comparison " + mode);
           assertCursor(trx, cursor, recordReader, page, guards);
@@ -290,22 +276,7 @@ final class CASCappedLexicalViewTest {
             : AtomicUtil.toType(new Str(bound[1]), type);
         for (final boolean includeMin : new boolean[] {false, true}) {
           for (final boolean includeMax : new boolean[] {false, true}) {
-            final TreeSet<Long> wanted = new TreeSet<>();
-            for (final Map.Entry<Long, StoredValue> entry : expected.entrySet()) {
-              if (!paths.contains(entry.getValue().path())) {
-                continue;
-              }
-              final Atomic atomic = AtomicUtil.toType(new Str(entry.getValue().value()), type);
-              final int lower = min == null
-                  ? 1
-                  : atomic.compareTo(min);
-              final int upper = max == null
-                  ? -1
-                  : atomic.compareTo(max);
-              if ((lower > 0 || (lower == 0 && includeMin)) && (upper < 0 || (upper == 0 && includeMax))) {
-                wanted.add(entry.getKey());
-              }
-            }
+            final Set<Long> wanted = expectedRange(expected, paths, min, max, includeMin, includeMax, type);
             assertEquals(wanted, postings(controller.openCASIndex(reader, definition,
                 controller.createCASFilterRange(paths, min, max, includeMin, includeMax, new JsonPCRCollector(trx)))),
                 "range inclusivity " + includeMin + ", " + includeMax);
@@ -314,6 +285,49 @@ final class CASCappedLexicalViewTest {
         }
       }
     }
+  }
+
+  private static Set<Long> expectedComparison(final Map<Long, StoredValue> expected, final Set<String> paths,
+      final Atomic probe, final SearchMode mode, final Type type) {
+    final Set<Long> wanted = new TreeSet<>();
+    for (final Map.Entry<Long, StoredValue> entry : expected.entrySet()) {
+      if (paths.contains(entry.getValue().path())) {
+        final int order = AtomicUtil.toType(new Str(entry.getValue().value()), type).compareTo(probe);
+        final boolean matches = switch (mode) {
+          case EQUAL -> order == 0;
+          case LOWER -> order < 0;
+          case LOWER_OR_EQUAL -> order <= 0;
+          case GREATER -> order > 0;
+          case GREATER_OR_EQUAL -> order >= 0;
+        };
+        if (matches) {
+          wanted.add(entry.getKey());
+        }
+      }
+    }
+    return wanted;
+  }
+
+  private static Set<Long> expectedRange(final Map<Long, StoredValue> expected, final Set<String> paths,
+      final @Nullable Atomic min, final @Nullable Atomic max, final boolean includeMin, final boolean includeMax,
+      final Type type) {
+    final Set<Long> wanted = new TreeSet<>();
+    for (final Map.Entry<Long, StoredValue> entry : expected.entrySet()) {
+      if (!paths.contains(entry.getValue().path())) {
+        continue;
+      }
+      final Atomic atomic = AtomicUtil.toType(new Str(entry.getValue().value()), type);
+      final int lower = min == null
+          ? 1
+          : atomic.compareTo(min);
+      final int upper = max == null
+          ? -1
+          : atomic.compareTo(max);
+      if ((lower > 0 || (lower == 0 && includeMin)) && (upper < 0 || (upper == 0 && includeMax))) {
+        wanted.add(entry.getKey());
+      }
+    }
+    return wanted;
   }
 
   private static void assertCursor(final JsonNodeReadOnlyTrx trx, final long cursor,

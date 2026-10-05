@@ -235,28 +235,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final Atomic maxBound = max == null
         ? null
         : AtomicUtil.toType(max, type);
-    final Atomic scanMin = hasLossyStringBound(minBound, type)
-        ? null
-        : minBound;
-    final Atomic scanMax = hasLossyStringBound(maxBound, type)
-        ? null
-        : maxBound;
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entries;
-    if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type) && (scanMin != null || scanMax != null)) {
-      final long pcr = pcrs.iterator().next();
-      final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
-      final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
-      if (scanMin != null && scanMax != null) {
-        entries =
-            reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
-      } else {
-        entries = scanMin == null
-            ? reader.iteratorTo(new CASValue(requireNonNull(scanMax), type, pcr), includeMax)
-            : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
-      }
-    } else {
-      entries = reader.iterator();
-    }
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entries =
+        residualRangeEntries(reader, type, pcrs, minBound, maxBound, minInclusive, maxInclusive);
     final long[] acceptedPCRs = new long[pcrs.size()];
     int i = 0;
     for (final Long pcr : pcrs) {
@@ -303,6 +283,29 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         return result;
       }
     };
+  }
+
+  private static Iterator<Map.Entry<CASValue, NodeReferences>> residualRangeEntries(
+      final HOTIndexReader<CASValue> reader, final Type type, final Set<Long> pcrs, final @Nullable Atomic min,
+      final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
+    final Atomic scanMin = hasLossyStringBound(min, type)
+        ? null
+        : min;
+    final Atomic scanMax = hasLossyStringBound(max, type)
+        ? null
+        : max;
+    if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type) && (scanMin != null || scanMax != null)) {
+      final long pcr = pcrs.iterator().next();
+      final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
+      final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
+      if (scanMin != null && scanMax != null) {
+        return reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
+      }
+      return scanMin == null
+          ? reader.iteratorTo(new CASValue(requireNonNull(scanMax), type, pcr), includeMax)
+          : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
+    }
+    return reader.iterator();
   }
 
   private static boolean inRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
