@@ -118,8 +118,19 @@ final class KeyedTrieWriter {
 
     int maxHeight = storageEngineWriter.getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
 
-    // Check if we need an additional level of indirect pages.
-    if (pageKey == (1L << inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1])) {
+    final int capacityExponent = inpLevelPageCountExp[0] + Constants.INP_REFERENCE_COUNT_EXPONENT;
+    if (pageKey < 0 || maxHeight < 0 || maxHeight > inpLevelPageCountExp.length
+        || capacityExponent < Long.SIZE - 1 && pageKey >>> capacityExponent != 0) {
+      throw new IllegalArgumentException("Page key or trie height exceeds the keyed index range");
+    }
+
+    // Explicit identities and reserved frontiers can jump over one or more growth boundaries.
+    // Grow until the key fits, rather than assuming allocations visit every intervening page.
+    while (maxHeight < inpLevelPageCountExp.length) {
+      final int nextCapacityExponent = inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1];
+      if (nextCapacityExponent >= Long.SIZE - 1 || pageKey >>> nextCapacityExponent == 0) {
+        break;
+      }
       maxHeight = incrementCurrentMaxIndirectPageTreeLevel(storageEngineWriter, revisionRootPage, indexType, index);
 
       // Add a new indirect page to the top of the trie and to the transaction-log.
@@ -153,7 +164,11 @@ final class KeyedTrieWriter {
     // Iterate through all levels using bit-decomposition.
     for (int level = inpLevelPageCountExp.length - maxHeight,
         height = inpLevelPageCountExp.length; level < height; level++) {
-      offset = (int) (levelKey >> inpLevelPageCountExp[level]);
+      final long levelOffset = levelKey >>> inpLevelPageCountExp[level];
+      if (levelOffset >= Constants.INP_REFERENCE_COUNT) {
+        throw new IllegalStateException("Page key does not fit the keyed trie height");
+      }
+      offset = (int) levelOffset;
       levelKey -= (long) offset << inpLevelPageCountExp[level];
 
       final IndirectPage page = prepareIndirectPage(storageEngineWriter, log, reference);
