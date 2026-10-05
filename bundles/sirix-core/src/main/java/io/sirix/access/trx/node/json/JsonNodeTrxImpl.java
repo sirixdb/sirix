@@ -114,6 +114,7 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 import io.sirix.service.json.replay.JsonIdentityDelta;
 import io.sirix.service.json.replay.JsonReplayPaths;
+import io.sirix.service.json.replay.JsonReplayHistory;
 import io.sirix.service.json.replay.JsonReplayGraphValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
@@ -4542,7 +4543,8 @@ final class JsonNodeTrxImpl extends
         || manifest.deweyIDs() != targetConfig.areDeweyIDsStored || manifest.hashType() != sourceConfig.hashType
         || manifest.hashType() != targetConfig.hashType || sourceConfig.withPathSummary != targetConfig.withPathSummary
         || sourceConfig.withPathStatistics != targetConfig.withPathStatistics
-        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()) {
+        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()
+        || sourceConfig.storeNodeHistory() != targetConfig.storeNodeHistory()) {
       throw new IllegalArgumentException("Identity replay source, epoch or resource configuration mismatch");
     }
     if (replaySourceResource == null) {
@@ -4592,6 +4594,7 @@ final class JsonNodeTrxImpl extends
       replayCheckpoint("links-installed");
       JsonReplayGraphValidator.validate(this, delta.puts().keySet());
       JsonReplayPaths.rebuild(source, storageEngineWriter, manifest);
+      JsonReplayHistory.importChanges(source, storageEngineWriter, manifest);
       if (pathSummaryWriter != null) {
         pathSummaryWriter.getPathSummary().reloadAfterImport();
       }

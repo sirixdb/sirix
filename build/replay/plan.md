@@ -4,24 +4,27 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 03:05 Berlin)
+## Current checkpoint (2026-10-05 03:29 Berlin)
 
-Source hash/count repair is the first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02;
-its focused suite passes 267/267. Sparse trie growth is a separate follow-up, 0067f38b3,
-with 24 source-only cases through 2^52. See their verification/finding files below.
+Gates 1–5 are implemented in the private shadow path. Source structural/hash repair is
+90d4fdd87; sparse trie growth is 0067f38b3; writer-epoch/page-guard source follow-ups are
+57a97a90a. Gate 4 passed 279/279 (3e69ccd77). Gate 5 passed the complete generated matrix
+144/144 plus 33 core work-budget invocations (4c0f97a83).
 
-Gates 1–4 now have the typed contract, snapshot/import seam and authoritative page delta
-in shadow validation. Latest focused run: 116/116 (109 import/oracle cases plus seven
-public diff budgets), including real overflow references, restoration after revert,
-trie growth, no-op/frontier-only epochs and cold history. Gate 4 now passes 279/279 with exact epoch rejection, later-stage rollback/retry,
-concurrent commit serialization and source bulk/async/revert/rollback epochs. Continue
-generated shrinking, derived-index integration, work budgets and final
-full suites/latency in order. JsonResourceCopy remains unchanged.
+Gate 6 is BLOCKED on projection identity-epoch integration after repeated attempts, per
+worker rule 5. Exact findings and reproducible saved test/patch:
+`build/replay/projection-identity-findings.md` and `build/replay/repro/`.
+The tested history-only change is retained: 24 node-history cases plus 279 existing
+import/epoch cases passed in derived-1.log. Later experimental projection changes were
+saved and removed from the live tree after derived-6.log reported 327 tests / 28 failures.
+No test/oracle/work bound was weakened. No own job remains running.
 
-The prerequisite legacy allocator/tombstone fix has not appeared in the local origin/main
-ref or inbox; do not duplicate it and rebase when it lands. No production routing switch,
-performance acceptance, push or no-mistakes pipeline. The 03:40 validation cutoff and
-03:40–03:55 save/park window remain in force.
+JsonResourceCopy remains unchanged. The prerequisite native tombstone/legacy allocator
+fix has not appeared in the local origin/main ref or inbox; do not duplicate it and
+rebase when it lands. Production routing, bounded import work, full final suites and
+latency acceptance remain pending. No push, PR, no-mistakes run or done handoff.
+Await firstmate resolution of key `projection-identity-import` before resuming. The
+03:40 validation cutoff and 03:40–03:55 save/park window also remain in force.
 
 ## Contract and concrete implementation
 
@@ -69,7 +72,7 @@ performance acceptance, push or no-mistakes pipeline. The 03:40 validation cutof
 5. [done: fixed seeds, shrinking and sidecar independence] Fixed-seed shrinkable operation streams across all four versioning types,
    hash NONE/ROLLING/POSTORDER, Dewey on/off, auto-commit and KEEP_OPEN/async modes;
    sidecar present/missing/corrupt/diffs-disabled, cold reopened history.
-6. [in progress] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
+6. [blocked: projection identity-epoch seam] Oracle compares keys, kind, name/scalar, parent and ordered child/sibling
    links, counts, frontier, revision metadata, hashes, stored Dewey IDs, queried indexes
    and path summaries. Include equal-value swaps, later parents, deleted-key restore,
    sparse reservations, replacement survivors and empty/no-op revisions.
@@ -370,3 +373,18 @@ core `*WorkBudgetTest` classes green, without widened bounds. XML retained in
 `generated-3-results/`. Gate 6 now adds queried primitive/projection/valid-time indexes
 and exact node-history records. The importer currently omits node-history index
 maintenance; do not route production copy before correcting and validating it.
+
+## Gate 6 history checkpoint and projection blocker (2026-10-05 03:29 Berlin)
+
+Added authoritative RECORD_TO_REVISIONS import, including deleted identities and suffix
+boundaries. The document/page walker is shared with history discovery. Full history
+regression: 24/24 failed before; 24/24 pass after, with all 279 prior import/epoch cases
+still passing (derived-1.log). Configuration validation now includes storeNodeHistory.
+
+The independently queried projection oracle found unordered initial rows and the existing
+listener's inability to express a batch permutation as one moved interval. Bootstrap
+rebuild experiments also exposed an ordinary-value CAS builder discrepancy. Details,
+all intermediate validation results and the exact saved experiment are recorded in
+projection-identity-findings.md. The production experiment has been backed out while
+the tested history importer remains. Reproducer is retained outside the normal suite;
+no production copy switch and no claim of final acceptance. Stop and await firstmate.

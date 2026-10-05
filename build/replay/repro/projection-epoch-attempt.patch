@@ -1,0 +1,136 @@
+diff --git a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonIndexController.java b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonIndexController.java
+index 67a48794b..3e4f2c185 100644
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonIndexController.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonIndexController.java
+@@ -221,6 +221,33 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
+     throw (T) failure;
+   }
+ 
++  /** Build configured indexes once from the final topology of an initial identity snapshot. */
++  void completeInitialIdentityImport(final Set<IndexDef> definitions, final JsonNodeTrx transaction) {
++    if (definitions.isEmpty()) {
++      return;
++    }
++    validateNewIndexDefinitions(definitions, transaction);
++    validateProjectionDefinitions(definitions, transaction);
++    final var projections = new HashSet<IndexDef>();
++    final var otherIndexes = new HashSet<IndexDef>();
++    for (final IndexDef definition : definitions) {
++      (definition.isProjectionIndex()
++          ? projections
++          : otherIndexes).add(definition);
++    }
++    if (!otherIndexes.isEmpty()) {
++      createIndexes(otherIndexes, transaction);
++    }
++    for (final IndexDef definition : projections) {
++      indexes.add(definition);
++      ProjectionIndexBuilder.buildAndPersist(definition, requireProjectionPathSummary(transaction, definition),
++          transaction, transaction.getStorageEngineWriter(), true);
++    }
++    if (!projections.isEmpty()) {
++      createIndexListeners(projections, transaction);
++    }
++  }
++
+   /**
+    * Bulk-build a projection index over the transaction's revision: one columnar row per record under
+    * the definition's root path, streamed as compact leaves into the projection's HOT sub-tree
+diff --git a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java
+index d42cf7761..0038f9f39 100644
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java
+@@ -114,6 +114,7 @@ import java.util.UUID;
+ import java.util.function.BiConsumer;
+ import io.sirix.service.json.replay.JsonIdentityDelta;
+ import io.sirix.service.json.replay.JsonReplayPaths;
++import io.sirix.service.json.replay.JsonReplayHistory;
+ import io.sirix.service.json.replay.JsonReplayGraphValidator;
+ import java.util.concurrent.ThreadFactory;
+ import java.util.concurrent.ThreadLocalRandom;
+@@ -4509,6 +4510,7 @@ final class JsonNodeTrxImpl extends
+   private UUID replaySourceIdentity;
+   private int replaySourceRevision;
+   private int replayDestinationRevision;
++  private Set<IndexDef> replayInitialIndexes = Set.of();
+ 
+   @Nullable
+   static volatile BiConsumer<String, JsonNodeTrx> replayTestHook;
+@@ -4542,7 +4544,8 @@ final class JsonNodeTrxImpl extends
+         || manifest.deweyIDs() != targetConfig.areDeweyIDsStored || manifest.hashType() != sourceConfig.hashType
+         || manifest.hashType() != targetConfig.hashType || sourceConfig.withPathSummary != targetConfig.withPathSummary
+         || sourceConfig.withPathStatistics != targetConfig.withPathStatistics
+-        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()) {
++        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()
++        || sourceConfig.storeNodeHistory() != targetConfig.storeNodeHistory()) {
+       throw new IllegalArgumentException("Identity replay source, epoch or resource configuration mismatch");
+     }
+     if (replaySourceResource == null) {
+@@ -4560,6 +4563,23 @@ final class JsonNodeTrxImpl extends
+     beginCompoundOperation();
+     try {
+       checkAccessAndCommit();
++      if (manifest.baseRevision() == 0) {
++        final var definitions = indexController.getIndexes().getIndexDefs();
++        if (!definitions.isEmpty()) {
++          replayInitialIndexes = Set.copyOf(definitions);
++          // Initial index declarations (including armed append-only projections) are not yet
++          // committed. Retain their logical definitions, abort their exact owners, and discard
++          // only this fresh bootstrap epoch before staging arbitrary persistent identities.
++          rollback();
++        }
++      }
++      final boolean projectionTransition = manifest.baseRevision() != 0 && indexController.hasProjectionIndex()
++          && (!delta.puts().isEmpty() || !delta.deletes().isEmpty());
++      if (projectionTransition) {
++        // One target-state epoch may move several roots together. During shadow validation,
++        // bracket the complete document so listeners capture all old/final memberships and order.
++        indexController.notifyBeforeStructuralChange(0);
++      }
+       // Direct record import cannot truthfully emit a public mutation sidecar. Cache miss is safe.
+       suppressUpdateDiffs = true;
+       for (final long key : delta.deletes()) {
+@@ -4592,6 +4612,7 @@ final class JsonNodeTrxImpl extends
+       replayCheckpoint("links-installed");
+       JsonReplayGraphValidator.validate(this, delta.puts().keySet());
+       JsonReplayPaths.rebuild(source, storageEngineWriter, manifest);
++      JsonReplayHistory.importChanges(source, storageEngineWriter, manifest);
+       if (pathSummaryWriter != null) {
+         pathSummaryWriter.getPathSummary().reloadAfterImport();
+       }
+@@ -4601,6 +4622,12 @@ final class JsonNodeTrxImpl extends
+       for (final long key : delta.puts().keySet()) {
+         replayNotifyIndex(key, IndexController.ChangeType.INSERT);
+       }
++      if (projectionTransition) {
++        indexController.notifyAfterStructuralChange(0);
++      }
++      if (manifest.baseRevision() == 0) {
++        ((JsonIndexController) indexController).completeInitialIdentityImport(replayInitialIndexes, this);
++      }
+       moveToDocumentRoot();
+       replayCheckpoint("derived-state-finalized");
+       replayCheckpoint("before-publish");
+@@ -4609,6 +4636,7 @@ final class JsonNodeTrxImpl extends
+       replaySourceIdentity = manifest.sourceIdentity();
+       replaySourceRevision = manifest.targetRevision();
+       replayDestinationRevision = manifest.destinationRevision();
++      replayInitialIndexes = Set.of();
+     } catch (final RuntimeException | Error failure) {
+       if (resourceSession.getMostRecentRevisionNumber() < manifest.destinationRevision()) {
+         try {
+diff --git a/bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java b/bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java
+index ed97ebbc9..d82ae6336 100644
+--- a/bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java
+@@ -424,6 +424,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
+         throw new IllegalStateException(
+             "Projection index " + indexDef.getID() + " did not observe the start of structural change " + movedNodeKey);
+       }
++      if (!seeded) {
++        // Identity import can replace the path namespace between the structural boundaries.
++        seed();
++      }
+       resolvedRecordMemo = null;
+       arrayRootInstances = null;
+       relabelStructuralOrder(movedNodeKey);
