@@ -162,13 +162,8 @@ final class JsonIdentityGraphGeneratedTest {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0,0,{\"x\":[1,{\"y\":true}]}]"),
             JsonNodeTrx.Commit.NO);
         writer.commit();
-        long frontier = writer.getMaxNodeKey();
         for (int index = 0; index < operations.size(); index++) {
-          // Explicit high-water reservations also keep resumed branches in disjoint allocation
-          // ranges. Native reuse below a restored frontier is covered by the prerequisite fix.
-          writer.getStorageEngineReader().getActualRevisionRootPage().setMaxNodeKeyInDocumentIndex(frontier);
           apply(writer, source, operations.get(index), index);
-          frontier = Math.max(frontier, writer.getMaxNodeKey());
           writer.commit();
         }
       } catch (final RuntimeException | Error failure) {

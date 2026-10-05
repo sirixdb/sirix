@@ -4,42 +4,33 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 22:55 Berlin)
+## Current checkpoint (2026-10-05 23:03 Berlin)
 
-Isolation and assigned branch verified on resume. Inbox 005 sets the stop at
-2026-10-06 04:00 Berlin; no validation round may extend past 03:40. The private
-Maven repository build/replay/m2 and heavy runner remain in use.
+The branch is rebased on origin/main af9f20e5a, including the separately owned tombstone
+recreation and restore-key fix. Production identity routing is dbcb19f8f; its sole rebase
+conflict removed the retired allocator and updated that API's JavaDoc. The upstream
+storage fix and its tests are retained. Inbox 007 resolved the scratch-patch handoff;
+the sidecar-free matrix was re-authored against the shared assertJsonCopyStructure helper.
 
-Gates 1–7 are complete. Projection epoch import is committed in bac72b467;
-incremental path-record/cache maintenance in 76d48c70d; bounded graph validation
-and mutation-proven work budgets in bc85f8315. Gate-7 final validation passed
-604/604 cases, including all 144 generated configurations, forged invalid graphs,
-index/path oracles and every existing core/projection budget. Formatting passes.
-The projection-identity-import key is resolved.
+Gates 1–7 passed before this rebase (604 cases in gate-7-final, including all 144 generated
+configurations and unchanged work budgets). The pre-rebase full core suite passed
+13,870 tests, zero failures/errors, 77 skips. The query suite ran 2,112 tests with one
+outdated structural-hash expectation and seven skips. Both Java formatting checks passed.
+All XML is archived under full-core-query-1-results. The query expectation now includes
+revisions 4/5, whose neighboring insertions change hash-covered sibling links.
 
-Independent source repairs include f6688ece7 (CAS cursor restoration) and
-56052a8cd (pipelined JSON sidecar preparation/publication). The latter passes
-242/242 final cases, including all generated histories and work budgets; the old
-async cache errors no longer occur. Details and failed/passing logs appear below.
+Current uncommitted edits remove the generated allocation workaround, enable upstream
+R16 coverage, retire its known-limitation row and add an explicit sidecar-free historical
+matrix with actual fork settings printed. gate8-rebase-focused passed those changes, the complete generated matrix, exact
+core/query budgets and query integration tests. It will be followed by the four-version
+forced-recompute matrix and
+final full core/query suites on the rebased branch.
 
-Commit fa459887e routes complete public revision copies only through typed
-identity deltas and removes the old private key-sorted allocator. Snapshot subtree
-copying and public diff behavior stay intact. Initial public-copy selection passes
-160/160 cases, including all 16 R16 modes; the FULL/DIFFERENTIAL/INCREMENTAL R1–R18
-matrix and 17 new suffix/preflight cases now pass (177 tests per remaining mode).
-SLIDING_SNAPSHOT passed 160 tests in the initial route selection.
-
-Gate 8 remains: rebase the separately owned tombstone fix when it lands, complete
-full core/query suites (query fork 2 GiB), the exact work-budget block,
-formatting and pinned paired latency acceptance. Inbox 006 confirms the prerequisite landed: origin/main is now af9f20e5a. Rebase at
-the next clean point after the current validation process finishes. The full core run
-passes 13,870 tests with zero failures/errors and 77 skips (1,119 suites archived).
-The query suite is still running and has one outdated hash-history expectation:
-revisions 4 and 5 now correctly change the selected object's hash when its left and
-right sibling links change. The existing computeHash contract explicitly includes
-those links; actual output preserves the same JSON and adds exactly these revisions.
-Formatting remains part of this running job. No benchmark campaign, no-mistakes run,
-push or done handoff yet.
+Gate 8 also requires pinned alternating latency acceptance. The standalone harness,
+artifact exporter, deadline-aware fork runner and paired 5000-draw bootstrap are prepared
+under build/replay/latency but are not compiled or measured yet. No no-mistakes run, push
+or done handoff. Stop remains 04:00 Berlin on October 6; no validation may extend past
+03:40. The private Maven repository build/replay/m2 and heavy runner remain in use.
 
 ## Contract and concrete implementation
 
@@ -714,3 +705,61 @@ removing and then restoring every presentation cache. Run that additional matrix
 all four versioning types, recording the actual fork configuration in test output.
 The patch is retained at build/replay/recompute-matrix.patch and is not applied while
 the current full-suite process is active.
+
+## Rebase checkpoint and worker-rule handoff (2026-10-05 22:58 Berlin)
+
+The full pre-rebase run finished: core 13,870 tests / zero failures / 77 skips;
+query 2,112 tests / one outdated structural-hash expectation / seven skips. Both
+Java formatting checks passed. Complete XML is archived under
+full-core-query-1-results/{core,query}.
+
+Rebase onto af9f20e5a completed. The sole conflict was JsonResourceCopy's retired
+allocator and its old JavaDoc; retained the typed production route, while the upstream
+KeyValueLeafPage tombstone repair and all prerequisite tests remain present. Rebased
+HEAD is 8369109e2 (production routing dbcb19f8f; async source repair 5666a74ba).
+
+Uncommitted corrections remove the generated oracle's disjoint-frontier workaround,
+enable and rename the prerequisite's R16 fixture, remove its known-limitation row,
+and update JsonIntegrationTest's expected hash-changing revisions to include 4/5
+with an explanation of the sibling-link hash contract. These edits are not validated.
+
+The prepared recompute-matrix.patch failed both its git apply --check and application
+because upstream extracted assertCopiedStructure into DiffTestHelper and changed the
+nearby context. Neither call applied any part of the patch. The following shell edits
+continued because the command lacked an error guard; the working status line claiming
+that the explicit sidecar-free matrix was added was therefore premature. The matrix
+patch remains wholly unapplied. This is the same patch-context obstacle twice, so the
+worker brief requires blocked handoff and stop. No Gradle/benchmark jobs are running.
+
+Resume after firstmate resolves recompute-matrix-patch: regenerate the small test-only
+patch against the current shared helper (preserve assertJsonCopyStructure), then run
+focused query expectation + all 144 generated configurations + newly enabled upstream
+regressions, the four-version forced-sidecar-free historical matrix, exact budgets and
+final full core/query suites. Benchmark scaffold remains under build/replay/latency;
+it is prepared but uncompiled and untimed. No no-mistakes run, push or done handoff.
+
+
+## Matrix handoff resolved (2026-10-05 23:01 Berlin)
+
+Inbox 007 resolves recompute-matrix-patch and is acknowledged. Re-authored the test
+changes directly against the rebased helper; the old patch remains reference only.
+Both history-copy call sites now pass through a wrapper that, when forceRecompute is
+true, removes every presentation cache, asserts none remains, and restores original
+contents afterward. Shared assertJsonCopyStructure assertions remain unchanged.
+The fork prints the actual versioning and forceRecompute settings. Shell mutation
+chains now use set -e or explicit checks. Start focused rebased validation before
+final full suites and benchmarks.
+
+
+## Rebased focused validation passed (2026-10-05 23:24 Berlin)
+
+gate8-rebase-focused completed successfully. All 144 generated configurations pass
+without the disjoint-frontier workaround; enabled prerequisite recreation/restore/R16
+regressions, default historical replay, the corrected query integration class and the
+exact core/projection/query budget selections are green. Both formatting checks pass.
+XML and module summaries are retained in gate8-rebase-focused-results. Documentation
+now separates presentation sidecars from typed identity replication and records the
+async frozen-epoch preparation and post-hardening publication boundary.
+
+Continue with four forced-sidecar-free historical runs; the runner verifies the actual
+versioning/forceRecompute settings from each fork's output and archives each result.

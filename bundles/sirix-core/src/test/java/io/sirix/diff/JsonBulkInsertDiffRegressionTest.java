@@ -21,6 +21,7 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,6 +35,7 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,6 +51,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class JsonBulkInsertDiffRegressionTest {
   private static final VersioningType REPLAY_VERSIONING =
       VersioningType.valueOf(System.getProperty("sirix.replay.versioning", "SLIDING_SNAPSHOT"));
+  private static final boolean FORCE_RECOMPUTE = Boolean.getBoolean("sirix.replay.forceRecompute");
+
+  @BeforeAll
+  static void reportReplayConfiguration() {
+    System.out.printf("REPLAY_CONFIGURATION versioning=%s forceRecompute=%s%n", REPLAY_VERSIONING, FORCE_RECOMPUTE);
+  }
 
   @BeforeEach
   @AfterEach
@@ -272,8 +280,7 @@ final class JsonBulkInsertDiffRegressionTest {
             final var destination = copyDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
             final var firstRevision = session.beginNodeReadOnlyTrx(1);
             final var writer = destination.beginNodeTrx()) {
-          new JsonResourceCopy.Builder(writer, firstRevision,
-              InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent().build().call();
+          copyHistory(writer, firstRevision);
           assertEquals(4, destination.getMostRecentRevisionNumber());
           assertEquals("[0]", serialize(destination, 1));
           assertEquals("[0,[1,2]]", serialize(destination, 2));
@@ -1048,6 +1055,31 @@ final class JsonBulkInsertDiffRegressionTest {
     }
   }
 
+  /** Exercise every historical history-copy fixture with presentation caches present or absent. */
+  private static void copyHistory(final JsonNodeTrx writer, final JsonNodeReadOnlyTrx reader) throws Exception {
+    final var savedSidecars = new HashMap<Path, byte[]>();
+    try {
+      if (FORCE_RECOMPUTE) {
+        try (final var sidecars = Files.list(diffDirectory(reader.getResourceSession()))) {
+          for (final Path sidecar : sidecars.filter(Files::isRegularFile).toList()) {
+            savedSidecars.put(sidecar, Files.readAllBytes(sidecar));
+            Files.delete(sidecar);
+          }
+        }
+        try (final var sidecars = Files.list(diffDirectory(reader.getResourceSession()))) {
+          assertFalse(sidecars.anyMatch(Files::isRegularFile), "recompute matrix must not retain a sidecar");
+        }
+      }
+      new JsonResourceCopy.Builder(writer, reader, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
+                                                                                 .build()
+                                                                                 .call();
+    } finally {
+      for (final var sidecar : savedSidecars.entrySet()) {
+        Files.write(sidecar.getKey(), sidecar.getValue());
+      }
+    }
+  }
+
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (
         final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(),
@@ -1060,9 +1092,7 @@ final class JsonBulkInsertDiffRegressionTest {
           assertJsonCopyStructure(rtx, wtx);
         }
       });
-      new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
-                                                                           .build()
-                                                                           .call();
+      copyHistory(wtx, rtx);
       assertFalse(Files.exists(diffDirectory(destination).resolve("diffFromRev0toRev1.json")));
       assertEquals(source.getMostRecentRevisionNumber(), destination.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {

@@ -381,7 +381,7 @@ root entry, exactly once. No entry for the skipped root is emitted. The emission
 bulk revision baseline are documented in [JSON_UPDATE_DIFFS.md](JSON_UPDATE_DIFFS.md#which-resources-pay-the-cost).
 
 Insert anchors name the parent or left sibling in the new revision; serialization does not
-rebase them. Revision replay allocates source keys before ordering dependent placements.
+rebase them. These presentation operations are not the resource-replication protocol.
 
 The digest covers a canonical typed representation of the complete `diffs` array, including
 object-field order, names, values, and numeric lexical forms; it is computed incrementally from the
@@ -391,15 +391,45 @@ unique sibling temp file and then publishes it by same-directory atomic move whe
 The core reader performs one strict JSON read and validates resource/revision identity, Unicode
 scalar values, format version, count, digest, and the required schema of every operation before
 hydrating fragment data. Missing or invalid sidecars are cache misses: `jn:diff` computes the
-revision diff, while `getUpdateOperations()` and multi-revision resource copy use
-`BasicJsonDiff.generateDiffForReplay` to preserve node identity and expose edits inside retained
-fragments. Public `BasicJsonDiff.generateDiff` keeps hash-based equal-subtree skips and compact
+revision diff, while `getUpdateOperations()` uses the historically named
+`BasicJsonDiff.generateDiffForReplay` to expose edits inside retained fragments. Multi-revision
+resource copy uses the separate identity protocol described below. Public
+`BasicJsonDiff.generateDiff` keeps hash-based equal-subtree skips and compact
 inserted-subtree traversal. Files without these version-1 integrity fields are not accepted by
 this build.
 
 `jn:diff` uses a sidecar only for adjacent revisions with stored Dewey IDs. The REST `/diff`
 endpoint can use an adjacent-revision sidecar without Dewey IDs for an unfiltered request;
 sidecar filtering requires Dewey IDs. Other revision pairs use the computed diff.
+
+## JSON identity replay
+
+`JsonResourceCopy.Builder.copyAllRevisionsUpToMostRecent()` imports committed target state through
+the internal version-1 `JsonReplayManifest` / `JsonIdentityDelta` protocol. This is a typed
+in-process contract, not a persisted JSON or binary sidecar format. A manifest identifies the
+source resource UUID and path, exact base/target revisions, destination revision mapping,
+allocation frontiers and hash/Dewey configuration. Its unordered PUT/DELETE set carries final
+logical records keyed by persistent node identity, including final links and revision metadata.
+
+The first epoch enumerates the complete source snapshot. Subsequent epochs compare authoritative
+document-record pages and resolve their full logical records under the resource's versioning
+mode. Only identical immutable persisted page/fragment references permit skipping a region;
+presentation hashes and diff sidecars are never identity proofs. Sparse frontiers do not cause
+a scan of every numeric key, and an unchanged epoch does not reconstruct the whole document.
+
+The transaction-local importer stages identities and payloads before installing their final
+links. It validates the graph, maintains logical names, path summaries and configured indexes,
+and publishes one complete revision. Threshold/time commits cannot expose staging records.
+Failure rolls back the current epoch; previously completed copied revisions remain available.
+The intent log bounds resident staged pages; the detached delta and validation maps scale with
+changed identities, or with the document size for the initial snapshot.
+
+History copy requires a fresh destination document and matching hash, Dewey, child-count,
+path-summary/statistics and node-history configuration. It preserves node keys, allocation
+frontiers and stored Dewey IDs. A source history suffix beginning at revision S maps S to
+destination revision one; predecessor revisions outside that suffix are unavailable. Ordinary
+subtree snapshot copies continue to allocate destination keys normally. Imported epochs omit
+presentation sidecars, so public diff consumers use their ordinary cache-miss path.
 
 ## Projection indexes (segment ⇔ slot layout)
 
