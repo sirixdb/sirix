@@ -100,6 +100,11 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **Half-open bitemporal validity** — `jn:open-bitemporal` includes `validFrom == V` and
+  excludes `validTo == V`. Exact indexed slices count keys and construct objects on demand;
+  exceptional records and unindexed resources use the same half-open predicate. SH1 calls the
+  public function directly. `jn:valid-at` and explicit two-argument scans retain closed containment.
+
 - **A database has one owning process and shared state across local handles.** Opens take an
   exclusive OS lock; independently closeable handles share revision and catalogue state while
   preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).

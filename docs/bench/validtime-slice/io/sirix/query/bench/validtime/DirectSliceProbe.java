@@ -15,9 +15,8 @@ import java.nio.file.Path;
  */
 public final class DirectSliceProbe {
   private static final String QUERY = """
-      count(for $r in jn:open-bitemporal('bt','contracts',xs:dateTime('2024-12-26T00:00:00Z'),
-                                       xs:dateTime('2024-06-15T00:00:00Z'))
-            where xs:dateTime('2024-06-15T00:00:00Z') lt xs:dateTime($r.vt) return $r)
+      count(jn:open-bitemporal('bt','contracts',xs:dateTime('2024-12-26T00:00:00Z'),
+                                       xs:dateTime('2024-06-15T00:00:00Z')))
       """;
 
   public static void main(final String[] args) throws Exception {

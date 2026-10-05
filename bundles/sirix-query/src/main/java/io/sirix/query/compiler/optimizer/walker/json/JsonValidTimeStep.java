@@ -83,7 +83,9 @@ public final class JsonValidTimeStep extends Walker {
     final AST end = binding.getChild(2);
     if (variable.getType() != XQ.TypedVariableBinding || variable.getChildCount() != 1
         || source.getType() != XQ.FunctionCall
-        || !(OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(source.getValue())
+        || !((OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(source.getValue())
+            && source.checkProperty(OpenBitemporal.INTERNAL_SLICE))
+            || (OpenBitemporal.OPEN_BITEMPORAL.equals(source.getValue()) && source.getChildCount() == 4)
             || SCAN_VALID_TIME_INDEX.equals(source.getValue()))
         || end.getType() != XQ.End || end.getChildCount() != 1) {
       return node;
@@ -246,6 +248,7 @@ public final class JsonValidTimeStep extends Walker {
         continue;
       }
       final AST call = new AST(XQ.FunctionCall, OpenBitemporal.OPEN_BITEMPORAL_SLICE);
+      call.setProperty(OpenBitemporal.INTERNAL_SLICE, true);
       for (int argument = 0; argument < 4; argument++) {
         call.addChild(source.getChild(argument).copyTree());
       }

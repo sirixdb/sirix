@@ -369,6 +369,10 @@ jn:open-bitemporal('mydb','myresource',
     xs:dateTime('2024-07-15T12:00:00Z'))   (: valid time - filters via index :)
 ```
 
+`jn:open-bitemporal` uses half-open validity (`validFrom <= V < validTo`): a record starting at
+`V` is included and a record ending at `V` is excluded. `jn:valid-at` and the explicit two-argument
+valid-time index scan retain closed containment.
+
 For lazy key slices, strict endpoint predicates, and obsolete-index handling, see
 [Valid-time key slices](docs/VALID_TIME_KEY_SLICES.md).
 

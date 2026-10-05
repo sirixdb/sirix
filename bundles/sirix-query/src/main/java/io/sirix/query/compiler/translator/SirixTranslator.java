@@ -43,6 +43,8 @@ import io.sirix.query.compiler.expression.ConjunctInputs;
 import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
+import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.brackit.query.function.FunctionExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
@@ -204,6 +206,14 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(node.getValue()) && node.getChildCount() == 7
+        && node.checkProperty(OpenBitemporal.INTERNAL_SLICE)) {
+      final Expr[] arguments = new Expr[7];
+      for (int i = 0; i < arguments.length; i++) {
+        arguments[i] = expr(node.getChild(i), true);
+      }
+      return new FunctionExpr(ctx, OpenBitemporal.forSlice(), arguments);
+    }
     if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
         && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
       return new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),

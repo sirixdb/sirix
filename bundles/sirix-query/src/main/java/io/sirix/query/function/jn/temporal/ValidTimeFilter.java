@@ -23,8 +23,8 @@ import java.time.Instant;
 import java.util.function.Supplier;
 
 /**
- * Shared linear-scan ("fallback") implementation of the valid-time point-in-time predicate
- * {@code validFrom <= validTime <= validTo}, used by {@code jn:valid-at} /
+ * Shared linear-scan ("fallback") implementation of the valid-time point-in-time predicate with
+ * explicit strict/inclusive endpoints, used by {@code jn:valid-at}, half-open
  * {@code jn:open-bitemporal} and {@code jn:scan-valid-time-index} when no index applies.
  *
  * @author Johannes Lichtenberger

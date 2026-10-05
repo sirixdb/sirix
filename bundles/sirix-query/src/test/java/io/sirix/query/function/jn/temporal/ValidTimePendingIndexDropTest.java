@@ -170,15 +170,13 @@ final class ValidTimePendingIndexDropTest {
       final String source = "jn:open-bitemporal('pending','rows'," + TRANSACTION + "," + POINT + ")";
       for (int mode = 0; mode < 4; mode++) {
         assertCount(chain, context, "for $x in " + source + " where " + comparison(mode) + " return $x",
-            newCounts[mode]);
+            newCounts[mode | 2]);
       }
-      assertCount(chain, context,
-          "jn:open-bitemporal-slice('pending','rows'," + TRANSACTION + "," + POINT + ",'" + field + "',"
-              + (field.equals("vf")
-                  ? 2
-                  : 4)
-              + ",xs:dateTime('2024-01-01T00:00:00.000250Z'))",
-          newCounts[0]);
+      final String differentPoint = "xs:dateTime('2024-01-01T00:00:00.000250Z')";
+      final String residual = field.equals("vf")
+          ? "xs:dateTime($x.vf) lt " + differentPoint
+          : differentPoint + " lt xs:dateTime($x.vt)";
+      assertCount(chain, context, "for $x in " + source + " where " + residual + " return $x", newCounts[2]);
     }
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();

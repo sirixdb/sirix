@@ -136,7 +136,7 @@ final class ValidTimeSliceWorkBudgetTest {
                 for (final boolean mirror : new boolean[] {false, true}) {
                   final String predicate = comparisonPredicate(point, start, strict, general, mirror);
                   final String text = "for $x in " + source + " where " + predicate + " return $x";
-                  final int expected = revision == changedRevision && !start && strict
+                  final int expected = revision == changedRevision
                       ? 1
                       : 2;
                   clearInvocations(cursor);
@@ -864,6 +864,40 @@ final class ValidTimeSliceWorkBudgetTest {
     }
   }
 
+  private static void assertBitemporalBoundaryBudgets(final SirixCompileChain observedChain,
+      final SirixQueryContext observedContext, final JsonNodeReadOnlyTrx cursor, final String direct, final int count) {
+    for (final String boundary : new String[] {"2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z"}) {
+      final int expected = boundary.equals("2020-01-01T00:00:00Z")
+          ? count
+          : 0;
+      final String source = direct.replace("2024-01-01T00:00:00Z", boundary);
+      clearInvocations(cursor);
+      final Sequence rows = new Query(observedChain, source).execute(observedContext);
+      assertNotNull(rows);
+      verify(cursor, never()).moveTo(anyLong());
+      verify(cursor, never()).getFirstChildKey();
+      assertEquals(expected, rows.size().intValue());
+      assertEquals(expected,
+          ((Numeric) new Query(observedChain, "count(" + source + ")").evaluate(observedContext)).intValue());
+      verify(cursor, never()).moveTo(anyLong());
+      verify(cursor, never()).getFirstChildKey();
+      verify(cursor, never()).getValue();
+      clearInvocations(cursor);
+      try (final var iterator = rows.iterate()) {
+        if (expected == 0) {
+          assertNull(iterator.next());
+          verify(cursor, never()).moveTo(anyLong());
+          verify(cursor, never()).getFirstChildKey();
+        } else {
+          assertNotNull(iterator.next());
+          verify(cursor, times(1)).moveTo(anyLong());
+          verify(cursor, times(1)).getFirstChildKey();
+        }
+        verify(cursor, never()).getValue();
+      }
+    }
+  }
+
   private void assertSliceBudget(final int count, final boolean includeUserFunction) {
     final StringBuilder json = new StringBuilder("[");
     for (int i = 0; i < count; i++) {
@@ -928,6 +962,14 @@ final class ValidTimeSliceWorkBudgetTest {
         clearInvocations(cursor);
         assertEquals(count,
             ((Numeric) new Query(observedChain, "count(" + direct + ")").evaluate(observedContext)).intValue());
+        verify(cursor, never()).moveTo(anyLong());
+        verify(cursor, never()).getFirstChildKey();
+        verify(cursor, never()).getValue();
+        assertBitemporalBoundaryBudgets(observedChain, observedContext, cursor, direct, count);
+        clearInvocations(cursor);
+        assertEquals(count, ((Numeric) new Query(observedChain, "count(for $x in " + direct + " return $x)").evaluate(
+            observedContext)).intValue());
+        verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
         verify(cursor, never()).getValue();
         final String directSlice =

@@ -1,6 +1,7 @@
 package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.Query;
+import io.brackit.query.ErrorCode;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Numeric;
@@ -73,16 +74,88 @@ final class ValidTimeLazySliceTest {
   Path directory;
 
   @Test
+  void publicBitemporalCallsUseHalfOpenValidityWithAndWithoutAnIndex() {
+    create(ROWS);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        final String direct = source(resource);
+        assertEquals(List.of(2L, 3L, 7L, 9L, 10L),
+            values(new Query(chain, "for $x in " + direct + " return $x.id").execute(context)), resource);
+        assertEquals(5, ((Numeric) new Query(chain, "count(" + direct + ")").evaluate(context)).intValue());
+        final String rounded = "jn:open-bitemporal('slice','" + resource + "'," + TRANSACTION
+            + ",xs:dateTime('2024-01-01T00:00:00.000500Z'))";
+        assertEquals(List.of(2L, 3L, 8L, 9L, 10L),
+            values(new Query(chain, "for $x in " + rounded + " return $x.id").execute(context)), resource);
+        // Closed scans remain available independently of the bitemporal source.
+        assertEquals(7,
+            ((Numeric) new Query(chain,
+                "count(jn:scan-valid-time-index(jn:doc('slice','" + resource + "')," + POINT + "))").evaluate(
+                    context)).intValue());
+      }
+    }
+  }
+
+  @Test
+  void internalBitemporalRewriteCannotBeCalledFromQueryText() {
+    create(ROWS);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      final Query folded = new Query(chain,
+          "for $x in " + source("indexed") + " where " + POINT + " lt xs:dateTime($x.vt) return $x.id");
+      assertTrue(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE));
+      assertEquals(List.of(2L, 3L, 7L, 10L), values(folded.execute(context)));
+      final QueryException exception = assertThrows(QueryException.class, () -> new Query(chain,
+          "jn:open-bitemporal-slice('slice','indexed'," + TRANSACTION + "," + POINT + ",'vt',4," + POINT + ")"));
+      assertEquals(ErrorCode.ERR_UNDEFINED_FUNCTION, exception.getCode());
+    }
+  }
+
+  @Test
+  void foldedResidualsRetainHalfOpenEndForInexactAndMalformedBounds() {
+    create("""
+        [{"id":1,"vf":"1969-01-01T00:00:00Z","vt":"2024-01-01T00:00:00Z"},
+         {"id":2,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":3,"vf":"1969-01-01T00:00:00Z","vt":"2024-01-01T00:00:00.000500Z"},
+         {"id":4,"vf":"bad","vt":"2024-01-01T00:00:00Z"}]
+        """);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      index(chain, context);
+      for (final String resource : List.of("indexed", "plain")) {
+        for (final String comparison : List.of(POINT + " le xs:dateTime($x.vt)", "xs:dateTime($x.vt) ge " + POINT,
+            "xs:dateTime($x.vf) le " + POINT, POINT + " ge xs:dateTime($x.vf)", "xs:dateTime($x.vf) lt " + POINT,
+            POINT + " gt xs:dateTime($x.vf)")) {
+          final String text = "for $x in " + source(resource) + " where " + comparison + " return $x.id";
+          final Query query = new Query(chain, text);
+          assertTrue(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE), text);
+          assertEquals(comparison.contains(" lt ") || comparison.contains(" gt ")
+              ? List.of(3L)
+              : List.of(2L, 3L), values(query.execute(context)), text);
+        }
+      }
+    }
+  }
+
+  @Test
   void bothDirectionsStrictAndInclusiveAndMirrorsHaveExactPlansAndAnswers() {
     create(ROWS);
     final String[] comparisons = {POINT + " lt xs:dateTime($x.vt)", "xs:dateTime($x.vt) gt " + POINT,
         POINT + " < xs:dateTime($x.vt)", "xs:dateTime($x.vt) > " + POINT, POINT + " le xs:dateTime($x.vt)",
-        "xs:dateTime($x.vt) ge " + POINT, "xs:dateTime($x.vf) lt " + POINT, POINT + " gt xs:dateTime($x.vf)",
-        "xs:dateTime($x.vf) le " + POINT, POINT + " ge xs:dateTime($x.vf)"};
-    final List<List<Long>> expected =
-        List.of(List.of(2L, 3L, 7L, 10L), List.of(2L, 3L, 7L, 10L), List.of(2L, 3L, 7L, 10L), List.of(2L, 3L, 7L, 10L),
-            List.of(1L, 2L, 3L, 4L, 7L, 10L), List.of(1L, 2L, 3L, 4L, 7L, 10L), List.of(1L, 3L, 7L, 9L),
-            List.of(1L, 3L, 7L, 9L), List.of(1L, 2L, 3L, 4L, 7L, 9L), List.of(1L, 2L, 3L, 4L, 7L, 9L));
+        "xs:dateTime($x.vt) ge " + POINT, POINT + " <= xs:dateTime($x.vt)", "xs:dateTime($x.vt) >= " + POINT,
+        "xs:dateTime($x.vf) lt " + POINT, POINT + " gt xs:dateTime($x.vf)", "xs:dateTime($x.vf) < " + POINT,
+        POINT + " > xs:dateTime($x.vf)", "xs:dateTime($x.vf) le " + POINT, POINT + " ge xs:dateTime($x.vf)",
+        "xs:dateTime($x.vf) <= " + POINT, POINT + " >= xs:dateTime($x.vf)"};
+    final List<Long> end = List.of(2L, 3L, 7L, 10L);
+    final List<Long> strictStart = List.of(3L, 7L, 9L);
+    final List<Long> inclusiveStart = List.of(2L, 3L, 7L, 9L);
+    final List<List<Long>> expected = List.of(end, end, end, end, end, end, end, end, strictStart, strictStart,
+        strictStart, strictStart, inclusiveStart, inclusiveStart, inclusiveStart, inclusiveStart);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -108,7 +181,7 @@ final class ValidTimeLazySliceTest {
       final Query positional = new Query(chain, "for $x at $position in " + source("indexed") + " where " + POINT
           + " lt xs:dateTime($x.vt) return $position");
       assertFalse(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE));
-      assertEquals(List.of(2L, 3L, 5L, 7L), values(positional.execute(context)));
+      assertEquals(List.of(1L, 2L, 3L, 5L), values(positional.execute(context)));
       final Query typed = new Query(chain,
           "for $x as item() in " + source("indexed") + " where " + POINT + " lt xs:dateTime($x.vt) return $x.id");
       assertFalse(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE));
@@ -161,7 +234,7 @@ final class ValidTimeLazySliceTest {
       final Query unsupported =
           new Query(chain, "for $x in " + source("indexed") + " where xs:string($x.vt) gt '2024' return $x.id");
       assertFalse(contains(chain.getOptimizedAST(), OpenBitemporal.OPEN_BITEMPORAL_SLICE));
-      assertEquals(List.of(1L, 2L, 3L, 4L, 7L, 10L), values(unsupported.execute(context)));
+      assertEquals(List.of(2L, 3L, 7L, 10L), values(unsupported.execute(context)));
     }
   }
 
@@ -176,9 +249,8 @@ final class ValidTimeLazySliceTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
       for (final String resource : List.of("indexed", "plain")) {
-        // Strict and inclusive endpoints, and the plain closed point route, must all reach it: only
-        // the strict routes union the verification postings, so the record's own registered
-        // whole-domain interval is what the other two depend on.
+        // Every bitemporal residual and the closed valid-at route must reach these records.
+        // The whole-domain registration preserves candidate coverage for ambiguous bounds.
         for (final String upper : List.of("lt", "le")) {
           assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in " + source(resource) + " where " + POINT
               + " " + upper + " xs:dateTime($x.vt) return $x.id").execute(context)), resource + " " + upper);
@@ -227,7 +299,7 @@ final class ValidTimeLazySliceTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       index(chain, context);
-      final String point = "xs:dateTime('2016-12-31T23:59:59Z')";
+      final String point = "xs:dateTime('2016-12-31T23:59:58Z')";
       for (final String resource : List.of("indexed", "plain")) {
         final Query query = new Query(chain, "for $x in jn:open-bitemporal('slice','" + resource + "'," + TRANSACTION
             + "," + point + ") where " + point + " lt xs:dateTime($x.vt) return $x.id");
@@ -470,9 +542,9 @@ final class ValidTimeLazySliceTest {
         for (final String operator : List.of("lt", "le")) {
           final String end = point + " " + operator + " xs:dateTime($x.vt)";
           final String start = "xs:dateTime($x.vf) " + operator + " " + point;
-          assertEquals(List.of(1L, 2L),
+          assertEquals(List.of(2L),
               values(new Query(chain, "for $x in " + direct + " where " + end + " return $x.id").execute(context)));
-          assertEquals(List.of(1L, 2L),
+          assertEquals(List.of(2L),
               values(new Query(chain, "for $x in " + direct + " where " + start + " return $x.id").execute(context)));
           assertEquals(List.of(1L, 2L), values(new Query(chain, "for $x in jn:doc('slice','" + resource + "')[] where "
               + start + " and " + end + " return $x.id").execute(context)));
@@ -482,7 +554,7 @@ final class ValidTimeLazySliceTest {
           assertEquals(List.of(2L), values(new Query(chain,
               "for $x in " + direct + " where xs:dateTime($x.vt) " + mirror + " " + point + " return $x.id").execute(
                   context)));
-          assertEquals(List.of(1L), values(new Query(chain,
+          assertEquals(List.of(), values(new Query(chain,
               "for $x in " + direct + " where " + point + " " + mirror + " xs:dateTime($x.vf) return $x.id").execute(
                   context)));
         }

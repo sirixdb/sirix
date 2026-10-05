@@ -12,10 +12,15 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
+import io.brackit.query.jdm.type.AnyItemType;
+import io.brackit.query.jdm.type.AtomicType;
+import io.brackit.query.jdm.type.Cardinality;
+import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.function.DateTimeToInstant;
@@ -28,8 +33,9 @@ import java.time.Instant;
 /**
  * <p>
  * Function for bitemporal queries combining transaction time and valid time. Opens the resource at
- * a specific transaction time, filtered to records valid at the specified valid time. Supported
- * signatures are:
+ * a specific transaction time, filtered to records valid at the specified valid time. Validity is
+ * half-open: {@code validFrom <= validTime < validTo}. Missing or unparseable bounds retain their
+ * existing unbounded interpretation. The supported signature is:
  * </p>
  * <ul>
  * <li><code>jn:open-bitemporal($coll as xs:string, $res as xs:string,
@@ -46,7 +52,7 @@ import java.time.Instant;
  *
  * <p>
  * The resource must be configured with valid time paths via
- * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}.
+ * {@link ResourceConfiguration.Builder#validTimePaths(String, String)}.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -61,6 +67,9 @@ public final class OpenBitemporal extends AbstractFunction {
   public static final QNm OPEN_BITEMPORAL_SLICE =
       new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open-bitemporal-slice");
 
+  /** Marks calls introduced by the optimizer; the internal function is never predefined. */
+  public static final String INTERNAL_SLICE = "sirix.internalBitemporalSlice";
+
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
@@ -71,6 +80,16 @@ public final class OpenBitemporal extends AbstractFunction {
    */
   public OpenBitemporal(final QNm name, final Signature signature) {
     super(name, signature, true);
+  }
+
+  /** Used directly by the translator after analysis of the original public call. */
+  public static OpenBitemporal forSlice() {
+    return new OpenBitemporal(OPEN_BITEMPORAL_SLICE,
+        new Signature(SequenceType.JSON_ITEM_SEQUENCE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany)));
   }
 
   @Override
@@ -108,7 +127,7 @@ public final class OpenBitemporal extends AbstractFunction {
     }
 
     if (args.length == 4) {
-      return closedSequence(document, validTime, validTimeConfig);
+      return halfOpenSequence(document, validTime, validTimeConfig);
     }
     return sliceSequence(sctx, ctx, args, validDateTime, document, validTime, validTimeConfig);
   }
@@ -130,8 +149,8 @@ public final class OpenBitemporal extends AbstractFunction {
             ? start
             : !start);
     if (matchesIndexedComparison(field, validTimeConfig, start, comparisonPoint, validDateTime)) {
-      final ValidTimeKeySequence sequence = ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig,
-          start && strict, !start && strict, null);
+      final ValidTimeKeySequence sequence =
+          ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, start && strict, true, null);
       if (sequence != null) {
         return sequence.knownSize() != null
             ? sequence
@@ -139,7 +158,7 @@ public final class OpenBitemporal extends AbstractFunction {
       }
     }
 
-    return filterSequence(closedSequence(document, validTime, validTimeConfig), residual);
+    return filterSequence(halfOpenSequence(document, validTime, validTimeConfig), residual);
   }
 
   private static boolean matchesIndexedComparison(final String field, final ValidTimeConfig config, final boolean start,
@@ -176,13 +195,13 @@ public final class OpenBitemporal extends AbstractFunction {
     };
   }
 
-  private static Sequence closedSequence(final JsonDBItem document, final Instant validTime,
+  private static Sequence halfOpenSequence(final JsonDBItem document, final Instant validTime,
       final ValidTimeConfig validTimeConfig) {
     final Sequence intervalSequence =
-        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false);
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, true);
     if (intervalSequence != null) {
       return intervalSequence;
     }
-    return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
+    return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig, false, true);
   }
 }

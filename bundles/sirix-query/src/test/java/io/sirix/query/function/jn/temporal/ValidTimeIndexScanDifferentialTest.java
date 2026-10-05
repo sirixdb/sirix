@@ -310,7 +310,7 @@ public final class ValidTimeIndexScanDifferentialTest {
           for (final Instant t : chunk) {
             final Set<Integer> brute = new TreeSet<>();
             for (final Record r : records) {
-              if (r.validAt(t)) {
+              if (!t.isBefore(r.validFrom()) && t.isBefore(r.validTo())) {
                 brute.add(r.id());
               }
             }

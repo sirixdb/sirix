@@ -9,7 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 final class BitemporalCanonicalizerTest {
 
@@ -55,18 +55,13 @@ final class BitemporalCanonicalizerTest {
   }
 
   @Test
-  void queryCatalogIsCompleteAndDeclaresHalfOpenResiduals() {
+  void queryCatalogIsCompleteWithoutAdditionalStrictEndResiduals() {
     final List<BitemporalQueries.Query> queries = BitemporalQueries.all();
     assertEquals(12, queries.size());
     for (int index = 0; index < queries.size(); index++) {
       final BitemporalQueries.Query query = queries.get(index);
       assertEquals(index + 1, query.index());
-      assertTrue(query.text().contains("local:slice"));
+      assertFalse(query.strictEndResidual());
     }
-    assertEquals(List.of(4, 6, 7, 8, 9, 11, 12),
-        queries.stream()
-               .filter(BitemporalQueries.Query::strictEndResidual)
-               .map(BitemporalQueries.Query::index)
-               .toList());
   }
 }

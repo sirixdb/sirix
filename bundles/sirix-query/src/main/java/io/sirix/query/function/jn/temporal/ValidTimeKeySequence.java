@@ -76,7 +76,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   private boolean matches(final JsonDBObject object) {
     return ValidTimeIndexScan.isValidAtTime(object, instant, config.getNormalizedValidFromPath(),
-        config.getNormalizedValidToPath(), residual == null && strictStart, residual == null && strictEnd)
+        config.getNormalizedValidToPath(), residual == null && strictStart, strictEnd)
         && (residual == null || residual.test(object));
   }
 

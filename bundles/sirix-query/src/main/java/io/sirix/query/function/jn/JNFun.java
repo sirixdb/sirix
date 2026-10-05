@@ -123,13 +123,6 @@ public final class JNFun {
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
             new SequenceType(AtomicType.DATI, Cardinality.One))));
 
-    Functions.predefine(new OpenBitemporal(OpenBitemporal.OPEN_BITEMPORAL_SLICE,
-        new Signature(SequenceType.JSON_ITEM_SEQUENCE, new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One),
-            new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.INR, Cardinality.One),
-            new SequenceType(AnyItemType.ANY, Cardinality.ZeroOrMany))));
-
     // store
     Functions.predefine(new Store(false));
     Functions.predefine(new Store(true));

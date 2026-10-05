@@ -9,8 +9,9 @@ exceptional candidates; repeated iteration and early close do not close the borr
 
 | Source | Indexed predicate | Fallback |
 | --- | --- | --- |
-| `jn:valid-at`, `jn:open-bitemporal`, two-argument `jn:scan-valid-time-index` | Closed point containment | Original exact temporal predicate for rounded, clamped, open, duplicate, or lexically ambiguous bounds; exact linear scan when no interval index applies |
-| `for $x in jn:open-bitemporal(C,R,T,P) where P lt xs:dateTime($x.vt) return ...` | Half-open end; inclusive `le`, reversed `gt/ge`, general comparisons, and the analogous start comparisons are supported | Original cast/comparison for exceptional records; original temporal scan plus comparison for a different configured field or absent index |
+| `jn:valid-at`, two-argument `jn:scan-valid-time-index` | Closed point containment | Original exact temporal predicate for rounded, clamped, open, duplicate, or lexically ambiguous bounds; exact linear scan when no interval index applies |
+| `jn:open-bitemporal(C,R,T,P)` | Half-open validity: `validFrom <= P < validTo` | Exact temporal verification for exceptional bounds; half-open linear scan when no interval index applies |
+| `for $x in jn:open-bitemporal(C,R,T,P) where P lt xs:dateTime($x.vt) return ...` | Half-open source intersected with the residual; inclusive `le`, reversed `gt/ge`, general comparisons, and the analogous start comparisons are supported | Original cast/comparison for exceptional records; original temporal scan plus comparison for a different configured field or absent index |
 | `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op P and P op xs:dateTime($x.vt) return ...` | All four combinations of inclusive/strict endpoints, either operand/conjunct order | Original full array scan and comparisons unless every member has two exact bounds and its array order agrees with key order |
 
 The point must be the same invariant variable or `xs:dateTime` literal on both sides of a matched
@@ -18,25 +19,30 @@ predicate. Only `xs:dateTime` field casts are consumed. The bitemporal rule cons
 conjunct, preserving later conjuncts and their evaluation order. Positional/allowing-empty bindings,
 other casts, mismatched points, and other source shapes retain their ordinary evaluation.
 
+The SH1 queries call `jn:open-bitemporal` directly; they need no `local:slice` wrapper or additional
+strict-end comparison. The optimizer-only `open-bitemporal-slice` target is translated directly and
+is absent from the public function registry, so query text cannot call it.
+
 Brackit optimizes user-function bodies, so dynamic collection/resource/time parameters work inside
-functions such as `local:slice`. After folding, an identity `for $x in <slice> return $x` pipeline
-is removed, allowing direct `count()` calls to use the key count. Typed, positional, and nonidentity
+functions such as `local:slice`. An identity `for $x in <slice> return $x` pipeline over the public
+function or a folded scan is removed, allowing `count()` calls to use the key count. Typed, positional, and nonidentity
 loop bindings retain their original evaluation.
 
 Transaction time is resolved at each evaluation. No revision is captured during compilation.
 Timezone offsets in `xs:dateTime` arguments are preserved when converting to `Instant`.
 Folded bitemporal comparisons retain their original operand type, comparison kind, and direction
 independently of the source function's dateTime argument conversion. Their fallbacks filter the
-original closed interval or linear source in its existing order.
+original half-open interval or linear source in its existing order. Inclusive end residuals and
+start residuals cannot include records excluded by the source's strict end.
 Temporal fallbacks do not narrow with dateTime CAS indexes: their Brackit casts can omit bounds
-accepted by the closed predicate’s `Instant.parse`, so they provide no candidate coverage proof.
+accepted by the temporal predicate’s `Instant.parse`, so they provide no candidate coverage proof.
 Timezone-less comparison points retain Brackit's ordinary comparisons, as do non-singleton plain
 FLWOR points. Computed field dereferences are not folded. Non-object array members evaluate the
 original comparisons with empty field dereferences. Plain-FLWOR points are evaluated only on row
 demand and at their original operand position; empty documents, non-array roots, and empty arrays
 supply no unboxed rows and never evaluate their point expression. Direct temporal functions retain
 their original object-root and missing-resource semantics.
-Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the closed source's
+Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the temporal source's
 order, while plain FLWOR retains its document-order admission check.
 
 ## Index representation
@@ -75,13 +81,13 @@ the half-open stab can skip the record and the strict-start tie removal can drop
 can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
 so it already returns a superset. Closed and strict stabs outside every interval read no candidate
 object at all. Membership filters nested objects entirely from index postings. Retained built-in
-temporal residuals run for every candidate after the original closed predicate and only as each
+temporal residuals run for every candidate after the original temporal predicate and only as each
 candidate is demanded. Iteration and positional access can stop before a later malformed cast; counting evaluates all candidates that
 need verification. Exact candidates require no field reads when no residual remains. A retained
 temporal residual always filters exact candidates as well, and disables key-only known cardinality. Folded bitemporal
 comparisons use the key-only sequence when the comparison matches the indexed bounds and all
 selected candidates are exact; otherwise they retain the built-in comparison and reuse the selected
-keys and evidence. Caller-supplied arbitrary predicates are not supported. A strict integer tie
+keys and evidence. Caller-supplied arbitrary predicates are not supported. Among source-valid records, a strict integer tie
 must not suppress an original cast error. Candidate membership and verification use the existing compressed HOT
 posting chunks and `NodeReferences.contains`, once per candidate chunk. Only matching candidate keys
 are retained; unrelated posting references are never enumerated or copied into query collections.
@@ -195,8 +201,8 @@ verification posting belongs to a registered interval.
 
 The consumed `1.0-alpha10-SNAPSHOT` supports lazy UDF returns through `Sequence.isRepeatable()`
 and `Sequence.knownSize()`. Sirix opts immutable valid-time key sequences into that protocol,
-including folded `local:slice` bodies in Q6/Q11. For exact candidates, the known cardinality comes
-from index keys without constructing objects or reading timestamps. Inexact candidates and sequences
+including folded user-function bodies in the laziness tests. SH1 Q6/Q11 use direct public calls.
+For exact candidates, the known cardinality comes from index keys without constructing objects or reading timestamps. Inexact candidates and sequences
 retaining a built-in temporal residual report an unknown cardinality. Mutable
 views still use the existing fallback.
 
@@ -238,8 +244,8 @@ io.sirix.query.bench.validtime.LatencyProbe <db-root> <oracle-dir> <out-dir> <re
 Warm: one JVM, ten repetitions, discard the first; Q6 and Q11 use three repetitions, discard the
 first. Cold: three fresh JVMs per query, one repetition each. Report medians of compile + execute +
 serialize, with canonicalization separately. Store/resource opening is outside the measured interval.
-These are cold-process measurements, not a forced OS-page-cache eviction. Also run the kit's twelve queries unchanged and byte-compare all twelve
-TSVs at both tiers. Timing results are recorded only after these checks pass.
+These are cold-process measurements, not a forced OS-page-cache eviction. Also run the kit's
+twelve direct-call queries and byte-compare all twelve TSVs at both tiers. Timing results are recorded only after these checks pass.
 
 
 ## Historical validation results (2026-10-03)
