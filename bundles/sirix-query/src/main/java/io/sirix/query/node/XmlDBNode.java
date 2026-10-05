@@ -148,7 +148,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isParentOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       return node.getImmutableNode().getParentKey() == nodeKey;
     }
@@ -158,7 +158,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isChildOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         return node.nodeKey == rtx.getParentKey();
@@ -170,7 +170,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDescendantOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
@@ -202,7 +202,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isDescendantOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (isSelfOf(other)) {
         retVal = true;
@@ -216,7 +216,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isAncestorOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
         return deweyID.isAncestorOf(node.deweyID);
@@ -231,7 +231,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAncestorOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
         retVal = deweyID.isAncestorOf(node.deweyID);
@@ -247,9 +247,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private boolean isAncestorOfNode(final XmlDBNode node) {
-    if (!isSameDocument(node)) {
-      return false;
-    }
     node.moveRtx();
     while (node.rtx.moveToParent()) {
       if (node.rtx.getNodeKey() == nodeKey) {
@@ -262,7 +259,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isSiblingOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (kind == NodeKind.ATTRIBUTE || kind == NodeKind.NAMESPACE || node.kind == NodeKind.ATTRIBUTE
           || node.kind == NodeKind.NAMESPACE || nodeKey == node.nodeKey) {
@@ -280,7 +277,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
           && node.kind != NodeKind.NAMESPACE) {
@@ -301,7 +298,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
           && node.kind != NodeKind.NAMESPACE) {
@@ -322,15 +319,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
-          if (!isSameDocument(node)) {
-            return false;
-          }
           final long otherNodeKey;
           if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
             node.moveRtx();
@@ -352,15 +346,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
-          if (!isSameDocument(node)) {
-            return false;
-          }
           final long otherNodeKey;
           if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
             node.moveRtx();
@@ -390,7 +381,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAttributeOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
         // noinspection ConstantConditions
@@ -407,18 +398,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDocumentOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
-    if (getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node) {
-      assert node.getNodeClassID() == this.getNodeClassID();
-      final NodeReadOnlyTrx rtx = node.getTrx();
-      if (rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
-                                                                             .getResourceConfig()
-                                                                             .getID()) {
-        retVal = true;
-      }
-    }
-    return retVal;
+    return getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node && isSameDocument(node);
   }
 
   @Override
