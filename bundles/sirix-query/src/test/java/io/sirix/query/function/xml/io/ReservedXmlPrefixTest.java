@@ -150,8 +150,7 @@ final class ReservedXmlPrefixTest {
     final String leaf = "xn:doc('reserved','resource1')/leaf";
     assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/@alias:lang)"));
     assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/attribute::attribute(alias:lang))"));
-    assertEquals("0",
-        run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/keep/@alias:lang)"));
+    assertEquals("0", run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/keep/@alias:lang)"));
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
         final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
         final var wtx = session.beginNodeTrx()) {
@@ -164,8 +163,7 @@ final class ReservedXmlPrefixTest {
     }
     assertEquals("second", run(versioningType, prolog + "string(" + leaf + "/keep/@alias:lang)"));
     assertEquals("third", run(versioningType, prolog + "string(" + leaf + "/child/@alias:lang)"));
-    assertEquals("0",
-        run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/child/@alias:lang)"));
+    assertEquals("0", run(versioningType, "declare namespace alias='urn:Aa'; count(" + leaf + "/child/@alias:lang)"));
   }
 
   @ParameterizedTest
