@@ -25,7 +25,8 @@ This design reaches the same bytes incrementally: **gate = same-session 1M pair 
 ## 1. Unit — the segment
 
 A **segment** is a page-aligned node-key range `[startKey_s, startKey_{s+1})` of the DOCUMENT trie.
-Node keys are monotone and never reused, so membership of a node in a segment is permanent.
+Membership follows the node key, including when
+[revision replay restores a deleted key](../bundles/sirix-core/src/main/java/io/sirix/api/json/JsonNodeTrx.java).
 
 - Boundaries are a persisted, sorted `long[]` of start PAGE keys in the **segment directory** (§2).
   `segmentOf(recordPageKey)` is a binary search over it; the last entry is the open segment.

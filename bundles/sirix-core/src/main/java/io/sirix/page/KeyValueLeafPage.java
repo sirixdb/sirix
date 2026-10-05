@@ -1129,8 +1129,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Serialize a FlyweightNode to the slotted page heap, update directory/bitmap, and bind.
    *
    * <p>
-   * After this call the node is bound: getters/setters operate on page memory. processEntries will
-   * skip this record at commit time because {@code fn.isBound()} is true.
+   * On success the node is bound: getters/setters operate on page memory. The cached record for this
+   * slot is cleared so readers and modification preparation use the new bytes, and processEntries has
+   * no pending record to serialize for this slot at commit time.
    *
    * @param fn the flyweight node to serialize
    * @param nodeKey the node's key
@@ -1346,8 +1347,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Complete a direct record write. Handles DeweyID trailer, directory entry, bitmap, heap counters,
-   * and flyweight binding. Called after the caller has written the record bytes via a static
-   * writeNewRecord method.
+   * and cached-record invalidation. Called after the caller has written the record bytes via a static
+   * writeNewRecord method; the caller then binds the flyweight and sets its owner page.
    *
    * @param nodeKindId the node kind ID (e.g. NodeKind.OBJECT.getId())
    * @param nodeKey the node key
