@@ -42,11 +42,11 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   /** Start node key. */
   private long startNodeKey;
 
-  /** Stack of namespace mappings. */
+  /**
+   * Mappings pending for the next element. Local declarations must be retained even when an ancestor
+   * declares the same prefix, since the namespace URI may differ or be undeclared.
+   */
   private final Deque<QNm> namespaces;
-
-  /** Stack of namespace mappings. */
-  private final Deque<String> insertedNamespacePrefixes;
 
   /**
    * Constructor.
@@ -66,7 +66,6 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
     parents = new ArrayDeque<>();
     first = true;
     namespaces = new ArrayDeque<>();
-    insertedNamespacePrefixes = new ArrayDeque<>();
   }
 
   /**
@@ -152,7 +151,7 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
 
   @Override
   public void endMapping(final String prefix) throws DocumentException {
-    insertedNamespacePrefixes.pop();
+    // startElement consumes pending mappings; the stored element retains their namespace scope.
   }
 
   @Override
@@ -184,13 +183,7 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
     try {
       processStartTag(name);
       while (!namespaces.isEmpty()) {
-        final QNm namespace = namespaces.pop();
-
-        if (!insertedNamespacePrefixes.contains(namespace.getPrefix())) {
-          wtx.insertNamespace(namespace).moveToParent();
-        }
-
-        insertedNamespacePrefixes.push(namespace.getPrefix());
+        wtx.insertNamespace(namespaces.pop()).moveToParent();
       }
       if (first) {
         first = false;

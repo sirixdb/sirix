@@ -8,10 +8,11 @@ import org.jspecify.annotations.Nullable;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
-import io.sirix.settings.Fixed;
 
 /**
- * Sirix scope.
+ * Namespace scope anchored to a stored XML element. Nodes share the transaction cursor, so scope
+ * operations must reposition it to the owning element even when other node accesses have moved it.
+ * Prefix resolution searches local declarations before ancestors and restores the owning element.
  *
  * @author Johannes Lichtenberger
  *
@@ -20,6 +21,9 @@ public final class SirixScope implements Scope {
 
   /** Sirix {@link XmlNodeReadOnlyTrx}. */
   private final XmlNodeReadOnlyTrx rtx;
+
+  /** Owning element, independent of the shared transaction cursor. */
+  private final long nodeKey;
 
   /**
    * Constructor.
@@ -30,10 +34,12 @@ public final class SirixScope implements Scope {
     // Assertion instead of requireNonNull(...) (part of internal API).
     assert node != null;
     rtx = node.getTrx();
+    nodeKey = rtx.getNodeKey();
   }
 
   @Override
   public Stream<String> localPrefixes() {
+    rtx.moveTo(nodeKey);
     return new Stream<>() {
       private int index;
 
@@ -42,8 +48,14 @@ public final class SirixScope implements Scope {
       @Override
       public String next() throws DocumentException {
         if (index < mNamespaces) {
+          rtx.moveTo(nodeKey);
           rtx.moveToNamespace(index++);
-          return rtx.nameForKey(rtx.getPrefixKey());
+          final int prefixKey = rtx.getPrefixKey();
+          final String prefix = prefixKey == -1
+              ? ""
+              : rtx.nameForKey(prefixKey);
+          rtx.moveToParent();
+          return prefix;
         }
         return null;
       }
@@ -61,10 +73,13 @@ public final class SirixScope implements Scope {
   @Override
   public void addPrefix(final String prefix, final String uri) {
     if (rtx instanceof final XmlNodeTrx wtx) {
+      wtx.moveTo(nodeKey);
       try {
         wtx.insertNamespace(new QNm(uri, prefix, ""));
       } catch (final SirixException e) {
         throw new DocumentException(e);
+      } finally {
+        wtx.moveTo(nodeKey);
       }
     }
   }
@@ -74,29 +89,26 @@ public final class SirixScope implements Scope {
     final int prefixVocID = (prefix == null || prefix.isEmpty())
         ? -1
         : rtx.keyForName(prefix);
-    while (true) {
-      // First iterate over all namespaces.
-      for (int i = 0, namespaces = rtx.getNamespaceCount(); i < namespaces; i++) {
-        rtx.moveToNamespace(i);
-        final String name = rtx.nameForKey(prefixVocID);
-        if (name != null) {
-          return name;
+    rtx.moveTo(nodeKey);
+    try {
+      do {
+        for (int i = 0, namespaces = rtx.getNamespaceCount(); i < namespaces; i++) {
+          rtx.moveToNamespace(i);
+          if (rtx.getPrefixKey() == prefixVocID) {
+            return rtx.nameForKey(rtx.getURIKey());
+          }
+          rtx.moveToParent();
         }
-        rtx.moveToParent();
+      } while (rtx.moveToParent());
+      if ("xml".equals(prefix)) {
+        return "http://www.w3.org/XML/1998/namespace";
       }
-      // Then move to parent.
-      if (rtx.hasParent() && rtx.getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        rtx.moveToParent();
-      } else {
-        break;
-      }
+      return prefixVocID == -1
+          ? ""
+          : null;
+    } finally {
+      rtx.moveTo(nodeKey);
     }
-    if (prefix.equals("xml")) {
-      return "http://www.w3.org/XML/1998/namespace";
-    }
-    return prefixVocID == -1
-        ? ""
-        : null;
   }
 
   @Override

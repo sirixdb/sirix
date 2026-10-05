@@ -40,7 +40,6 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Predicate;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public final class ExcelDiffTest1 {
@@ -193,7 +192,8 @@ public final class ExcelDiffTest1 {
         new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = out.toString(StandardCharsets.UTF_8);
 
-        assertEquals(contentNewRev, contentOldRev);
+        final Diff diff = new Diff(contentNewRev, contentOldRev);
+        assertTrue(diff.identical(), diff::toString);
 
         out.reset();
       }

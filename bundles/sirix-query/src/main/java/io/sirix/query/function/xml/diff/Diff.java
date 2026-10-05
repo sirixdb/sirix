@@ -55,7 +55,7 @@ import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
 
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -350,11 +350,13 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   private static String printSubtreeNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case ELEMENT -> {
-        final OutputStream out = new ByteArrayOutputStream();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
         final XmlSerializer serializer =
-            XmlSerializer.newBuilder(rtx.getResourceSession(), out).startNodeKey(rtx.getNodeKey()).build();
+            XmlSerializer.newBuilder(rtx.getResourceSession(), out, rtx.getRevisionNumber())
+                         .startNodeKey(rtx.getNodeKey())
+                         .build();
         serializer.call();
-        return out.toString();
+        return out.toString(StandardCharsets.UTF_8);
       }
       case ATTRIBUTE -> {
         return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";

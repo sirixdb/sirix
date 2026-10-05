@@ -285,6 +285,19 @@ try (var database = Databases.openJsonDatabase(dbPath)) {
 }
 ```
 
+### Query Updates
+
+XQuery `insert nodes` preserves the source sequence order at every insertion position:
+`as first into`, `as last into`, plain `into`, `before`, and `after`. For example,
+`insert nodes (<a/>, <b/>) as first into $parent` places `<a/>` before `<b/>`, ahead
+of the parent's existing children. Copied elements retain local namespace bindings,
+including prefix rebinding and default namespace undeclarations on descendants.
+
+JSONiq `insert json $value into $array at position $index` uses zero-based positions
+from `0` through the array length; the length appends, including position `0` for an
+empty array. Omitting `at position` also appends. A sequence inserted as one array
+member retains its internal order.
+
 ## Time-Travel Queries
 
 SirixDB extends JSONiq/XQuery (via [Brackit](https://github.com/sirixdb/brackit)) with temporal axis and functions.

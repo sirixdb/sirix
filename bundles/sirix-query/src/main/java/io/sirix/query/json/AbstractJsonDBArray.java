@@ -271,6 +271,12 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return jsonItemFactory;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * @throws QueryException if the index is negative or at least the array length; pending updates
+   *         remain intact
+   */
   @Override
   public Array replaceAt(int index, Sequence value) {
     modify(index, value, Op.Replace);
@@ -292,41 +298,43 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return this;
   }
 
-  private void modify(int index, Sequence value, final Op op) {
+  private void modify(final int index, final Sequence value, final Op op) {
     final JsonNodeTrx trx = getReadWriteTrx();
-    // Do NOT close the trx on a bounds error: getReadWriteTrx may return the session's SHARED
-    // write trx, so closing it (a) threw "Must commit/rollback first" when it had pending edits,
-    // masking the real error, and (b) emptied session.getNodeTrx() so every OTHER pending update
-    // in the same query was silently lost. Also reject a negative index — it passed `> childCount`
-    // and then operated on index 0 (silent wrong target). Mirrors remove(int).
-    if (index < 0 || index > trx.getChildCount()) {
-      throw new QueryException(new QNm("Index " + index + " is out of range (" + trx.getChildCount() + ")."));
+    final long childCount = trx.getChildCount();
+    // The session may return a shared writer with pending edits. Reject invalid insertion and
+    // replacement indexes before mutation without closing that writer or losing other updates.
+    if (index < 0 || index > childCount || (op == Op.Replace && index == childCount)) {
+      throw new QueryException(new QNm("Index " + index + " is out of range (" + childCount + ")."));
     }
 
-    moveToIndex(index, trx);
-
-    final long ancorNodeKey;
-    if (trx.hasLeftSibling()) {
-      ancorNodeKey = trx.getLeftSiblingKey();
+    if (index == childCount) {
+      // Append directly: there is no member at index == length. For an empty array the cursor
+      // stays on the array, so insert() creates its first child rather than a document sibling.
+      if (childCount != 0) {
+        trx.moveToLastChild();
+      }
     } else {
-      ancorNodeKey = trx.getParentKey();
+      moveToIndex(index, trx);
+      final long anchorNodeKey = trx.hasLeftSibling()
+          ? trx.getLeftSiblingKey()
+          : trx.getParentKey();
+      if (op == Op.Replace) {
+        trx.remove();
+      }
+      trx.moveTo(anchorNodeKey);
     }
-    if (op == Op.Replace) {
-      trx.remove();
-    }
-    trx.moveTo(ancorNodeKey);
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
     invalidateAfterStructuralMutation();
   }
 
-  private void moveToIndex(int index, JsonNodeTrx trx) {
+  private void moveToIndex(final int index, final JsonNodeTrx trx) {
     // must have children
 
     trx.moveToFirstChild();
 
-    for (int i = 1; i <= index; i++) {
+    for (int i = 0; i < index; i++) {
       trx.moveToRightSibling();
     }
   }

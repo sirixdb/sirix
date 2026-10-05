@@ -648,7 +648,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         wtx.insertCommentAsRightSibling(value.asStr().stringValue());
         break;
       case PROCESSING_INSTRUCTION:
-        wtx.insertPIAsRightSibling(value.asStr().stringValue(), name.getLocalName());
+        wtx.insertPIAsRightSibling(name.getLocalName(), value.asStr().stringValue());
         break;
       default:
         throw new AssertionError(); // May not happen.
@@ -675,7 +675,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         wtx.insertCommentAsFirstChild(value.asStr().stringValue());
         break;
       case PROCESSING_INSTRUCTION:
-        wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
+        wtx.insertPIAsFirstChild(name.getLocalName(), value.asStr().stringValue());
         break;
       default:
         throw new AssertionError(); // May not happen.
@@ -922,7 +922,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
           break;
         case PROCESSING_INSTRUCTION:
-          wtx.insertPIAsLeftSibling(value.asStr().stringValue(), name.getLocalName());
+          wtx.insertPIAsLeftSibling(name.getLocalName(), value.asStr().stringValue());
           break;
         default:
           throw new AssertionError(); // Must not happen.

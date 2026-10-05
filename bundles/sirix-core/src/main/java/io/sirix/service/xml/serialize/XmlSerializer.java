@@ -55,6 +55,8 @@ import io.sirix.utils.SirixFiles;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
 import io.brackit.query.util.serialize.Serializer;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -118,9 +120,8 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XmlSerializer(final XmlResourceSession resourceMgr, final long nodeKey,
-      final XmlSerializerBuilder builder, final boolean initialIndent, final int revision,
-      final int... revsions) {
+  private XmlSerializer(final XmlResourceSession resourceMgr, final long nodeKey, final XmlSerializerBuilder builder,
+      final boolean initialIndent, final int revision, final int... revsions) {
     super(resourceMgr, builder.maxLevel == -1
         ? null
         : new XmlMaxLevelVisitor(builder.maxLevel), nodeKey, revision, revsions);
@@ -154,20 +155,32 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
           out.write(CharsForSerializing.OPEN.getBytes());
           writeQName(rtx);
           final long key = rtx.getNodeKey();
-          // Emit namespace declarations.
-          for (int index = 0, nspCount = rtx.getNamespaceCount(); index < nspCount; index++) {
-            rtx.moveToNamespace(index);
-            if (rtx.getPrefixKey() == -1) {
-              out.write(CharsForSerializing.XMLNS.getBytes());
-              write(rtx.nameForKey(rtx.getURIKey()));
-              out.write(CharsForSerializing.QUOTE.getBytes());
-            } else {
-              out.write(CharsForSerializing.XMLNS_COLON.getBytes());
-              write(rtx.nameForKey(rtx.getPrefixKey()));
-              out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-              write(rtx.nameForKey(rtx.getURIKey()));
-              out.write(CharsForSerializing.QUOTE.getBytes());
+          // A standalone subtree needs its inherited bindings. Nearest declarations win,
+          // including default-namespace undeclarations; ordinary elements emit only local ones.
+          final IntSet emittedPrefixes = key == startNodeKey
+              ? new IntOpenHashSet()
+              : null;
+          do {
+            final long namespaceOwnerKey = rtx.getNodeKey();
+            for (int index = 0, nspCount = rtx.getNamespaceCount(); index < nspCount; index++) {
+              rtx.moveToNamespace(index);
+              if (emittedPrefixes == null || emittedPrefixes.add(rtx.getPrefixKey())) {
+                if (rtx.getPrefixKey() == -1) {
+                  out.write(CharsForSerializing.XMLNS.getBytes());
+                  write(rtx.nameForKey(rtx.getURIKey()));
+                  out.write(CharsForSerializing.QUOTE.getBytes());
+                } else {
+                  out.write(CharsForSerializing.XMLNS_COLON.getBytes());
+                  write(rtx.nameForKey(rtx.getPrefixKey()));
+                  out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+                  write(rtx.nameForKey(rtx.getURIKey()));
+                  out.write(CharsForSerializing.QUOTE.getBytes());
+                }
+              }
+              rtx.moveTo(namespaceOwnerKey);
             }
+          } while (emittedPrefixes != null && rtx.moveToParent());
+          if (emittedPrefixes != null) {
             rtx.moveTo(key);
           }
           // Emit attributes.
@@ -628,8 +641,8 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final long nodeKey,
-        final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
+    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final long nodeKey, final OutputStream stream,
+        final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;
       this.session = requireNonNull(resourceSession);
