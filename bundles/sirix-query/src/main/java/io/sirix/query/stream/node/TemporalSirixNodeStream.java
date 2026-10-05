@@ -4,6 +4,7 @@ import io.sirix.utils.ToStringHelper;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.AbstractTemporalNode;
+import io.brackit.query.jdm.type.NodeType;
 import io.sirix.api.Axis;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -27,6 +28,9 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
   /** The {@link XmlDBCollection} reference. */
   private final XmlDBCollection collection;
 
+  /** Optional node test whose rejected readers remain owned by this stream. */
+  private final NodeType test;
+
   /**
    * Constructor.
    *
@@ -37,13 +41,40 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
       final XmlDBCollection collection) {
     this.axis = requireNonNull(axis);
     this.collection = requireNonNull(collection);
+    test = null;
+  }
+
+  /**
+   * Wrap a temporal axis with a complete node test. Accepted readers belong to the consumer; rejected
+   * readers are closed here, including when matching throws.
+   *
+   * @param axis temporal axis
+   * @param collection collection the nodes belong to
+   * @param test complete node test
+   */
+  public TemporalSirixNodeStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
+      final XmlDBCollection collection, final NodeType test) {
+    this.axis = requireNonNull(axis);
+    this.collection = requireNonNull(collection);
+    this.test = requireNonNull(test);
   }
 
   @Override
   public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
-    if (axis.hasNext()) {
+    while (axis.hasNext()) {
       final var rtx = axis.next();
-      return new XmlDBNode(rtx, collection);
+      boolean accepted = false;
+      try {
+        final XmlDBNode node = new XmlDBNode(rtx, collection);
+        if (test == null || test.matches(node)) {
+          accepted = true;
+          return node;
+        }
+      } finally {
+        if (!accepted) {
+          rtx.close();
+        }
+      }
     }
 
     return null;

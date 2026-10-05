@@ -282,13 +282,12 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -317,13 +316,12 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -352,13 +350,12 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -387,14 +384,13 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
           new PreviousAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -424,14 +420,13 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
           new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -469,14 +464,13 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
           new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, mSelf);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
@@ -514,14 +508,13 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
-      }
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
           new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
-      return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
+      return isSimpleNodeTest(test)
+          ? new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection())
+          : new TemporalSirixNodeStream(axis, dbNode.getCollection(), test);
     }
 
     @Override
