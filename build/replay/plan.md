@@ -4,6 +4,21 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
+## Current checkpoint (2026-10-05 02:21 Berlin)
+
+Source repair is the independently reviewable first commit 90d4fdd87b7ed3776087d105c87d16620f9dbb02.
+Its final focused run passes all 267 source/hash/bulk/diff invocations with unchanged budget
+bounds; formatting passed. Full source-only core run had 13,161 tests with five identified
+failures, all covered by the subsequent green focused run. Full suites still need a final
+rerun after replay is complete. Details: source-repair-verification.md.
+
+Replay WIPs have been restored on top as 8e9bc4e03 and 153292b65; the selective plan stash
+was applied and retained as a backup. Continue gate 2 with the snapshot oracle unchanged.
+The prerequisite tombstone fix has not appeared in the local origin/main ref or inbox;
+do not duplicate it. Page-walk and shadow-test drafts remain outside production sources
+under build/replay until gate 2 is established. No production replay switch or latency
+acceptance claim, no push, and no no-mistakes pipeline.
+
 ## Contract and concrete implementation
 
 - Keep BasicJsonDiff, its public JSON format, compact fragments and HASHED early stop independent.
@@ -39,9 +54,9 @@ recommendation B and its ordered migration/acceptance plan. The report remains r
 
 ## Ordered migration gates (keep current)
 
-1. [in progress] Pin public behavior and promote R16 across Dewey/recompute/versioning;
+1. [done: contract and regressions pinned] Pin public behavior and promote R16 across Dewey/recompute/versioning;
    define typed protocol without routing production replay to it.
-2. [in progress] Independent full-snapshot test reconstruction and private import seam;
+2. [done: initial seam/oracle] Independent full-snapshot test reconstruction and private import seam;
    explicit keys/gaps/frontier, stage-failure rollback tests. Rebase onto the separate
    tombstone/recreate/restore fix when firstmate reports it landed; do not duplicate it.
 3. [pending] Authoritative delta discovery; shadow hook compares delta-applied graph to
@@ -194,3 +209,48 @@ not run in their new form. Existing baseline public-diff budgets passed five inv
 Formatting, full suites and performance acceptance are pending; no production switch,
 no tombstone duplication, no push, no no-mistakes pipeline. The diagnostic job finished.
 Preserve a local WIP commit and await firstmate resolution before continuing gate 2.
+
+## Source repair authorized (inbox 003, 2026-10-05 01:11 Berlin)
+
+Firstmate resolved source-descendant-counts and directed an independently reviewable
+source repair as the first commit before replay. The new writer-local JsonHashingMutation
+captures changed boundaries/ancestors before link surgery, repairs every new forest root,
+and propagates final hash/count contributions after insertion, move or removal. ROLLING
+does not walk the unchanged child prefix. Auto-commit revisions use incremental maintenance
+because a final repair cannot fix already-published intermediate revisions.
+
+Source-fix run 1: compilation passed, unchanged snapshot oracle 37/37 and public-diff
+budgets 7/7 pass. Direct source tests validate canonical hashes (including final local
+links/counts) and structural counts across all versions/hash/Dewey modes, live and cold
+reopened, including intermediate auto-commits. Failures exposed an invalid NONE test
+assumption (leaf getHash can compute a local value lazily) and a pre-existing primitive-first
+skipped-root left-sibling ordering defect. Correct the assumption and normalize the initial
+sibling position after the first primitive in all three shredders; retain exact expected
+JSON ordering. Revalidate before committing/reordering the isolated source fix.
+
+## Source follow-up results (2026-10-05 02:19 Berlin)
+
+Full core: 13,161 tests, five failures, no errors, 77 skipped. The failures were three
+unneeded boundary reads with NONE/diffs disabled and two old reversed left-sibling order
+expectations. Those are corrected without changing work bounds. Additional direct
+regressions produced 32 failures of 48 before fixes: eight ROLLING shared-container
+renames lost their subtree hash; all 24 malformed-forest cases could publish partial
+state. The repaired focused suite passes 267/267. The independent source repair is
+committed before both replay WIPs; raw logs/XML are retained under build/replay.
+
+## Gate 2 restored and verified (2026-10-05 02:23 Berlin)
+
+The unchanged original snapshot oracle and 24 new full-snapshot reference transitions
+pass together: 61/61 invocations (import-restore.log, import-restore-results/). The new
+transitions import four source epochs: initial state, deletion, restoration after revert,
+and subsequent allocation. They compare every cold-reopened revision and path summary
+across all four versioning types, all hash modes and both Dewey settings, under a target
+threshold of one with KEEP_OPEN_ASYNC_FLUSH. The private persistRecord staging seam
+safely replaces a deleted identity; it does not use the old allocator's defective fresh
+native creation route. That separate worker's fix is still not duplicated and must be
+rebased when it lands.
+
+Proceed to gate 3: pair authoritative document tries, compare complete reconstructed
+logical slots, and validate the resulting delta against the independently enumerated
+full-snapshot reference. Public JsonResourceCopy stays on its old path until the later
+acceptance gates pass. No production routing switch is included in this checkpoint.

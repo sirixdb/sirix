@@ -25,6 +25,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
 import io.sirix.service.json.replay.JsonIdentityDeltaReader;
+import io.sirix.service.json.replay.JsonReplaySnapshotOracle;
 import io.sirix.service.json.replay.JsonReplayGraphValidator;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -34,6 +35,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -53,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Isolated
 final class JsonIdentityImportTest {
   @TempDir
   Path directory;
@@ -118,6 +121,64 @@ final class JsonIdentityImportTest {
       assertEquals(5, copy.getParentKey());
       assertEquals(1_000_000, copy.getMaxNodeKey());
       assertPaths(source, 2, target, 1);
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("configurations")
+  void snapshotReferenceTransitionsRestoreDeletedIdentities(final VersioningType versioning, final HashType hash,
+      final boolean dewey) throws Exception {
+    final Path sourcePath = directory.resolve("restore-source");
+    final Path targetPath = directory.resolve("restore-target");
+    try (final var database = create(sourcePath, versioning, hash, dewey);
+        final var source = database.beginResourceSession("resource");
+        final var writer = source.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0,1]"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      assertTrue(writer.moveTo(3));
+      writer.remove();
+      writer.commit();
+      writer.revertTo(1);
+      writer.commit();
+      assertTrue(writer.moveTo(1));
+      writer.insertNumberValueAsLastChild(2);
+      assertEquals(4, writer.getNodeKey());
+      writer.commit();
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+      try (final var reader = source.beginNodeReadOnlyTrx(1)) {
+        ((InternalJsonNodeTrx) writer).importRevision(JsonIdentityDeltaReader.snapshot(reader, 1), reader);
+      }
+      for (int revision = 2; revision <= 4; revision++) {
+        try (final var base = source.beginNodeReadOnlyTrx(revision - 1);
+            final var reader = source.beginNodeReadOnlyTrx(revision)) {
+          final var delta = JsonReplaySnapshotOracle.between(base, reader, revision);
+          ((InternalJsonNodeTrx) writer).importRevision(delta, reader);
+          assertEquals(revision, target.getMostRecentRevisionNumber());
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= 4; revision++) {
+        try (final var original = source.beginNodeReadOnlyTrx(revision);
+            final var copy = target.beginNodeReadOnlyTrx(revision)) {
+          assertSnapshot(original, copy, 0);
+          JsonReplayGraphValidator.validate(original);
+          JsonReplayGraphValidator.validate(copy);
+          assertEquals(revision != 2, copy.moveTo(3), "restored identity in revision " + revision);
+        }
+        assertPaths(source, revision, target, revision);
+      }
+      assertEquals("[0,1,2]", serialize(target, 4));
     }
   }
 

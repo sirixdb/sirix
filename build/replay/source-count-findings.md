@@ -83,3 +83,10 @@ routing. Authoritative page deltas, generated/shrinkable streams, continuation/i
 lifecycle coverage, projection/valid-time verification, bounded delta validation,
 new work counters, full core/query suites, formatting and latency acceptance remain.
 The prerequisite tombstone fix has not yet been rebased. No push or merge occurred.
+
+## Resolution
+
+Firstmate inbox 003 authorized the source repair. It is the separate first commit
+90d4fdd87b7ed3776087d105c87d16620f9dbb02. Source/hash/bulk/diff validation passes 267
+focused cases, and the unchanged snapshot oracle plus deleted-identity restoration
+now passes 61/61. See source-repair-verification.md for evidence and full-suite limits.
