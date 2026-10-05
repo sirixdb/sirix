@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.interfaces.Page;
@@ -219,6 +220,27 @@ public final class HOTMiniPageCache {
     private boolean admitted;
     private boolean finished;
     private @Nullable StorageEngineReader promotionReader;
+    private @Nullable ProjectionBlobCache blobCache;
+    private @Nullable Key blobKey;
+    private byte @Nullable [] blob;
+    private long blobGeneration;
+
+    /** Verified data wins the seek's sole admission; metadata waits for a successful point seek. */
+    public void retainBlob(final ProjectionBlobCache owner, final Key key, final byte[] verified,
+        final long expectedGeneration, final boolean data) {
+      if (finished || admitted || !owner.canCache(verified.length)) {
+        return;
+      }
+      if (data) {
+        admitted = owner.put(key, verified, expectedGeneration);
+      } else if (blobCache == null) {
+        blobCache = owner;
+        blobKey = key;
+        blob = verified.clone();
+        blobGeneration = expectedGeneration;
+      }
+    }
+
 
     public void rememberMetadata(final HOTMiniPageCache owner, final PageReference key, final long expectedGeneration,
         final int revisionNumber, final byte[] slot, final long sideKey, final @Nullable HOTLeafEntry value) {
@@ -272,6 +294,9 @@ public final class HOTMiniPageCache {
       }
       finished = true;
       try {
+        if (point && !admitted && blobCache != null) {
+          admitted = blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobGeneration);
+        }
         if (point && !admitted && cache != null) {
           if (promotionReader != null && cache.claimPointPromotion(Objects.requireNonNull(pageKey), generation,
               Objects.requireNonNull(slotKey), null)) {
@@ -293,6 +318,9 @@ public final class HOTMiniPageCache {
         slotKey = null;
         entry = null;
         promotionReader = null;
+        blobCache = null;
+        blobKey = null;
+        blob = null;
       }
     }
   }

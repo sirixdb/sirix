@@ -129,7 +129,7 @@ final class ProjectionSortedEditorTest {
             final int id = builder.append(single(1000 + i));
             if (i == 0) {
               firstSingletonId = id;
-              assertTrue(firstSingletonId > 2, "the large build leaf is now multiple small chunks");
+              assertEquals(2, firstSingletonId, "256 encoded rows fit one coarse chunk before the row-cap split");
             }
             assertEquals(firstSingletonId + i, id);
           }
@@ -159,7 +159,7 @@ final class ProjectionSortedEditorTest {
           assertArrayEquals(key(2), oldDirectory.first().copyKey());
           assertArrayEquals(key(1), newDirectory.first().copyKey());
           assertEquals(1, newDirectory.findLeafId(key(1)));
-          assertEquals(oldDirectory.findLeafId(key(512)), newDirectory.findLeafId(key(512)));
+          assertEquals(oldDirectory.findLeafId(key(2)), newDirectory.findLeafId(key(2)));
           assertEquals(firstSingletonId, newDirectory.findLeafId(key(1000)));
           assertScan(newDirectory, true);
           assertScan(oldDirectory, false);

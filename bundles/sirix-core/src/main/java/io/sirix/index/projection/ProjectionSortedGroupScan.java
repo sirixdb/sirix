@@ -193,6 +193,13 @@ public final class ProjectionSortedGroupScan {
       final ProjectionSortedDirectory.Accessor directory, final byte[] prefix, final byte @Nullable [] upper,
       final int limit, final Order order, final long spanDivisor, final boolean minOnly) {
     {
+      if (!reader.hasTrxIntentLog()) {
+        final List<Group> grouped =
+            ProjectionSortedGroupSma.topK(reader, indexNumber, prefix, upper, limit, order, spanDivisor, minOnly);
+        if (grouped != null) {
+          return grouped;
+        }
+      }
       if (order == Order.SPAN_DESC && !reader.hasTrxIntentLog()) {
         final List<Group> bounded = ProjectionSortedSpanScan.topK(reader, indexNumber, directory, prefix, upper, limit,
             spanDivisor, SORTED_LOOKAHEAD, null);

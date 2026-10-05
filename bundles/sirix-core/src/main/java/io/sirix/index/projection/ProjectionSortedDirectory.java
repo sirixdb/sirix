@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
@@ -28,7 +29,7 @@ import java.util.function.IntSupplier;
  * </p>
  *
  * <p>
- * The header describes the encoded inline-chunk layout. Earlier sorted-view formats are rejected;
+ * The header describes the encoded chunk layout. Earlier sorted-view formats are rejected;
  * directory nodes may reference individual oversized separators.
  * </p>
  */
@@ -678,12 +679,9 @@ final class ProjectionSortedDirectory {
         return false;
       }
 
-      /** A trailing advance owns no guard and need not reconstruct a row that is never consumed. */
+      /** Reading another row from the owned logical chunk needs no native-page reconstruction. */
       private void requireReadablePosition() {
         requirePosition();
-        if (scanPromotionPending) {
-          promoteForScan();
-        }
       }
 
       private void requirePosition() {
@@ -836,7 +834,10 @@ final class ProjectionSortedDirectory {
     void apply(final byte[][] removals, final int removalCount, final byte[][] insertions,
         final byte @Nullable [][] insertionPayloads, final int insertionCount) {
       try {
-        applyInternal(removals, removalCount, insertions, insertionPayloads, insertionCount);
+        final Update sma = Update.begin(storage, layout, removals, removalCount, insertions, insertionCount);
+        applyInternal(removals, removalCount, insertions, insertionPayloads, insertionCount, sma);
+        if (sma != null)
+          sma.finish(activeLeafCount);
       } catch (final RuntimeException | Error failure) {
         storage.failSortedMutation(failure);
         throw failure;
@@ -844,7 +845,7 @@ final class ProjectionSortedDirectory {
     }
 
     private void applyInternal(final byte[][] removals, final int removalCount, final byte[][] insertions,
-        final byte @Nullable [][] insertionPayloads, final int insertionCount) {
+        final byte @Nullable [][] insertionPayloads, final int insertionCount, final @Nullable Update sma) {
       requireAscending(removals, removalCount);
       requireAscending(insertions, insertionCount);
       if (insertionPayloads != null && insertionPayloads.length < insertionCount) {
@@ -855,7 +856,7 @@ final class ProjectionSortedDirectory {
       }
       final Header before = currentHeader();
       final ProjectionSortedLeafBounds.Updater bounds = new ProjectionSortedLeafBounds.Updater(storage);
-      // Only aggregate layouts maintain a count of missing aggregate values.
+      // An uncounted view stays uncounted: one pass sees only its own edits, never the whole view.
       final boolean counted = missingAggregateRows != MISSING_AGGREGATE_ROWS_UNKNOWN;
       long missingAggregateDelta = 0;
       for (int i = 0; i < removalCount; i++) {
@@ -908,7 +909,7 @@ final class ProjectionSortedDirectory {
           insertionEnd++;
         }
         rewriteLeaf(leafId, removals, removal, removalEnd, insertions, insertionPayloads, insertion, insertionEnd,
-            bounds);
+            bounds, sma);
         removal = removalEnd;
         insertion = insertionEnd;
       }
@@ -921,8 +922,10 @@ final class ProjectionSortedDirectory {
     /** Apply one leaf's edits in a single rewrite, then replace its directory entry with the result. */
     private void rewriteLeaf(final int leafId, final byte[][] removals, final int removalFrom, final int removalTo,
         final byte[][] insertions, final byte @Nullable [][] insertionPayloads, final int insertionFrom,
-        final int insertionTo, final ProjectionSortedLeafBounds.Updater bounds) {
+        final int insertionTo, final ProjectionSortedLeafBounds.Updater bounds, final @Nullable Update sma) {
       final ProjectionSortedLeaf oldLeaf = readLeaf(leafId);
+      if (sma != null)
+        sma.observeOriginalLeaf(oldLeaf);
       final int removed = removalTo - removalFrom;
       final int inserted = insertionTo - insertionFrom;
       ProjectionSortedLeaf single = null;
@@ -934,9 +937,9 @@ final class ProjectionSortedDirectory {
       if (single != null && ProjectionSortedChunks.fits(single, layout, ProjectionSortedChunks.MAX_BYTES)) {
         if (removed == 1 && inserted == 0 && single.rowCount() < 4
             && single.encodedBytes().length < ProjectionSortedChunks.MERGE_BELOW_BYTES) {
-          single = mergeWithRight(leafId, oldLeaf, single, bounds);
+          single = mergeWithRight(leafId, oldLeaf, single, bounds, sma);
         }
-        ProjectionSortedLeafStore.write(storage, leafId, single, layout, bounds);
+        ProjectionSortedLeafStore.write(storage, leafId, single, layout, bounds, sma);
         if (oldLeaf.compareRowKey(0, single.copyKey(0)) != 0) {
           replaceChild(new byte[][] {single.copyKey(0)}, new int[] {leafId}, 1);
         }
@@ -981,7 +984,7 @@ final class ProjectionSortedDirectory {
         throw new IllegalStateException("sorted projection leaf does not contain the key");
       }
       if (count == 0) {
-        ProjectionSortedLeafStore.remove(storage, leafId, bounds);
+        ProjectionSortedLeafStore.remove(storage, leafId, bounds, sma);
         activeLeafCount--;
         replaceChild(NO_KEYS, new int[0], 0);
         return;
@@ -994,7 +997,7 @@ final class ProjectionSortedDirectory {
         ids[i] = i == 0
             ? leafId
             : allocateLeafId();
-        ProjectionSortedLeafStore.write(storage, ids[i], leaves[i], layout, bounds);
+        ProjectionSortedLeafStore.write(storage, ids[i], leaves[i], layout, bounds, sma);
         firstKeys[i] = leaves[i].copyKey(0);
       }
       activeLeafCount += leaves.length - 1;
@@ -1005,7 +1008,8 @@ final class ProjectionSortedDirectory {
 
     /** Inspect at most the immediate right range; never propagate underflow across the view. */
     private ProjectionSortedLeaf mergeWithRight(final int leafId, final ProjectionSortedLeaf before,
-        final ProjectionSortedLeaf replacement, final ProjectionSortedLeafBounds.Updater bounds) {
+        final ProjectionSortedLeaf replacement, final ProjectionSortedLeafBounds.Updater bounds,
+        final @Nullable Update sma) {
       final byte[] fence = upperFence();
       if (fence == null) {
         return replacement;
@@ -1033,7 +1037,7 @@ final class ProjectionSortedDirectory {
         }
       }
       if (merged != null) {
-        ProjectionSortedLeafStore.remove(storage, rightId, bounds);
+        ProjectionSortedLeafStore.remove(storage, rightId, bounds, sma);
         activeLeafCount--;
         replaceChild(NO_KEYS, new int[0], 0);
       }
@@ -1371,6 +1375,7 @@ final class ProjectionSortedDirectory {
     /** Only a view that aggregates its last key field ever consults the missing-aggregate count. */
     private final boolean countsMissingAggregates;
     private final ProjectionSortedLeafBounds.Builder bounds;
+    private final ProjectionSortedGroupSma.Builder groupSma;
     private byte[][] keys = new byte[256][];
     private int[] ids = new int[256];
     private int count;
@@ -1388,6 +1393,7 @@ final class ProjectionSortedDirectory {
         throw new IllegalStateException("sorted projection directory already exists");
       }
       bounds = new ProjectionSortedLeafBounds.Builder(storage);
+      groupSma = new ProjectionSortedGroupSma.Builder(storage, layout);
     }
 
     boolean acceptsBuildChunk(final ProjectionSortedLeaf leaf) {
@@ -1435,7 +1441,7 @@ final class ProjectionSortedDirectory {
         ids = Arrays.copyOf(ids, capacity);
       }
       final int leafId = count + 1;
-      missingAggregateRows += ProjectionSortedLeafStore.write(storage, leafId, leaf, layout, bounds);
+      missingAggregateRows += ProjectionSortedLeafStore.write(storage, leafId, leaf, layout, bounds, groupSma);
       keys[count] = first;
       ids[count] = leafId;
       count++;
@@ -1501,6 +1507,7 @@ final class ProjectionSortedDirectory {
           layout);
       bounds.finish();
       storage.putBlob(HEADER_SLOT, header.serialize());
+      groupSma.finish(count);
       finished = true;
     }
   }

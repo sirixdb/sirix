@@ -38,21 +38,27 @@ final class ProjectionSortedLeafBounds {
    * lets the ordinary reader detect a hash-valid but inconsistent replacement.
    */
   static boolean invalidateSummaryProof(final ProjectionIndexHOTStorage storage, final long summarySlot) {
+    return invalidateSummaryProof(storage, summarySlot, false);
+  }
+
+  static boolean invalidateSummaryProof(final ProjectionIndexHOTStorage storage, final long summarySlot,
+      final boolean preserveGroupExtrema) {
     final long leaf = summarySlot - ProjectionSortedGroupSummary.SLOT_BASE;
     if (leaf < 1 || leaf > Integer.MAX_VALUE) {
       return false;
     }
     try {
+      final boolean groupInvalidated = !preserveGroupExtrema && ProjectionSortedGroupSma.invalidate(storage);
       final long boundsSlot = slot((int) leaf);
       final byte[] bytes = storage.getBlob(boundsSlot);
       if (bytes == null) {
-        return false;
+        return groupInvalidated;
       }
       validate(bytes);
       final long proof = 1L << (((leaf - 1) & POSITION_MASK) + 16);
       final long flags = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
       if ((flags & proof) == 0) {
-        return false;
+        return groupInvalidated;
       }
       final byte[] invalidated = bytes.clone();
       ProjectionIndexRowGroupCodec.putLongLEAt(invalidated, 8, flags & ~proof);

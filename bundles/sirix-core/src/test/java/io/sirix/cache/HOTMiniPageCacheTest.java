@@ -657,8 +657,8 @@ final class HOTMiniPageCacheTest {
     try (final BufferManagerImpl manager = new BufferManagerImpl(1L << 20, 1L << 28, 1L << 20, 4, 4, 4)) {
       assertEquals(1L << 26,
           manager.getHOTLeafPageCacheMaxWeightBytes() + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes()
-              + manager.getHOTMiniPageCacheMaxWeightBytes(),
-          "the off-heap HOT allowance covers the complete leaves, the native fragments and the slots");
+              + manager.getHOTMiniPageCacheMaxWeightBytes() + manager.getProjectionBlobCache().getMaxWeightBytes(),
+          "the off-heap HOT allowance covers the complete leaves, the native fragments, the slots and verified blobs");
       final HOTMiniPageCache mini = manager.getHOTMiniPageCache();
       final PageReference key = key(1, 2, 3);
       mini.admit(key, mini.generation(key), 1, KEY, -1, null);

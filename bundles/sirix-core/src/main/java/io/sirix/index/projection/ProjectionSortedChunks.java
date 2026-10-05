@@ -7,9 +7,10 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 
-/** Key-range packing policy for encoded inline chunks and their bounded summaries. */
+/** Key-range packing policy for encoded chunks and their bounded summaries. */
 final class ProjectionSortedChunks {
-  static final int MAX_BYTES = ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES;
+  // Codec packing is independent of whether a blob fits inline in its owning HOT leaf.
+  static final int MAX_BYTES = 8192;
   static final int TARGET_BYTES = MAX_BYTES * 3 / 4;
   static final int MERGE_BELOW_BYTES = MAX_BYTES / 4;
 

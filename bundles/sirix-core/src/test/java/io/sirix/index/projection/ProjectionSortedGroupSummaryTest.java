@@ -230,7 +230,7 @@ final class ProjectionSortedGroupSummaryTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void chunkSummariesStayInlineAcrossExtremaEditsAndAsyncFlushes(final VersioningType versioning) {
+  void chunkSummariesStayBoundedAcrossExtremaEditsAndAsyncFlushes(final VersioningType versioning) {
     final Path path = directory.resolve("async-summaries");
     final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
     for (int row = 0; row < keys.length; row++) {
@@ -291,8 +291,12 @@ final class ProjectionSortedGroupSummaryTest {
           assertEquals(revision == 1
               ? 1_270_128
               : 1_270_000, maximum.getFirst().max());
-          assertTrue(ProjectionIndexHOTStorage.collectBlobLocators(reader, 0, ProjectionSortedGroupSummary.slot(1), 1)
-                                              .offset(0) == Constants.NULL_ID_LONG);
+          final byte[] summary = ProjectionIndexHOTStorage.readBlob(reader, 0, ProjectionSortedGroupSummary.slot(1));
+          assertNotNull(summary);
+          assertTrue(summary.length <= ProjectionSortedChunks.MAX_BYTES);
+          assertEquals(summary.length <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+              ProjectionIndexHOTStorage.collectBlobLocators(reader, 0, ProjectionSortedGroupSummary.slot(1), 1)
+                                       .offset(0) == Constants.NULL_ID_LONG);
         }
       }
     }
@@ -456,13 +460,15 @@ final class ProjectionSortedGroupSummaryTest {
           builder.append(leaf(keys));
           builder.finish();
           initialLeaves = ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0).dataLeafCount();
-          assertTrue(initialLeaves > 1, "the initial large range must be split into small records");
+          assertEquals(1, initialLeaves, "the encoded row-cap chunk fits the coarse byte budget");
           writer.commit();
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Editor editor =
               new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           editor.insert(key("a", -1, 1000), new byte[0]);
+          assertEquals(2, ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0).dataLeafCount(),
+              "the 257th row splits the row-cap chunk before the last singleton is removed");
           editor.remove(key("a", 255, 255));
           writer.commit();
         }
@@ -482,10 +488,7 @@ final class ProjectionSortedGroupSummaryTest {
             assertNotNull(accessor);
             assertEquals(revision == 3
                 ? 0
-                : initialLeaves + (revision == 2
-                    ? 1
-                    : 0),
-                accessor.dataLeafCount());
+                : initialLeaves, accessor.dataLeafCount());
             assertEquals(revision == 3
                 ? List.of()
                 : List.of(new Group("a", revision == 1

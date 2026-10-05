@@ -3,9 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
-import io.sirix.api.StorageEngineReader;
+import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
 import org.jspecify.annotations.Nullable;
 
 import java.util.function.IntConsumer;
@@ -67,7 +68,13 @@ final class ProjectionSortedLeafStore {
    */
   static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
       final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Updater bounds) {
-    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
+    write(storage, leafId, leaf, layout, bounds, null);
+  }
+
+  static void write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
+      final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Updater bounds,
+      final @Nullable Update proof) {
+    final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout, proof);
     bounds.set(leafId, summary);
   }
 
@@ -84,9 +91,11 @@ final class ProjectionSortedLeafStore {
    * @return the leaf's rows whose aggregated last key field has no value
    */
   static int write(final ProjectionIndexHOTStorage storage, final int leafId, final ProjectionSortedLeaf leaf,
-      final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Builder initialBounds) {
+      final ProjectionSortKeyCodec.Layout layout, final ProjectionSortedLeafBounds.Builder initialBounds,
+      final ProjectionSortedGroupSma.Builder groupSma) {
     final ProjectionSortedLeaf summary = writeLeafAndSummary(storage, leafId, leaf, layout);
     initialBounds.append(leafId, summary);
+    groupSma.appendSummary(summary);
     return summary != null || !layout.groupsByLastLong()
         ? 0
         : ProjectionSortedGroupSummary.countMissingLastField(leaf, layout);
@@ -94,15 +103,21 @@ final class ProjectionSortedLeafStore {
 
   private static @Nullable ProjectionSortedLeaf writeLeafAndSummary(final ProjectionIndexHOTStorage storage,
       final int leafId, final ProjectionSortedLeaf leaf, final ProjectionSortKeyCodec.Layout layout) {
+    return writeLeafAndSummary(storage, leafId, leaf, layout, null);
+  }
+
+  private static @Nullable ProjectionSortedLeaf writeLeafAndSummary(final ProjectionIndexHOTStorage storage,
+      final int leafId, final ProjectionSortedLeaf leaf, final ProjectionSortKeyCodec.Layout layout,
+      final @Nullable Update proof) {
     if (storage == null || leaf == null || layout == null) {
       throw new NullPointerException("sorted leaf storage, leaf and layout are required");
     }
     final ProjectionSortedLeaf summary = ProjectionSortedGroupSummary.encode(leaf, layout);
     storage.putBlob(slot(leafId), leaf.encodedBytes());
     if (summary != null) {
-      storage.putBlob(ProjectionSortedGroupSummary.slot(leafId), summary.encodedBytes());
+      storage.putSortedSummary(ProjectionSortedGroupSummary.slot(leafId), summary.encodedBytes(), proof);
     } else {
-      storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(leafId));
+      storage.removeSortedSummary(ProjectionSortedGroupSummary.slot(leafId), proof);
     }
     final IntConsumer observer = writeObserverForTesting;
     if (observer != null) {
@@ -116,11 +131,6 @@ final class ProjectionSortedLeafStore {
     return read(reader, indexNumber, leafId, HOTReadIntent.SCAN);
   }
 
-  /**
-   * Read one data leaf under an explicit read intent. A seek resolves exactly this leaf and takes
-   * {@link HOTReadIntent#POINT}; a cursor advance keeps {@link HOTReadIntent#SCAN} because it is
-   * walking the view in order and wants the complete physical leaf it will keep reading from.
-   */
   static @Nullable ProjectionSortedLeaf read(final StorageEngineReader reader, final int indexNumber, final int leafId,
       final HOTReadIntent intent) {
     return read(reader, indexNumber, leafId, intent, null);
@@ -155,7 +165,7 @@ final class ProjectionSortedLeafStore {
         : ProjectionSortedLeaf.open(bytes);
   }
 
-  /** Promote the native leaf without copying or decoding the detached logical chunk. */
+  /** Promote the native leaf without copying or decoding the already detached logical chunk. */
   static void promoteForScan(final StorageEngineReader reader, final int indexNumber, final int leafId) {
     ProjectionIndexHOTStorage.promoteBlobLeafForScan(reader, indexNumber, slot(leafId));
   }
@@ -168,11 +178,16 @@ final class ProjectionSortedLeafStore {
 
   static void remove(final ProjectionIndexHOTStorage storage, final int leafId,
       final ProjectionSortedLeafBounds.Updater bounds) {
+    remove(storage, leafId, bounds, null);
+  }
+
+  static void remove(final ProjectionIndexHOTStorage storage, final int leafId,
+      final ProjectionSortedLeafBounds.Updater bounds, final @Nullable Update proof) {
     if (storage == null) {
       throw new NullPointerException("sorted leaf storage is required");
     }
     bounds.clear(leafId);
-    storage.tombstoneBlob(ProjectionSortedGroupSummary.slot(leafId));
+    storage.removeSortedSummary(ProjectionSortedGroupSummary.slot(leafId), proof);
     storage.tombstoneBlob(slot(leafId));
   }
 

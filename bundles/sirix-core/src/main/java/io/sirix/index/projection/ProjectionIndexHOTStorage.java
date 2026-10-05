@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
+import io.sirix.cache.ProjectionBlobCache;
+import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
@@ -2671,6 +2674,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * closed; tombstoning only the owner would strand the side page.
    */
   public void tombstoneBlob(final long slotKey) {
+    tombstoneBlob(slotKey, false);
+  }
+
+  private void tombstoneBlob(final long slotKey, final boolean preserveGroupExtrema) {
     final byte[] prior = readSlotValueForWrite(slotKey);
     if (prior == null) {
       return;
@@ -2681,7 +2688,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // so this is a cheap no-op.
       boolean sideReferenceRemoved = false;
       try {
-        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
+        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema);
         removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
         sideReferenceRemoved = true;
         writeSlotValue(slotKey, TOMBSTONE);
@@ -4345,8 +4352,31 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     putBlobPayload(slotKey, payload, false);
   }
 
+  /** Interior sorted edits carry an editor-owned proof that the global extrema remain exact. */
+  void putSortedSummary(final long slotKey, final byte[] payload, final @Nullable Update proof) {
+    requireSortedSummarySlot(slotKey);
+    putBlobPayload(slotKey, payload, false, proof != null && proof.preservesExtrema(this));
+  }
+
+  void removeSortedSummary(final long slotKey, final @Nullable Update proof) {
+    requireSortedSummarySlot(slotKey);
+    tombstoneBlob(slotKey, proof != null && proof.preservesExtrema(this));
+  }
+
+  private static void requireSortedSummarySlot(final long slotKey) {
+    final long leaf = slotKey - ProjectionSortedGroupSummary.SLOT_BASE;
+    if (leaf < 1 || leaf > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("not a sorted summary slot: " + slotKey);
+    }
+  }
+
   /** Tail rows use side pages so carry-forward copies only their small leaf markers. */
   private void putBlobPayload(final long slotKey, final byte[] payload, final boolean forceReferenced) {
+    putBlobPayload(slotKey, payload, forceReferenced, false);
+  }
+
+  private void putBlobPayload(final long slotKey, final byte[] payload, final boolean forceReferenced,
+      final boolean preserveGroupExtrema) {
     if (payload == null) {
       throw new IllegalArgumentException("payload must not be null");
     }
@@ -4377,7 +4407,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
     }
     if (inline) {
-      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob, verifiedPrior != null);
+      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob, verifiedPrior != null,
+          preserveGroupExtrema);
     } else {
       final byte[] marker = new byte[BLOB_MARKER_BYTES];
       RowGroupDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
@@ -4387,7 +4418,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       boolean ownerMarkerWritten = false;
       try {
         if (verifiedPrior != null) {
-          ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
+          ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema);
         }
         writeSlotValue(slotKey, marker);
         ownerMarkerWritten = true;
@@ -4402,7 +4433,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private void writeInlineBlobPayload(final long slotKey, final byte[] payload, final long hash,
-      final boolean priorWasReferencedBlob, final boolean replacing) {
+      final boolean priorWasReferencedBlob, final boolean replacing, final boolean preserveGroupExtrema) {
     final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
     RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
     value[4] = BLOB_VERSION;
@@ -4412,7 +4443,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     boolean ownerMarkerWritten = false;
     try {
       if (replacing) {
-        ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
+        ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema);
       }
       writeSlotValue(slotKey, value);
       ownerMarkerWritten = true;
@@ -4748,13 +4779,49 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
       final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(intent, "intent");
+    final boolean sortedSlot = slotKey >= ProjectionSortedLeafStore.LEAF_SLOT_BASE
+        && slotKey < ProjectionSortedGroupSma.HEADER_SLOT + (1L << 32);
+    final ProjectionBlobCache cache = sortedSlot && !reader.hasTrxIntentLog()
+        ? reader.getBufferManager().getProjectionBlobCache()
+        : ProjectionBlobCache.disabled();
+    // Capture before deriving any routing state: truncation can reuse both revision and offsets.
+    final long generation = cache.generation();
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return null;
     }
-    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent, scope);
+    final boolean retain = cache.isEnabled() && rootRef.getKey() >= 0 && rootRef.getLogKey() < 0;
+    final Key key = retain
+        ? new Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(), rootRef.hasHash()
+            ? rootRef.getHashAsLong()
+            : 0, reader.getRevisionNumber(), slotKey)
+        : null;
+    if (key != null) {
+      final byte[] cached = cache.get(key);
+      if (cached != null) {
+        return cached;
+      }
     }
+    final byte[] verified;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      // Payload retention replaces point-mini admission for these slots. SCAN still uses the
+      // complete guarded native loader; SELECTIVE never promotes unrelated entries.
+      verified = readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey,
+          retain && intent == HOTReadIntent.POINT
+              ? HOTReadIntent.SELECTIVE
+              : intent,
+          retain
+              ? null
+              : scope);
+    }
+    if (key != null && verified != null) {
+      if (scope != null) {
+        scope.retainBlob(cache, key, verified, generation, intent == HOTReadIntent.POINT);
+      } else {
+        cache.put(key, verified, generation);
+      }
+    }
+    return verified;
   }
 
   /**

@@ -13,6 +13,8 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.HOTMiniPageCache;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.io.StorageType;
 import io.sirix.page.HOTMiniPage;
@@ -39,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -52,7 +55,7 @@ final class ProjectionSortedReadIntentTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void advancingDeclaresScanButOnlyConsumedRowsPromoteWhileKnownScansNeverAdmit(final VersioningType versioning) {
+  void onlyCrossingLogicalChunksPromotesWhileKnownScansNeverAdmit(final VersioningType versioning) {
     final Path path = temporary.resolve("intent-" + versioning);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     final List<SortedScanFixtures.Row> rows = new ArrayList<>();
@@ -96,7 +99,7 @@ final class ProjectionSortedReadIntentTest {
           Databases.clearGlobalCaches();
           try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
             // Delegate to the real reader without copying its mutable guard/lifetime state.
-            final StorageEngineReader actualReader = trx.getStorageEngineReader();
+            final StorageEngineReader actualReader = withoutBlobCache(trx.getStorageEngineReader());
             final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(actualReader));
             final long[] dataPointWalks = {0};
             final List<PageReference> pointReferences = new ArrayList<>();
@@ -185,6 +188,7 @@ final class ProjectionSortedReadIntentTest {
                   continue;
                 }
               }
+              final int initialLeaf = cursor.leafId();
               long previousScanWeight = mini.getCurrentWeightBytes();
               for (int row = first; row < end; row++) {
                 assertTrue(cursor.isValid());
@@ -193,7 +197,7 @@ final class ProjectionSortedReadIntentTest {
                 final byte[] bytes = new byte[8];
                 cursor.copyPayloadTo(bytes, 0);
                 assertArrayEquals(payload(row), bytes);
-                if (mode != 1 || row != first) {
+                if (mode != 1 || cursor.leafId() != initialLeaf) {
                   assertNoDataMini(mini, pointReferences);
                   assertTrue(mini.getCurrentWeightBytes() <= previousScanWeight,
                       "a scan cannot grow the cache, including metadata admitted by an earlier point");
@@ -205,7 +209,7 @@ final class ProjectionSortedReadIntentTest {
                 cursor.advance();
                 if (mode == 1 && row == first) {
                   assertEquals(beforeAdvance, mini.getCurrentWeightBytes(),
-                      "within-chunk advance defers promotion until a row is read");
+                      "within-chunk advance keeps the owned encoded bytes without promotion");
                 } else {
                   assertTrue(mini.getCurrentWeightBytes() <= beforeAdvance, "advancing a scan never admits metadata");
                 }
@@ -223,7 +227,7 @@ final class ProjectionSortedReadIntentTest {
         // spare admissions resolves the directory path, neither metadata nor data may re-walk it.
         Databases.clearGlobalCaches();
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-          final StorageEngineReader reader = trx.getStorageEngineReader();
+          final StorageEngineReader reader = withoutBlobCache(trx.getStorageEngineReader());
           final byte[] key = SortedScanFixtures.key(rows.get(17));
           final byte[] value = new byte[8];
           for (int query = 0; query < 16; query++) {
@@ -247,7 +251,7 @@ final class ProjectionSortedReadIntentTest {
         // Non-vacuity: the same persisted fragmented view still supports the explicit point API.
         Databases.clearGlobalCaches();
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-          final StorageEngineReader reader = trx.getStorageEngineReader();
+          final StorageEngineReader reader = withoutBlobCache(trx.getStorageEngineReader());
           assertNotNull(ProjectionIndexHOTStorage.readBlob(reader, 0, ProjectionSortedLeafStore.LEAF_SLOT_BASE + 1,
               HOTReadIntent.POINT));
           if (versioning != VersioningType.FULL) {
@@ -339,7 +343,11 @@ final class ProjectionSortedReadIntentTest {
       }
       default -> throw new AssertionError("unknown movement case " + mode);
     }
-    assertNoDataMini(mini, pointReferences);
+    if (mode == 14) {
+      assertNoDataMini(mini, pointReferences);
+    } else {
+      assertEquals(weight, mini.getCurrentWeightBytes(), "consuming another row in the same chunk never promotes");
+    }
     assertTrue(mini.getCurrentWeightBytes() <= weight, "consuming a scan cannot add metadata");
     assertArrayEquals(SortedScanFixtures.key(rows.get(expectedRow)), cursor.copyKey());
     cursor.copyPayloadTo(bytes, 0);
@@ -381,6 +389,15 @@ final class ProjectionSortedReadIntentTest {
           .forEach(page -> assertEquals(0, page.getGuardCount(),
               "detached sorted cursors never retain a raw-fragment guard"));
     return pages;
+  }
+
+  /** Exercise the mini-page path independently of verified payload retention. */
+  private static StorageEngineReader withoutBlobCache(final StorageEngineReader actual) {
+    final BufferManager manager = mock(BufferManager.class, delegatesTo(actual.getBufferManager()));
+    doReturn(ProjectionBlobCache.disabled()).when(manager).getProjectionBlobCache();
+    final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(actual));
+    doReturn(manager).when(reader).getBufferManager();
+    return reader;
   }
 
   private static byte[] payload(final int row) {
