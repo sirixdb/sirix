@@ -70,6 +70,23 @@ final class ReservedXmlPrefixTest {
         "stored " + step);
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void storedAttributeCountDiffersFromNamespaceCount(final VersioningType versioningType) {
+    run(versioningType,
+        "xn:store('reserved','resource1',<leaf xmlns:p='urn:attributes' p:first='a' second='b'/>)");
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
+        final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
+        final var rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveToFirstChild());
+      assertEquals(2, rtx.getAttributeCount());
+      assertEquals(1, rtx.getNamespaceCount());
+    }
+    final String leaf = "xn:doc('reserved','resource1')/leaf";
+    assertEquals("1", run(versioningType, "xn:namespace-count(" + leaf + ")"));
+    assertEquals("2", run(versioningType, "xn:attribute-count(" + leaf + ")"));
+  }
+
   @Test
   void storedExactAttributeNamesMatchExpandedNamesAndDictionaryKeys() {
     final VersioningType versioningType = VersioningType.SLIDING_SNAPSHOT;

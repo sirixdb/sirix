@@ -39,7 +39,6 @@ import io.sirix.query.function.xml.io.Import;
 import io.sirix.query.function.xml.io.Load;
 import io.sirix.query.function.xml.io.OpenRevisions;
 import io.sirix.query.function.xml.io.Store;
-import io.sirix.query.function.xml.trx.GetAttributeCount;
 import io.sirix.query.function.xml.trx.GetNamespaceCount;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Signature;
@@ -194,10 +193,6 @@ public final class SDBFun {
 
     // get-namespace-count
     Functions.predefine(new GetNamespaceCount(GetNamespaceCount.GET_NAMESPACE_COUNT,
-        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
-    // get-attribute-count
-    Functions.predefine(new GetNamespaceCount(GetAttributeCount.GET_ATTRIBUTE_COUNT,
         new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
     // find-name-index
