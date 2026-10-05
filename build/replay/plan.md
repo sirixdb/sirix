@@ -4,7 +4,7 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-05 21:54 Berlin)
+## Current checkpoint (2026-10-05 22:55 Berlin)
 
 Isolation and assigned branch verified on resume. Inbox 005 sets the stop at
 2026-10-06 04:00 Berlin; no validation round may extend past 03:40. The private
@@ -22,17 +22,24 @@ Independent source repairs include f6688ece7 (CAS cursor restoration) and
 242/242 final cases, including all generated histories and work budgets; the old
 async cache errors no longer occur. Details and failed/passing logs appear below.
 
-The working tree now routes complete public revision copies only through typed
+Commit fa459887e routes complete public revision copies only through typed
 identity deltas and removes the old private key-sorted allocator. Snapshot subtree
 copying and public diff behavior stay intact. Initial public-copy selection passes
 160/160 cases, including all 16 R16 modes; the FULL/DIFFERENTIAL/INCREMENTAL R1–R18
 matrix and 17 new suffix/preflight cases now pass (177 tests per remaining mode).
 SLIDING_SNAPSHOT passed 160 tests in the initial route selection.
 
-Gate 8 remains: finish public-copy matrix, rebase the separately owned tombstone fix
-when it lands, full core/query suites (query fork 2 GiB), exact work-budget block,
-formatting and pinned paired latency acceptance. Main remains bb2881586; prerequisite
-not landed. No benchmark campaign, no-mistakes run, push or done handoff yet.
+Gate 8 remains: rebase the separately owned tombstone fix when it lands, complete
+full core/query suites (query fork 2 GiB), the exact work-budget block,
+formatting and pinned paired latency acceptance. Inbox 006 confirms the prerequisite landed: origin/main is now af9f20e5a. Rebase at
+the next clean point after the current validation process finishes. The full core run
+passes 13,870 tests with zero failures/errors and 77 skips (1,119 suites archived).
+The query suite is still running and has one outdated hash-history expectation:
+revisions 4 and 5 now correctly change the selected object's hash when its left and
+right sibling links change. The existing computeHash contract explicitly includes
+those links; actual output preserves the same JSON and adds exactly these revisions.
+Formatting remains part of this running job. No benchmark campaign, no-mistakes run,
+push or done handoff yet.
 
 ## Contract and concrete implementation
 
@@ -662,3 +669,48 @@ integration coverage verifies suffix revision metadata/identity, source document
 sole-value cursors, and rejection of partial-history placement or dirty destinations
 without discarding their state. Formatting and git diff --check pass. Production
 route ready for its own commit; full core/query suites follow under the same limiter.
+
+
+## Gate 8 benchmark preparation (2026-10-05 22:30 Berlin)
+
+The standalone harness and exporter are prepared under build/replay/latency. They have
+not yet been compiled or timed. The exporter snapshots candidate classes before a
+reversible in-worktree baseline source restore, automatically restores the candidate
+on exit, and verifies that exported classpaths contain no live module build output.
+No extra worktree is created. Alternating matched fork blocks, fixed-seed 5000-draw
+bootstrap, current-thread allocation deltas and separate diagnostic forks are wired.
+The captain's explicit resume/keep-working order allows normal work in this evening's
+window; benchmark admission ends 03:30 Berlin with a five-minute per-fork timeout to
+respect the 03:40 validation cutoff. No benchmark JVM has started.
+
+Memory contract: the transaction intent log bounds resident staged page buffers and
+prevents intermediate publication. The detached typed delta and validator scratch maps
+scale with changed identities (the initial snapshot with the initial document); they
+are not a constant-total-heap or streaming-manifest claim. Unchanged document regions
+are excluded by durable page identity and append/no-op work budgets.
+
+
+## Main prerequisite and full-suite checkpoint (2026-10-05 22:55 Berlin)
+
+Inbox 006 is acknowledged. The tombstone/restore-key prerequisite is on origin/main
+at af9f20e5a, alongside the query namespace repair. Rebase after full-core-query-1
+finishes, remove the generated oracle's disjoint-frontier workaround, and enable the
+upstream disabled later-created-parent fixture; retire its resolved limitation entry.
+Final full suites and budgets must run on that combined branch.
+
+The first broad core run passes 13,870 tests, zero failures/errors, 77 skipped;
+full-core-query-1-results/core contains all 1,119 suites and a JSON summary. Query
+currently has one failure at JsonIntegrationTest.test's hash-history assertion:
+expected revisions 1/2/3, actual 1/2/3/4/5 with identical object JSON at 3/4/5.
+Revisions 4/5 insert its left/right neighbors. ObjectNode.computeHash and the
+architecture report explicitly include those sibling links. The source hash repair
+corrects their formerly stale hashes; update this expectation and retain the exact
+JSON and revision checks. No production hash contract change is called for.
+
+The root Gradle test configuration forwards sirix.* properties, confirming the prior
+versioning runs used their requested modes. A prepared test-only patch adds an
+explicit forceRecompute switch around both historical copy entry points, temporarily
+removing and then restoring every presentation cache. Run that additional matrix under
+all four versioning types, recording the actual fork configuration in test output.
+The patch is retained at build/replay/recompute-matrix.patch and is not applied while
+the current full-suite process is active.
