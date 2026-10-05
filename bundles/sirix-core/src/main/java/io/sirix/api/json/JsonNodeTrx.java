@@ -62,7 +62,8 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   /**
    * Copy the current source node with its original key for revision replay. Children are copied
-   * separately; the destination's allocation frontier never decreases.
+   * separately; the destination's allocation frontier never decreases. A deleted key may be restored
+   * even at or below that frontier, provided it is not live in the destination.
    *
    * @param rtx the transaction positioned on the source node
    * @param position the insertion position relative to this transaction's cursor
@@ -70,7 +71,7 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if either argument is {@code null}
    * @throws IllegalArgumentException if the source key is not positive or the position is
    *         {@link InsertPosition#AS_LAST_CHILD}
-   * @throws IllegalStateException if the destination already contains the source key
+   * @throws IllegalStateException if the destination already contains a live node with the source key
    */
   JsonNodeTrx copyNodeWithKey(JsonNodeReadOnlyTrx rtx, InsertPosition position);
 

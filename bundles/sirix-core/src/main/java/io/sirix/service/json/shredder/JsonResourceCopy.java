@@ -159,8 +159,9 @@ public final class JsonResourceCopy implements Callable<Void> {
 
     /**
      * Copy and commit the initial source revision and each later revision up to the most recent
-     * revision. Source node keys are preserved for replay; the destination must not already contain any
-     * key being copied. Snapshot-only copying instead allocates destination keys normally.
+     * revision. Source node keys are preserved using
+     * {@link JsonNodeTrx#copyNodeWithKey(JsonNodeReadOnlyTrx, InsertPosition)}. Snapshot-only copying
+     * instead allocates destination keys normally.
      *
      * @return this builder instance
      */
@@ -442,9 +443,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     } else {
       position = InsertPosition.AS_FIRST_CHILD;
     }
-    if (key <= wtx.getMaxNodeKey()) {
-      throw new IllegalStateException("JSON revision copy already allocated node " + key);
-    }
+    // Deleted keys below the frontier can become live again after a revert. copyNodeWithKey
+    // rejects live collisions and preserves the frontier when importing such a key.
     wtx.copyNodeWithKey(source, position);
   }
 
