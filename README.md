@@ -186,6 +186,18 @@ sirix-cli -l /tmp/mydb resource-history myresource
 `sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
 multi-line queries, empty line executes, Control-D exits).
 
+XML imports from constructed nodes preserve element and attribute namespace URIs and local
+namespace declarations:
+
+```xquery
+xml:store('names', (), <root>
+  <item xmlns='urn:a'>a</item>
+  <item xmlns='urn:b'>b</item>
+  <p:item xmlns:p='urn:a'>alias</p:item>
+  <item>plain</item>
+</root>)
+```
+
 ### Using the REST API
 
 Start SirixDB and its bundled OAuth2 provider (Keycloak) with Docker:

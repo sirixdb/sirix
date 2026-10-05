@@ -9,10 +9,13 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
 
+import javax.xml.XMLConstants;
+
 /**
  * Namespace scope anchored to a stored XML element. Nodes share the transaction cursor, so scope
- * operations must reposition it to the owning element even when other node accesses have moved it.
- * Prefix resolution searches local declarations before ancestors and restores the owning element.
+ * operations reposition it to the owning element even when other node accesses have moved it.
+ * Prefix resolution searches local declarations before ancestors. Namespace reads preserve the
+ * caller's transaction cursor.
  *
  * @author Johannes Lichtenberger
  *
@@ -34,28 +37,36 @@ public final class SirixScope implements Scope {
     // Assertion instead of requireNonNull(...) (part of internal API).
     assert node != null;
     rtx = node.getTrx();
-    nodeKey = rtx.getNodeKey();
+    nodeKey = node.getNodeKey();
   }
 
   @Override
   public Stream<String> localPrefixes() {
-    rtx.moveTo(nodeKey);
+    final long currentNodeKey = rtx.getNodeKey();
+    final int namespaces;
+    try {
+      rtx.moveTo(nodeKey);
+      namespaces = rtx.getNamespaceCount();
+    } finally {
+      rtx.moveTo(currentNodeKey);
+    }
     return new Stream<>() {
       private int index;
 
-      private final int mNamespaces = rtx.getNamespaceCount();
-
       @Override
-      public String next() throws DocumentException {
-        if (index < mNamespaces) {
-          rtx.moveTo(nodeKey);
-          rtx.moveToNamespace(index++);
-          final int prefixKey = rtx.getPrefixKey();
-          final String prefix = prefixKey == -1
-              ? ""
-              : rtx.nameForKey(prefixKey);
-          rtx.moveToParent();
-          return prefix;
+      public @Nullable String next() throws DocumentException {
+        if (index < namespaces) {
+          final long currentNodeKey = rtx.getNodeKey();
+          try {
+            rtx.moveTo(nodeKey);
+            rtx.moveToNamespace(index++);
+            final int prefixKey = rtx.getPrefixKey();
+            return prefixKey == -1
+                ? ""
+                : rtx.nameForKey(prefixKey);
+          } finally {
+            rtx.moveTo(currentNodeKey);
+          }
         }
         return null;
       }
@@ -66,6 +77,7 @@ public final class SirixScope implements Scope {
   }
 
   @Override
+  @SuppressWarnings("NullAway") // The empty prefix always resolves to a URI, possibly the empty URI.
   public String defaultNS() {
     return resolvePrefix("");
   }
@@ -85,30 +97,37 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String resolvePrefix(final @Nullable String prefix) {
-    final int prefixVocID = (prefix == null || prefix.isEmpty())
-        ? -1
-        : rtx.keyForName(prefix);
-    rtx.moveTo(nodeKey);
+  public @Nullable String resolvePrefix(final @Nullable String prefix) {
+    if ("xml".equals(prefix)) {
+      return XMLConstants.XML_NS_URI;
+    }
+    final String resolvedPrefix = prefix == null
+        ? ""
+        : prefix;
+    final long currentNodeKey = rtx.getNodeKey();
     try {
-      do {
+      rtx.moveTo(nodeKey);
+      while (rtx.isElement()) {
         for (int i = 0, namespaces = rtx.getNamespaceCount(); i < namespaces; i++) {
           rtx.moveToNamespace(i);
-          if (rtx.getPrefixKey() == prefixVocID) {
-            return rtx.nameForKey(rtx.getURIKey());
+          final int prefixKey = rtx.getPrefixKey();
+          if (prefixKey == -1
+              ? resolvedPrefix.isEmpty()
+              : resolvedPrefix.equals(rtx.nameForKey(prefixKey))) {
+            return rtx.getValue();
           }
           rtx.moveToParent();
         }
-      } while (rtx.moveToParent());
-      if ("xml".equals(prefix)) {
-        return "http://www.w3.org/XML/1998/namespace";
+        if (!rtx.moveToParent()) {
+          break;
+        }
       }
-      return prefixVocID == -1
-          ? ""
-          : null;
     } finally {
-      rtx.moveTo(nodeKey);
+      rtx.moveTo(currentNodeKey);
     }
+    return resolvedPrefix.isEmpty()
+        ? ""
+        : null;
   }
 
   @Override

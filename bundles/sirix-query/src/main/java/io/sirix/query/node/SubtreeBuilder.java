@@ -182,6 +182,7 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   public void startElement(final QNm name) throws DocumentException {
     try {
       processStartTag(name);
+      // Ancestor bindings must not suppress local prefix rebindings or default namespace resets.
       while (!namespaces.isEmpty()) {
         wtx.insertNamespace(namespaces.pop()).moveToParent();
       }

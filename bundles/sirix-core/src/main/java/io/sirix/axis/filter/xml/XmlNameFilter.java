@@ -22,64 +22,76 @@
 package io.sirix.axis.filter.xml;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.axis.filter.PathNameFilter;
 import io.brackit.query.atomic.QNm;
 import io.sirix.axis.filter.AbstractFilter;
+import org.jspecify.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
- * //todo duplicate description as to that of
- * 
- * @see PathNameFilter
- *      <p>
- *      Match qname of ELEMENT or ATTRIBUTE by key.
- *      </p>
+ * Matches XML names with expanded-name or lexical-name semantics, depending on the constructor.
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /** Key of local name to test. */
-  private final int mLocalNameKey;
+  /** Local name to test. */
+  private final String mLocalName;
 
-  /** Key of prefix to test. */
-  private final int mPrefixKey;
+  /** Prefix to test for a lexical name without a namespace context. */
+  private final String mPrefix;
+
+  /** Namespace URI for an expanded-name test, or null for a lexical name test. */
+  private final @Nullable String mNamespaceURI;
 
   /**
-   * Default constructor.
+   * Creates an expanded-name test. Prefix aliases do not affect matching.
    *
    * @param rtx the node trx/node cursor this filter is bound to
-   * @param name name to check
+   * @param name namespace URI and local name to match
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
-        ? -1
-        : rtx.keyForName(name.getPrefix());
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
+    requireNonNull(name);
+    mPrefix = "";
+    mNamespaceURI = name.getNamespaceURI() == null
+        ? ""
+        : name.getNamespaceURI();
+    mLocalName = name.getLocalName();
   }
 
   /**
-   * Default constructor.
+   * Creates a lexical-name test without resolving a namespace context.
    *
    * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
+   * @param name local name with an optional prefix; both must match literally
    */
   public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
+    requireNonNull(name);
+    mNamespaceURI = null;
     final int index = name.indexOf(":");
     if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
+      mPrefix = name.substring(0, index);
     } else {
-      mPrefixKey = -1;
+      mPrefix = "";
     }
 
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
+    mLocalName = name.substring(index + 1);
   }
 
   @Override
   public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+    final XmlNodeReadOnlyTrx trx = getTrx();
+    if (!trx.isNameNode() || !mLocalName.equals(trx.nameForKey(trx.getLocalNameKey()))) {
+      return false;
     }
-    return returnVal;
+    if (mNamespaceURI == null) {
+      return trx.getPrefixKey() == -1
+          ? mPrefix.isEmpty()
+          : mPrefix.equals(trx.nameForKey(trx.getPrefixKey()));
+    }
+    // Elements use -1 for an absent URI; attributes store the empty URI in the dictionary.
+    return trx.getURIKey() == -1
+        ? mNamespaceURI.isEmpty()
+        : mNamespaceURI.equals(trx.getNamespaceURI());
   }
 }
