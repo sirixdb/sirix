@@ -89,9 +89,12 @@ import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.FlyweightNodeFactory;
 import io.sirix.cache.FrameReusedException;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.HOTProjectionRead;
+import io.sirix.page.HOTProjectionImage;
 import io.sirix.page.HOTMiniPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
@@ -4473,6 +4476,36 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     if (reference.getPageFragments().isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
+      if (intent == HOTReadIntent.SELECTIVE) {
+        // The verified physical frame is borrowed only inside the backend call. No native leaf,
+        // side-reference map or raw page is admitted; a later SCAN still uses the guarded loader.
+        final ProjectionBlobCache lifecycle = resourceBufferManager.getProjectionBlobCache();
+        final long imageGeneration = lifecycle.generation();
+        final boolean retainImage = scope != null && lifecycle.isEnabled();
+        final HOTProjectionImage image = scope != null && retainImage
+            ? scope.image(this, reference, imageGeneration)
+            : null;
+        if (image != null) {
+          final HOTLeafEntry selected = image.select(key, sideReferenceKey);
+          if (selected != null && selected.sideReference() != null) {
+            selected.sideReference().setDatabaseId(databaseId).setResourceId(resourceId);
+          }
+          return selected;
+        }
+        if (scope != null) {
+          scope.discardImage();
+        }
+        final HOTProjectionRead selected =
+            pageReader.readHOTProjectionEntry(reference, resourceConfig, key, sideReferenceKey, retainImage);
+        if (selected != null) {
+          if (selected.indirect() != null) {
+            reference.setPage(selected.indirect());
+          } else if (scope != null && selected.image() != null) {
+            scope.rememberImage(this, reference, selected.image(), imageGeneration);
+          }
+          return selected.entry();
+        }
+      }
       // A self-contained image is already a complete view. Retain it in the complete cache through
       // the ordinary loader, so the published leaf keeps its routing index, off-heap accounting and
       // stamp binding. This does not spend a mini admission or make the other entries miss later.

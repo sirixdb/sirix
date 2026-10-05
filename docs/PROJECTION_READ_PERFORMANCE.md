@@ -105,10 +105,22 @@ mini page.
 
 Committed sorted slots also have a byte-bounded `ProjectionBlobCache`. It retains private copies of
 length/hash-verified payloads under database/resource identity, committed root offset and integrity,
-revision and logical slot. Hits return copies; no mutable shared array or native guard escapes.
+revision and logical slot. Raw blob hits return private copies. Sorted data and directory hits reuse
+fully validated immutable descriptors, including directory child validation. Every array-returning
+API on those retained views copies; writers cannot mutate the retained bytes. Descriptor objects,
+column offsets and indirect separator arrays count toward the same byte ceiling.
 Cold point misses use selective slot resolution. One successful seek may admit its data payload or,
 if that opportunity remains unused, one deferred routing payload. An abandoned open admits neither.
 Group-tree reads use selective slot resolution and the same bounded retention.
+
+For self-contained HOT images, the file-channel backend can select the requested projection entry
+from the verified wire bytes without constructing or adopting a native leaf or a side-reference map.
+The complete frame still passes its normal checksum/decompression checks. One read scope may own
+one copied image of at most 64 KiB plus aligned object/array headers, shared by that query's related
+logical reads. Reader identity, durable offset/hash and invalidation generation fence reuse. Scope
+completion releases the image; larger images are selected without retention. Metadata scans preserve
+their ordinary blob-cache admission policy while sharing this bounded physical image. Existing
+materialized pages still use guards, and later scan promotion uses the ordinary complete loader.
 
 This cache reserves half the mini-page allowance from the remaining complete-HOT share, preserving
 the total HOT budget. Its fixed associative sets account for retained bytes and object/table

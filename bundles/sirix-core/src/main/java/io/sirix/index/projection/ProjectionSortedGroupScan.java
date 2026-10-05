@@ -194,8 +194,8 @@ public final class ProjectionSortedGroupScan {
       final int limit, final Order order, final long spanDivisor, final boolean minOnly) {
     {
       if (!reader.hasTrxIntentLog()) {
-        final List<Group> grouped =
-            ProjectionSortedGroupSma.topK(reader, indexNumber, prefix, upper, limit, order, spanDivisor, minOnly);
+        final List<Group> grouped = ProjectionSortedGroupSma.topK(reader, indexNumber, prefix, upper, limit, order,
+            spanDivisor, minOnly, directory.metadataReadScope());
         if (grouped != null) {
           return grouped;
         }

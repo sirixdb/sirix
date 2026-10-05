@@ -36,13 +36,19 @@ final class ProjectionSortedLeaf {
   private static final byte[] EMPTY_PAYLOAD = new byte[0];
 
   private final byte[] bytes;
+  private final boolean readOnly;
   private final int rows;
   private final int prefixLength;
   private final int offsetsStart;
   private final @Nullable ProjectionSortedDataBlock block;
 
   private ProjectionSortedLeaf(final byte[] bytes, final int rows, final int prefixLength) {
+    this(bytes, rows, prefixLength, false);
+  }
+
+  private ProjectionSortedLeaf(final byte[] bytes, final int rows, final int prefixLength, final boolean readOnly) {
     this.bytes = bytes;
+    this.readOnly = readOnly;
     this.rows = rows;
     this.prefixLength = prefixLength;
     this.offsetsStart = HEADER_BYTES + prefixLength;
@@ -50,7 +56,12 @@ final class ProjectionSortedLeaf {
   }
 
   private ProjectionSortedLeaf(final ProjectionSortedDataBlock block) {
-    this.bytes = block.bytes();
+    this(block, block.bytes(), false);
+  }
+
+  private ProjectionSortedLeaf(final ProjectionSortedDataBlock block, final byte[] bytes, final boolean readOnly) {
+    this.bytes = bytes;
+    this.readOnly = readOnly;
     this.rows = block.rows();
     this.prefixLength = 0;
     this.offsetsStart = 0;
@@ -232,9 +243,18 @@ final class ProjectionSortedLeaf {
 
   /** Open and validate a persisted leaf before it can participate in a result. */
   static ProjectionSortedLeaf open(final byte[] data) {
+    return open(data, false);
+  }
+
+  /** Own the bytes before validation; every array-returning read API copies on this view. */
+  static ProjectionSortedLeaf openReadOnly(final byte[] data) {
+    return open(data.clone(), true);
+  }
+
+  private static ProjectionSortedLeaf open(final byte[] data, final boolean readOnly) {
     Objects.requireNonNull(data, "data");
     if (data.length >= 5 && getInt(data, 0) == MAGIC && data[4] == ProjectionSortedDataBlock.SCHEME) {
-      return new ProjectionSortedLeaf(ProjectionSortedDataBlock.open(data));
+      return new ProjectionSortedLeaf(ProjectionSortedDataBlock.open(data, readOnly), data, readOnly);
     }
     if (data.length < HEADER_BYTES + 2 * Integer.BYTES || data.length > MAX_BYTES || getInt(data, 0) != MAGIC
         || data[4] != PREFIX_SCHEME) {
@@ -245,7 +265,7 @@ final class ProjectionSortedLeaf {
     if (count < 1 || count > MAX_ROWS || HEADER_BYTES + prefix + ((long) count + 1) * Integer.BYTES > data.length) {
       throw new IllegalArgumentException("invalid sorted projection leaf dimensions");
     }
-    final ProjectionSortedLeaf leaf = new ProjectionSortedLeaf(data, count, prefix);
+    final ProjectionSortedLeaf leaf = new ProjectionSortedLeaf(data, count, prefix, readOnly);
     final int dataStart = leaf.offsetsStart + (count + 1) * Integer.BYTES;
     if (leaf.offset(0) != dataStart || leaf.offset(count) != data.length) {
       throw new IllegalArgumentException("sorted projection leaf offsets do not cover its data");
@@ -455,9 +475,23 @@ final class ProjectionSortedLeaf {
     return getInt(bytes, start + 2 * Short.BYTES + getUnsignedShort(bytes, start) + fieldOffset);
   }
 
-  /** Immutable bytes owned by this leaf; a storage writer may persist them without copying. */
+  /**
+   * Transaction-owned leaves expose writer bytes; retained read views always return a private copy.
+   */
   byte[] encodedBytes() {
-    return bytes;
+    return readOnly
+        ? bytes.clone()
+        : bytes;
+  }
+
+  int encodedSize() {
+    return bytes.length;
+  }
+
+  long retainedSizeBytes() {
+    return 64L + ((16L + bytes.length + 7) & ~7L) + (block == null
+        ? 0
+        : block.retainedMetadataBytes());
   }
 
   /**

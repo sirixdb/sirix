@@ -30,6 +30,7 @@ final class ProjectionSortedDataBlock {
   private static final ThreadLocal<int[]> DICTIONARY_ROWS =
       ThreadLocal.withInitial(() -> new int[ProjectionSortedLeaf.MAX_ROWS]);
   private final byte[] data;
+  private final boolean readOnly;
   private final int count;
   private final int dictionaries;
   private final int words;
@@ -46,7 +47,12 @@ final class ProjectionSortedDataBlock {
   private final int[] payloadOffsets;
 
   private ProjectionSortedDataBlock(final byte[] data) {
+    this(data, false);
+  }
+
+  private ProjectionSortedDataBlock(final byte[] data, final boolean readOnly) {
     this.data = data;
+    this.readOnly = readOnly;
     count = u16(data, 5);
     dictionaries = u16(data, 7);
     words = data[9] & 255;
@@ -188,6 +194,10 @@ final class ProjectionSortedDataBlock {
   }
 
   static ProjectionSortedDataBlock open(final byte[] bytes) {
+    return open(bytes, false);
+  }
+
+  static ProjectionSortedDataBlock open(final byte[] bytes, final boolean readOnly) {
     if (bytes.length < HEADER + 4 || bytes.length > ProjectionSortedLeaf.MAX_BYTES)
       throw invalid();
     final int rows = u16(bytes, 5);
@@ -228,7 +238,7 @@ final class ProjectionSortedDataBlock {
     }
     if (length != bytes.length)
       throw invalid();
-    final ProjectionSortedDataBlock block = new ProjectionSortedDataBlock(bytes);
+    final ProjectionSortedDataBlock block = new ProjectionSortedDataBlock(bytes, readOnly);
     if (block.minimum > block.maximum)
       throw invalid();
     int previousId = -1;
@@ -255,7 +265,13 @@ final class ProjectionSortedDataBlock {
   }
 
   byte[] bytes() {
-    return data;
+    return readOnly
+        ? data.clone()
+        : data;
+  }
+
+  long retainedMetadataBytes() {
+    return 128L + ((16L + 4L * payloadOffsets.length + 7) & ~7L);
   }
 
   int rows() {

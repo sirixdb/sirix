@@ -3,6 +3,7 @@ package io.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.ShardedPageCache;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -11,6 +12,8 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTProjectionRead;
+import io.sirix.page.HOTProjectionImage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -18,6 +21,7 @@ import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
@@ -34,6 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -274,6 +281,128 @@ final class HOTCompactFragmentReadTest {
         compact.releaseGuard();
       }
       assertArrayEquals(wire, serialize(compact));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void selectiveCompleteImageOwnsOnlyBoundedHeapAndPreservesAllValues(final VersioningType versioning)
+      throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = leaf(512)) {
+      wire = serialize(original);
+    }
+    final ResourceConfiguration configuration = ResourceConfiguration.newBuilder("selective-complete")
+                                                                     .versioningApproach(versioning)
+                                                                     .verifyChecksumsOnRead(true)
+                                                                     .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                     .build();
+    final AtomicReference<byte[]> contents = new AtomicReference<>(frame(wire));
+    final PageReference reference = reference();
+    reference.setHash(PageHasher.computeLong(wire, configuration.hashAlgorithm));
+    try (FileChannelReader reader = reader(contents, new ByteHandlerPipeline())) {
+      final HOTProjectionRead result = reader.readHOTProjectionEntry(reference, configuration, key(250), 42, true);
+      assertNotNull(result);
+      assertNull(result.indirect());
+      assertNotNull(result.image());
+      assertArrayEquals(value(250), result.entry().value());
+      assertEquals(777, result.entry().sideReference().getKey());
+      assertEquals(configuration.getID(), result.entry().sideReference().getResourceId());
+      assertTrue(result.image().retainedSizeBytes() <= HOTProjectionImage.MAX_BYTES + 48);
+      final ReadScope scope = new ReadScope();
+      scope.rememberImage(reader, reference, result.image(), 1);
+      assertSame(result.image(), scope.image(reader, reference, 1));
+      assertNull(scope.image(new Object(), reference, 1));
+      assertNull(scope.image(reader, reference, 2), "truncation generation fences the entire image");
+      final PageReference changedHash = reference();
+      changedHash.setHash(99);
+      assertNull(scope.image(reader, changedHash, 1));
+      assertTrue(scope.retainedImageBytes() > 0);
+      contents.set(frame(new byte[] {0}));
+      Arrays.fill(wire, (byte) 0);
+      for (int row = 0; row < 512; row++) {
+        assertArrayEquals(value(row), result.image().select(key(row), 42).value());
+      }
+      assertNull(result.image().select(new byte[] {0}, 42));
+      assertNull(result.image().select(key(999), 42));
+      assertNull(result.image().select(key(10), 43).sideReference());
+      scope.finish(false);
+      assertEquals(0, scope.retainedImageBytes());
+      assertNull(scope.image(reader, reference, 1));
+    }
+  }
+
+  @Test
+  void oversizedCompleteImageSelectsWithoutRetainingIt() throws IOException {
+    final byte[] body;
+    try (HOTLeafPage original = leaf(512)) {
+      for (int i = 1000; i < 5000; i++) {
+        original.setPageReference(i, new PageReference().setKey(i + 100));
+      }
+      body = serialize(original);
+    }
+    assertTrue(body.length > HOTProjectionImage.MAX_BYTES);
+    try (FileChannelReader reader = reader(new AtomicReference<>(frame(body)), new ByteHandlerPipeline())) {
+      final HOTProjectionRead result = reader.readHOTProjectionEntry(reference(), CONFIG, key(250), 42, true);
+      assertNotNull(result);
+      assertNull(result.image(), "a large side trailer must not escape the scoped heap ceiling");
+      assertArrayEquals(value(250), result.entry().value());
+      assertEquals(777, result.entry().sideReference().getKey());
+      final HOTProjectionRead unretained = reader.readHOTProjectionEntry(reference(), CONFIG, key(250), 42, false);
+      assertNotNull(unretained);
+      assertNull(unretained.image());
+      assertArrayEquals(result.entry().value(), unretained.entry().value());
+    }
+  }
+
+  @Test
+  void unsupportedByteHandlerDeclinesBeforeReadingTheFrame() throws IOException {
+    final FileChannel channel = mock(FileChannel.class);
+    final ByteHandler handler = mock(ByteHandler.class);
+    when(handler.supportsMemorySegments()).thenReturn(false);
+    try (FileChannelReader reader = reader(channel, handler)) {
+      assertNull(reader.readHOTProjectionEntry(reference(), CONFIG, key(0), 42, true));
+      verify(channel, never()).size();
+      verify(channel, never()).read(any(ByteBuffer.class), anyLong());
+    }
+  }
+
+  @Test
+  void selectiveReadVerifiesTheWholeFrameAndRejectsTruncation() throws IOException {
+    final byte[] body;
+    try (HOTLeafPage original = leaf(64)) {
+      body = serialize(original);
+    }
+    final ResourceConfiguration checked =
+        ResourceConfiguration.newBuilder("checked-selective").verifyChecksumsOnRead(true).build();
+    final PageReference reference = reference();
+    reference.setHash(PageHasher.computeLong(body, checked.hashAlgorithm));
+    body[body.length - 1] ^= 1;
+    final AtomicReference<byte[]> contents = new AtomicReference<>(frame(body));
+    try (FileChannelReader reader = reader(contents, new ByteHandlerPipeline())) {
+      assertThrows(SirixCorruptionException.class,
+          () -> reader.readHOTProjectionEntry(reference, checked, key(0), 42, true));
+      contents.set(Arrays.copyOf(contents.get(), contents.get().length / 2));
+      assertThrows(SirixIOException.class, () -> reader.readHOTProjectionEntry(reference, checked, key(0), 42, true));
+    }
+  }
+
+  @Test
+  void selectiveTrailerFailureReleasesTheDecompressionOwner() throws IOException {
+    final byte[] body;
+    try (HOTLeafPage original = leaf(2)) {
+      body = serialize(original);
+    }
+    final MemorySegment decoded = MemorySegment.ofArray(Arrays.copyOf(body, body.length - 1));
+    final ByteHandler handler = mock(ByteHandler.class);
+    final Runnable release = mock(Runnable.class);
+    when(handler.supportsMemorySegments()).thenReturn(true);
+    when(handler.decompressScoped(any(MemorySegment.class))).thenReturn(
+        new ByteHandler.DecompressionResult(decoded, decoded, release, new AtomicBoolean(false)));
+    try (FileChannelReader reader = reader(new AtomicReference<>(frame(new byte[] {1})), handler)) {
+      assertThrows(IllegalStateException.class,
+          () -> reader.readHOTProjectionEntry(reference(), CONFIG, key(1), 42, true));
+      verify(release).run();
     }
   }
 

@@ -4,12 +4,14 @@
 package io.sirix.cache;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.index.projection.ProjectionSortedReadView;
 import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.interfaces.Page;
 import java.util.List;
 import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.HOTProjectionImage;
 import io.sirix.page.HOTMiniPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
@@ -223,7 +225,77 @@ public final class HOTMiniPageCache {
     private @Nullable ProjectionBlobCache blobCache;
     private @Nullable Key blobKey;
     private byte @Nullable [] blob;
+    private @Nullable ProjectionSortedReadView blobView;
     private long blobGeneration;
+    private boolean metadataScan;
+    private boolean blobRetention;
+    private @Nullable Object imageOwner;
+    private @Nullable HOTProjectionImage image;
+    private long imageOffset;
+    private long imageHash;
+    private boolean imageHasHash;
+    private long imageGeneration;
+
+    /** One bounded heap image may serve this query's related logical slots. */
+    public @Nullable HOTProjectionImage image(final Object owner, final PageReference reference,
+        final long currentGeneration) {
+      return !finished && imageOwner == owner && imageOffset == reference.getKey()
+          && imageHasHash == reference.hasHash() && (!imageHasHash || imageHash == reference.getHashAsLong())
+          && imageGeneration == currentGeneration
+              ? image
+              : null;
+    }
+
+    public void rememberImage(final Object owner, final PageReference reference, final HOTProjectionImage verified,
+        final long expectedGeneration) {
+      if (!finished) {
+        imageOwner = Objects.requireNonNull(owner);
+        image = Objects.requireNonNull(verified);
+        imageOffset = reference.getKey();
+        imageHasHash = reference.hasHash();
+        imageHash = imageHasHash
+            ? reference.getHashAsLong()
+            : 0;
+        imageGeneration = expectedGeneration;
+      }
+    }
+
+    public void discardImage() {
+      imageOwner = null;
+      image = null;
+    }
+
+    /** Heap ownership is one image (at most 64 KiB plus headers), independent of cache admission. */
+    public long retainedImageBytes() {
+      return image == null
+          ? 0
+          : image.retainedSizeBytes();
+    }
+
+    /** Metadata scans retain their existing cache policy while sharing the bounded physical read. */
+    public void metadataScan() {
+      if (finished) {
+        throw new IllegalStateException("a completed scope cannot become a metadata scan");
+      }
+      metadataScan = true;
+      blobCache = null;
+      blobKey = null;
+      blob = null;
+      blobView = null;
+      cache = null;
+      pageKey = null;
+      slotKey = null;
+      entry = null;
+      promotionReader = null;
+    }
+
+    public void useBlobRetention() {
+      blobRetention = true;
+    }
+
+    public boolean limitsBlobAdmissions() {
+      return !metadataScan;
+    }
 
     /** Verified data wins the seek's sole admission; metadata waits for a successful point seek. */
     public void retainBlob(final ProjectionBlobCache owner, final Key key, final byte[] verified,
@@ -242,6 +314,22 @@ public final class HOTMiniPageCache {
     }
 
 
+    /** Same one-entry admission rule, with no copy of an already immutable validated view. */
+    public void retainView(final ProjectionBlobCache owner, final Key key, final ProjectionSortedReadView view,
+        final long expectedGeneration, final boolean data) {
+      if (finished || admitted || !owner.canCache(view)) {
+        return;
+      }
+      if (data) {
+        admitted = owner.putView(key, view, expectedGeneration);
+      } else if (blobCache == null) {
+        blobCache = owner;
+        blobKey = key;
+        blobView = view;
+        blobGeneration = expectedGeneration;
+      }
+    }
+
     public void rememberMetadata(final HOTMiniPageCache owner, final PageReference key, final long expectedGeneration,
         final int revisionNumber, final byte[] slot, final long sideKey, final @Nullable HOTLeafEntry value) {
       rememberMetadata(owner, key, expectedGeneration, revisionNumber, slot, sideKey, value, null, null);
@@ -251,7 +339,8 @@ public final class HOTMiniPageCache {
     public void rememberMetadata(final HOTMiniPageCache owner, final PageReference key, final long expectedGeneration,
         final int revisionNumber, final byte[] slot, final long sideKey, final @Nullable HOTLeafEntry value,
         final @Nullable StorageEngineReader reader, final @Nullable PageReference chainReference) {
-      if (finished || cache != null || owner.pages == null || !HOTMiniPage.fitsEmpty(slot, value)) {
+      if (finished || metadataScan || blobRetention || cache != null || owner.pages == null
+          || !HOTMiniPage.fitsEmpty(slot, value)) {
         return;
       }
       // A caller can reuse its key buffer or mutate detached values before finishing the scope.
@@ -295,7 +384,9 @@ public final class HOTMiniPageCache {
       finished = true;
       try {
         if (point && !admitted && blobCache != null) {
-          admitted = blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobGeneration);
+          admitted = blobView == null
+              ? blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobGeneration)
+              : blobCache.putView(Objects.requireNonNull(blobKey), blobView, blobGeneration);
         }
         if (point && !admitted && cache != null) {
           if (promotionReader != null && cache.claimPointPromotion(Objects.requireNonNull(pageKey), generation,
@@ -321,6 +412,9 @@ public final class HOTMiniPageCache {
         blobCache = null;
         blobKey = null;
         blob = null;
+        blobView = null;
+        imageOwner = null;
+        image = null;
       }
     }
   }

@@ -198,6 +198,15 @@ final class ProjectionSortedDirectory {
       return root;
     }
 
+    ReadScope metadataReadScope() {
+      final ReadScope scope = openingScope == null
+          ? new ReadScope()
+          : openingScope;
+      openingScope = null;
+      scope.metadataScan();
+      return scope;
+    }
+
     int dataLeafCount() {
       return dataLeafCount;
     }
@@ -704,11 +713,12 @@ final class ProjectionSortedDirectory {
       if (nodeId < 1 || nodeId > nodeCount) {
         throw new IllegalStateException("sorted projection directory node id is outside its header range");
       }
-      final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, HEADER_SLOT + nodeId, intent, scope);
-      if (bytes == null) {
+      final ProjectionSortedReadView view =
+          ProjectionIndexHOTStorage.readSortedView(reader, indexNumber, HEADER_SLOT + nodeId, intent, scope, true);
+      if (view == null) {
         throw new IllegalStateException("missing sorted projection directory node " + nodeId);
       }
-      return ProjectionSortedDirectoryNode.open(bytes, reader, indexNumber, intent, scope);
+      return view.directory();
     }
   }
 
@@ -1310,8 +1320,9 @@ final class ProjectionSortedDirectory {
 
   /**
    * Pack ordinary fences directly. When even two cannot fit, two tiny routing entries point to
-   * separate stable key records. Only an individual key over the inline cap spills to OverflowPage.
-   * This exception guarantees progress at every tree level without narrowing supported keys.
+   * separate stable key records. Direct directory chunks and individual separator records use the
+   * ordinary blob side-reference path when their encoded bytes exceed the inline cap. Indirect
+   * separators guarantee progress at every tree level without narrowing supported keys.
    */
   private static ProjectionSortedDirectoryNode[] packDirectory(final ProjectionIndexHOTStorage storage,
       final IntSupplier allocateId, final byte[][] keys, final byte[][] payloads, final int count) {

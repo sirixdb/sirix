@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.page.PageReference;
+import io.sirix.index.projection.ProjectionSortedReadView;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.invoke.MethodHandles;
@@ -14,10 +15,10 @@ import java.util.function.Predicate;
 
 /**
  * Byte-bounded retention of verified sorted projection blobs and their committed routing identity.
- * Readers receive private copies; neither a mutable array nor a native-page guard escapes the
- * cache. Fixed associative sets keep hits lock-free and bound eviction work. Admission locks only
- * one set; resource invalidation fences in-flight reads before clearing their entries, including
- * reused offsets.
+ * Raw readers receive private copies; sorted readers share validated immutable views. Neither a
+ * mutable array nor a native-page guard escapes the cache. Fixed associative sets keep hits
+ * lock-free and bound eviction work. Admission locks only one set; resource invalidation fences
+ * in-flight reads before clearing their entries, including reused offsets.
  */
 public final class ProjectionBlobCache {
   private static final int WAYS = 16;
@@ -36,7 +37,7 @@ public final class ProjectionBlobCache {
     }
   }
 
-  private record Entry(Key key, byte[] bytes, long weight) {
+  private record Entry(Key key, byte @Nullable [] bytes, @Nullable ProjectionSortedReadView view, long weight) {
   }
 
   private static final class Set {
@@ -102,10 +103,34 @@ public final class ProjectionBlobCache {
     for (int i = 0; i < WAYS; i++) {
       final Entry entry = (Entry) TABLE.getAcquire(entries, i);
       if (entry != null && entry.key.equals(key)) {
-        return entry.bytes.clone();
+        return entry.view == null
+            ? Objects.requireNonNull(entry.bytes).clone()
+            : entry.view.copyBytes();
       }
     }
     return null;
+  }
+
+  /** Already validated, immutable descriptors; no array copy or repeated decode on a hit. */
+  public @Nullable ProjectionSortedReadView getView(final Key key) {
+    Objects.requireNonNull(key);
+    if (sets == null) {
+      return null;
+    }
+    final Entry[] entries = set(key).entries;
+    for (int i = 0; i < WAYS; i++) {
+      final Entry entry = (Entry) TABLE.getAcquire(entries, i);
+      if (entry != null && entry.key.equals(key)) {
+        return entry.view;
+      }
+    }
+    return null;
+  }
+
+  public boolean canCache(final ProjectionSortedReadView view) {
+    Objects.requireNonNull(view);
+    return sets != null && view.encodedSize() <= MAX_PAYLOAD_BYTES
+        && ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes() <= setBudget;
   }
 
   public boolean canCache(final int length) {
@@ -120,7 +145,25 @@ public final class ProjectionBlobCache {
   public boolean put(final Key key, final byte[] verified, final long expectedGeneration) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(verified);
-    if (!canCache(verified.length) || generation.get() != expectedGeneration) {
+    if (!canCache(verified.length)) {
+      return false;
+    }
+    return put(key, verified, null, weight(verified.length), expectedGeneration);
+  }
+
+  /** A view owns its immutable bytes and descriptors before it can be published. */
+  public boolean putView(final Key key, final ProjectionSortedReadView view, final long expectedGeneration) {
+    Objects.requireNonNull(key);
+    if (!canCache(view)) {
+      return false;
+    }
+    return put(key, null, view, ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes(), expectedGeneration);
+  }
+
+  private boolean put(final Key key, final byte @Nullable [] verified, final @Nullable ProjectionSortedReadView view,
+      final long weight, final long expectedGeneration) {
+    Objects.requireNonNull(key);
+    if (generation.get() != expectedGeneration) {
       return false;
     }
     final Set set = set(key);
@@ -135,10 +178,15 @@ public final class ProjectionBlobCache {
         if (prior == null) {
           free = i;
         } else if (prior.key.equals(key)) {
-          return true;
+          if (view == null || prior.view != null) {
+            return true;
+          }
+          // Replace raw bytes with their validated view under the same byte ceiling and fence.
+          TABLE.setRelease(entries, i, null);
+          set.weight -= prior.weight;
+          free = i;
         }
       }
-      final long weight = weight(verified.length);
       while (free < 0 || set.weight + weight > setBudget) {
         final int slot = set.victim++ & (WAYS - 1);
         final Entry prior = entries[slot];
@@ -148,7 +196,9 @@ public final class ProjectionBlobCache {
           free = slot;
         }
       }
-      TABLE.setRelease(entries, free, new Entry(key, verified.clone(), weight));
+      TABLE.setRelease(entries, free, new Entry(key, view == null
+          ? Objects.requireNonNull(verified).clone()
+          : null, view, weight));
       set.weight += weight;
       return true;
     }

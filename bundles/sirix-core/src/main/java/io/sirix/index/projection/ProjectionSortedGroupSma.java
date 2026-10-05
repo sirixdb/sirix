@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -26,10 +27,16 @@ final class ProjectionSortedGroupSma {
 
   private ProjectionSortedGroupSma() {}
 
-  static boolean invalidate(final ProjectionIndexHOTStorage storage) {
-    if (storage.getBlob(HEADER_SLOT) == null)
+  /** An active edit owns its captured nodes until it republishes or retires the tree. */
+  static boolean invalidate(final ProjectionIndexHOTStorage storage, final boolean preserveOwnedNodes) {
+    final byte[] header = storage.getBlob(HEADER_SLOT);
+    if (header == null)
       return false;
-    storage.tombstoneBlob(HEADER_SLOT);
+    if (preserveOwnedNodes) {
+      storage.tombstoneBlob(HEADER_SLOT);
+    } else {
+      new Tree(storage, Header.open(header), false).dropAll();
+    }
     return true;
   }
 
@@ -79,17 +86,22 @@ final class ProjectionSortedGroupSma {
 
   static @Nullable List<ProjectionSortedGroupScan.Group> topK(final StorageEngineReader reader, final int index,
       final byte[] prefix, final byte @Nullable [] upper, final int limit, final ProjectionSortedGroupScan.Order order,
-      final long divisor, final boolean minOnly) {
-    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, index, HEADER_SLOT, HOTReadIntent.SELECTIVE);
-    if (bytes == null)
-      return null;
-    ProjectionSortedGroupSummary.observeRead(0);
-    final Header header = Header.open(bytes);
-    final Query query = new Query(reader, index, prefix, upper, limit, order, divisor, minOnly);
-    if (header.root != 0)
-      query.visit(header.root, header.height);
-    return ProjectionSortedGroupScan.finish(query.winners, query.minima, query.maxima, query.scores, query.retained,
-        limit);
+      final long divisor, final boolean minOnly, final ReadScope scope) {
+    try {
+      final byte[] bytes =
+          ProjectionIndexHOTStorage.readBlob(reader, index, HEADER_SLOT, HOTReadIntent.SELECTIVE, scope);
+      if (bytes == null)
+        return null;
+      ProjectionSortedGroupSummary.observeRead(0);
+      final Header header = Header.open(bytes);
+      final Query query = new Query(reader, index, prefix, upper, limit, order, divisor, minOnly, scope);
+      if (header.root != 0)
+        query.visit(header.root, header.height);
+      return ProjectionSortedGroupScan.finish(query.winners, query.minima, query.maxima, query.scores, query.retained,
+          limit);
+    } finally {
+      scope.finish(false);
+    }
   }
 
   private static final class Query {
@@ -100,6 +112,7 @@ final class ProjectionSortedGroupSma {
     private final ProjectionSortedGroupScan.Order order;
     private final long divisor;
     private final boolean minOnly;
+    private final ReadScope scope;
     private final byte[][] winners;
     private final long[] minima;
     private final long[] maxima;
@@ -108,7 +121,8 @@ final class ProjectionSortedGroupSma {
     private int retained;
 
     Query(final StorageEngineReader reader, final int index, final byte[] prefix, final byte @Nullable [] upper,
-        final int limit, final ProjectionSortedGroupScan.Order order, final long divisor, final boolean minOnly) {
+        final int limit, final ProjectionSortedGroupScan.Order order, final long divisor, final boolean minOnly,
+        final ReadScope scope) {
       this.reader = reader;
       this.index = index;
       this.prefix = prefix;
@@ -116,6 +130,7 @@ final class ProjectionSortedGroupSma {
       this.order = order;
       this.divisor = divisor;
       this.minOnly = minOnly;
+      this.scope = scope;
       winners = new byte[limit + 1][];
       minima = new long[limit + 1];
       maxima = new long[limit + 1];
@@ -125,7 +140,7 @@ final class ProjectionSortedGroupSma {
     void visit(final int id, final int height) {
       ProjectionSortedGroupSummary.observeRead(-id);
       final ProjectionSortedLeaf node =
-          node(ProjectionIndexHOTStorage.readBlob(reader, index, HEADER_SLOT + id, HOTReadIntent.SELECTIVE));
+          node(ProjectionIndexHOTStorage.readBlob(reader, index, HEADER_SLOT + id, HOTReadIntent.SELECTIVE, scope));
       int row = node.lowerBound(prefix);
       if (height > 1 && row > 0 && (row == node.rowCount() || node.compareRowKey(row, prefix) > 0))
         row--;
@@ -359,7 +374,7 @@ final class ProjectionSortedGroupSma {
       final boolean unchanged = preservesExtrema(storage);
       finished = true;
       if (!enabled) {
-        invalidate(storage);
+        tree.dropAll();
         return;
       }
       final boolean touched = !unchanged && groups != null;
@@ -380,7 +395,7 @@ final class ProjectionSortedGroupSma {
       final ProjectionSortedDirectory.Accessor directory =
           ProjectionSortedDirectory.open(storage.getStorageEngineReader(), storage.getIndexNumber());
       if (directory == null || directory.unencodableRows() != 0 || directory.holdsRowsWithoutAggregateValues()) {
-        invalidate(storage);
+        tree.dropAll();
         return false;
       }
       for (final var entry : groups.entrySet()) {
@@ -413,7 +428,7 @@ final class ProjectionSortedGroupSma {
           continue;
         }
         if (key.length != group.length + 17 || key[group.length] != ProjectionSortKeyCodec.PRESENT) {
-          invalidate(storage);
+          tree.dropAll();
           return false;
         }
         final long min = ProjectionSortedGroupScan.readOrderedLong(key, group.length + 1);
@@ -421,7 +436,7 @@ final class ProjectionSortedGroupSma {
         key = new byte[cursor.lastSkippedKeyLength()];
         cursor.copyLastSkippedKeyTo(key);
         if (key.length != group.length + 17 || key[group.length] != ProjectionSortKeyCodec.PRESENT) {
-          invalidate(storage);
+          tree.dropAll();
           return false;
         }
         tree.set(group, extrema(min, ProjectionSortedGroupScan.readOrderedLong(key, group.length + 1)));
@@ -497,8 +512,9 @@ final class ProjectionSortedGroupSma {
 
     /** Tombstone every node and the header: the view has no group SMA afterwards. */
     void dropAll() {
-      for (int id = 1; id <= highWater; id++)
-        storage.tombstoneBlob(HEADER_SLOT + id);
+      if (root != 0) {
+        dropReachable(root, height);
+      }
       storage.tombstoneBlob(HEADER_SLOT);
       if (cachedIds != null) {
         Arrays.fill(cachedIds, 0);
@@ -507,6 +523,26 @@ final class ProjectionSortedGroupSma {
       root = 0;
       height = 0;
       groups = 0;
+    }
+
+    /** Retired id gaps cost no work; recursion retains at most one bounded node per tree level. */
+    private void dropReachable(final int id, final int level) {
+      if (id <= 0 || id > highWater || level <= 0) {
+        throw new IllegalStateException("invalid group SMA retirement path");
+      }
+      final ProjectionSortedLeaf leaf = readNode(id, level);
+      if (level > 1) {
+        for (int row = 0; row < leaf.rowCount(); row++) {
+          dropReachable(leaf.intPayloadAt(row), level - 1);
+        }
+      } else {
+        for (int row = 0; row < leaf.rowCount(); row++) {
+          if (leaf.payloadLength(row) != 2 * Long.BYTES) {
+            throw new IllegalStateException("invalid group SMA retirement leaf");
+          }
+        }
+      }
+      removeNode(id, level);
     }
 
     /** The stored [min, max] of a group, or {@code null} when the group has no entry. */

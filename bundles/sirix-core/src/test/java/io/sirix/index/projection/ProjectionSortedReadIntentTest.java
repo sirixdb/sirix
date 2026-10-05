@@ -149,10 +149,13 @@ final class ProjectionSortedReadIntentTest {
               if (mode == 1 || mode >= 4) {
                 // The first data miss consumes the whole admission budget. Metadata can only
                 // use a later point's otherwise unused budget; scans cannot consume it.
-                verify(reader, times(versioning == VersioningType.FULL
-                    ? 0
-                    : 1)).readHOTProjectionEntry(any(PageReference.class), any(byte[].class), anyLong(),
-                        eq(HOTReadIntent.POINT), any(ReadScope.class));
+                // FULL now keeps the directory open selective too. With blob retention disabled,
+                // its one native load moves to this data request; it formerly happened in open().
+                verify(reader, times(1)).readHOTProjectionEntry(any(PageReference.class), any(byte[].class), anyLong(),
+                    eq(HOTReadIntent.POINT), any(ReadScope.class));
+                if (versioning == VersioningType.FULL) {
+                  assertEquals(0, dataPointWalks[0], "a complete image needs no fragment walk");
+                }
                 if (versioning != VersioningType.FULL) {
                   assertTrue(mini.getCurrentWeightBytes() > 0,
                       "optimistic seek must actually admit on a fragmented view");

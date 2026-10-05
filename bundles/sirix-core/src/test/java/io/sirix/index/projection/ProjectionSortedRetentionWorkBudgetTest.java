@@ -14,11 +14,13 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.io.StorageType;
 import io.sirix.page.PageReference;
+import io.sirix.page.PageKind;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.MockedStatic;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -30,7 +32,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 
 /** Counts actual reader work, including referenced payloads, rather than checking elapsed time. */
 @Isolated
@@ -76,6 +82,30 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           }
         }
         Databases.clearGlobalCaches();
+        try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(1)) {
+          final StorageEngineReader reader = trx.getStorageEngineReader();
+          final byte hotKind = PageKind.HOT_LEAF_PAGE.getID();
+          try (MockedStatic<PageKind> decodes = mockStatic(PageKind.class, CALLS_REAL_METHODS)) {
+            final ProjectionSortedDirectory.Accessor sorted = ProjectionSortedDirectory.open(reader, 0);
+            assertNotNull(sorted);
+            final ProjectionSortedDirectory.Accessor.Cursor point = sorted.seek(keys[0]);
+            assertArrayEquals(keys[0], point.copyKey());
+            final byte[] result = new byte[payload.length];
+            point.copyPayloadTo(result, 0);
+            assertArrayEquals(payload, result);
+            decodes.verify(() -> PageKind.getKind(hotKind), times(1));
+          }
+          assertTrue(
+              reader.getBufferManager()
+                    .getHOTLeafPageCache()
+                    .asMap()
+                    .keySet()
+                    .stream()
+                    .noneMatch(reference -> reference.getDatabaseId() == reader.getDatabaseId()
+                        && reference.getResourceId() == reader.getResourceId()),
+              "header, directory and data share one bounded image without native adoption");
+        }
+        Databases.clearGlobalCaches();
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
           final StorageEngineReader actual = trx.getStorageEngineReader();
           final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(actual));
@@ -100,8 +130,18 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           assertEquals(empty, cache.getCurrentWeightBytes(), "an ambiguous open must not admit routing");
           final ProjectionSortedDirectory.Accessor.Cursor cursor = sorted.seek(keys[0]);
           assertTrue(sideReads[0] > 0, "the fixture must resolve a referenced encoded chunk");
+          assertTrue(
+              reader.getBufferManager()
+                    .getHOTLeafPageCache()
+                    .asMap()
+                    .keySet()
+                    .stream()
+                    .noneMatch(reference -> reference.getDatabaseId() == reader.getDatabaseId()
+                        && reference.getResourceId() == reader.getResourceId()),
+              "a cold same-chunk read must not adopt a complete native leaf, including FULL");
           final int chunk = cursor.leafId();
           final long initialLoads = nativeLoads[0];
+          assertEquals(0, initialLoads, "the first logical chunk needs no guarded native load");
           final byte[] result = new byte[payload.length];
           for (int row = 0; row < 32; row++) {
             assertEquals(chunk, cursor.leafId());
@@ -123,7 +163,7 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           cursor.copyPayloadTo(result, 0);
           assertArrayEquals(payload, result);
           if (versioning == VersioningType.FULL) {
-            assertEquals(initialLoads, nativeLoads[0], "FULL reuses its complete resident native page");
+            assertEquals(initialLoads + 1, nativeLoads[0], "FULL promotes once only when another chunk is needed");
             assertEquals(merges, VersioningType.multiFragmentMerges(), "FULL performs no extra fragment merge");
             assertEquals(olderFragments, VersioningType.fragmentsWalked(), "FULL visits no older native fragments");
             assertEquals(pointFragments, VersioningType.pointFragmentsWalked(), "FULL performs no older slot walk");
@@ -141,6 +181,19 @@ final class ProjectionSortedRetentionWorkBudgetTest {
               assertEquals(before, sideReads[0], "warm routing and payloads perform zero side reads");
               assertEquals(walks, VersioningType.pointLeafReads(), "warm seeks perform zero fragment walks");
             }
+          }
+          try (
+              final MockedStatic<ProjectionSortedLeaf> leafReads =
+                  mockStatic(ProjectionSortedLeaf.class, CALLS_REAL_METHODS);
+              final MockedStatic<ProjectionSortedDirectoryNode> directoryReads =
+                  mockStatic(ProjectionSortedDirectoryNode.class, CALLS_REAL_METHODS)) {
+            final ProjectionSortedDirectory.Accessor fresh = ProjectionSortedDirectory.open(reader, 0);
+            final ProjectionSortedDirectory.Accessor.Cursor point = fresh.seek(keys[0]);
+            assertArrayEquals(keys[0], point.copyKey());
+            point.copyPayloadTo(result, 0);
+            assertArrayEquals(payload, result);
+            leafReads.verify(() -> ProjectionSortedLeaf.openReadOnly(any(byte[].class)), never());
+            directoryReads.verifyNoInteractions();
           }
           assertTrue(cache.getCurrentWeightBytes() > empty);
           assertTrue(cache.getCurrentWeightBytes() <= cache.getMaxWeightBytes());

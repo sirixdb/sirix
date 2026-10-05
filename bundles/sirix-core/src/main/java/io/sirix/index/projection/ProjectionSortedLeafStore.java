@@ -145,10 +145,11 @@ final class ProjectionSortedLeafStore {
     if (observer != null) {
       observer.accept(leafId);
     }
-    final byte[] bytes = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot(leafId), intent, scope);
-    return bytes == null
+    final ProjectionSortedReadView view =
+        ProjectionIndexHOTStorage.readSortedView(reader, indexNumber, slot(leafId), intent, scope, false);
+    return view == null
         ? null
-        : ProjectionSortedLeaf.open(bytes);
+        : view.leaf();
   }
 
   static @Nullable ProjectionSortedLeaf read(final ProjectionIndexHOTStorage storage, final int leafId) {

@@ -61,18 +61,28 @@ final class ProjectionSortedDirectoryNode {
     return indirect(leaf, keys);
   }
 
-  static ProjectionSortedDirectoryNode open(final byte[] bytes, final StorageEngineReader reader, final int indexNumber,
-      final HOTReadIntent intent, final @Nullable ReadScope scope) {
-    final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.open(bytes);
+  static ProjectionSortedDirectoryNode open(final ProjectionSortedLeaf leaf, final StorageEngineReader reader,
+      final int indexNumber, final HOTReadIntent intent, final @Nullable ReadScope scope) {
     if (leaf.payloadLength(0) == Integer.BYTES) {
       return direct(leaf);
     }
     final byte[][] keys = new byte[leaf.rowCount()][];
     for (int i = 0; i < keys.length; i++) {
-      keys[i] =
-          requireKey(ProjectionIndexHOTStorage.readBlob(reader, indexNumber, separatorSlot(leaf, i), intent, scope));
+      keys[i] = requireKey(
+          ProjectionIndexHOTStorage.readBlob(reader, indexNumber, separatorSlot(leaf, i), intent, scope)).clone();
     }
     return indirect(leaf, keys);
+  }
+
+  long retainedMetadataBytes() {
+    long bytes = 32;
+    if (separatorKeys != null) {
+      bytes += (16L + 8L * separatorKeys.length + 7) & ~7L;
+      for (final byte[] key : separatorKeys) {
+        bytes += (16L + key.length + 7) & ~7L;
+      }
+    }
+    return bytes;
   }
 
   private static byte[] requireKey(final byte @Nullable [] key) {

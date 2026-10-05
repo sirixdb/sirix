@@ -1428,7 +1428,7 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 |---|---|---|---|---|
 | record page | `PageReference` → `KeyValueLeafPage` | budget / 2 (bytes) | global `ClockSweeper` second chance above 80 % (100 ms cycle, 10 % scan), guarded pages skipped; inline eviction above 110 % | `sirix.cache.recordPage` |
 | record page fragment | fragment offset → `KeyValueLeafPage` | budget × 3/16 | same | `sirix.cache.recordPageFragment` |
-| HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for copied payloads | see owner |
+| HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for private payloads and immutable validated descriptors | see owner |
 | page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (the byte budget passed in is ignored) | Caffeine size | `sirix.cache.page.max.entries` |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
 | HOT lookup | `HOTLookupKey` → node keys | 1 024..65 536 entries, budget-derived | set-associative | `sirix.hotLookupCache.maxEntries` |

@@ -10,6 +10,7 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
@@ -354,6 +355,28 @@ public abstract class AbstractReader implements Reader {
       // The close() method checks ownershipTransferred internally
       decompressionResult.close();
     }
+  }
+
+  /** Select a slot inside the same verified/decompressed frame used by ordinary page reads. */
+  protected HOTProjectionRead deserializeHOTProjectionEntry(final ResourceConfiguration configuration,
+      final MemorySegment compressedPage, final byte[] key, final long sideReferenceKey, final boolean retainImage)
+      throws IOException {
+    final HOTProjectionRead result;
+    if (byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()) {
+      result = pagePersister.deserializeHOTProjectionEntry(configuration, new MemorySegmentBytesIn(compressedPage),
+          type, key, sideReferenceKey, retainImage);
+    } else {
+      try (final var decoded = byteHandler.decompressScoped(compressedPage)) {
+        result = pagePersister.deserializeHOTProjectionEntry(configuration, new MemorySegmentBytesIn(decoded.segment()),
+            type, key, sideReferenceKey, retainImage);
+      }
+    }
+    if (result.indirect() != null) {
+      fixupPageReferenceIds(result.indirect(), configuration.getDatabaseId(), configuration.getID());
+    } else if (result.entry() != null && result.entry().sideReference() != null) {
+      result.entry().sideReference().setDatabaseId(configuration.getDatabaseId()).setResourceId(configuration.getID());
+    }
+    return result;
   }
 
   /** Fragment decoder never retains the borrowed input or transfers its decompression owner. */

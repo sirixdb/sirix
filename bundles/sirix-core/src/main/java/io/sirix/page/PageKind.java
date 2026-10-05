@@ -6700,6 +6700,105 @@ public enum PageKind {
     return flags;
   }
 
+  /**
+   * Inspect the existing self-contained wire image while its verified input is borrowed. Binary
+   * search reads only bounded slot headers; the side trailer is streamed without creating a map. Only
+   * the selected value and its side reference escape. This does not transfer input ownership.
+   */
+  static @Nullable HOTLeafEntry deserializeHOTProjectionEntry(final BytesIn<?> source, final byte[] key,
+      final long sideReferenceKey) {
+    Objects.requireNonNull(key);
+    final byte flags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+    final long pageKey = Utils.getVarLong(source);
+    final int revision = source.readInt();
+    if (pageKey < 0 || revision < 0 || IndexType.getType(source.readByte()) != IndexType.PROJECTION) {
+      throw new IllegalStateException("Invalid projection leaf header");
+    }
+    final int prefixLength = Short.toUnsignedInt(source.readShort());
+    boolean prefixMatches = key.length >= prefixLength;
+    for (int i = 0; i < prefixLength; i++) {
+      final byte value = source.readByte();
+      prefixMatches &= i < key.length && key[i] == value;
+    }
+    final int count = source.readInt() & Integer.MAX_VALUE;
+    final int used = source.readInt();
+    if (count > HOTLeafPage.MAX_ENTRIES || used < 0 || used > HOTLeafPage.DEFAULT_SIZE
+        || (long) count * Integer.BYTES + used > source.remaining()) {
+      throw new IllegalStateException("Invalid projection leaf dimensions");
+    }
+    final long offsets = source.position();
+    final long slots = offsets + (long) count * Integer.BYTES;
+    byte[] value = null;
+    if (prefixMatches) {
+      int low = 0;
+      int high = count - 1;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        source.position(offsets + (long) middle * Integer.BYTES);
+        final int offset = source.readInt();
+        if (offset < 0 || offset > used - 2 * Short.BYTES) {
+          throw new IllegalStateException("Invalid projection slot offset");
+        }
+        source.position(slots + offset);
+        final int suffixLength = Short.toUnsignedInt(source.readShort());
+        if (suffixLength > used - offset - 2 * Short.BYTES) {
+          throw new IllegalStateException("Invalid projection slot key length");
+        }
+        final long suffix = source.position();
+        final int wanted = key.length - prefixLength;
+        int comparison = 0;
+        for (int i = 0, length = Math.min(suffixLength, wanted); i < length; i++) {
+          comparison = (source.readByte() & 255) - (key[prefixLength + i] & 255);
+          if (comparison != 0) {
+            break;
+          }
+        }
+        if (comparison == 0) {
+          comparison = Integer.compare(suffixLength, wanted);
+        }
+        if (comparison < 0) {
+          low = middle + 1;
+        } else if (comparison > 0) {
+          high = middle - 1;
+        } else {
+          source.position(suffix + suffixLength);
+          final int length = Short.toUnsignedInt(source.readShort());
+          if (length > slots + used - source.position()) {
+            throw new IllegalStateException("Invalid projection slot value length");
+          }
+          value = new byte[length];
+          source.read(value);
+          break;
+        }
+      }
+    }
+    source.position(slots + used);
+    PageReference side = null;
+    if ((flags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
+      final long references = Utils.getVarLong(source);
+      if (references < 0 || references > MAX_HOT_LEAF_SIDE_REFERENCES
+          || references > source.remaining() / (2 * Long.BYTES)) {
+        throw new IllegalStateException("Invalid projection side-reference count");
+      }
+      for (long i = 0; i < references; i++) {
+        final long composite = source.readLong();
+        final long diskKey = source.readLong();
+        if (diskKey < 0) {
+          throw new IllegalStateException("Invalid projection side-reference offset");
+        }
+        if (value != null && composite == sideReferenceKey) {
+          side = new PageReference().setKey(diskKey);
+        }
+      }
+    }
+    if (source.remaining() != 0) {
+      throw new IllegalStateException("Trailing projection leaf bytes");
+    }
+    return value == null
+        ? null
+        : new HOTLeafEntry(value, side);
+  }
+
   /** Read the existing HOT wire image without allocating writable capacity or routing metadata. */
   static HOTLeafPage deserializeHOTLeafFragment(final BytesIn<?> source) {
     return deserializeHOTLeaf(source, null, true);

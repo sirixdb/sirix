@@ -24,6 +24,13 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /** Group extrema must read selected slots without reconstructing unrelated native leaf contents. */
 @Isolated
@@ -105,6 +112,49 @@ final class ProjectionSortedGroupRoutingWorkBudgetTest {
         assertTrue(VersioningType.pointLeafReads() - warmWalks <= 1,
             "verified group nodes are retained; only the unadmitted directory header may walk again");
         assertEquals(merges, VersioningType.multiFragmentMerges());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void retirementWorkDependsOnReachableNodesRatherThanRetiredIdGaps(final VersioningType versioning) {
+    final Path path = temporary.resolve("bounded-retirement-" + versioning);
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .versioningApproach(versioning)
+                                                              .build()));
+      try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          SortedScanFixtures.build(writer, List.of(new SortedScanFixtures.Row("group", 10, 1)), new int[] {1});
+          writer.commit();
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage actual = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
+          final byte[] header = actual.getBlob(ProjectionSortedGroupSma.HEADER_SLOT);
+          assertNotNull(header);
+          assertEquals(1, ProjectionIndexRowGroupCodec.getIntLE(header, 12));
+          // Valid allocation history with retired gaps, without depending on a particular split cadence.
+          ProjectionIndexRowGroupCodec.putIntLEAt(header, 12, 256);
+          actual.putBlob(ProjectionSortedGroupSma.HEADER_SLOT, header);
+          final ProjectionIndexHOTStorage counted = mock(ProjectionIndexHOTStorage.class, delegatesTo(actual));
+          assertTrue(ProjectionSortedGroupSma.invalidate(counted, false));
+          verify(counted, times(2)).tombstoneBlob(anyLong());
+          verify(counted).tombstoneBlob(ProjectionSortedGroupSma.HEADER_SLOT + 1);
+          verify(counted).tombstoneBlob(ProjectionSortedGroupSma.HEADER_SLOT);
+          writer.commit();
+        }
+        Databases.clearGlobalCaches();
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+          assertEquals(-1, ProjectionSortedGroupSma.publishedGroupCount(reader.getStorageEngineReader(), 0));
+          assertNull(ProjectionIndexHOTStorage.readBlob(reader.getStorageEngineReader(), 0,
+              ProjectionSortedGroupSma.HEADER_SLOT + 1));
+        }
+        try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(1)) {
+          assertEquals(1, ProjectionSortedGroupSma.publishedGroupCount(reader.getStorageEngineReader(), 0));
+        }
       }
     }
   }
