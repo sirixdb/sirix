@@ -13,6 +13,9 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.update.op.ReplaceElementContentOp;
+import io.brackit.query.update.UpdateList;
+import io.brackit.query.util.log.Logger;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.SirixCompileChain;
@@ -21,6 +24,12 @@ import io.sirix.settings.VersioningType;
 import java.nio.file.Path;
 import java.io.StringWriter;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
+import java.util.logging.LogRecord;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -157,6 +166,22 @@ final class XmlAxisContentRegressionTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void debugFormatsDetachedDeleteTargetsAndCommitsAutomatically(final VersioningType versioning) {
+    checkWriterUpdateWithDebug(versioning,
+        "(replace value of node r/target with 'new', delete node r/target/b)",
+        "Applying pending update DELETE XmlDBNode{", 1);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void debugFormatsDetachedContentTargetsAndCommitsAutomatically(final VersioningType versioning) {
+    checkWriterUpdateWithDebug(versioning,
+        "(replace value of node r/target with 'new', replace value of node r/target/b with 'detached')",
+        "Applying pending update ReplaceContent{target=XmlDBNode{", 2);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void writerBackedDescendantReplacementCompletesBookkeeping(final VersioningType versioning) {
     checkWriterUpdate(versioning,
         "(replace value of node r/target with 'new', replace value of node r/target/b with 'detached')",
@@ -217,6 +242,11 @@ final class XmlAxisContentRegressionTest {
               ? new XmlDBNode(trx, collection)
               : original.getFirstChild().getFirstChild();
           final XmlDBNode text = target.getFirstChild();
+          final XmlNodeReadOnlyTrx backing = target.getTrx();
+          final String diagnostic = "XmlDBNode{nodeKey=" + targetKey + ", kind=ELEMENT}";
+          assertTrue(backing.moveTo(survivorKey));
+          assertEquals(diagnostic, target.toString());
+          assertEquals(survivorKey, backing.getNodeKey());
           assertTrue(trx.moveTo(targetKey));
           trx.remove();
           assertTrue(trx.moveTo(survivorKey));
@@ -242,6 +272,9 @@ final class XmlAxisContentRegressionTest {
             assertEquals(survivorKey, trx.getNodeKey());
             assertEquals(0, trx.getAttributeCount());
           }
+          final long backingKey = backing.getNodeKey();
+          assertEquals(diagnostic, target.toString());
+          assertEquals(backingKey, backing.getNodeKey());
           if (writerBacked) {
             assertEquals(Kind.ELEMENT, target.getKind());
             assertSame(trx, target.getTrx());
@@ -264,6 +297,8 @@ final class XmlAxisContentRegressionTest {
           survivor.setName(new QNm("survivor"));
           survivor.setAttribute(new QNm("keep"), new Str("yes"));
           trx.commit();
+          trx.close();
+          assertEquals(diagnostic, target.toString());
         }
         assertDocument(collection, 2, "<r keep=\"yes\"><survivor keep=\"yes\"/></r>", rootKey, -1);
         assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
@@ -434,6 +469,45 @@ final class XmlAxisContentRegressionTest {
           ? targetKey
           : -1);
       assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
+    }
+  }
+
+  private void checkWriterUpdateWithDebug(final VersioningType versioning, final String update,
+      final String messagePrefix, final long expectedMessages) {
+    final Logger log = Logger.getLogger(UpdateList.class);
+    final var julLog = LogManager.getLogManager().getLogger(log.getName());
+    final Level previousLevel = julLog.getLevel();
+    final List<LogRecord> records = new ArrayList<>(4);
+    final Handler handler = new Handler() {
+      @Override
+      public void publish(final LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {}
+
+      @Override
+      public void close() {}
+    };
+    handler.setLevel(Level.FINE);
+    julLog.addHandler(handler);
+    try {
+      log.setLevel(Logger.Level.DEBUG);
+      assertTrue(log.isDebugEnabled());
+      checkWriterUpdate(versioning, update, "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
+      assertEquals(expectedMessages,
+          records.stream()
+                 .filter(record -> record.getLevel() == Level.FINE && record.getMessage().startsWith(messagePrefix))
+                 .count());
+      for (final LogRecord record : records) {
+        assertFalse(record.getMessage().contains("rtx="));
+        assertFalse(record.getMessage().contains("reader="));
+      }
+    } finally {
+      julLog.removeHandler(handler);
+      julLog.setLevel(previousLevel);
+      handler.close();
     }
   }
 

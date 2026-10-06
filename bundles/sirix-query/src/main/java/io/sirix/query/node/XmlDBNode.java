@@ -1653,8 +1653,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public String toString() {
-    moveRtx();
-    return ToStringHelper.of(this).add("rtx", rtx).toString();
+    return ToStringHelper.of(this).add("nodeKey", nodeKey).add("kind", kind).toString();
   }
 
   @Override

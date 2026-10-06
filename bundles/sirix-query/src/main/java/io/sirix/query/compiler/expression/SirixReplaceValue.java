@@ -45,6 +45,7 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.node.XmlDBNode;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.utils.XMLToken;
 import java.util.Optional;
 
@@ -124,6 +125,11 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
     @Override
     public OpType getType() {
       return OpType.REPLACE_ELEMENT_CONTENT;
+    }
+
+    @Override
+    public String toString() {
+      return ToStringHelper.of(this).add("target", target).toString();
     }
 
     @Override
