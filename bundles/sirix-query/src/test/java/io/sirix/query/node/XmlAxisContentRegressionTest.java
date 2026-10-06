@@ -127,8 +127,7 @@ final class XmlAxisContentRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void contentReplacementSkipsDetachedDeletes(final VersioningType versioning) {
-    checkUpdate(versioning,
-        "(replace value of node r/target with 'new', delete nodes r/target/node())",
+    checkUpdate(versioning, "(replace value of node r/target with 'new', delete nodes r/target/node())",
         "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>");
   }
 
@@ -151,24 +150,21 @@ final class XmlAxisContentRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void contentReplacementSkipsReplacedNodes(final VersioningType versioning) {
-    checkUpdate(versioning,
-        "(replace node r/target with <new/>, replace value of node r/target with 'detached')",
+    checkUpdate(versioning, "(replace node r/target with <new/>, replace value of node r/target with 'detached')",
         "<r keep=\"yes\"><new xmlns=\"\"/><tail/></r>", false);
   }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void writerBackedContentReplacementSkipsDetachedTargets(final VersioningType versioning) {
-    checkWriterUpdate(versioning,
-        "(replace value of node r/target with 'new', delete nodes r/target/node())",
+    checkWriterUpdate(versioning, "(replace value of node r/target with 'new', delete nodes r/target/node())",
         "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
   }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void debugFormatsDetachedDeleteTargetsAndCommitsAutomatically(final VersioningType versioning) {
-    checkWriterUpdateWithDebug(versioning,
-        "(replace value of node r/target with 'new', delete node r/target/b)",
+    checkWriterUpdateWithDebug(versioning, "(replace value of node r/target with 'new', delete node r/target/b)",
         "Applying pending update DELETE XmlDBNode{", 1);
   }
 
@@ -199,8 +195,7 @@ final class XmlAxisContentRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void writerBackedNodeReplacementSkipsDetachedContent(final VersioningType versioning) {
-    checkWriterUpdate(versioning,
-        "(replace node r/target with <new/>, replace value of node r/target with 'detached')",
+    checkWriterUpdate(versioning, "(replace node r/target with <new/>, replace value of node r/target with 'detached')",
         "<r keep=\"yes\"><new xmlns=\"\"/><tail/></r>", false);
   }
 
@@ -213,8 +208,8 @@ final class XmlAxisContentRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void writerBackedNestedDeletesCommitAutomatically(final VersioningType versioning) {
-    checkWriterUpdate(versioning, "(delete node r/target, delete node r/target/b)",
-        "<r keep=\"yes\"><tail/></r>", false);
+    checkWriterUpdate(versioning, "(delete node r/target, delete node r/target/b)", "<r keep=\"yes\"><tail/></r>",
+        false);
   }
 
   @ParameterizedTest
@@ -254,19 +249,17 @@ final class XmlAxisContentRegressionTest {
           text.delete();
           final QNm name = new QNm("changed");
           final Str value = new Str("changed");
-          for (final Executable operation : new Executable[] {
-              () -> target.setName(name), () -> text.setValue(value),
+          for (final Executable operation : new Executable[] {() -> target.setName(name), () -> text.setValue(value),
               () -> target.append(Kind.ELEMENT, name, null), () -> target.append(replacement),
-              () -> target.append(new DocumentParser("<new/>")),
-              () -> target.prepend(Kind.ELEMENT, name, null), () -> target.prepend(replacement),
-              () -> target.prepend(new DocumentParser("<new/>")),
+              () -> target.append(new DocumentParser("<new/>")), () -> target.prepend(Kind.ELEMENT, name, null),
+              () -> target.prepend(replacement), () -> target.prepend(new DocumentParser("<new/>")),
               () -> target.insertBefore(Kind.ELEMENT, name, null), () -> target.insertBefore(replacement),
               () -> target.insertBefore(new DocumentParser("<new/>")),
               () -> target.insertAfter(Kind.ELEMENT, name, null), () -> target.insertAfter(replacement),
-              () -> target.insertAfter(new DocumentParser("<new/>")),
-              () -> target.setAttribute(name, value), () -> target.setAttribute(replacement),
-              () -> target.deleteAttribute(name), () -> target.replaceWith(Kind.ELEMENT, name, null),
-              () -> target.replaceWith(replacement), () -> target.replaceWith(new DocumentParser("<new/>"))}) {
+              () -> target.insertAfter(new DocumentParser("<new/>")), () -> target.setAttribute(name, value),
+              () -> target.setAttribute(replacement), () -> target.deleteAttribute(name),
+              () -> target.replaceWith(Kind.ELEMENT, name, null), () -> target.replaceWith(replacement),
+              () -> target.replaceWith(new DocumentParser("<new/>"))}) {
             assertThrows(DocumentException.class, operation);
             assertFalse(trx.isClosed());
             assertEquals(survivorKey, trx.getNodeKey());
@@ -301,7 +294,8 @@ final class XmlAxisContentRegressionTest {
           assertEquals(diagnostic, target.toString());
         }
         assertDocument(collection, 2, "<r keep=\"yes\"><survivor keep=\"yes\"/></r>", rootKey, -1);
-        assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
+        assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey,
+            targetKey);
       }
     }
   }
@@ -318,10 +312,10 @@ final class XmlAxisContentRegressionTest {
       final XmlResourceSession session = original.getTrx().getResourceSession();
       final QNm replacement = new QNm("replacement");
       for (final String source : new String[] {"$replacement", "($replacement, 42)", "text {$replacement}"}) {
-        final Query query = new Query(chain,
-            "declare variable $replacement external; replace value of node r/target with " + source);
-        for (final String invalid : new String[] {"\u0000", "\u0001", "\u0008", "\u000B", "\u000C", "\u000E",
-            "\u001F", "\uD800", "\uDC00", "\uFFFE", "\uFFFF"}) {
+        final Query query =
+            new Query(chain, "declare variable $replacement external; replace value of node r/target with " + source);
+        for (final String invalid : new String[] {"\u0000", "\u0001", "\u0008", "\u000B", "\u000C", "\u000E", "\u001F",
+            "\uD800", "\uDC00", "\uFFFE", "\uFFFF"}) {
           final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store);
           context.setContextItem(original);
           context.bind(replacement, new Str("prefix" + invalid + "suffix"));
@@ -335,7 +329,8 @@ final class XmlAxisContentRegressionTest {
       context.setContextItem(original);
       new Query(chain, "replace value of node r/target/@a with 'valid'").execute(context);
       assertDocument(collection, 2,
-          XML.replace("'", "\"").replace("a=\"v\"", "a=\"valid\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
+          XML.replace("'", "\"").replace("a=\"v\"", "a=\"valid\"").replace("<!--note-->", "<!-- note -->"), rootKey,
+          targetKey);
       assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
     }
   }
@@ -351,8 +346,7 @@ final class XmlAxisContentRegressionTest {
       final String value = "\t\n\r\uD83D\uDE00";
       context.bind(new QNm("replacement"), new Str(value));
       new Query(chain,
-          "declare variable $replacement external; replace value of node r/target with $replacement")
-              .execute(context);
+          "declare variable $replacement external; replace value of node r/target with $replacement").execute(context);
       assertEquals(value, collection.getDocument(2).getFirstChild().getFirstChild().getValue().stringValue());
     }
   }

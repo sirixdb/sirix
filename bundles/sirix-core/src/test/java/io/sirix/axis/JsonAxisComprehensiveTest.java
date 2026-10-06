@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Test document structure (node keys 0-20) — iter#32 fusion collapses each {@code (key, primitive)}
  * pair onto a single OBJECT_NAMED_* record, eliminating the legacy OBJECT_KEY + primitive_VALUE
  * child pair.
- * 
+ *
  * <pre>{@code
  * 0: JSON_DOCUMENT
  * 1: OBJECT (root)

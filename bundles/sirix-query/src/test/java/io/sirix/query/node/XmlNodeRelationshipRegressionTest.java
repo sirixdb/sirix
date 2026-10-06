@@ -12,14 +12,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class XmlNodeRelationshipRegressionTest {
-  private static final boolean[][] DESCENDANT = {
-      {false, false, false, false, false, false, false},
-      {true, false, false, false, false, false, false},
-      {true, true, false, false, false, false, false},
-      {true, true, true, false, false, false, false},
-      {true, true, false, false, false, false, false},
-      {true, true, false, false, true, false, false},
-      {true, true, false, false, false, false, false}};
+  private static final boolean[][] DESCENDANT = {{false, false, false, false, false, false, false},
+      {true, false, false, false, false, false, false}, {true, true, false, false, false, false, false},
+      {true, true, true, false, false, false, false}, {true, true, false, false, false, false, false},
+      {true, true, false, false, true, false, false}, {true, true, false, false, false, false, false}};
 
   private static final int[] PARENT = {-1, 0, 1, 2, 1, 4, 1};
 
@@ -29,11 +25,8 @@ final class XmlNodeRelationshipRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void relationshipsWithoutDeweyIdsDoNotMoveTheComparisonTarget(final VersioningType versioning) {
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                   .location(directory)
-                                                   .versioningType(versioning)
-                                                   .storeDeweyIds(false)
-                                                   .build()) {
+    try (final BasicXmlDBStore store =
+        BasicXmlDBStore.newBuilder().location(directory).versioningType(versioning).storeDeweyIds(false).build()) {
       final XmlDBCollection collection = store.create("relationships",
           new DocumentParser("<r><child><leaf/></child><other><nested/></other><tail/></r>"));
       final XmlResourceSession session = collection.getDocument(1).getTrx().getResourceSession();
