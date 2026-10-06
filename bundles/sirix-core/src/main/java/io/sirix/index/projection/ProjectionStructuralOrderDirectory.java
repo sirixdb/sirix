@@ -346,10 +346,16 @@ final class ProjectionStructuralOrderDirectory {
       }
       final SirixDeweyID left = neighbourLabel(nodeKey, true, nodeLookup);
       final SirixDeweyID right = neighbourLabel(nodeKey, false, nodeLookup);
-      if ((left == null || left.compareTo(existing) < 0) && (right == null || existing.compareTo(right) < 0)) {
+      if (withinSiblingInterval(existing, left, right)) {
         return;
       }
       mint(nodeKey, left, right, nodeLookup, sink);
+    }
+
+    static boolean withinSiblingInterval(final SirixDeweyID existing, final @Nullable SirixDeweyID left,
+        final @Nullable SirixDeweyID right) {
+      Objects.requireNonNull(existing);
+      return (left == null || left.compareTo(existing) < 0) && (right == null || existing.compareTo(right) < 0);
     }
 
     /**
@@ -759,7 +765,7 @@ final class ProjectionStructuralOrderDirectory {
       return localLabel;
     }
 
-    private @Nullable SirixDeweyID localLabel(final long nodeKey) {
+    @Nullable SirixDeweyID localLabel(final long nodeKey) {
       final byte[] encoded = store.get(slotKey(nodeKey));
       if (encoded == null) {
         return null;

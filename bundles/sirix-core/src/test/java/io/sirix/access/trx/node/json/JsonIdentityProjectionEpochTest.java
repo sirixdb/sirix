@@ -4,6 +4,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.axis.DescendantAxis;
@@ -112,6 +113,20 @@ final class JsonIdentityProjectionEpochTest {
         }
         writer.commit();
       }
+      assertTrue(writer.moveTo(1));
+      writer.moveSubtreeToFirstChild(emptyGroups.getLong(0));
+      writer.commit();
+      assertTrue(writer.moveTo(1));
+      assertTrue(writer.moveToLastChild());
+      writer.moveSubtreeToRightSibling(emptyGroups.getLong(0));
+      writer.commit();
+      assertTrue(writer.moveTo(emptyGroups.getLong(0)));
+      writer.insertObjectRecordAsFirstChild("rows", ArrayValue.INSTANCE);
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"score\":9}"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      assertTrue(writer.moveTo(1));
+      writer.moveSubtreeToFirstChild(emptyGroups.getLong(0));
+      writer.commit();
       for (final long key : emptyGroups) {
         assertTrue(writer.moveTo(key));
         writer.remove();
@@ -143,7 +158,7 @@ final class JsonIdentityProjectionEpochTest {
       try (final var first = source.beginNodeReadOnlyTrx(1)) {
         importer.importRevision(JsonIdentityDeltaReader.snapshot(first, 1), first);
       }
-      for (int revision = 2; revision <= 8; revision++) {
+      for (int revision = 2; revision <= 12; revision++) {
         try (final var before = source.beginNodeReadOnlyTrx(revision - 1);
             final var after = source.beginNodeReadOnlyTrx(revision)) {
           final var delta = JsonIdentityDeltaReader.between(before, after, revision);
@@ -169,7 +184,7 @@ final class JsonIdentityProjectionEpochTest {
         final var targetDb = Databases.openJsonDatabase(targetPath);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
-      for (int revision = 1; revision <= 8; revision++) {
+      for (int revision = 1; revision <= 12; revision++) {
         try (final var original = source.beginNodeReadOnlyTrx(revision);
             final var copied = target.beginNodeReadOnlyTrx(revision)) {
           assertSnapshot(original, copied, 0);

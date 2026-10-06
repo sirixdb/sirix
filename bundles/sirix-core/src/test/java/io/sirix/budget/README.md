@@ -82,7 +82,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
 | `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar or non-bound insertion/removal edits rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
-| `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend and remove empty outer groups beside 16/4096 retained rows, all four versioning types | boundary links queue retained row removals/insertions or allocate their order labels; cold row data, sorted memberships, labels and key/numeric segment offsets must be preserved, with a one-row insertion as a positive control |
+| `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend, removal and both directions of same-parent empty-neighbor moves beside 16/4096 retained rows, all four versioning types; moves also cover both Dewey modes and mixed insert/delete/move epochs | boundary changes queue retained row edits, allocate row labels or walk the unchanged row subtree; cold payloads, sorted memberships, labels and key/numeric segment offsets must stay stable; later population of the moved neighbor, indexed reorder and reparenting provide positive controls |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
@@ -99,6 +99,15 @@ visits ranged from 922–1115 and 605518–622379. The fixed append/prepend and 
 zero row edits, zero label bytes and 190–268 record visits across both sizes. The positive indexed
 insertion control queued one row and allocated a 10-byte label. Raw logs and XML for this run live
 under `build/replay/review-boundary-results/` in the active worktree.
+
+Projection same-parent move mutation evidence (2026-10-06): restoring retained-sibling identity
+comparison failed all 32 move configurations, queuing 32 edits for 16 retained rows and 8192
+for 4096 rows. The fixed move/mixed-boundary and existing insertion/removal captures used zero
+row edits, zero emitted label bytes and 190–302 record visits across both widths and Dewey modes,
+with cold payloads and persisted segment offsets unchanged. Later population queued one row
+and a 10-byte label; actual indexed reorders and reparenting produced nonzero row edits and labels.
+Logs and XML live under `build/replay/review-projection-order-results/` in the active worktree.
+Existing bounds are unchanged; this is work evidence, not a new latency or memory guarantee.
 
 Valid-time identity mutation evidence (2026-10-06): restoring broad object/parent scheduling
 failed all eight versioning/width cases on the first nested append, inspecting 38 fields at

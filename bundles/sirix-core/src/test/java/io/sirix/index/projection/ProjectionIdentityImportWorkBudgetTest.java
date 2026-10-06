@@ -8,6 +8,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.InternalJsonNodeTrx;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -67,12 +68,162 @@ final class ProjectionIdentityImportWorkBudgetTest {
                                                                   .map(prepend -> Arguments.of(version, rows, prepend))));
   }
 
+  static Stream<Arguments> moveConfigurations() {
+    return configurations().flatMap(configuration -> Stream.of(false, true).map(dewey -> {
+      final Object[] values = configuration.get();
+      return Arguments.of(values[0], values[1], values[2], dewey);
+    }));
+  }
+
+  @ParameterizedTest
+  @MethodSource("moveConfigurations")
+  void unindexedNeighbourMovesRetainIndexedPrefixes(final VersioningType version, final int rows,
+      final boolean prepend, final boolean dewey) throws Exception {
+    final Path sourcePath = directory.resolve("source");
+    try (final var database = create(sourcePath, version, dewey);
+        final var session = database.beginResourceSession("resource");
+        final var writer = session.beginNodeTrx()) {
+      final StringBuilder json = new StringBuilder(rows * 20).append(prepend
+          ? "[{\"rows\":["
+          : "[{},{\"rows\":[");
+      for (int row = 0; row < rows; row++) {
+        if (row != 0) {
+          json.append(',');
+        }
+        json.append("{\"score\":").append(row).append('}');
+      }
+      json.append(prepend
+          ? "]},{}]"
+          : "]}]");
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+      assertTrue(writer.moveTo(1));
+      assertTrue(writer.moveToFirstChild());
+      final long first = writer.getNodeKey();
+      assertTrue(writer.moveToRightSibling());
+      final long second = writer.getNodeKey();
+      final long wide = prepend
+          ? first
+          : second;
+      final long empty = prepend
+          ? second
+          : first;
+      assertTrue(writer.moveTo(wide));
+      assertTrue(writer.moveToFirstChild());
+      assertTrue(writer.moveToFirstChild());
+      final long record = writer.getNodeKey();
+      writer.commit();
+      moveGroup(writer, empty, wide, prepend);
+      writer.commit();
+      insertGroup(writer, !prepend, "{}");
+      final long temporary = writer.getNodeKey();
+      moveGroup(writer, empty, wide, !prepend);
+      assertTrue(writer.moveTo(temporary));
+      writer.remove();
+      writer.commit();
+      insertGroup(writer, prepend, "{}");
+      final long removedNeighbour = writer.getNodeKey();
+      writer.commit();
+      moveGroup(writer, empty, wide, prepend);
+      assertTrue(writer.moveTo(removedNeighbour));
+      writer.remove();
+      writer.commit();
+      assertTrue(writer.moveTo(empty));
+      writer.insertObjectRecordAsFirstChild("rows", ArrayValue.INSTANCE);
+      final long emptyRows = writer.getNodeKey();
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"score\":-1}"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      moveGroup(writer, empty, wide, !prepend);
+      writer.commit();
+      assertTrue(writer.moveTo(emptyRows));
+      writer.moveSubtreeToFirstChild(record);
+      writer.commit();
+    }
+    clearCaches();
+    final Path targetPath = directory.resolve("target");
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, version, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx()) {
+      final var controller = (JsonIndexController) target.getWtxIndexController(1);
+      controller.createProjectionIndexesAtLoadStart(Set.of(projection()), writer);
+      final var importer = (InternalJsonNodeTrx) writer;
+      try (final var first = source.beginNodeReadOnlyTrx(1)) {
+        importer.importRevision(JsonIdentityDeltaReader.snapshot(first, 1), first);
+      }
+      for (int revision = 2; revision <= 8; revision++) {
+        try (final var before = source.beginNodeReadOnlyTrx(revision - 1);
+            final var after = source.beginNodeReadOnlyTrx(revision)) {
+          final var delta = JsonIdentityDeltaReader.between(before, after, revision);
+          final var work = WorkCapture.of(REPLAY).run(() -> importer.importRevision(delta, after));
+          if (revision <= 5) {
+            work.assertZero(REPLAY_PROJECTION_ROWS, "unindexed movers must retain existing projection rows")
+                .assertZero(REPLAY_PROJECTION_LABEL_BYTES, "unindexed movers must retain row labels")
+                .assertBetween(REPLAY_RECORD_VISITS, 1, 1000, "classification must not walk the unchanged row subtree");
+          } else if (revision == 6) {
+            work.assertExactly(REPLAY_PROJECTION_ROWS, 1, "populate a formerly unindexed neighbour with one new row")
+                .assertBetween(REPLAY_PROJECTION_LABEL_BYTES, 1, 128, "the new row must receive its current order label");
+          } else {
+            work.assertAtLeast(REPLAY_PROJECTION_ROWS, 1, "indexed reorders and reparenting must maintain affected rows")
+                .assertAtLeast(REPLAY_PROJECTION_LABEL_BYTES, 1, "indexed moves must emit final order labels");
+          }
+        }
+      }
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      final List<byte[]> initial;
+      final long[] offsets;
+      try (final var first = target.beginNodeReadOnlyTrx(1)) {
+        initial = payloads(first);
+        offsets = segmentOffsets(first, initial.size());
+        if (rows == 4096) {
+          assertTrue(offsets[1] > 0, "the large fixture must own a referenced numeric segment");
+        }
+      }
+      for (int revision = 1; revision <= 8; revision++) {
+        try (final var original = source.beginNodeReadOnlyTrx(revision);
+            final var copied = target.beginNodeReadOnlyTrx(revision)) {
+          JsonReplayGraphValidator.validate(copied);
+          final var expected = JsonReplaySnapshotOracle.snapshot(original);
+          final var actual = JsonReplaySnapshotOracle.snapshot(copied);
+          expected.remove(0);
+          actual.remove(0);
+          assertEquals(expected, actual);
+          assertEquals(original.getMaxNodeKey(), copied.getMaxNodeKey());
+          final List<byte[]> payloads = payloads(copied);
+          assertProjection(original, copied, payloads);
+          if (revision <= 5) {
+            assertEquals(initial.size(), payloads.size());
+            for (int group = 0; group < initial.size(); group++) {
+              assertArrayEquals(initial.get(group), payloads.get(group), "unchanged indexed prefixes and row data");
+            }
+            assertArrayEquals(offsets, segmentOffsets(copied, payloads.size()), "unchanged persisted row segments");
+          }
+        }
+      }
+    }
+  }
+
+  private static void moveGroup(final JsonNodeTrx writer, final long group, final long wide, final boolean first) {
+    if (first) {
+      assertTrue(writer.moveTo(1));
+      writer.moveSubtreeToFirstChild(group);
+    } else {
+      assertTrue(writer.moveTo(wide));
+      writer.moveSubtreeToRightSibling(group);
+    }
+  }
+
   @ParameterizedTest
   @MethodSource("configurations")
   void emptyBoundaryChangesRetainRowsAndLabels(final VersioningType version, final int rows, final boolean prepend)
       throws Exception {
     final Path sourcePath = directory.resolve("source");
-    try (final var database = create(sourcePath, version);
+    try (final var database = create(sourcePath, version, false);
         final var session = database.beginResourceSession("resource");
         final var writer = session.beginNodeTrx()) {
       final StringBuilder json = new StringBuilder(rows * 20).append("[{\"rows\":[");
@@ -97,7 +248,7 @@ final class ProjectionIdentityImportWorkBudgetTest {
     clearCaches();
     final Path targetPath = directory.resolve("target");
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, version);
+        final var targetDb = create(targetPath, version, false);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx()) {
@@ -231,14 +382,14 @@ final class ProjectionIdentityImportWorkBudgetTest {
         new ProjectionSortedSpec(List.of(0)));
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType version) {
+  private static Database<JsonResourceSession> create(final Path path, final VersioningType version, final boolean dewey) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     final var database = Databases.openJsonDatabase(path);
     assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
                                                           .storageType(StorageType.FILE_CHANNEL)
                                                           .versioningApproach(version)
                                                           .hashKind(HashType.ROLLING)
-                                                          .useDeweyIDs(false)
+                                                          .useDeweyIDs(dewey)
                                                           .buildPathStatistics(true)
                                                           .build()));
     return database;

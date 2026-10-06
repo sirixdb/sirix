@@ -21,6 +21,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionStructuralOrderDirectory.Accessor;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.ValueDictionaryHeaderNode;
@@ -32,6 +33,7 @@ import io.sirix.node.json.ArrayNode;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayRecord;
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -440,9 +442,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               || old.getKind().playsObjectKeyRole() && old instanceof final NameNode named
                   && !Objects.equals(target.name(),
                       storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT))
-              || identitySiblingChanged(structural.getLeftSiblingKey(), target.left(), target.parent(), true, delta)
-              || identitySiblingChanged(structural.getRightSiblingKey(), target.right(), target.parent(), false,
-                  delta))) {
+              || (structural.getLeftSiblingKey() != target.left() || structural.getRightSiblingKey() != target.right())
+                  && identityOrderChanged(target, delta))) {
         relocated.add(target.key());
       }
       collectIdentityRecord(target.key(), oldRecords);
@@ -454,28 +455,30 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     identityEpoch = new IdentityEpoch(delta, oldRecords, relocated);
   }
 
-  private boolean identitySiblingChanged(final long oldKey, final long targetKey, final long parent,
-      final boolean left, final JsonIdentityDelta delta) {
-    return oldKey != targetKey
-        && retainedIdentitySibling(oldKey, parent, left, false, delta)
-            != retainedIdentitySibling(targetKey, parent, left, true, delta);
+  private boolean identityOrderChanged(final JsonReplayRecord target, final JsonIdentityDelta delta) {
+    final var directory = structuralOrderDirectory();
+    final SirixDeweyID existing = directory.localLabel(target.key());
+    return existing != null && !Accessor.withinSiblingInterval(existing,
+        identityNeighbourLabel(target.left(), target.parent(), true, delta, directory),
+        identityNeighbourLabel(target.right(), target.parent(), false, delta, directory));
   }
 
-  private long retainedIdentitySibling(long key, final long parent, final boolean left, final boolean targetState,
-      final JsonIdentityDelta delta) {
-    long skipped = 0;
-    final long changed = (long) delta.puts().size() + delta.deletes().size();
+  private @Nullable SirixDeweyID identityNeighbourLabel(long key, final long parent, final boolean left,
+      final JsonIdentityDelta delta, final Accessor directory) {
+    long tortoise = key;
+    long power = 1;
+    long cycleLength = 0;
     while (key >= 0) {
       final ImmutableNode old = readNode(key);
       final var target = delta.puts().get(key);
       if (old != null && old.getParentKey() == parent && !delta.deletes().contains(key)
           && (target == null || target.parent() == parent)) {
-        return key;
+        final SirixDeweyID label = directory.localLabel(key);
+        if (label != null) {
+          return label;
+        }
       }
-      if (++skipped > changed) {
-        throw new IllegalStateException("Projection identity import has cyclic sibling links");
-      }
-      if (targetState && target != null) {
+      if (target != null) {
         key = left
             ? target.left()
             : target.right();
@@ -486,8 +489,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       } else {
         throw new IllegalStateException("Projection identity import cannot read sibling " + key);
       }
+      if (key >= 0 && key == tortoise) {
+        throw new IllegalStateException("Projection identity import has cyclic sibling links");
+      }
+      if (++cycleLength == power) {
+        tortoise = key;
+        power = Math.multiplyExact(power, 2);
+        cycleLength = 0;
+      }
     }
-    return NO_RECORD_KEY;
+    return null;
   }
 
   /**

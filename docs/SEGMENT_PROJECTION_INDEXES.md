@@ -2095,7 +2095,9 @@ absent from the base; `stagedRecords()` counts detached document records before 
 view scans cannot evade the R8 budget. The diagnostic map exists only when this static-final gate is on.
 `projectionIdentityRows()` counts queued old row removals and final row insertions;
 `projectionIdentityLabelBytes()` counts bytes allocated for emitted identity-epoch row labels.
-Empty boundary edits must leave both at zero; inserting an indexed row is the positive control.
+Empty insertion/removal boundaries and same-parent unindexed-neighbor moves must leave both at zero.
+An unchanged prefix stays valid when its local label remains between final labelled neighbors;
+unlabelled siblings do not anchor that interval. Inserting an indexed row is the positive control.
 `validTimeBoundFields()` counts direct children inspected by the valid-time listener while
 reconstructing bounds. Unrelated identity edits must leave it at zero; a direct bound update
 provides a positive scan control. Object topology changes retain constant-work order checks.
