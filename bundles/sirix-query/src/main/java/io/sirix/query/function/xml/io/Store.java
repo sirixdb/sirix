@@ -35,12 +35,11 @@ import java.time.Instant;
 
 /**
  * <p>
- * Function for storing a document in a collection/database. The Supported signature is:
+ * Function for storing a document in a collection/database.
  * </p>
- *
- * <pre>
- * <code>xml:store($coll as xs:string, $res as xs:string, $fragment as xs:node, $create-new as xs:boolean?) as ()</code>
- * </pre>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */

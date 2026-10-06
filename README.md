@@ -190,7 +190,7 @@ XML imports from constructed nodes preserve element and attribute namespace URIs
 namespace declarations:
 
 ```xquery
-xml:store('names', (), <root>
+xn:store('names', (), <root>
   <item xmlns='urn:a'>a</item>
   <item xmlns='urn:b'>b</item>
   <p:item xmlns:p='urn:a'>alias</p:item>
@@ -198,8 +198,8 @@ xml:store('names', (), <root>
 </root>)
 ```
 
-`xml:load` reads XML documents from URI strings, including a sequence of URIs. For example,
-`xml:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
+`xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
+`xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
 documents to an existing collection, or creates it if absent. An empty resource-name argument
 assigns names starting at `resource` followed by the current document count plus one. A failed
 addition reports the import error without replacing the collection or its existing documents.
@@ -211,7 +211,7 @@ stored URI `https://example.test/ns?a=1&b=2` is written as
 query results also carry inherited namespace bindings, including unused and attribute-only
 prefixes; nearer declarations take precedence, including default-namespace undeclarations.
 
-When creating a collection from a sequence, `xml:store` and `xml:load` import documents
+When creating a collection from a sequence, `xn:store` and `xn:load` import documents
 concurrently and return successfully only after every import has committed and closed its write
 transaction. The query context can then be closed immediately. Import or stream failures reach
 the caller after submitted workers finish; interruption interrupts and drains the workers and
@@ -321,7 +321,7 @@ For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
 Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
 resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
-`xml:store(..., false())`, or `xml:load(..., false())`. Reopening a collection with different store
+`xn:store(..., false())`, or `xn:load(..., false())`. Reopening a collection with different store
 settings affects future additions; existing resources retain their persisted configuration.
 The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
 
@@ -526,20 +526,25 @@ returns the index state as of *N*—never a later commit's. This is verified acr
 reads, session close/reopen, and a concurrent pinned-reader-vs-writer (see
 `HOTMultiVersionInvariantsTest`).
 
+Sirix XML functions use the `xn:` prefix for `https://sirix.io/xml`, including `xn:doc`,
+`xn:store` and `xn:open`. The reserved `xml:` prefix always refers to
+`http://www.w3.org/XML/1998/namespace` for attributes such as `xml:lang`, `xml:space` and `xml:id`.
+There is no compatibility alias for the former XML function prefix.
+
 XML NAME indexes match by namespace URI and local name. Different namespaces have separate
 postings; prefix aliases share a posting. Selective index definitions, exact lookups, and
 include/exclude filters all use this identity. JSON field names remain literal, including colons
 or braces in a key.
 
-`xml:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
+`xn:scan-name-index($doc, $index, $names)` accepts a sequence of `xs:QName` values. Construct a
 namespaced name with `fn:QName('urn:a', 'item')`, or use `xs:QName('a:item')` with prefix `a`
 declared. A QName with an empty namespace matches only namespace-free names. Pass `()` to
 scan all names covered by the index. With an index covering both namespaces:
 
 ```xquery
-let $doc := xml:doc('mydb', 'resource1')
-let $index := xml:find-name-index($doc, fn:QName('urn:a', 'item'))
-return xml:scan-name-index($doc, $index,
+let $doc := xn:doc('mydb', 'resource1')
+let $index := xn:find-name-index($doc, fn:QName('urn:a', 'item'))
+return xn:scan-name-index($doc, $index,
     (fn:QName('urn:a', 'item'), fn:QName('urn:b', 'item')))
 ```
 

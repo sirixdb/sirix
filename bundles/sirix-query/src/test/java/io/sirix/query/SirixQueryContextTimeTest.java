@@ -130,7 +130,7 @@ final class SirixQueryContextTimeTest {
 
       final Instant before = Instant.now().truncatedTo(ChronoUnit.MICROS);
       final XmlDBNode document =
-          (XmlDBNode) new Query(chain, "xml:open('products','resource1',current-dateTime())").evaluate(ctx);
+          (XmlDBNode) new Query(chain, "xn:open('products','resource1',current-dateTime())").evaluate(ctx);
       final Instant after = Instant.now();
       assertNotNull(document);
       assertEquals(2, document.getTrx().getRevisionNumber());

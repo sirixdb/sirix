@@ -73,16 +73,8 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
 
   @Override
   public void serialize(Sequence sequence) throws QueryException {
+    emitRestSequenceStart();
     if (sequence != null) {
-      if (emitRESTful && first) {
-        first = false;
-        if (prettyPrint) {
-          out.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
-        } else {
-          out.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
-        }
-      }
-
       try (Iter it = sequence.iterate()) {
         boolean first = true;
         Item item;
@@ -123,9 +115,21 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
     }
   }
 
+  private void emitRestSequenceStart() {
+    if (emitRESTful && first) {
+      first = false;
+      if (prettyPrint) {
+        out.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
+      } else {
+        out.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
+      }
+    }
+  }
+
   @Override
   public void close() {
     if (emitRESTful) {
+      emitRestSequenceStart();
       out.print("</rest:sequence>");
     }
 

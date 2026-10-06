@@ -52,11 +52,11 @@ final class ConstructedXmlNamespaceTest {
     try (final var store = store(versioning)) {
       store.create("oracle", "resource1", new DocumentParser(xml));
     }
-    run(versioning, "xml:store('names',()," + xml + ")");
+    run(versioning, "xn:store('names',()," + xml + ")");
     assertEquals(List.of("ELEMENT||root|", "ELEMENT|urn:a|item|", "ELEMENT|urn:b|item|", "ELEMENT|urn:a|item|p",
         "ELEMENT||item|"), names(versioning, "oracle", "resource1"));
     assertEquals(names(versioning, "oracle", "resource1"), names(versioning, "names", "resource1"));
-    final String serialized = run(versioning, "xml:doc('names','resource1')");
+    final String serialized = run(versioning, "xn:doc('names','resource1')");
     try (final var store = store(versioning)) {
       store.create("reported-round-trip", "resource1", new DocumentParser(serialized));
     }
@@ -78,12 +78,12 @@ final class ConstructedXmlNamespaceTest {
         "ELEMENT|urn:b|repeat|", "ELEMENT|urn:b|item|p", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|item|p",
         "ELEMENT|urn:a|item|p", "ELEMENT||item|");
     for (final String input : List.of(XML, nested)) {
-      run(versioning, "xml:store('serialized',()," + input + ")");
+      run(versioning, "xn:store('serialized',()," + input + ")");
       final List<String> expectedNames = input.equals(XML)
           ? EXPECTED_NAMES
           : nestedNames;
       assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
-      final String serialized = run(versioning, "xml:doc('serialized','resource1')");
+      final String serialized = run(versioning, "xn:doc('serialized','resource1')");
       try (final var store = store(versioning)) {
         store.create("reparsed", "resource1", new DocumentParser(serialized));
       }
@@ -145,7 +145,7 @@ final class ConstructedXmlNamespaceTest {
           writer.commit();
         }
       }
-      final String diff = run(versioning, "xml:diff('" + collection + "','resource1',1,2)");
+      final String diff = run(versioning, "xn:diff('" + collection + "','resource1',1,2)");
       run(versioning, diff);
       final List<String> expected = new ArrayList<>(List.of("ELEMENT|urn:outer|root|", "ELEMENT|urn:inner|branch|",
           "ELEMENT|urn:inner|added|", "ATTRIBUTE|urn:attribute|flag|q", "ELEMENT|urn:inner-prefix|child|p"));
@@ -159,7 +159,7 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void collidingNamespacePrefixKeepsItsBindingOnRoundTrip(final VersioningType versioning) {
-    run(versioning, "xml:store('collision-scope',(),<Aa:item xmlns:Aa='BB'/>)");
+    run(versioning, "xn:store('collision-scope',(),<Aa:item xmlns:Aa='BB'/>)");
     try (final var store = store(versioning)) {
       final var element = store.lookup("collision-scope").getDocument("resource1").getFirstChild();
       final var scope = element.getScope();
@@ -169,7 +169,7 @@ final class ConstructedXmlNamespaceTest {
       assertNull(scope.resolvePrefix("BB"));
       assertEquals(cursor, trx.getNodeKey());
     }
-    final String serialized = run(versioning, "xml:doc('collision-scope','resource1')");
+    final String serialized = run(versioning, "xn:doc('collision-scope','resource1')");
     try (final var store = store(versioning)) {
       store.create("collision-round-trip", "resource1", new DocumentParser(serialized));
     }
@@ -181,13 +181,13 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void collidingLocalNamesAndLexicalPrefixesMatchExactly(final VersioningType versioning) {
-    run(versioning, "xml:store('reported-name-collision',(),<root><Aa/><BB/></root>)");
-    assertEquals("BB", run(versioning, "xml:doc('reported-name-collision','resource1')/root/BB/local-name()"));
+    run(versioning, "xn:store('reported-name-collision',(),<root><Aa/><BB/></root>)");
+    assertEquals("BB", run(versioning, "xn:doc('reported-name-collision','resource1')/root/BB/local-name()"));
     run(versioning,
-        "xml:store('collision-names',(),<root xmlns:Aa='urn:a' xmlns:BB='urn:b'"
+        "xn:store('collision-names',(),<root xmlns:Aa='urn:a' xmlns:BB='urn:b'"
             + " Aa:flag='a' BB:flag='b' Aa='local-a' BB='local-b'>"
             + "<Aa:item/><BB:item/><Aa>local-a</Aa><BB>local-b</BB></root>)");
-    final String document = "xml:doc('collision-names','resource1')";
+    final String document = "xn:doc('collision-names','resource1')";
     assertEquals("local-b", run(versioning, document + "/root/BB/string()"));
     assertEquals("local-b", run(versioning, document + "//BB/string()"));
     assertEquals("local-b", run(versioning, document + "/root/@BB/string()"));
@@ -239,8 +239,8 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void partialAttributeWildcardsSelectAndDeleteOnlyMatchingAttributes(final VersioningType versioning) {
-    run(versioning, "xml:store('partial-attributes',(),<root xmlns:p='urn:a' p:flag='a' flag='plain' other='x'/>)");
-    final String root = "xml:doc('partial-attributes','resource1')/root";
+    run(versioning, "xn:store('partial-attributes',(),<root xmlns:p='urn:a' p:flag='a' flag='plain' other='x'/>)");
+    final String root = "xn:doc('partial-attributes','resource1')/root";
     final String declarations = "declare namespace a='urn:a'; ";
     assertEquals("1 2 3 0 a plain",
         run(versioning, declarations + "(count(" + root + "/@a:*),count(" + root + "/@*:flag),count(" + root
@@ -255,10 +255,10 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void spatialNodeTestsKeepWildcardTypeAndDocumentConstraints(final VersioningType versioning) {
-    run(versioning, "xml:store('node-tests',(),<root xmlns:p='urn:a'>"
+    run(versioning, "xn:store('node-tests',(),<root xmlns:p='urn:a'>"
         + "<p:item p:flag='a' flag='plain' other='x'/><item/><p:other/></root>)");
     final String declarations = "declare namespace a='urn:a'; ";
-    final String document = "xml:doc('node-tests','resource1')";
+    final String document = "xn:doc('node-tests','resource1')";
     final String root = document + "/root";
     final String item = root + "/a:item";
     for (final String axis : List.of("child", "descendant", "descendant-or-self")) {
@@ -304,14 +304,14 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void temporalNodeTestsKeepWildcardTypeAndDocumentConstraints(final VersioningType versioning) {
-    run(versioning, "xml:store('temporal-tests',(),<root xmlns:p='urn:a' p:flag='a'>" + "<p:item>one</p:item></root>)");
+    run(versioning, "xn:store('temporal-tests',(),<root xmlns:p='urn:a' p:flag='a'>" + "<p:item>one</p:item></root>)");
     run(versioning, "declare namespace a='urn:a'; replace value of node"
-        + " xml:doc('temporal-tests','resource1')/root/a:item/text() with 'two'");
+        + " xn:doc('temporal-tests','resource1')/root/a:item/text() with 'two'");
     final String declarations = "declare namespace a='urn:a'; declare namespace b='urn:b'; ";
     for (final String axis : List.of("first", "last", "next", "previous", "past", "past-or-self", "future",
         "future-or-self", "all-times")) {
       final boolean backwards = axis.equals("first") || axis.equals("previous") || axis.startsWith("past");
-      final String document = "xml:doc('temporal-tests','resource1'," + (backwards
+      final String document = "xn:doc('temporal-tests','resource1'," + (backwards
           ? "2"
           : "1") + ")";
       final String elementPath = document + "/root/a:item/" + axis + "::";
@@ -337,8 +337,8 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void pathNameTestsMatchExpandedNames(final VersioningType versioning) {
-    run(versioning, "xml:store('paths',()," + XML + ")");
-    final String document = "xml:doc('paths','resource1')";
+    run(versioning, "xn:store('paths',()," + XML + ")");
+    final String document = "xn:doc('paths','resource1')";
     assertAll(
         () -> assertEquals("a alias",
             run(versioning, "declare namespace a='urn:a'; " + document + "/root/a:item/string()")),
@@ -355,19 +355,19 @@ final class ConstructedXmlNamespaceTest {
   @EnumSource(VersioningType.class)
   void wildcardAttributesKeepExpandedNames(final VersioningType versioning) {
     final String xml = "<root xmlns:p='urn:a' p:flag='a' flag='plain'/>";
-    run(versioning, "xml:store('constructed-attributes',()," + xml + ")");
+    run(versioning, "xn:store('constructed-attributes',()," + xml + ")");
     try (final var store = store(versioning)) {
       store.create("parsed-attributes", "resource1", new DocumentParser(xml));
     }
     for (final String collection : List.of("constructed-attributes", "parsed-attributes")) {
-      final String attributes = "xml:doc('" + collection + "','resource1')/root/@*";
+      final String attributes = "xn:doc('" + collection + "','resource1')/root/@*";
       assertEquals("|flag|plain urn:a|flag|a", run(versioning, "for $a in " + attributes
           + " order by namespace-uri($a) return concat(namespace-uri($a),'|',local-name($a),'|',string($a))"));
       assertEquals("a", run(versioning,
           "for $a in " + attributes + " where node-name($a) eq fn:QName('urn:a','flag') return string($a)"));
       assertEquals("a", run(versioning,
-          "declare namespace a='urn:a'; xml:doc('" + collection + "','resource1')/root/@a:flag/string()"));
-      assertEquals("plain", run(versioning, "xml:doc('" + collection + "','resource1')/root/@flag/string()"));
+          "declare namespace a='urn:a'; xn:doc('" + collection + "','resource1')/root/@a:flag/string()"));
+      assertEquals("plain", run(versioning, "xn:doc('" + collection + "','resource1')/root/@flag/string()"));
     }
   }
 
@@ -410,7 +410,7 @@ final class ConstructedXmlNamespaceTest {
   @EnumSource(VersioningType.class)
   void elementStoresMatchDocumentParser(final VersioningType versioning) {
     final List<String> oracle = oracle(versioning);
-    run(versioning, "xml:store('element',()," + XML + ")");
+    run(versioning, "xn:store('element',()," + XML + ")");
     assertEquals(oracle, names(versioning, "element", "resource1"));
   }
 
@@ -418,7 +418,7 @@ final class ConstructedXmlNamespaceTest {
   @EnumSource(VersioningType.class)
   void documentStoresMatchDocumentParser(final VersioningType versioning) {
     final List<String> oracle = oracle(versioning);
-    run(versioning, "xml:store('document',(),document { " + XML + " })");
+    run(versioning, "xn:store('document',(),document { " + XML + " })");
     assertEquals(oracle, names(versioning, "document", "resource1"));
   }
 
@@ -427,11 +427,11 @@ final class ConstructedXmlNamespaceTest {
   void addedResourcesAndSequencesMatchDocumentParser(final VersioningType versioning) {
     // The collection.add versioning follow-up extends added-resource coverage beyond SLIDING_SNAPSHOT.
     final List<String> oracle = oracle(versioning);
-    run(versioning, "xml:store('added','seed',<seed/>)");
-    run(versioning, "xml:store('added','element'," + XML + ",false())");
-    run(versioning, "xml:store('added','document',document { " + XML + " },false())");
-    run(versioning, "xml:store('added-sequence','seed',<seed/>)");
-    run(versioning, "xml:store('added-sequence',(),(" + XML + ",document { " + XML + " }),false())");
+    run(versioning, "xn:store('added','seed',<seed/>)");
+    run(versioning, "xn:store('added','element'," + XML + ",false())");
+    run(versioning, "xn:store('added','document',document { " + XML + " },false())");
+    run(versioning, "xn:store('added-sequence','seed',<seed/>)");
+    run(versioning, "xn:store('added-sequence',(),(" + XML + ",document { " + XML + " }),false())");
     assertAll(() -> assertEquals(oracle, names(versioning, "added", "element")),
         () -> assertEquals(oracle, names(versioning, "added", "document")),
         () -> assertEquals(oracle, names(versioning, "added-sequence", "resource2")),
@@ -447,10 +447,10 @@ final class ConstructedXmlNamespaceTest {
     final List<Executable> assertions = new ArrayList<>(positions.size());
     for (int i = 0; i < positions.size(); i++) {
       final String collection = "insert" + i;
-      run(versioning, "xml:store('" + collection + "',(),<root><anchor/></root>)");
-      run(versioning, "let $doc := xml:doc('" + collection + "','resource1') return insert nodes (" + ITEM_SEQUENCE
+      run(versioning, "xn:store('" + collection + "',(),<root><anchor/></root>)");
+      run(versioning, "let $doc := xn:doc('" + collection + "','resource1') return insert nodes (" + ITEM_SEQUENCE
           + ") " + positions.get(i));
-      run(versioning, "let $doc := xml:doc('" + collection + "','resource1') return delete nodes $doc/root/anchor");
+      run(versioning, "let $doc := xn:doc('" + collection + "','resource1') return delete nodes $doc/root/anchor");
       final String position = positions.get(i);
       // The XML insert sequence-order follow-up owns first/after ordering; verify every expanded name
       // here.
@@ -475,8 +475,8 @@ final class ConstructedXmlNamespaceTest {
     try (final var store = store(versioning)) {
       store.create("oracle", "resource1", new DocumentParser("<root xmlns:p='urn:a' p:flag='a' flag='plain'/>"));
     }
-    run(versioning, "xml:store('attributes',(),<root/>)");
-    run(versioning, "declare namespace p='urn:a'; let $doc := xml:doc('attributes','resource1')"
+    run(versioning, "xn:store('attributes',(),<root/>)");
+    run(versioning, "declare namespace p='urn:a'; let $doc := xn:doc('attributes','resource1')"
         + " return insert nodes (attribute p:flag {'a'},attribute flag {'plain'}) into $doc/root");
     assertEquals(names(versioning, "oracle", "resource1"), names(versioning, "attributes", "resource1"));
   }
@@ -484,14 +484,14 @@ final class ConstructedXmlNamespaceTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void nameIndexBulkBuildAndIncrementalMaintenanceKeepConstructedNamespaces(final VersioningType versioning) {
-    run(versioning, "xml:store('bulk',()," + XML + ")");
-    run(versioning, "xml:store('incremental',(),<root/>)");
+    run(versioning, "xn:store('bulk',()," + XML + ")");
+    run(versioning, "xn:store('incremental',(),<root/>)");
     for (final String collection : List.of("bulk", "incremental")) {
-      run(versioning, "let $doc := xml:doc('" + collection + "','resource1')"
-          + " let $idx := xml:create-name-index($doc,()) return sdb:commit($doc)");
+      run(versioning, "let $doc := xn:doc('" + collection + "','resource1')"
+          + " let $idx := xn:create-name-index($doc,()) return sdb:commit($doc)");
     }
     run(versioning,
-        "let $doc := xml:doc('incremental','resource1') return insert nodes (" + ITEM_SEQUENCE + ") into $doc/root");
+        "let $doc := xn:doc('incremental','resource1') return insert nodes (" + ITEM_SEQUENCE + ") into $doc/root");
     final List<Executable> assertions = new ArrayList<>(3);
     for (final String collection : List.of("bulk", "incremental")) {
       assertions.add(
@@ -548,8 +548,8 @@ final class ConstructedXmlNamespaceTest {
 
   private String scan(final VersioningType versioning, final String collection, final String name) {
     return run(versioning,
-        "let $doc := xml:doc('" + collection + "','resource1') return for $node in"
-            + " xml:scan-name-index($doc,xml:find-name-index($doc," + name + ")," + name + ")"
+        "let $doc := xn:doc('" + collection + "','resource1') return for $node in"
+            + " xn:scan-name-index($doc,xn:find-name-index($doc," + name + ")," + name + ")"
             + " order by sdb:nodekey($node) return string($node)");
   }
 

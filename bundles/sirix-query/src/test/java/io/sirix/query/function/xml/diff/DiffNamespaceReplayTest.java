@@ -74,12 +74,12 @@ final class DiffNamespaceReplayTest {
       }
 
       final String update =
-          ((Str) new Query(chain, "xml:diff('replay','resource1',1,2)").evaluate(context)).stringValue();
+          ((Str) new Query(chain, "xn:diff('replay','resource1',1,2)").evaluate(context)).stringValue();
       new Query(chain, update).execute(context);
 
       for (final int revision : new int[] {2, 4}) {
         final XmlDBNode document =
-            (XmlDBNode) new Query(chain, "xml:doc('replay','resource1'," + revision + ")").evaluate(context);
+            (XmlDBNode) new Query(chain, "xn:doc('replay','resource1'," + revision + ")").evaluate(context);
         final XmlDBNode item = document.getFirstChild().getFirstChild();
         assertEquals(new QNm(defaultNamespace, "", "item"), item.getName());
         assertEquals("é", item.getAttribute(new QNm(prefixNamespace, "p", "flag")).getValue().stringValue());

@@ -31,14 +31,11 @@ import java.util.Set;
 /**
  * <p>
  * Function for creating CAS indexes on stored documents, optionally restricted to a set of paths
- * and a content type. If successful, this function returns the document-node. Supported signatures
- * are:
+ * and a content type.
  * </p>
- * <ul>
- * <li><code>xml:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
- * <li><code>xml:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
- * <li><code>xml:create-cas-index($doc as node()) as node()</code></li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  *

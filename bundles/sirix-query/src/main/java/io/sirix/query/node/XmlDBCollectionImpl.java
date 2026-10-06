@@ -159,6 +159,12 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
       try {
         trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
+        if (trx.getRevisionNumber() == 0) {
+          // Revision 0 is the internal empty state, before the first committed document.
+          trx.close();
+          return null;
+        }
+
         if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
           final int revision = trx.getRevisionNumber();
 

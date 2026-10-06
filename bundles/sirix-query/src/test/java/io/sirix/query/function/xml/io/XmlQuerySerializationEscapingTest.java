@@ -84,8 +84,8 @@ final class XmlQuerySerializationEscapingTest {
   @EnumSource(VersioningType.class)
   void reportedStoreQueryKeepsDecodedNamespaceUriOnReparse(final VersioningType versioning) throws Exception {
     final String input = "<root xmlns='https://example.test/ns?a=1&amp;b=2'/>";
-    serializeBrackit(versioning, "xml:store('reported',()," + input + ")");
-    final String output = serializeBrackit(versioning, "xml:doc('reported','resource1')");
+    serializeBrackit(versioning, "xn:store('reported',()," + input + ")");
+    final String output = serializeBrackit(versioning, "xn:doc('reported','resource1')");
     assertElement(parse(input).getDocumentElement(), parse(output).getDocumentElement(), false);
     try (final var store = store(versioning)) {
       final var root = store.lookup("reported").getDocument("resource1").getFirstChild();
@@ -135,7 +135,7 @@ final class XmlQuerySerializationEscapingTest {
         + " q:value='plain'><child/></root>";
     final Path file = directory.resolve(collection + ".xml");
     Files.writeString(file, input, StandardCharsets.UTF_8);
-    serializeBrackit(versioning, "xml:load('" + collection + "','resource1','" + file.toUri() + "')");
+    serializeBrackit(versioning, "xn:load('" + collection + "','resource1','" + file.toUri() + "')");
     final Element expectedRoot = parse(input).getDocumentElement();
     final Element expected = detached
         ? (Element) expectedRoot.getFirstChild()
@@ -159,7 +159,7 @@ final class XmlQuerySerializationEscapingTest {
       throws Exception {
     final Path file = directory.resolve(collection + ".xml");
     Files.writeString(file, input, StandardCharsets.UTF_8);
-    serializeBrackit(versioning, "xml:load('" + collection + "','resource1','" + file.toUri() + "')");
+    serializeBrackit(versioning, "xn:load('" + collection + "','resource1','" + file.toUri() + "')");
     final Element expected = (Element) parse(input).getDocumentElement().getFirstChild();
     final String output = serializeBrackit(versioning, expression(collection, true));
     assertElement(expected, parse(output).getDocumentElement(), false);
@@ -189,7 +189,7 @@ final class XmlQuerySerializationEscapingTest {
   }
 
   private static String expression(final String collection, final boolean detached) {
-    return "xml:doc('" + collection + "','resource1')" + (detached
+    return "xn:doc('" + collection + "','resource1')" + (detached
         ? "/*/child::*:child"
         : "");
   }

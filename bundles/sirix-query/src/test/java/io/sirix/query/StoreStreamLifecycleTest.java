@@ -91,7 +91,7 @@ final class StoreStreamLifecycleTest {
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store)) {
       new Query(chain,
-          "xml:store('sequence',(),(<root><item xmlns='urn:a'>a</item></root>,document { <root/> }))").execute(context);
+          "xn:store('sequence',(),(<root><item xmlns='urn:a'>a</item></root>,document { <root/> }))").execute(context);
     }
     try (final BasicXmlDBStore store = xmlStore(versioning)) {
       final var collection = store.lookup("sequence");

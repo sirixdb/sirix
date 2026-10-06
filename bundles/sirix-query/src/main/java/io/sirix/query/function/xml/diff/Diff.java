@@ -60,21 +60,15 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
  * <p>
- * Function for diffing two revisions of a resource in a collection/database. The Supported
- * signature is:
+ * Function for diffing two revisions of an XML resource in a collection/database.
  * </p>
- *
- * <pre>
- * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string</code>
- * </pre>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -82,17 +76,13 @@ import java.util.stream.Collectors;
 public final class Diff extends AbstractFunction implements DiffObserver {
 
   /**
-   * Sort by document order name.
+   * Diff function name.
    */
   public final static QNm DIFF = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "diff");
 
   private final StringBuilder buffer;
 
   private final List<DiffTuple> diffs;
-
-  private final ExecutorService pool;
-
-  private CountDownLatch latch;
 
   /**
    * Constructor.
@@ -105,7 +95,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
     buffer = new StringBuilder();
     diffs = new ArrayList<>();
-    pool = Executors.newSingleThreadExecutor();
   }
 
   @Override
@@ -127,20 +116,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
     diffs.clear();
     buffer.setLength(0);
-    latch = new CountDownLatch(1);
-
     try (final XmlResourceSession resourceSession = doc.getTrx().getResourceSession()) {
-      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession, revision2, revision1,
+      DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession, revision2, revision1,
           resourceSession.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,
-          Set.of(this)).skipSubtrees(true)));
-
-      try {
-        latch.await(100000, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        throw new QueryException(new QNm("Interrupted exception"), e);
-      }
+          Set.of(this)).skipSubtrees(true));
 
       if (diffs.size() == 1
           && (diffs.get(0).getDiff() == DiffType.SAMEHASH || diffs.get(0).getDiff() == DiffType.SAME)) {
@@ -281,6 +262,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
               buffer.append(System.getProperty("line.separator"));
               // $CASES-OMITTED$
+              // fall through: the default case emits no further update statements.
             default:
               // Do nothing.
           }
@@ -327,7 +309,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   private void createDocString(final Sequence[] args, final int revision1) {
-    buffer.append("xml:doc('");
+    buffer.append(XMLFun.XML_PREFIX).append(":doc('");
     buffer.append(((Str) args[0]).stringValue());
     buffer.append("','");
     buffer.append(((Str) args[1]).stringValue());
@@ -344,7 +326,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   @Override
   public void diffDone() {
-    latch.countDown();
+    // The diff is invoked synchronously.
   }
 
   private static String printSubtreeNode(final XmlNodeReadOnlyTrx rtx) {

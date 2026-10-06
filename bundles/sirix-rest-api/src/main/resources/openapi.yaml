@@ -110,7 +110,7 @@ paths:
             application/xml:
               schema:
                 type: string
-                description: Query results wrapped in `<rest:sequence xmlns:rest="https://sirix.io/rest">…</rest:sequence>`.
+                description: See the XML response description for POST / for the query-result envelope.
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -121,7 +121,8 @@ paths:
       description: |
         Executes the query in the JSON request body. Read-only queries return
         their result sequence; **updating queries auto-commit** (optionally
-        with `commitMessage` / `commitTimestamp`) and return an **empty body**.
+        with `commitMessage` / `commitTimestamp`). Responses follow the
+        selected output format, as described below.
 
         All body fields except `query` may equivalently be passed as query
         parameters of the same name.
@@ -156,8 +157,8 @@ paths:
         '200':
           description: |
             Query result. With `plan=true` (JSON output only) the result is
-            wrapped as `{"results": …, "plan": …}`. Updating queries and
-            queries with no result yield an empty body.
+            wrapped as `{"results": …, "plan": …}`. On the JSON output path,
+            updating queries and queries with no result yield an empty body.
           content:
             application/json:
               schema:
@@ -167,7 +168,7 @@ paths:
             application/xml:
               schema:
                 type: string
-                description: '`<rest:sequence>`-wrapped result items. `plan`/`planStage` are ignored on the XML output path.'
+                description: 'Query results wrapped in `<rest:sequence xmlns:rest="https://sirix.io/rest">…</rest:sequence>`, including an empty envelope for empty results or updating queries with no result. `plan`/`planStage` are ignored on the XML output path.'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }

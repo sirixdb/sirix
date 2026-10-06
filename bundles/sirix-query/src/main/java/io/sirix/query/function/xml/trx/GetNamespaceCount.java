@@ -12,18 +12,17 @@ import io.sirix.query.node.XmlDBNode;
 
 /**
  * <p>
- * Function for getting the number of namespaces of the current node. Supported signature is:
+ * Function for getting the number of namespaces of the current node.
  * </p>
- * <ul>
- * <li><code>xml:get-namespace-count($doc as xs:structured-item) as xs:int</code></li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  *
  */
 public final class GetNamespaceCount extends AbstractFunction {
 
-  /** Get namespcae count function name. */
   public final static QNm GET_NAMESPACE_COUNT = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "namespace-count");
 
   /**

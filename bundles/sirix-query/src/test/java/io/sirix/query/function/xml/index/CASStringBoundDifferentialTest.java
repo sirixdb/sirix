@@ -19,15 +19,15 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public final class CASStringBoundDifferentialTest {
-  private static final String SOURCE = "xml:doc('xml-cas','resource1')";
+  private static final String SOURCE = "xn:doc('xml-cas','resource1')";
 
   @TempDir
   Path directory;
 
   @BeforeEach
   void loadFixture() {
-    run("xml:store('xml-cas',(),<root><title>a</title></root>)", true);
-    run("let $doc := " + SOURCE + " let $idx := xml:create-cas-index($doc,'xs:string','/root/title')"
+    run("xn:store('xml-cas',(),<root><title>a</title></root>)", true);
+    run("let $doc := " + SOURCE + " let $idx := xn:create-cas-index($doc,'xs:string','/root/title')"
         + " return sdb:commit($doc)", true);
   }
 
@@ -47,8 +47,8 @@ public final class CASStringBoundDifferentialTest {
     final String interpreted = run(plain, false);
     assertEquals(expected, interpreted);
 
-    final String indexed = "let $doc := " + SOURCE + " return xml:scan-cas-index($doc,"
-        + "xml:find-cas-index($doc,'xs:string','/root/title'),'" + literal + "',false(),'" + operator
+    final String indexed = "let $doc := " + SOURCE + " return xn:scan-cas-index($doc,"
+        + "xn:find-cas-index($doc,'xs:string','/root/title'),'" + literal + "',false(),'" + operator
         + "','/root/title')";
     assertEquals(interpreted, run("for $n in (" + indexed + ") return string($n)", true), indexed);
   }

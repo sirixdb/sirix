@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import io.sirix.cli.MetaDataEnum
+import io.sirix.cli.CliOptions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
@@ -108,7 +109,7 @@ internal class QueryTest : CliCommandTest() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(io.sirix.cli.CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
+        Query(CliOptions(sirixQueryTestFileJson, true), giveASimpleQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
@@ -120,7 +121,7 @@ internal class QueryTest : CliCommandTest() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(io.sirix.cli.CliOptions(sirixQueryTestFileXml, true), giveASimpleQueryOption()).execute()
+        Query(CliOptions(sirixQueryTestFileXml, true), giveASimpleQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
@@ -132,7 +133,7 @@ internal class QueryTest : CliCommandTest() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(io.sirix.cli.CliOptions(sirixQueryTestFileJson, true), giveAJSONiqQueryOption()).execute()
+        Query(CliOptions(sirixQueryTestFileJson, true), giveAJSONiqQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
@@ -149,13 +150,35 @@ internal class QueryTest : CliCommandTest() {
         val byteArrayOutputStream = ByteArrayOutputStream()
         System.setOut(PrintStream(byteArrayOutputStream))
 
-        Query(io.sirix.cli.CliOptions(sirixQueryTestFileXml, true), giveAXQueryOption()).execute()
+        Query(CliOptions(sirixQueryTestFileXml, true), giveAXQueryOption()).execute()
 
         val queryResult = prepareQueryResult(byteArrayOutputStream)
 
         assertEquals(
             "Execute Query. Result is:\n<result nodeKey=\"14\"/>\nQuery executed (123)",
             queryResult
+        )
+    }
+
+    @Test
+    fun testXmlFunctionPrefixPreservesReservedXmlAttributes() {
+        val output = ByteArrayOutputStream()
+        val original = System.out
+        PrintStream(output).use { stream ->
+            try {
+                System.setOut(stream)
+                val query = giveAXQueryOption().copy(
+                    queryStr = "xquery version \"1.0\"; let \$attributes := xn:attribute-count(.) return " +
+                        "<result attributes='{\$attributes}' language='{string(<leaf xml:lang=\"en\"/>/@xml:lang)}'/>"
+                )
+                Query(CliOptions(sirixQueryTestFileXml, true), query).execute()
+            } finally {
+                System.setOut(original)
+            }
+        }
+        assertEquals(
+            "Execute Query. Result is:\n<result attributes=\"0\" language=\"en\"/>\nQuery executed (123)",
+            prepareQueryResult(output)
         )
     }
 
@@ -227,5 +250,3 @@ private fun prepareQueryResult(outputStream: OutputStream): String {
     // println emits \r\n on Windows while the expected literals use \n — normalize before comparing.
     return outputStream.toString().replace("\r\n", "\n").trim().replace("\\d+ms".toRegex(), "123")
 }
-
-

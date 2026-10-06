@@ -71,6 +71,8 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.Node;
+import io.brackit.query.jdm.type.AnyNodeType;
+import io.brackit.query.jdm.type.AttributeType;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
@@ -521,17 +523,31 @@ public class SirixTranslator extends TopDownTranslator {
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
-      if (!isSimpleNodeTest(test)) {
-        return super.performStep(node, test);
+      if (!(node instanceof final XmlDBNode dbNode)) {
+        return Accessor.ATTRIBUTE.performStep(node, test);
       }
-      final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      return new SirixNodeStream(SirixTranslator.getAxis(test, rtx, new AttributeAxis(rtx)), dbNode.getCollection());
+      final AttributeAxis axis = new AttributeAxis(rtx);
+      if (test instanceof AnyNodeType || rtx.getAttributeCount() == 0) {
+        return new SirixNodeStream(axis, dbNode.getCollection());
+      }
+      if (test instanceof AttributeType && test.getType() == null) {
+        final QNm name = test.getQName();
+        if (name == null) {
+          return new SirixNodeStream(axis, dbNode.getCollection());
+        }
+        // Keep name resolution lazy: XmlNameFilter rejects local-name misses before loading the
+        // namespace dictionary. EmptyAttributeAxisWorkBudgetTest guards this cold-query budget.
+        return new SirixNodeStream(new FilterAxis<>(axis, new XmlNameFilter(rtx, name)), dbNode.getCollection());
+      }
+      return new KindFilter(test, new SirixNodeStream(axis, dbNode.getCollection()));
     }
 
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node) {
-      final XmlDBNode dbNode = (XmlDBNode) node;
+      if (!(node instanceof final XmlDBNode dbNode)) {
+        return Accessor.ATTRIBUTE.performStep(node);
+      }
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixNodeStream(new AttributeAxis(rtx), dbNode.getCollection());
     }

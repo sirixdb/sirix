@@ -493,7 +493,7 @@ distributed pieces supplied by a separate enterprise layer on top of the open-so
 \dcap{The open-source modules and the brackit engine}
 \begin{diagramS}
 sirix-core         storage engine: node / page / storage layers, caches, indexes, diff
-sirix-query        brackit binding: cost-based optimiser, jn:/xml:/sdb: function libraries, CLI
+sirix-query        brackit binding: cost-based optimiser, jn:/xn:/sdb: function libraries, CLI
 sirix-rest-api     Vert.x HTTP/2 server: OAuth2/JWT, streaming shredder, metrics
 sirix-kotlin-api   idiomatic Kotlin / coroutine wrapper
 sirix-kotlin-cli   standalone command-line tool
@@ -3822,9 +3822,9 @@ cursor and materialising fields on access. The \code{jn:} family adds the tempor
 over the bitemporal store.
 
 The temporal surface is far broader than those three functions. The \code{jn:} and \code{sdb:}
-functions --- and the \code{xml:} functions for XML resources --- are \emph{added by SirixDB}, registered
+functions --- and the \code{xn:} functions for XML resources --- are \emph{added by SirixDB}, registered
 by the \code{sirix-query} binding rather than being part of brackit: brackit supplies the XQuery/JSONiq
-language and runtime, and SirixDB layers on the \code{jn:} (JSON), \code{xml:} (XML), and \code{sdb:}
+language and runtime, and SirixDB layers on the \code{jn:} (JSON), \code{xn:} (XML), and \code{sdb:}
 (store and temporal metadata) function modules that bind it to the bitemporal store. The surface falls into
 four groups, each \code{jn:} axis backed by a matching core temporal axis (\code{PastAxis},
 \code{FutureAxis}, \ldots):
@@ -4343,8 +4343,8 @@ stored resource (old revision) ───────────────┘ 
 
 Identity is preserved exactly where it should be: a matched node is updated or moved in place and keeps
 its node key, an inserted subtree is fresh material copied from the new tree, and a deletion is old
-material with no partner. \code{FMES} is wired to the function \code{xml:import(\$coll, \$res, \$doc)}
-(registered under both the \code{xml:} and \code{sdb:} libraries) and is reachable from a small CLI as
+material with no partner. \code{FMES} is wired to the function \code{xn:import}
+(registered signatures are defined in \code{XMLFun}) and is reachable from a small CLI as
 well. A full JSON port exists (\code{JsonFMSE}, sharing its matching core \code{FMSEAlgorithm} with the
 XML driver), but it is not yet bound to any import function, so as a user-facing feature FMES is
 XML-only today. Two implementation notes are worth recording. The paper's ``in-order'' traversal is
@@ -4709,27 +4709,27 @@ try (var db = Databases.openXmlDatabase(path)) {
 \dcap{XQuery: navigation, time travel, diff, and the XML-only FMES import}
 \begin{diagramS}
 (* XPath navigation over the stored document *)
-xml:doc('db','lib')/library/book[1]/title/text()
+xn:doc('db','lib')/library/book[1]/title/text()
 
 (* time travel: open the resource as of a wall-clock instant, then query it *)
-xml:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book
+xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book
 
-(* the edit script between two revisions, in the same JSON change format as jn:diff *)
-xml:diff('db','lib', 1, 2)
+(* the XQuery Update script that replays the changes from revision 1 to revision 2 *)
+xn:diff('db','lib', 1, 2)
 
 (* fold an external document in as an identity-preserving structural delta (FMES; XML-only) *)
-xml:import('db','lib', doc("/path/to/new-library.xml"))
+xn:import('db','lib', '/path/to/new-library.xml')
 
 (* store-level sdb: functions work on XML items too *)
-sdb:item-history(xml:doc('db','lib')/library/book[1])
+sdb:item-history(xn:doc('db','lib')/library/book[1])
 \end{diagramS}
 
 The listings differ from the JSON capstone only where the data model genuinely differs: the write feeds
 an \code{XMLEventReader} from \code{XmlShredder} instead of a \code{JsonReader} from \code{JsonShredder},
 navigation is XPath with the extra attribute and namespace axes, and the query entry points carry the
-\code{xml:} prefix. Everything underneath, the page trie, the sliding snapshot, the dual-beacon commit,
+\code{xn:} prefix. Everything underneath, the page trie, the sliding snapshot, the dual-beacon commit,
 the write permit, the change-tracking indexes, and the temporal \code{sdb:} functions, is byte-for-byte
-the same code path as for JSON. The one asymmetry is deliberate and noted in the body: \code{xml:import}
+the same code path as for JSON. The one asymmetry is deliberate and noted in the body: \code{xn:import}
 runs the FMES fast-match/edit-script algorithm to land an external document as a minimal structural
 delta that preserves node identity, and that binding is XML-only for now, with the JSON port
 (\code{JsonFMSE}) implemented but not yet wired to a function.
@@ -4749,7 +4749,7 @@ markup-only & \code{COMMENT}, \code{PROCESSING\_INSTRUCTION}, \code{NAMESPACE} &
 extra axes & \code{moveToAttribute}, \code{moveToNamespace} & none\\
 ordering & document order & array order; object key order preserved\\
 identity & \multicolumn{2}{l}{See node identity and optional labeling in \S\ref{sec:deweyids}.}\\
-query face & \code{xml:}, XPath/XQuery & \code{jn:}, JSONiq\\
+query face & \code{xn:}, XPath/XQuery & \code{jn:}, JSONiq\\
 \bottomrule
 \end{tabularx}
 \caption{The two node families compared. Container, field, scalar, ordering, and identity correspond one
@@ -7874,7 +7874,7 @@ fsync, and is off by default because it changes the file-growth pattern an opera
 \section{Temporal-function reference}
 \label{app:funcs}
 
-The \code{jn:}, \code{xml:}, and \code{sdb:} function families --- all \emph{added by SirixDB} (registered
+The \code{jn:}, \code{xn:}, and \code{sdb:} function families --- all \emph{added by SirixDB} (registered
 by the \code{sirix-query} binding, not part of brackit) --- layer time travel, history, and metadata access
 over brackit's XQuery/JSONiq engine (Chapter~\ref{ch:query}). The principal functions:
 
@@ -7911,6 +7911,18 @@ sdb:commit(item[, msg[, dateTime]]) & commit the writer, returning the new revis
 sdb:rollback(item) & discard uncommitted changes\\
 \bottomrule
 \end{longtable}
+
+For XML resources, \code{xn:open} with an empty time argument reads the latest revision; a supplied
+time selects the revision active at that instant, or an empty sequence before the resource's first
+commit. Its registered optional fourth boolean argument is accepted but has no effect on revision
+selection or transaction mode. \code{xn:open-revisions} requires the start time to precede the end
+time and returns each revision from the one active at the start through the one active at the end,
+inclusively. A start before creation begins at revision~1; an end before creation yields an empty
+sequence. Both endpoints use the latest committed revision captured before either lookup, so commits
+appended during evaluation cannot change the range. Timestamp lookups use millisecond precision;
+ties select the highest revision within that captured ceiling. Results are in ascending revision
+order, with each revision returned once, even when both endpoints select the same revision.
+Registered XML signatures are defined in \code{XMLFun}.
 
 \section{Brackit physical-operator reference}
 \label{app:brackitops}
@@ -8048,7 +8060,7 @@ object they are fused into the \code{OBJECT\_NAMED\_*} parent.
 \label{app:indexfuncs}
 
 Secondary indexes (\S\ref{sec:catalogue}, \S\ref{app:indextypes}) are created and inspected from the
-query language through the \code{jn:} family below. Creating an index returns the document node;
+query language through the \code{jn:} family below. Creating an index returns its definition as an XML fragment;
 \code{find-*} returns the index number; once an index exists the optimiser rewrites matching predicate
 and path queries onto it automatically (Ch.~\ref{ch:query}), so explicit \code{scan-*} calls are rarely
 needed in application code.
@@ -8072,12 +8084,12 @@ jn:scan-name-index(\$doc, \$idx, \$name) & low-level scan of a name index by nam
 \bottomrule
 \end{xltabular}}
 
-\noindent The same functions exist under the \code{xml:} prefix for XML resources. A representative
+\noindent The same functions exist under the \code{xn:} prefix for XML resources. A representative
 session creates a typed CAS index and then lets an ordinary predicate use it:
 
 \dcap{Create an index, then let the optimiser reach for it}
 \begin{diagramS}
-jn:create-cas-index(jn:doc('db','res'), 'xs:decimal', '/store/book/[]/price')   (* returns the doc node *)
+jn:create-cas-index(jn:doc('db','res'), 'xs:decimal', '/store/book/[]/price')
 
 (* thereafter this is rewritten onto the CAS index automatically (\S\ref{app:indextypes}): *)
 jn:doc('db','res').store.book[][?$$.price ge 10 and $$.price le 50]
@@ -8231,14 +8243,13 @@ jn:open('db','res', xs:dateTime("2026-03-01T00:00:00Z")).store.book[0].price
 \dcap{The XQuery / XML face of the same patterns}
 \begin{diagramS}
 (* XPath navigation + time travel over an XML resource (App.~O) *)
-xml:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book[1]/title/text()
-
-(* fold an external XML document in as an identity-preserving structural delta (FMES; XML-only) *)
-xml:import('db','lib', doc("/path/to/new-library.xml"))
+xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book[1]/title/text()
 
 (* store-level temporal accessors work on XML items too *)
-sdb:item-history(xml:doc('db','lib')/library/book[1])
+sdb:item-history(xn:doc('db','lib')/library/book[1])
 \end{diagramS}
+
+For the XML-only FMES import example, see Section~\ref{app:xml}.
 
 \dcap{Aggregations and grouping (set-oriented / vectorised where covered)}
 \begin{diagramS}

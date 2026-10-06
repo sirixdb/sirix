@@ -39,7 +39,6 @@ import io.sirix.query.function.xml.io.Import;
 import io.sirix.query.function.xml.io.Load;
 import io.sirix.query.function.xml.io.OpenRevisions;
 import io.sirix.query.function.xml.io.Store;
-import io.sirix.query.function.xml.trx.GetAttributeCount;
 import io.sirix.query.function.xml.trx.GetNamespaceCount;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Signature;
@@ -196,10 +195,6 @@ public final class SDBFun {
     Functions.predefine(new GetNamespaceCount(GetNamespaceCount.GET_NAMESPACE_COUNT,
         new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-    // get-attribute-count
-    Functions.predefine(new GetNamespaceCount(GetAttributeCount.GET_ATTRIBUTE_COUNT,
-        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-
     // find-name-index
     Functions.predefine(new FindNameIndex(FIND_NAME_INDEX,
         new Signature(SequenceType.INTEGER, SequenceType.NODE, new SequenceType(AtomicType.QNM, Cardinality.One))));
@@ -270,11 +265,8 @@ public final class SDBFun {
 
     // explain — query plan inspection
     Functions.predefine(new Explain(Explain.EXPLAIN,
-        new Signature(SequenceType.STRING,
-            new SequenceType(AtomicType.STR, Cardinality.One))));
-    Functions.predefine(new Explain(Explain.EXPLAIN,
-        new Signature(SequenceType.STRING,
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.STRING, new SequenceType(AtomicType.STR, Cardinality.One))));
+    Functions.predefine(new Explain(Explain.EXPLAIN, new Signature(SequenceType.STRING,
+        new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
   }
 }

@@ -32,12 +32,11 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * Function for importing the differences between the currently stored revision of a resource in a
  * collection/database and a new version of a resource. If successful, this function returns the
- * document-node. Supported signatures are:
+ * document-node.
  * </p>
- * <ul>
- * <li><code>xml:import($coll as xs:string, $res as xs:string, $resToImport as xs:string) as xs:node</code>
- * </li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Max Bechtold
  * @author Johannes Lichtenberger

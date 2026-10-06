@@ -22,17 +22,12 @@ import java.util.Optional;
 
 /**
  * <p>
- * Function for finding a path index. If successful, this function returns the path-index number.
+ * Function for finding a CAS index. If successful, this function returns the CAS-index number.
  * Otherwise it returns -1.
  * </p>
  * <p>
- * Supported signatures are:
+ * Registered signatures are defined in {@link XMLFun}.
  * </p>
- * <ul>
- * <li>
- * <code>xml:find-cas-index($doc as node(), $type as xs:string, $path as xs:string) as xs:int</code>
- * </li>
- * </ul>
  *
  * @author Johannes Lichtenberger
  *

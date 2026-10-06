@@ -79,7 +79,7 @@ public final class GetRevisionTimestampTest {
       final String dbName = database.toString();
       final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
+      final String xq1 = "sdb:timestamp(xn:doc('" + dbName + "','" + resName + "'))";
 
       final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
       Assert.assertNotNull(query.evaluate(ctx));

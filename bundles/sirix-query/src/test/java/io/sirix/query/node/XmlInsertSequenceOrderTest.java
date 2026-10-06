@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Checks sequence order independently of node keys, before commit and after a cold reopen. */
 final class XmlInsertSequenceOrderTest {
   private static final String DOCUMENT = "<root><left/><anchor><old/></anchor><right/></root>";
-  private static final String SOURCE = "xml:doc('order','resource1')";
+  private static final String SOURCE = "xn:doc('order','resource1')";
 
   @TempDir
   Path directory;
@@ -171,9 +171,9 @@ final class XmlInsertSequenceOrderTest {
         final var chain = SirixCompileChain.createWithNodeStore(store);
         final var context = SirixQueryContext.createWithNodeStore(store)) {
       assertAll(() -> assertXmlEquals(expected, serialize(chain, context, SOURCE, content)),
-          () -> assertXmlEquals(expected, serialize(chain, context, "xml:doc('order','resource1',2)", content)),
+          () -> assertXmlEquals(expected, serialize(chain, context, "xn:doc('order','resource1',2)", content)),
           () -> assertXmlEquals(DOCUMENT,
-              serialize(chain, context, "xml:doc('order','resource1',1)", Content.ELEMENTS)));
+              serialize(chain, context, "xn:doc('order','resource1',1)", Content.ELEMENTS)));
     }
   }
 
