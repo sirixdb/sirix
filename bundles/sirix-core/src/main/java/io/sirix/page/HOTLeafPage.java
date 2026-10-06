@@ -33,6 +33,7 @@ import io.sirix.cache.FrameReusedException;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.LE;
 import io.sirix.node.SegmentAccess;
+import io.sirix.node.BytesIn;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.settings.Constants;
@@ -380,6 +381,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     SideReferenceMap(final int expected) {
       super(expected);
+    }
+
+    void fixupIds(final long databaseId, final long resourceId) {
+      final Object[] values = value;
+      for (int slot = 0; slot <= n; slot++) {
+        final PageReference reference = (PageReference) values[slot];
+        if (reference != null) {
+          reference.setDatabaseId(databaseId).setResourceId(resourceId);
+        }
+      }
     }
 
     boolean allDurableAndUnclaimed() {
@@ -4825,6 +4836,44 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     beginSideReferenceRead();
     try {
       pageReferences.put(key, reference);
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Decode an unpublished leaf's bounded side trailer with one reservation and lifecycle hold. */
+  void readSideReferences(final BytesIn<?> source, final int count) {
+    Objects.requireNonNull(source);
+    if (count < 0) {
+      throw new IllegalArgumentException("Negative HOT-leaf side-reference count");
+    }
+    if ((long) count * 2 * Long.BYTES > source.remaining()) {
+      throw new IndexOutOfBoundsException("Truncated HOT-leaf side-reference trailer");
+    }
+    beginSideReferenceRead();
+    try {
+      if (!pageReferences.isEmpty()) {
+        throw new IllegalStateException("Side-reference decoding requires an empty unpublished leaf");
+      }
+      pageReferences.ensureCapacity(count);
+      for (int i = 0; i < count; i++) {
+        final long composite = source.readLong();
+        final long offset = source.readLong();
+        if (offset < 0) {
+          throw new IllegalStateException("Invalid HOT-leaf side-reference offset");
+        }
+        pageReferences.put(composite, new PageReference().setKey(offset));
+      }
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Apply the owning resource identity without a temporary values view, array or list. */
+  void fixupSideReferenceIds(final long databaseId, final long resourceId) {
+    beginSideReferenceRead();
+    try {
+      pageReferences.fixupIds(databaseId, resourceId);
     } finally {
       endSideReferenceRead();
     }

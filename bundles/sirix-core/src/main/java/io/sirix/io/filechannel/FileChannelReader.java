@@ -32,10 +32,14 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.HOTProjectionRead;
+import io.sirix.page.HOTProjectionImage;
+import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.PageKind;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.page.RevisionRootPage;
@@ -379,6 +383,16 @@ public final class FileChannelReader extends AbstractReader {
     ByteBuffer buffer = null;
     try {
       buffer = readPageImage(reference, -1L);
+      if (retainImage && byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()
+          && buffer.remaining() <= HOTProjectionImage.MAX_BYTES
+          && buffer.get(buffer.position()) == PageKind.HOT_LEAF_PAGE.getID()) {
+        final HOTProjectionImage image = HOTProjectionImage.copyVerifiedFrame(buffer, reference, configuration);
+        final HOTLeafEntry entry = image.select(key, sideReferenceKey);
+        if (entry != null && entry.sideReference() != null) {
+          entry.sideReference().setDatabaseId(configuration.getDatabaseId()).setResourceId(configuration.getID());
+        }
+        return new HOTProjectionRead(entry, null, image);
+      }
       verifyChecksumIfNeeded(buffer, reference, configuration);
       return deserializeHOTProjectionEntry(configuration, MemorySegment.ofBuffer(buffer), key, sideReferenceKey,
           retainImage);

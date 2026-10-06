@@ -105,6 +105,35 @@ final class ProjectionSortedRetentionWorkBudgetTest {
                         && reference.getResourceId() == reader.getResourceId()),
               "header, directory and data share one bounded image without native adoption");
         }
+        // Another transaction first touches a different logical chunk in the same complete image.
+        // The directory's already charged routing must avoid rereading/decoding that physical leaf.
+        try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(1)) {
+          for (int read = 0; read < 4; read++) {
+            final ProjectionSortedDirectory.Accessor sorted =
+                ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
+            assertArrayEquals(keys[0], sorted.seek(keys[0]).copyKey());
+          }
+        }
+        try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(1)) {
+          final StorageEngineReader actual = trx.getStorageEngineReader();
+          final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(actual));
+          final long[] sideReads = {0};
+          doAnswer(call -> {
+            sideReads[0]++;
+            return actual.readSideOverflowPage(call.getArgument(0));
+          }).when(reader).readSideOverflowPage(any(PageReference.class));
+          final byte hotKind = PageKind.HOT_LEAF_PAGE.getID();
+          try (MockedStatic<PageKind> decodes = mockStatic(PageKind.class, CALLS_REAL_METHODS)) {
+            final ProjectionSortedDirectory.Accessor sorted = ProjectionSortedDirectory.open(reader, 0);
+            final ProjectionSortedDirectory.Accessor.Cursor firstVisit = sorted.seek(keys[256]);
+            assertArrayEquals(keys[256], firstVisit.copyKey());
+            final byte[] result = new byte[payload.length];
+            firstVisit.copyPayloadTo(result, 0);
+            assertArrayEquals(payload, result);
+            assertEquals(1, sideReads[0], "only the newly requested data payload is read");
+            decodes.verify(() -> PageKind.getKind(hotKind), never());
+          }
+        }
         Databases.clearGlobalCaches();
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
           final StorageEngineReader actual = trx.getStorageEngineReader();

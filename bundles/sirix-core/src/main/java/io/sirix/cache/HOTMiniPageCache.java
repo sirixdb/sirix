@@ -226,6 +226,7 @@ public final class HOTMiniPageCache {
     private @Nullable Key blobKey;
     private byte @Nullable [] blob;
     private @Nullable ProjectionSortedReadView blobView;
+    private @Nullable ImageSnapshot blobRouting;
     private long blobGeneration;
     private boolean metadataScan;
     private boolean blobRetention;
@@ -239,11 +240,69 @@ public final class HOTMiniPageCache {
     /** One bounded heap image may serve this query's related logical slots. */
     public @Nullable HOTProjectionImage image(final Object owner, final PageReference reference,
         final long currentGeneration) {
-      return !finished && imageOwner == owner && imageOffset == reference.getKey()
+      return !finished && sameImageOwner(owner) && imageOffset == reference.getKey()
           && imageHasHash == reference.hasHash() && (!imageHasHash || imageHash == reference.getHashAsLong())
           && imageGeneration == currentGeneration
               ? image
               : null;
+    }
+
+    private boolean sameImageOwner(final Object owner) {
+      if (imageOwner == owner) {
+        return true;
+      }
+      return imageOwner instanceof StorageEngineReader previous && owner instanceof StorageEngineReader current
+          && previous.getDatabaseId() == current.getDatabaseId() && previous.getResourceId() == current.getResourceId()
+          && previous.getRevisionNumber() == current.getRevisionNumber();
+    }
+
+    /** Immutable routing ownership; no transaction, mutable reference or guard survives the scope. */
+    public static final class ImageSnapshot {
+      private final HOTProjectionImage image;
+      private final long databaseId;
+      private final long resourceId;
+      private final int revision;
+      private final long offset;
+      private final long hash;
+      private final boolean hasHash;
+      private final long generation;
+
+      private ImageSnapshot(final ReadScope scope, final StorageEngineReader reader) {
+        image = Objects.requireNonNull(scope.image);
+        databaseId = reader.getDatabaseId();
+        resourceId = reader.getResourceId();
+        revision = reader.getRevisionNumber();
+        offset = scope.imageOffset;
+        hash = scope.imageHash;
+        hasHash = scope.imageHasHash;
+        generation = scope.imageGeneration;
+      }
+
+      /** Charged in full to each directory that retains it, even if two views share the image. */
+      public long retainedSizeBytes() {
+        return 80 + image.retainedSizeBytes();
+      }
+    }
+
+    public @Nullable ImageSnapshot snapshotImage() {
+      return !finished && image != null && imageOwner instanceof StorageEngineReader reader
+          ? new ImageSnapshot(this, reader)
+          : null;
+    }
+
+    /** A cached directory can reuse its physical routing in another read of the same revision. */
+    public void restoreImage(final StorageEngineReader reader, final ImageSnapshot snapshot) {
+      Objects.requireNonNull(reader);
+      Objects.requireNonNull(snapshot);
+      if (!finished && reader.getDatabaseId() == snapshot.databaseId && reader.getResourceId() == snapshot.resourceId
+          && reader.getRevisionNumber() == snapshot.revision) {
+        imageOwner = reader;
+        image = snapshot.image;
+        imageOffset = snapshot.offset;
+        imageHash = snapshot.hash;
+        imageHasHash = snapshot.hasHash;
+        imageGeneration = snapshot.generation;
+      }
     }
 
     public void rememberImage(final Object owner, final PageReference reference, final HOTProjectionImage verified,
@@ -282,6 +341,7 @@ public final class HOTMiniPageCache {
       blobKey = null;
       blob = null;
       blobView = null;
+      blobRouting = null;
       cache = null;
       pageKey = null;
       slotKey = null;
@@ -309,6 +369,7 @@ public final class HOTMiniPageCache {
         blobCache = owner;
         blobKey = key;
         blob = verified.clone();
+        blobRouting = snapshotImage();
         blobGeneration = expectedGeneration;
       }
     }
@@ -385,7 +446,8 @@ public final class HOTMiniPageCache {
       try {
         if (point && !admitted && blobCache != null) {
           admitted = blobView == null
-              ? blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobGeneration)
+              ? blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobRouting,
+                  blobGeneration)
               : blobCache.putView(Objects.requireNonNull(blobKey), blobView, blobGeneration);
         }
         if (point && !admitted && cache != null) {
@@ -413,6 +475,7 @@ public final class HOTMiniPageCache {
         blobKey = null;
         blob = null;
         blobView = null;
+        blobRouting = null;
         imageOwner = null;
         image = null;
       }

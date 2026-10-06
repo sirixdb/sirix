@@ -6660,13 +6660,7 @@ public enum PageKind {
       throw new IllegalStateException(
           "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
-    for (long i = 0; i < count; i++) {
-      final long compositeKey = source.readLong();
-      final long diskKey = source.readLong();
-      final PageReference ref = new PageReference();
-      ref.setKey(diskKey);
-      page.setPageReference(compositeKey, ref);
-    }
+    page.readSideReferences(source, (int) count);
   }
 
   /**
@@ -8571,10 +8565,11 @@ public enum PageKind {
       if (produced == decodedLength) {
         MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
       }
+    } else if (codec == 0) {
+      produced = ZeroRunByteCodec.decode(in, 0, storedLength, data, 0);
     } else {
       final MemorySegment out = MemorySegment.ofArray(data);
       produced = switch (codec) {
-        case 0 -> ZeroRunByteCodec.decode(in, 0, storedLength, out, 0L);
         case 2 -> ByteRunCodec.decode(in, 0, storedLength, out, 0L);
         case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, out, 0L);
         default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);

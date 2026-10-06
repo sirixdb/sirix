@@ -4,16 +4,26 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.HOTReadIntent;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.cache.ProjectionBlobCache.Key;
+import io.sirix.index.IndexType;
+import io.sirix.node.MemorySegmentBytesOut;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.HOTProjectionImage;
+import io.sirix.page.PagePersister;
+import io.sirix.page.PageReference;
+import io.sirix.page.SerializationType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
 import java.util.Arrays;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 final class ProjectionSortedReadViewTest {
   private static ProjectionSortedReadView view(final boolean columnar) {
@@ -130,6 +141,69 @@ final class ProjectionSortedReadViewTest {
     final ProjectionBlobCache small = new ProjectionBlobCache(1024);
     assertTrue(small.canCache(view.encodedSize()), "encoded child ids alone fit");
     assertFalse(small.canCache(view), "referenced separator ownership counts against the same byte ceiling");
+  }
+
+  @Test
+  void directoryRoutingIsChargedAndSharesTheExistingAdmissionAndGenerationFence() throws IOException {
+    final ResourceConfiguration configuration = ResourceConfiguration.newBuilder("routing-view").build();
+    final HOTProjectionImage image;
+    final PageReference reference = new PageReference().setKey(7);
+    try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        MemorySegmentBytesOut out = new MemorySegmentBytesOut(16 * 1024)) {
+      assertTrue(leaf.put(new byte[] {1}, new byte[8192]));
+      leaf.setCompleteDump(true);
+      new PagePersister().serializePage(configuration, out, leaf, SerializationType.DATA);
+      image = HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(out.toByteArray()), reference, configuration);
+    }
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    when(reader.getDatabaseId()).thenReturn(1L);
+    when(reader.getResourceId()).thenReturn(2L);
+    when(reader.getRevisionNumber()).thenReturn(3);
+    final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
+    final ReadScope source = new ReadScope();
+    source.rememberImage(reader, reference, image, cache.generation());
+    final ProjectionSortedReadView view =
+        ProjectionSortedReadView.open(view(false).copyBytes(), true, reader, 0, HOTReadIntent.SELECTIVE, source);
+    final Key key = new Key(1, 2, 7, 0, 3, 10);
+    final long empty = cache.getCurrentWeightBytes();
+    source.retainView(cache, key, view, cache.generation(), false);
+    assertEquals(empty, cache.getCurrentWeightBytes(), "ambiguous metadata cannot admit its attached image");
+    source.finish(true);
+    assertSame(view, cache.getView(key));
+    assertTrue(view.retainedSizeBytes() >= view.encodedSize() + image.retainedSizeBytes());
+    assertTrue(cache.getCurrentWeightBytes() >= empty + view.retainedSizeBytes());
+    final ReadScope reuse = new ReadScope();
+    cache.getView(key).restoreRouting(reader, reuse);
+    assertSame(image, reuse.image(reader, reference, cache.generation()));
+    cache.clear();
+    assertNull(reuse.image(reader, reference, cache.generation()), "evicted routing cannot survive offset reuse");
+    reuse.finish(false);
+    assertEquals(0, reuse.retainedImageBytes());
+    final ProjectionBlobCache small = new ProjectionBlobCache(8192);
+    assertTrue(small.canCache(view.encodedSize()));
+    assertFalse(small.canCache(view), "the whole routing image counts, not only directory bytes");
+    assertFalse(small.putView(key, view, small.generation()));
+    assertTrue(small.getCurrentWeightBytes() <= small.getMaxWeightBytes());
+
+    final ReadScope rawHeader = new ReadScope();
+    rawHeader.rememberImage(reader, reference, image, cache.generation());
+    final byte[] header = {1, 2, 3};
+    rawHeader.retainBlob(cache, key, header, cache.generation(), false);
+    assertNull(cache.get(key));
+    rawHeader.finish(true);
+    assertTrue(cache.getCurrentWeightBytes() >= empty + image.retainedSizeBytes() + header.length);
+    final ReadScope rawHit = new ReadScope();
+    assertArrayEquals(header, cache.get(key, reader, rawHit));
+    assertSame(image, rawHit.image(reader, reference, cache.generation()));
+    Arrays.fill(cache.get(key, reader, rawHit), (byte) 0);
+    assertArrayEquals(header, cache.get(key));
+    cache.clear();
+    assertNull(rawHit.image(reader, reference, cache.generation()));
+    final ReadScope abandoned = new ReadScope();
+    abandoned.rememberImage(reader, reference, image, cache.generation());
+    abandoned.retainBlob(cache, key, header, cache.generation(), false);
+    abandoned.finish(false);
+    assertEquals(empty, cache.getCurrentWeightBytes());
   }
 
   @Test

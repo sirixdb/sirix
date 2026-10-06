@@ -2,8 +2,10 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -330,6 +332,60 @@ final class HOTCompactFragmentReadTest {
       assertEquals(0, scope.retainedImageBytes());
       assertNull(scope.image(reader, reference, 1));
     }
+  }
+
+  @Test
+  void retainedRoutingUsesImmutableIdentityAcrossReadersAndRejectsEveryStaleFence() throws IOException {
+    final byte[] body;
+    try (HOTLeafPage original = leaf(64)) {
+      body = serialize(original);
+    }
+    final PageReference reference = reference();
+    reference.setHash(PageHasher.computeLong(body, CONFIG.hashAlgorithm));
+    final HOTProjectionImage image = HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(body), reference, CONFIG);
+    final StorageEngineReader first = mock(StorageEngineReader.class);
+    when(first.getDatabaseId()).thenReturn(7L);
+    when(first.getResourceId()).thenReturn(11L);
+    when(first.getRevisionNumber()).thenReturn(13);
+    final ReadScope initial = new ReadScope();
+    initial.rememberImage(first, reference, image, 17);
+    final ImageSnapshot snapshot = initial.snapshotImage();
+    assertNotNull(snapshot);
+    assertTrue(snapshot.retainedSizeBytes() >= image.retainedSizeBytes() + 64);
+    initial.finish(false);
+    final StorageEngineReader next = mock(StorageEngineReader.class);
+    when(next.getDatabaseId()).thenReturn(7L);
+    when(next.getResourceId()).thenReturn(11L);
+    when(next.getRevisionNumber()).thenReturn(13);
+    final ReadScope reused = new ReadScope();
+    reused.restoreImage(next, snapshot);
+    assertSame(image, reused.image(next, reference, 17));
+    assertSame(image, reused.image(first, reference, 17), "a forwarding reader with the same identity can use it");
+    assertNull(reused.image(next, reference, 18), "truncation fences a still reachable snapshot");
+    final PageReference moved = new PageReference().setKey(1);
+    moved.setHash(reference.getHashAsLong());
+    assertNull(reused.image(next, moved, 17));
+    assertNull(reused.image(next, reference(), 17));
+    final PageReference changed = new PageReference().setKey(0);
+    changed.setHash(99);
+    assertNull(reused.image(next, changed, 17));
+    when(next.getDatabaseId()).thenReturn(8L);
+    final ReadScope wrongDatabase = new ReadScope();
+    wrongDatabase.restoreImage(next, snapshot);
+    assertEquals(0, wrongDatabase.retainedImageBytes());
+    when(next.getDatabaseId()).thenReturn(7L);
+    when(next.getResourceId()).thenReturn(12L);
+    final ReadScope wrongResource = new ReadScope();
+    wrongResource.restoreImage(next, snapshot);
+    assertEquals(0, wrongResource.retainedImageBytes());
+    when(next.getResourceId()).thenReturn(11L);
+    when(next.getRevisionNumber()).thenReturn(14);
+    final ReadScope wrongRevision = new ReadScope();
+    wrongRevision.restoreImage(next, snapshot);
+    assertEquals(0, wrongRevision.retainedImageBytes());
+    reused.finish(false);
+    reused.restoreImage(first, snapshot);
+    assertEquals(0, reused.retainedImageBytes(), "finishing a scope releases all physical ownership");
   }
 
   @Test

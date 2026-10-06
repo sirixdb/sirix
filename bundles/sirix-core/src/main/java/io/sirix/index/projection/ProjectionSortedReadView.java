@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
@@ -18,11 +19,13 @@ import java.util.Objects;
 public final class ProjectionSortedReadView {
   private final ProjectionSortedLeaf leaf;
   private final @Nullable ProjectionSortedDirectoryNode directory;
+  private final @Nullable ImageSnapshot routing;
 
   private ProjectionSortedReadView(final ProjectionSortedLeaf leaf,
-      final @Nullable ProjectionSortedDirectoryNode directory) {
+      final @Nullable ProjectionSortedDirectoryNode directory, final @Nullable ImageSnapshot routing) {
     this.leaf = leaf;
     this.directory = directory;
+    this.routing = routing;
   }
 
   static ProjectionSortedReadView open(final byte[] verified, final boolean directory, final StorageEngineReader reader,
@@ -30,7 +33,16 @@ public final class ProjectionSortedReadView {
     final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.openReadOnly(verified);
     return new ProjectionSortedReadView(leaf, directory
         ? ProjectionSortedDirectoryNode.open(leaf, reader, indexNumber, intent, scope)
-        : null);
+        : null,
+        directory && scope != null
+            ? scope.snapshotImage()
+            : null);
+  }
+
+  void restoreRouting(final StorageEngineReader reader, final @Nullable ReadScope scope) {
+    if (routing != null && scope != null) {
+      scope.restoreImage(reader, routing);
+    }
   }
 
   ProjectionSortedLeaf leaf() {
@@ -51,8 +63,11 @@ public final class ProjectionSortedReadView {
 
   /** Conservative object headers, references, aligned arrays and descriptor metadata. */
   public long retainedSizeBytes() {
-    return 32 + leaf.retainedSizeBytes() + (directory == null
+    return 40 + leaf.retainedSizeBytes() + (directory == null
         ? 0
-        : directory.retainedMetadataBytes());
+        : directory.retainedMetadataBytes())
+        + (routing == null
+            ? 0
+            : routing.retainedSizeBytes());
   }
 }

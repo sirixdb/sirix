@@ -4,6 +4,9 @@
 package io.sirix.cache;
 
 import io.sirix.page.PageReference;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import io.sirix.index.projection.ProjectionSortedReadView;
 import org.jspecify.annotations.Nullable;
 
@@ -37,7 +40,8 @@ public final class ProjectionBlobCache {
     }
   }
 
-  private record Entry(Key key, byte @Nullable [] bytes, @Nullable ProjectionSortedReadView view, long weight) {
+  private record Entry(Key key, byte @Nullable [] bytes, @Nullable ProjectionSortedReadView view,
+      @Nullable ImageSnapshot routing, long weight) {
   }
 
   private static final class Set {
@@ -95,6 +99,12 @@ public final class ProjectionBlobCache {
 
   /** A private payload copy, or a miss; callers may mutate the result freely. */
   public byte @Nullable [] get(final Key key) {
+    return get(key, null, null);
+  }
+
+  /** Restore only immutable, identity-fenced routing; payload callers still receive private bytes. */
+  public byte @Nullable [] get(final Key key, final @Nullable StorageEngineReader reader,
+      final @Nullable ReadScope scope) {
     Objects.requireNonNull(key);
     if (sets == null) {
       return null;
@@ -103,6 +113,9 @@ public final class ProjectionBlobCache {
     for (int i = 0; i < WAYS; i++) {
       final Entry entry = (Entry) TABLE.getAcquire(entries, i);
       if (entry != null && entry.key.equals(key)) {
+        if (entry.routing != null && reader != null && scope != null) {
+          scope.restoreImage(reader, entry.routing);
+        }
         return entry.view == null
             ? Objects.requireNonNull(entry.bytes).clone()
             : entry.view.copyBytes();
@@ -143,12 +156,23 @@ public final class ProjectionBlobCache {
 
   /** Admit only a fully verified payload, copying it before publication. */
   public boolean put(final Key key, final byte[] verified, final long expectedGeneration) {
+    return put(key, verified, null, expectedGeneration);
+  }
+
+  /**
+   * An admitted metadata record may own its already verified physical routing under the same budget.
+   */
+  public boolean put(final Key key, final byte[] verified, final @Nullable ImageSnapshot routing,
+      final long expectedGeneration) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(verified);
     if (!canCache(verified.length)) {
       return false;
     }
-    return put(key, verified, null, weight(verified.length), expectedGeneration);
+    final long weight = weight(verified.length) + (routing == null
+        ? 0
+        : routing.retainedSizeBytes());
+    return weight <= setBudget && put(key, verified, null, routing, weight, expectedGeneration);
   }
 
   /** A view owns its immutable bytes and descriptors before it can be published. */
@@ -157,11 +181,11 @@ public final class ProjectionBlobCache {
     if (!canCache(view)) {
       return false;
     }
-    return put(key, null, view, ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes(), expectedGeneration);
+    return put(key, null, view, null, ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes(), expectedGeneration);
   }
 
   private boolean put(final Key key, final byte @Nullable [] verified, final @Nullable ProjectionSortedReadView view,
-      final long weight, final long expectedGeneration) {
+      final @Nullable ImageSnapshot routing, final long weight, final long expectedGeneration) {
     Objects.requireNonNull(key);
     if (generation.get() != expectedGeneration) {
       return false;
@@ -198,7 +222,7 @@ public final class ProjectionBlobCache {
       }
       TABLE.setRelease(entries, free, new Entry(key, view == null
           ? Objects.requireNonNull(verified).clone()
-          : null, view, weight));
+          : null, view, routing, weight));
       set.weight += weight;
       return true;
     }

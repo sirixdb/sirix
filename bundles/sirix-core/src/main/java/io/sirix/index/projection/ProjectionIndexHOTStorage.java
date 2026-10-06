@@ -4805,7 +4805,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             : 0, reader.getRevisionNumber(), slotKey)
         : null;
     if (key != null) {
-      final byte[] cached = cache.get(key);
+      final byte[] cached = cache.get(key, reader, scope);
       if (cached != null) {
         return cached;
       }
@@ -4856,6 +4856,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (key != null) {
       final ProjectionSortedReadView cached = cache.getView(key);
       if (cached != null) {
+        cached.restoreRouting(reader, scope);
         return cached;
       }
       // A prior raw consumer may have retained the bytes without a sorted descriptor.

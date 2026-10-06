@@ -108,19 +108,32 @@ length/hash-verified payloads under database/resource identity, committed root o
 revision and logical slot. Raw blob hits return private copies. Sorted data and directory hits reuse
 fully validated immutable descriptors, including directory child validation. Every array-returning
 API on those retained views copies; writers cannot mutate the retained bytes. Descriptor objects,
-column offsets and indirect separator arrays count toward the same byte ceiling.
+column offsets and indirect separator arrays count toward the same byte ceiling. An admitted
+sorted header or directory may also own its verified physical routing image. The complete image
+and its scalar identity are charged to that same entry, even when another entry shares the image;
+retention introduces no additional admission or cache allowance.
 Cold point misses use selective slot resolution. One successful seek may admit its data payload or,
 if that opportunity remains unused, one deferred routing payload. An abandoned open admits neither.
 Group-tree reads use selective slot resolution and the same bounded retention.
 
 For self-contained HOT images, the file-channel backend can select the requested projection entry
 from the verified wire bytes without constructing or adopting a native leaf or a side-reference map.
-The complete frame still passes its normal checksum/decompression checks. One read scope may own
-one copied image of at most 64 KiB plus aligned object/array headers, shared by that query's related
-logical reads. Reader identity, durable offset/hash and invalidation generation fence reuse. Scope
-completion releases the image; larger images are selected without retention. Metadata scans preserve
+The complete frame still passes its normal checksum/decompression checks. For bounded uncompressed
+images, the owned heap copy feeds both checksum verification and selection. The immutable envelope
+and ordered side-reference trailer are validated once; each selection checks every slot header it
+visits. One read scope may own one image of at most 64 KiB plus aligned object/array headers, shared
+by that query's related logical reads. Database, resource, revision, durable offset/hash and
+invalidation generation fence reuse, including snapshots restored from an admitted routing entry.
+No transaction, mutable page reference or guard is retained with that snapshot. Scope completion
+releases its ownership; cached routing remains under its entry's byte charge. Larger images are
+selected without retention. Metadata scans preserve
 their ordinary blob-cache admission policy while sharing this bounded physical image. Existing
 materialized pages still use guards, and later scan promotion uses the ordinary complete loader.
+
+First-use referenced payloads decode zero-run frames directly into their owned heap arrays. This
+preserves the existing codec and validates the encoded slice without reading reusable scratch tails.
+Fragment side trailers reserve their validated reference count once and hold their lifecycle guard
+for the batch; resource-ID fixup walks the map without constructing a temporary reference list.
 
 This cache reserves half the mini-page allowance from the remaining complete-HOT share, preserving
 the total HOT budget. Its fixed associative sets account for retained bytes and object/table
