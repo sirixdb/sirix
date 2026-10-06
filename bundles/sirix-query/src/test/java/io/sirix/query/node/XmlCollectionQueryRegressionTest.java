@@ -111,8 +111,7 @@ class XmlCollectionQueryRegressionTest {
       assertEquals("two", value(chain, context, "tree", ""));
       assertEquals("one", value(chain, context, "tree", ",1"));
       assertEquals("one", collection.getDocument("tree", timestamp).getValue().stringValue());
-      new Query(chain, "replace value of node xn:doc('collection','tree')/value/text() with 'three'").evaluate(
-          context);
+      new Query(chain, "replace value of node xn:doc('collection','tree')/value/text() with 'three'").evaluate(context);
       assertEquals("three", value(chain, context, "tree", ""));
       assertEquals("two", value(chain, context, "tree", ",2"));
       assertEquals("one", value(chain, context, "tree", ",1"));
