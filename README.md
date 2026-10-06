@@ -198,6 +198,13 @@ xml:store('names', (), <root>
 </root>)
 ```
 
+When creating a collection from a sequence, `xml:store` and `xml:load` import documents
+concurrently and return successfully only after every import has committed and closed its write
+transaction. The query context can then be closed immediately. Import or stream failures reach
+the caller after submitted workers finish; interruption interrupts and drains the workers and
+preserves the caller's interrupt flag. Failed creation does not roll back imports that already
+committed. These semantics also apply to `BasicXmlDBStore.create(String, Stream<NodeSubtreeParser>)`.
+
 ### Using the REST API
 
 Start SirixDB and its bundled OAuth2 provider (Keycloak) with Docker:

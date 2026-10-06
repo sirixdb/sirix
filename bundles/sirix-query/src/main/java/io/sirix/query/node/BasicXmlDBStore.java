@@ -23,14 +23,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Future;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -84,11 +86,6 @@ public final class BasicXmlDBStore implements XmlDBStore {
    * {@code true}.
    */
   private final boolean buildPathStatistics;
-
-  /**
-   * Thread pool.
-   */
-  private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /**
    * Determines the hash type.
@@ -398,8 +395,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
-  private XmlDBCollection createCollection(final String collName, final String optResName,
-      final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
+  private XmlDBCollection createCollection(final String collName, final @Nullable String optResName,
+      final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -435,52 +432,70 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
   }
 
+  /**
+   * Keep the executor scoped to this call: it must drain submitted imports before the parser stream
+   * closes, including when parsing, stream iteration or the caller's wait fails.
+   */
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<NodeSubtreeParser> parsers) {
-    if (parsers != null) {
-      final Path dbPath = resolveForCreate(location.resolve(collName));
-      final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-      try {
-        removeIfExisting(dbConf);
-        Databases.createXmlDatabase(dbConf);
-        final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
-        databases.add(database);
-        int i = database.listResources().size() + 1;
-        try (parsers) {
-          NodeSubtreeParser parser;
-          while ((parser = parsers.next()) != null) {
-            final NodeSubtreeParser nextParser = parser;
-            final String resourceName = "resource" + i;
-            pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                           .useDeweyIDs(storeDeweyIds)
-                                                           .useTextCompression(false)
-                                                           .buildPathSummary(buildPathSummary)
-                                                           .buildPathStatistics(buildPathStatistics)
-                                                           .storageType(storageType)
-                                                           .hashKind(hashType)
-                                                           .versioningApproach(versioningType)
-                                                           .storeNodeHistory(storeNodeHistory)
-                                                           .build());
-              try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
-                  final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
-                final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
-                collections.put(database, collection);
-                nextParser.parse(
-                    new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
-                wtx.commit();
-              }
-              return null;
-            });
-            i++;
-          }
-        }
-        return new XmlDBCollectionImpl(collName, database);
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e.getCause());
-      }
+    requireNonNull(collName);
+    if (parsers == null) {
+      return null;
     }
-    return null;
+    final Path dbPath = resolveForCreate(location.resolve(collName));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      removeIfExisting(dbConf);
+      Databases.createXmlDatabase(dbConf);
+      final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
+      databases.add(database);
+      final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database);
+      final var imports = new ArrayList<Future<?>>();
+      int i = database.listResources().size() + 1;
+      // Resources close in reverse order: workers must finish before their source stream closes.
+      try (parsers;
+          final ExecutorService importPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())) {
+        NodeSubtreeParser parser;
+        while ((parser = parsers.next()) != null) {
+          final NodeSubtreeParser nextParser = parser;
+          final String resourceName = "resource" + i++;
+          imports.add(importPool.submit(() -> {
+            database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                         .useDeweyIDs(storeDeweyIds)
+                                                         .useTextCompression(false)
+                                                         .buildPathSummary(buildPathSummary)
+                                                         .buildPathStatistics(buildPathStatistics)
+                                                         .storageType(storageType)
+                                                         .hashKind(hashType)
+                                                         .versioningApproach(versioningType)
+                                                         .storeNodeHistory(storeNodeHistory)
+                                                         .build());
+            try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
+                final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+              nextParser.parse(
+                  new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
+              wtx.commit();
+            }
+            return null;
+          }));
+        }
+        try {
+          for (final Future<?> imported : imports) {
+            imported.get();
+          }
+        } catch (final InterruptedException e) {
+          // Executor close observes this flag and interrupts the workers before draining them.
+          Thread.currentThread().interrupt();
+          throw new DocumentException(e);
+        }
+      }
+      collections.put(database, collection);
+      return collection;
+    } catch (final ExecutionException e) {
+      throw new DocumentException(e.getCause());
+    } catch (final SirixRuntimeException e) {
+      throw new DocumentException(e);
+    }
   }
 
   private Path databasePath(final String name) {
@@ -524,7 +539,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public void makeDir(final String path) {
     try {
-      Files.createDirectory(java.nio.file.Paths.get(path));
+      Files.createDirectory(Paths.get(path));
     } catch (final IOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -536,9 +551,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       for (final var database : databases) {
         database.close();
       }
-      pool.shutdown();
-      pool.awaitTermination(5, TimeUnit.SECONDS);
-    } catch (final SirixException | InterruptedException e) {
+    } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
   }
