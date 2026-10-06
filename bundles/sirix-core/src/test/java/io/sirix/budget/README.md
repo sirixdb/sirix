@@ -83,6 +83,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
 | `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar or non-bound insertion/removal edits rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
 | `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend, removal and both directions of same-parent empty-neighbor moves beside 16/4096 retained rows, all four versioning types; moves also cover both Dewey modes and mixed insert/delete/move epochs | boundary changes queue retained row edits, allocate row labels or walk the unchanged row subtree; cold payloads, sorted memberships, labels and key/numeric segment offsets must stay stable; later population of the moved neighbor, indexed reorder and reparenting provide positive controls |
+| | independently varied 16/4096 unlabelled siblings and 16/4096 indexed rows, both directions and Dewey modes | classification walks an unchanged sibling run or probes its order slots; changed boundaries must bound record and slot work without retained-row edits |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
@@ -108,6 +109,20 @@ with cold payloads and persisted segment offsets unchanged. Later population que
 and a 10-byte label; actual indexed reorders and reparenting produced nonzero row edits and labels.
 Logs and XML live under `build/replay/review-projection-order-results/` in the active worktree.
 Existing bounds are unchanged; this is work evidence, not a new latency or memory guarantee.
+
+Batch scheduling evidence (2026-10-06): the old code failed all 48 populated/previously-emptied
+rotation histories, all eight wide valid-time move cases and 32 large sibling-run cases.
+With independently varied 16/4096 rows and 16/4096 unlabelled siblings, the fixed listener used
+27 document lookups and four order-slot probes in every one of 64 captures, with zero retained
+row edits or emitted label bytes. The old listener grew from 37 to 4117 document lookups and
+19 to 4099 slot probes. These are listener bounds: whole-epoch transition validation still walks
+the sibling chain. Fixed-seed exhaustive four-container permutations also mix membership,
+rename, empty/repopulated containers and retry, checking cold source and target indexes.
+The focused final run passed 590 core and 106 query cases (five query skips); the subsequent
+source-projection check passed all 48 histories. Evidence is under
+`build/replay/review-batch-order-results/`, `review-batch-order-v2-results/`,
+`review-batch-order-v5-results/` and `review-source-projection-final-results/` in the active worktree.
+Prior memory and paired-latency limitations remain; no new timing claim is made.
 
 Valid-time identity mutation evidence (2026-10-06): restoring broad object/parent scheduling
 failed all eight versioning/width cases on the first nested append, inspecting 38 fields at
@@ -172,6 +187,13 @@ maintains, so a budget quotes the same numbers an investigation would:
   The zero budgets for empty boundary changes have a positive indexed insertion control. These use
   the same `sirix.replay.workDiag` gate; label bytes count only the emitted label buffers, not total
   JVM allocations.
+- `EngineWorkCounters.REPLAY_PROJECTION_ORDER_SLOTS`: structural-order slot requests, including
+  absent unlabelled slots, under `sirix.replay.workDiag`. The independent sibling-run fixture
+  bounds these requests and record visits; a changed labelled prefix makes the counter nonzero.
+- `EngineWorkCounters.REPLAY_PROJECTION_RECORD_READS`: document lookups made by the projection
+  maintenance listener, under the same gate. The sibling-run budget captures listener work directly;
+  whole-epoch record diagnostics also include the pre-existing transition validator's sibling-chain
+  traversal, which this scheduling fix does not bound. Existing whole-epoch budgets are unchanged.
 - `EngineWorkCounters.REPLAY_VALID_TIME_BOUND_FIELDS`: direct children inspected by the valid-time
   listener while reconstructing bounds. It shares the `sirix.replay.workDiag` gate and counts scans
   of old and final objects. Unrelated identity edits require zero; a direct bound update must scan

@@ -137,12 +137,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
           && (old == null || old.getKind() != target.kind() || old.getParentKey() != target.parent()
               || !Objects.equals(oldName, target.name())
               || old.getKind() == NodeKind.OBJECT_NAMED_STRING && old instanceof final ValueNode value
-                  && !Objects.equals(value.getValue(), target.stringValue())
-              || old instanceof final StructNode structure
-                  && (identitySiblingChanged(structure.getLeftSiblingKey(), target.left(), target.parent(), true,
-                      delta)
-                      || identitySiblingChanged(structure.getRightSiblingKey(), target.right(), target.parent(), false,
-                          delta)))) {
+                  && !Objects.equals(value.getValue(), target.stringValue()))) {
         if (old != null && isBoundName(oldName)) {
           captureIdentityObject(old.getParentKey(), intervals);
         }
@@ -197,42 +192,6 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   private boolean isBoundName(final @Nullable String name) {
     return validFromField.equals(name) || validToField.equals(name);
-  }
-
-  private boolean identitySiblingChanged(final long oldKey, final long targetKey, final long parent,
-      final boolean left, final JsonIdentityDelta delta) {
-    return oldKey != targetKey
-        && retainedIdentitySibling(oldKey, parent, left, false, delta)
-            != retainedIdentitySibling(targetKey, parent, left, true, delta);
-  }
-
-  private long retainedIdentitySibling(long key, final long parent, final boolean left, final boolean targetState,
-      final JsonIdentityDelta delta) {
-    long skipped = 0;
-    final long changed = (long) delta.puts().size() + delta.deletes().size();
-    while (key >= 0) {
-      final ImmutableNode old = loadNode(key);
-      final var target = delta.puts().get(key);
-      if (old != null && old.getParentKey() == parent && !delta.deletes().contains(key)
-          && (target == null || target.parent() == parent)) {
-        return key;
-      }
-      if (++skipped > changed) {
-        throw new IllegalStateException("Valid-time identity import has cyclic sibling links");
-      }
-      if (targetState && target != null) {
-        key = left
-            ? target.left()
-            : target.right();
-      } else if (old instanceof final StructNode structure) {
-        key = left
-            ? structure.getLeftSiblingKey()
-            : structure.getRightSiblingKey();
-      } else {
-        throw new IllegalStateException("Valid-time identity import cannot read sibling " + key);
-      }
-    }
-    return NO_OBJECT;
   }
 
   private void captureIdentityObject(final long key, final Long2ObjectOpenHashMap<Interval> intervals) {

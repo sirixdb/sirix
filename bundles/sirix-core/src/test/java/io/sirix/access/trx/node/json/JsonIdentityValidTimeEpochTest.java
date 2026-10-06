@@ -195,6 +195,13 @@ final class JsonIdentityValidTimeEpochTest {
           assertSnapshot(original, copied, 0);
           assertEvidence(original);
           assertEvidence(copied);
+          if (revision == 4 || revision == 5) {
+            final long first = ValidTimeMoveTestSupport.objectKey(copied, 1);
+            assertTrue(copied.moveTo(field(copied, first, "validFrom")));
+            assertEquals(revision == 4
+                ? "2019-01-01T00:00:00Z"
+                : "2022-01-01T00:00:00Z", copied.getValue(), "duplicate selection follows final document order");
+          }
         }
         assertPaths(source, revision, target, revision);
       }

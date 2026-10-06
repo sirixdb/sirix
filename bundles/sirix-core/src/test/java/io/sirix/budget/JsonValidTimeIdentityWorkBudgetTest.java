@@ -76,6 +76,7 @@ final class JsonValidTimeIdentityWorkBudgetTest {
       final long values = field(writer, object, "values");
       final long unrelated = field(writer, object, "f0");
       final long to = field(writer, object, "validTo");
+      final long movedField = field(writer, object, "f" + (width - 1));
       writer.commit();
       assertTrue(writer.moveTo(values));
       writer.insertNumberValueAsLastChild(1);
@@ -89,6 +90,13 @@ final class JsonValidTimeIdentityWorkBudgetTest {
       writer.commit();
       assertTrue(writer.moveTo(noise));
       writer.remove();
+      writer.commit();
+      assertTrue(writer.moveTo(object));
+      writer.moveSubtreeToFirstChild(movedField);
+      writer.commit();
+      assertTrue(writer.moveTo(object));
+      assertTrue(writer.moveToLastChild());
+      writer.moveSubtreeToRightSibling(movedField);
       writer.commit();
       assertTrue(writer.moveTo(to));
       writer.setStringValue("2024-01-01T00:00:00Z");
@@ -106,12 +114,12 @@ final class JsonValidTimeIdentityWorkBudgetTest {
       try (final var first = source.beginNodeReadOnlyTrx(1)) {
         importer.importRevision(JsonIdentityDeltaReader.snapshot(first, 1), first);
       }
-      for (int revision = 2; revision <= 6; revision++) {
+      for (int revision = 2; revision <= 8; revision++) {
         try (final var before = source.beginNodeReadOnlyTrx(revision - 1);
             final var after = source.beginNodeReadOnlyTrx(revision)) {
           final var delta = JsonIdentityDeltaReader.between(before, after, revision);
           final var work = WorkCapture.of(REPLAY).run(() -> importer.importRevision(delta, after));
-          if (revision < 6) {
+          if (revision < 8) {
             work.assertZero(REPLAY_VALID_TIME_BOUND_FIELDS,
                 "nested, scalar and boundary-only non-bound edits must not scan retained object fields");
           } else {
@@ -126,7 +134,7 @@ final class JsonValidTimeIdentityWorkBudgetTest {
         final var targetDb = Databases.openJsonDatabase(targetPath);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
-      for (int revision = 1; revision <= 6; revision++) {
+      for (int revision = 1; revision <= 8; revision++) {
         try (final var original = source.beginNodeReadOnlyTrx(revision);
             final var copied = target.beginNodeReadOnlyTrx(revision)) {
           JsonReplayGraphValidator.validate(copied);
@@ -140,7 +148,7 @@ final class JsonValidTimeIdentityWorkBudgetTest {
           final var tree = ValidTimeIntervalIndexFactory.createReaderTree(copied.getStorageEngineReader(), 0, domain);
           final LongOpenHashSet hits = new LongOpenHashSet();
           tree.stab(domain.point(Instant.parse("2024-06-01T00:00:00Z")), hits::add);
-          assertEquals(revision < 6
+          assertEquals(revision < 8
               ? LongOpenHashSet.of(object)
               : new LongOpenHashSet(), hits);
           hits.clear();

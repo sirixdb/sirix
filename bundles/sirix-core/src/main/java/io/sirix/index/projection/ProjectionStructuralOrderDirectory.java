@@ -7,6 +7,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
+import io.sirix.utils.ReplayWorkDiagnostics;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
@@ -346,16 +347,10 @@ final class ProjectionStructuralOrderDirectory {
       }
       final SirixDeweyID left = neighbourLabel(nodeKey, true, nodeLookup);
       final SirixDeweyID right = neighbourLabel(nodeKey, false, nodeLookup);
-      if (withinSiblingInterval(existing, left, right)) {
+      if ((left == null || left.compareTo(existing) < 0) && (right == null || existing.compareTo(right) < 0)) {
         return;
       }
       mint(nodeKey, left, right, nodeLookup, sink);
-    }
-
-    static boolean withinSiblingInterval(final SirixDeweyID existing, final @Nullable SirixDeweyID left,
-        final @Nullable SirixDeweyID right) {
-      Objects.requireNonNull(existing);
-      return (left == null || left.compareTo(existing) < 0) && (right == null || existing.compareTo(right) < 0);
     }
 
     /**
@@ -766,6 +761,7 @@ final class ProjectionStructuralOrderDirectory {
     }
 
     @Nullable SirixDeweyID localLabel(final long nodeKey) {
+      ReplayWorkDiagnostics.projectionOrderSlotRead();
       final byte[] encoded = store.get(slotKey(nodeKey));
       if (encoded == null) {
         return null;

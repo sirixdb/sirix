@@ -36,6 +36,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -63,6 +66,181 @@ final class JsonIdentityProjectionEpochTest {
 
   static Stream<Arguments> configurations() {
     return JsonIdentityImportTest.configurations();
+  }
+
+  static Stream<Arguments> batchConfigurations() {
+    return configurations().flatMap(configuration -> Stream.of(false, true).map(emptied -> {
+      final Object[] values = configuration.get();
+      return Arguments.of(values[0], values[1], values[2], emptied);
+    }));
+  }
+
+  @ParameterizedTest
+  @MethodSource("batchConfigurations")
+  void batchRotationsAndMixedPermutationsKeepOrderedAnchors(final VersioningType versioning, final HashType hash,
+      final boolean dewey, final boolean emptied) {
+    final Path sourcePath = directory.resolve("source");
+    final Path targetPath = directory.resolve("target");
+    try (final var database = create(sourcePath, versioning, hash, dewey);
+        final var session = database.beginResourceSession("resource");
+        final var writer = session.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+          [{"rows":[{"score":10}]},{"rows":[{"score":20}]},
+           {"rows":[{"score":30}]},{"rows":[{"score":40}]}]
+          """), JsonNodeTrx.Commit.NO);
+      session.getWtxIndexController(1).createIndexes(Set.of(
+          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
+          IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+              IndexDef.DbType.JSON), projection()), writer);
+      final long[] groups = new long[4];
+      assertTrue(writer.moveTo(1));
+      assertTrue(writer.moveToFirstChild());
+      for (int group = 0; group < groups.length; group++) {
+        groups[group] = writer.getNodeKey();
+        if (group < groups.length - 1) {
+          assertTrue(writer.moveToRightSibling());
+        }
+      }
+      writer.commit();
+      if (emptied) {
+        toggleRows(writer, groups[0], 10);
+        toggleRows(writer, groups[3], 40);
+        writer.commit();
+      }
+      assertTrue(writer.moveTo(1));
+      writer.moveSubtreeToFirstChild(groups[2]);
+      assertTrue(writer.moveTo(groups[2]));
+      writer.moveSubtreeToRightSibling(groups[3]);
+      writer.commit();
+      final List<int[]> permutations = new ArrayList<>(24);
+      for (int first = 0; first < 4; first++) {
+        for (int second = 0; second < 4; second++) {
+          if (second == first) {
+            continue;
+          }
+          for (int third = 0; third < 4; third++) {
+            if (third != first && third != second) {
+              permutations.add(new int[] {first, second, third, 6 - first - second - third});
+            }
+          }
+        }
+      }
+      Collections.shuffle(permutations, new Random(0x5eed));
+      long extra = -1;
+      for (int step = 0; step < permutations.size(); step++) {
+        switch (step % 6) {
+          case 0 -> toggleRows(writer, groups[0], 10);
+          case 1 -> {
+            assertTrue(writer.moveTo(groups[3]));
+            assertTrue(writer.moveToFirstChild());
+            writer.setObjectKeyName(writer.getName().getLocalName().equals("rows")
+                ? "archive"
+                : "rows");
+          }
+          case 2 -> {
+            assertTrue(writer.moveTo(1));
+            writer.insertObjectAsLastChild();
+            extra = writer.getNodeKey();
+            assertTrue(writer.moveTo(1));
+            writer.moveSubtreeToFirstChild(extra);
+          }
+          case 3 -> {
+            assertTrue(writer.moveTo(extra));
+            writer.remove();
+            extra = -1;
+          }
+          case 4 -> toggleRows(writer, groups[3], 40);
+          case 5 -> {
+            assertTrue(writer.moveTo(groups[2]));
+            assertTrue(writer.moveToFirstChild());
+            if (writer.moveToFirstChild()) {
+              final long row = writer.getNodeKey();
+              assertTrue(writer.moveTo(groups[1]));
+              assertTrue(writer.moveToFirstChild());
+              writer.moveSubtreeToFirstChild(row);
+            }
+          }
+          default -> throw new AssertionError();
+        }
+        final int[] order = permutations.get(step);
+        for (int position = order.length - 1; position >= 0; position--) {
+          assertTrue(writer.moveTo(1));
+          if (writer.getFirstChildKey() != groups[order[position]]) {
+            writer.moveSubtreeToFirstChild(groups[order[position]]);
+          }
+        }
+        writer.commit();
+      }
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx()) {
+      final var controller = (JsonIndexController) target.getWtxIndexController(1);
+      controller.createIndexes(Set.of(
+          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
+          IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+              IndexDef.DbType.JSON)), writer);
+      controller.createProjectionIndexesAtLoadStart(Set.of(projection()), writer);
+      final var importer = (InternalJsonNodeTrx) writer;
+      try (final var first = source.beginNodeReadOnlyTrx(1)) {
+        importer.importRevision(JsonIdentityDeltaReader.snapshot(first, 1), first);
+      }
+      for (int revision = 2; revision <= source.getMostRecentRevisionNumber(); revision++) {
+        try (final var before = source.beginNodeReadOnlyTrx(revision - 1);
+            final var after = source.beginNodeReadOnlyTrx(revision)) {
+          final var delta = JsonIdentityDeltaReader.between(before, after, revision);
+          JsonNodeTrxImpl.replayTestHook = (phase, transaction) -> {
+            if (phase.equals("derived-state-finalized")) {
+              throw new IllegalStateException("injected batch failure");
+            }
+          };
+          assertEquals("injected batch failure",
+              assertThrows(IllegalStateException.class, () -> importer.importRevision(delta, after)).getMessage());
+          JsonNodeTrxImpl.replayTestHook = null;
+          assertSnapshot(before, writer, 0);
+          assertEquals(revision - 1, target.getMostRecentRevisionNumber());
+          try (final var committed = target.beginNodeReadOnlyTrx(revision - 1)) {
+            assertProjection(committed);
+          }
+          importer.importRevision(delta, after);
+          try (final var committed = target.beginNodeReadOnlyTrx(revision)) {
+            assertSnapshot(after, committed, 0);
+            assertProjection(committed);
+          }
+          assertPaths(source, revision, target, revision);
+        }
+      }
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
+        try (final var original = source.beginNodeReadOnlyTrx(revision);
+            final var copied = target.beginNodeReadOnlyTrx(revision)) {
+          assertSnapshot(original, copied, 0);
+          assertProjection(original);
+          assertProjection(copied);
+        }
+        assertPaths(source, revision, target, revision);
+      }
+    }
+  }
+
+  private static void toggleRows(final JsonNodeTrx writer, final long group, final int score) {
+    assertTrue(writer.moveTo(group));
+    assertTrue(writer.moveToFirstChild());
+    final long rows = writer.getNodeKey();
+    if (writer.moveToFirstChild()) {
+      writer.remove();
+    } else {
+      assertTrue(writer.moveTo(rows));
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"score\":" + score + "}"), JsonNodeTrx.Commit.NO);
+    }
   }
 
   private static IndexDef projection() {

@@ -2096,11 +2096,18 @@ view scans cannot evade the R8 budget. The diagnostic map exists only when this 
 `projectionIdentityRows()` counts queued old row removals and final row insertions;
 `projectionIdentityLabelBytes()` counts bytes allocated for emitted identity-epoch row labels.
 Empty insertion/removal boundaries and same-parent unindexed-neighbor moves must leave both at zero.
-An unchanged prefix stays valid when its local label remains between final labelled neighbors;
-unlabelled siblings do not anchor that interval. Inserting an indexed row is the positive control.
+Retained prefixes must preserve their old interval between unchanged sibling identities and be
+mutually ordered within each final changed sibling run. The epoch compares changed boundaries
+without walking unchanged runs; an inverted run invalidates its labelled anchors together.
+Inserting an indexed row is the positive control. `projectionOrderSlots()` counts order-slot
+requests, including absent slots, so unlabelled-run work is independently budgeted.
+`projectionRecordReads()` counts document lookups by this maintenance listener; whole-epoch
+record diagnostics also include transition validation and other import work.
 `validTimeBoundFields()` counts direct children inspected by the valid-time listener while
 reconstructing bounds. Unrelated identity edits must leave it at zero; a direct bound update
 provides a positive scan control. Object topology changes retain constant-work order checks.
+Pure same-parent field reordering preserves valid-time counts and payloads; duplicate bounds
+remain inexact whole-domain candidates whose predicate verification uses final document order.
 Counters are process-wide totals, off in production and enabled in core tests. Capture whole replay
 epochs to include commit and path-cache lifecycle costs. Label bytes measure emitted buffers only;
 the other counters are work units, not total JVM allocations or disk reads.

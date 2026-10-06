@@ -21,6 +21,8 @@ public final class ReplayWorkDiagnostics {
   private static final LongAdder PROJECTION_IDENTITY_ROWS = new LongAdder();
   private static final LongAdder PROJECTION_IDENTITY_LABEL_BYTES = new LongAdder();
   private static final LongAdder VALID_TIME_BOUND_FIELDS = new LongAdder();
+  private static final LongAdder PROJECTION_ORDER_SLOTS = new LongAdder();
+  private static final LongAdder PROJECTION_RECORD_READS = new LongAdder();
 
   private ReplayWorkDiagnostics() {}
 
@@ -79,6 +81,16 @@ public final class ReplayWorkDiagnostics {
       VALID_TIME_BOUND_FIELDS.increment();
   }
 
+  public static void projectionOrderSlotRead() {
+    if (ENABLED)
+      PROJECTION_ORDER_SLOTS.increment();
+  }
+
+  public static void projectionRecordRead() {
+    if (ENABLED)
+      PROJECTION_RECORD_READS.increment();
+  }
+
   public static long recordVisits() {
     return RECORD_VISITS.sum();
   }
@@ -121,5 +133,13 @@ public final class ReplayWorkDiagnostics {
 
   public static long validTimeBoundFields() {
     return VALID_TIME_BOUND_FIELDS.sum();
+  }
+
+  public static long projectionOrderSlots() {
+    return PROJECTION_ORDER_SLOTS.sum();
+  }
+
+  public static long projectionRecordReads() {
+    return PROJECTION_RECORD_READS.sum();
   }
 }

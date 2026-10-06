@@ -121,6 +121,7 @@ import io.sirix.service.json.replay.JsonIdentityDelta;
 import io.sirix.service.json.replay.JsonReplayPaths;
 import io.sirix.service.json.replay.JsonReplayHistory;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.interval.json.JsonValidTimeIndexListener;
 import io.sirix.service.json.replay.JsonReplayTransitionValidator;
 import java.util.concurrent.ThreadFactory;
@@ -3168,7 +3169,9 @@ final class JsonNodeTrxImpl extends
       axis.nextLong();
       final ImmutableNode currentNode = nodeReadOnlyTrx.getNode();
       long pathNodeKey = -1;
-      if (currentNode instanceof ValueNode
+      final NodeKind kind = currentNode.getKind();
+      if ((kind == NodeKind.STRING_VALUE || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.BOOLEAN_VALUE
+          || kind == NodeKind.NULL_VALUE)
           && currentNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         final long nodeKey = currentNode.getNodeKey();
         moveToParent();
@@ -3840,10 +3843,26 @@ final class JsonNodeTrxImpl extends
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
       final long oldPathNodeKey = nameNode.getPathNodeKey();
+      final long oldFieldPath = buildPathSummary && currentKind == NodeKind.OBJECT_NAMED_ARRAY
+          ? pathSummaryWriter.lookupArrayPathParentKey(oldPathNodeKey)
+          : -1;
+      final PathNode oldField = oldFieldPath >= 0
+          ? pathSummaryWriter.getPathSummary().getPathNodeForPathNodeKey(oldFieldPath)
+          : null;
+      final boolean remapArrayDescendants = oldField != null && oldField.getReferences() > 1;
+      final boolean containerRename = currentKind == NodeKind.OBJECT_NAMED_ARRAY
+          || currentKind == NodeKind.OBJECT_NAMED_OBJECT;
       // The rollback-only latch arms at the first statement a failed rename would need to
       // unwind — the DELETE de-index. Everything above leaves no half-applied state.
       renameStarted = true;
-      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+      if (remapArrayDescendants) {
+        transferPathStatsForMovedSubtree((Node) node, false);
+      }
+      if (containerRename) {
+        adaptSubtreeForMove((Node) node, IndexController.ChangeType.DELETE);
+      } else {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+      }
 
       // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
       final NodeKind nameNamespaceKind = NodeKind.OBJECT_NAMED_OBJECT;
@@ -3892,12 +3911,25 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord((DataRecord) node);
+      if (remapArrayDescendants) {
+        pathSummaryWriter.adaptPathForMovedSubtree(node.getNodeKey());
+        transferPathStatsForMovedSubtree((Node) node, true);
+      }
       if (updateHashes) {
         hashes.finish();
       }
+      if (buildPathSummary) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          listener.pathSummaryImported(true);
+        }
+      }
 
       // Re-index under the NEW name/path (see the DELETE above).
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      if (containerRename) {
+        adaptSubtreeForMove((Node) node, IndexController.ChangeType.INSERT);
+      } else {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      }
       indexController.notifyAfterStructuralChange(pendingStructuralChange);
       pendingStructuralChange = -1L;
 

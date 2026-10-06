@@ -44,6 +44,8 @@ import static io.sirix.budget.EngineWorkCounters.REPLAY;
 import static io.sirix.budget.EngineWorkCounters.REPLAY_PROJECTION_LABEL_BYTES;
 import static io.sirix.budget.EngineWorkCounters.REPLAY_PROJECTION_ROWS;
 import static io.sirix.budget.EngineWorkCounters.REPLAY_RECORD_VISITS;
+import static io.sirix.budget.EngineWorkCounters.REPLAY_PROJECTION_ORDER_SLOTS;
+import static io.sirix.budget.EngineWorkCounters.REPLAY_PROJECTION_RECORD_READS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -73,6 +75,92 @@ final class ProjectionIdentityImportWorkBudgetTest {
       final Object[] values = configuration.get();
       return Arguments.of(values[0], values[1], values[2], dewey);
     }));
+  }
+
+  static Stream<Arguments> siblingRuns() {
+    return moveConfigurations().flatMap(configuration -> Stream.of(16, 4096).map(run -> {
+      final Object[] values = configuration.get();
+      return Arguments.of(values[0], values[1], values[2], values[3], run);
+    }));
+  }
+
+  @ParameterizedTest
+  @MethodSource("siblingRuns")
+  void unchangedUnlabelledRunsAreBoundaries(final VersioningType version, final int rows, final boolean prepend,
+      final boolean dewey, final int run) throws Exception {
+    final Path sourcePath = directory.resolve("source");
+    final Path targetPath = directory.resolve("target");
+    try (final var database = create(sourcePath, version, dewey);
+        final var session = database.beginResourceSession("resource");
+        final var writer = session.beginNodeTrx()) {
+      final StringBuilder group = new StringBuilder(rows * 20).append("{\"rows\":[");
+      for (int row = 0; row < rows; row++) {
+        if (row > 0) {
+          group.append(',');
+        }
+        group.append("{\"score\":").append(row).append('}');
+      }
+      group.append("]}");
+      final String json = prepend
+          ? "[" + group + ",{}".repeat(run) + "]"
+          : "[" + "{},".repeat(run) + group + "]";
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+      assertTrue(writer.moveTo(1));
+      if (prepend) {
+        assertTrue(writer.moveToFirstChild());
+      } else {
+        assertTrue(writer.moveToLastChild());
+      }
+      final long wide = writer.getNodeKey();
+      final long moved = prepend
+          ? writer.getRightSiblingKey()
+          : writer.getLeftSiblingKey();
+      writer.commit();
+      moveGroup(writer, moved, wide, prepend);
+      writer.commit();
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, version, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx();
+        final var before = source.beginNodeReadOnlyTrx(1);
+        final var after = source.beginNodeReadOnlyTrx(2)) {
+      ((JsonIndexController) target.getWtxIndexController(1)).createProjectionIndexesAtLoadStart(Set.of(projection()),
+          writer);
+      final var importer = (InternalJsonNodeTrx) writer;
+      importer.importRevision(JsonIdentityDeltaReader.snapshot(before, 1), before);
+      final var delta = JsonIdentityDeltaReader.between(before, after, 2);
+      final var work = WorkCapture.of(REPLAY).run(() -> importer.importRevision(delta, after));
+      work.assertZero(REPLAY_PROJECTION_ROWS, "unindexed moves must retain projection rows")
+          .assertZero(REPLAY_PROJECTION_LABEL_BYTES, "unindexed moves must retain emitted row labels")
+          .assertBetween(REPLAY_PROJECTION_RECORD_READS, 1, 1000,
+              "projection maintenance must not traverse an unchanged sibling run")
+          .assertBetween(REPLAY_PROJECTION_ORDER_SLOTS, 1, 24, "only changed identities may probe order slots");
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var initial = target.beginNodeReadOnlyTrx(1);
+        final var copied = target.beginNodeReadOnlyTrx(2);
+        final var original = source.beginNodeReadOnlyTrx(2)) {
+      final var expected = JsonReplaySnapshotOracle.snapshot(original);
+      final var actual = JsonReplaySnapshotOracle.snapshot(copied);
+      expected.remove(0);
+      actual.remove(0);
+      assertEquals(expected, actual);
+      final List<byte[]> firstPayloads = payloads(initial);
+      final List<byte[]> finalPayloads = payloads(copied);
+      assertProjection(original, copied, finalPayloads);
+      assertEquals(firstPayloads.size(), finalPayloads.size());
+      for (int group = 0; group < firstPayloads.size(); group++) {
+        assertArrayEquals(firstPayloads.get(group), finalPayloads.get(group));
+      }
+      assertArrayEquals(segmentOffsets(initial, firstPayloads.size()), segmentOffsets(copied, finalPayloads.size()));
+    }
   }
 
   @ParameterizedTest

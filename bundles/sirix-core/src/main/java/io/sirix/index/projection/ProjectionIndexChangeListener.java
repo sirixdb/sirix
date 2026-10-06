@@ -21,7 +21,6 @@ import io.sirix.index.IndexType;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
-import io.sirix.index.projection.ProjectionStructuralOrderDirectory.Accessor;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.ValueDictionaryHeaderNode;
@@ -33,7 +32,6 @@ import io.sirix.node.json.ArrayNode;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.service.json.replay.JsonIdentityDelta;
-import io.sirix.service.json.replay.JsonReplayRecord;
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -436,18 +434,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     for (final var target : delta.puts().values()) {
       final ImmutableNode old = readNode(target.key());
-      if (old instanceof final StructNode structural && target.key() != 0
+      if (old instanceof StructNode && target.key() != 0
           && (old.getParentKey() != target.parent() || old.getKind() != target.kind()
               || pathNodeKeyOf(old) != target.pathKey()
               || old.getKind().playsObjectKeyRole() && old instanceof final NameNode named
                   && !Objects.equals(target.name(),
-                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT))
-              || (structural.getLeftSiblingKey() != target.left() || structural.getRightSiblingKey() != target.right())
-                  && identityOrderChanged(target, delta))) {
+                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)))) {
         relocated.add(target.key());
       }
       collectIdentityRecord(target.key(), oldRecords);
     }
+    collectIdentityOrderChanges(delta, relocated);
     final LongOpenHashSet visited = new LongOpenHashSet();
     for (final long key : relocated) {
       collectIdentitySubtree(key, oldRecords, visited);
@@ -455,50 +452,106 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     identityEpoch = new IdentityEpoch(delta, oldRecords, relocated);
   }
 
-  private boolean identityOrderChanged(final JsonReplayRecord target, final JsonIdentityDelta delta) {
+  private void collectIdentityOrderChanges(final JsonIdentityDelta delta, final LongOpenHashSet relocated) {
     final var directory = structuralOrderDirectory();
-    final SirixDeweyID existing = directory.localLabel(target.key());
-    return existing != null && !Accessor.withinSiblingInterval(existing,
-        identityNeighbourLabel(target.left(), target.parent(), true, delta, directory),
-        identityNeighbourLabel(target.right(), target.parent(), false, delta, directory));
-  }
-
-  private @Nullable SirixDeweyID identityNeighbourLabel(long key, final long parent, final boolean left,
-      final JsonIdentityDelta delta, final Accessor directory) {
-    long tortoise = key;
-    long power = 1;
-    long cycleLength = 0;
-    while (key >= 0) {
-      final ImmutableNode old = readNode(key);
-      final var target = delta.puts().get(key);
-      if (old != null && old.getParentKey() == parent && !delta.deletes().contains(key)
-          && (target == null || target.parent() == parent)) {
-        final SirixDeweyID label = directory.localLabel(key);
+    final Long2ObjectOpenHashMap<SirixDeweyID> anchors = new Long2ObjectOpenHashMap<>();
+    final Long2LongOpenHashMap oldLeft = new Long2LongOpenHashMap();
+    final Long2LongOpenHashMap oldRight = new Long2LongOpenHashMap();
+    final Long2LongOpenHashMap finalLeft = new Long2LongOpenHashMap();
+    final Long2LongOpenHashMap finalRight = new Long2LongOpenHashMap();
+    oldLeft.defaultReturnValue(Long.MIN_VALUE);
+    oldRight.defaultReturnValue(Long.MIN_VALUE);
+    finalLeft.defaultReturnValue(Long.MIN_VALUE);
+    finalRight.defaultReturnValue(Long.MIN_VALUE);
+    final LongArrayList chain = new LongArrayList();
+    for (final var target : delta.puts().values()) {
+      if (target.key() == 0 || relocated.contains(target.key())) {
+        continue;
+      }
+      final ImmutableNode old = readNode(target.key());
+      if (!(old instanceof final StructNode structural) || old.getParentKey() != target.parent()) {
+        continue;
+      }
+      final SirixDeweyID label = directory.localLabel(target.key());
+      if (label == null) {
+        continue;
+      }
+      if (identityBoundary(structural.getLeftSiblingKey(), true, false, delta, oldLeft, chain)
+              != identityBoundary(target.left(), true, true, delta, finalLeft, chain)
+          || identityBoundary(structural.getRightSiblingKey(), false, false, delta, oldRight, chain)
+              != identityBoundary(target.right(), false, true, delta, finalRight, chain)) {
+        relocated.add(target.key());
+      } else {
+        anchors.put(target.key(), label);
+      }
+    }
+    for (final var start : delta.puts().values()) {
+      if (start.parent() < 0 || start.left() >= 0 && delta.puts().containsKey(start.left())) {
+        continue;
+      }
+      chain.clear();
+      SirixDeweyID previous = null;
+      boolean inverted = false;
+      long key = start.key();
+      int visited = 0;
+      while (key >= 0 && delta.puts().containsKey(key)) {
+        if (++visited > delta.puts().size()) {
+          throw new IllegalStateException("Projection identity import has cyclic sibling links");
+        }
+        final var target = delta.puts().get(key);
+        if (target.parent() != start.parent()) {
+          throw new IllegalStateException("Projection identity import has incompatible sibling parents");
+        }
+        final SirixDeweyID label = anchors.get(key);
         if (label != null) {
-          return label;
+          inverted |= previous != null && previous.compareTo(label) >= 0;
+          previous = label;
+          chain.add(key);
+        }
+        key = target.right();
+      }
+      if (inverted) {
+        for (int index = 0; index < chain.size(); index++) {
+          relocated.add(chain.getLong(index));
         }
       }
-      if (target != null) {
+    }
+  }
+
+  private long identityBoundary(long key, final boolean left, final boolean targetState, final JsonIdentityDelta delta,
+      final Long2LongOpenHashMap cache, final LongArrayList chain) {
+    chain.clear();
+    final long changed = (long) delta.puts().size() + delta.deletes().size();
+    while (key >= 0 && (delta.puts().containsKey(key) || delta.deletes().contains(key))) {
+      final long cached = cache.get(key);
+      if (cached != Long.MIN_VALUE) {
+        key = cached;
+        break;
+      }
+      if (chain.size() >= changed) {
+        throw new IllegalStateException("Projection identity import has cyclic sibling links");
+      }
+      chain.add(key);
+      if (targetState) {
+        final var target = delta.puts().get(key);
+        if (target == null) {
+          throw new IllegalStateException("Projection identity import references a deleted sibling");
+        }
         key = left
             ? target.left()
             : target.right();
-      } else if (old instanceof final StructNode structural) {
+      } else if (readNode(key) instanceof final StructNode structural) {
         key = left
             ? structural.getLeftSiblingKey()
             : structural.getRightSiblingKey();
       } else {
         throw new IllegalStateException("Projection identity import cannot read sibling " + key);
       }
-      if (key >= 0 && key == tortoise) {
-        throw new IllegalStateException("Projection identity import has cyclic sibling links");
-      }
-      if (++cycleLength == power) {
-        tortoise = key;
-        power = Math.multiplyExact(power, 2);
-        cycleLength = 0;
-      }
     }
-    return null;
+    for (int index = 0; index < chain.size(); index++) {
+      cache.put(chain.getLong(index), key);
+    }
+    return key;
   }
 
   /**
@@ -677,6 +730,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (before == null) {
         throw new IllegalStateException(
             "Projection index " + indexDef.getID() + " did not observe the start of structural change " + movedNodeKey);
+      }
+      if (!seeded) {
+        seed();
       }
       resolvedRecordMemo = null;
       arrayRootInstances = null;
@@ -1684,6 +1740,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   private @Nullable ImmutableNode readNode(final long nodeKey) {
+    ReplayWorkDiagnostics.projectionRecordRead();
     final DataRecord record = storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
     return record instanceof final ImmutableNode node
         ? node
