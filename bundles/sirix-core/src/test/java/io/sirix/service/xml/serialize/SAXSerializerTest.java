@@ -109,12 +109,11 @@ public class SAXSerializerTest extends XMLTestCase {
   }
 
   /**
-   * Regression: {@code generateText} passed the UNESCAPED value's length over the ESCAPED char
-   * array — escaping grows the array ('&amp;' is 5 chars for '&amp;amp;'), so any text value
-   * containing an escapable character produced a TRUNCATED SAX {@code characters()} event.
+   * SAX character events must deliver every decoded character. Escaping in the producer would change
+   * the event value and cause an XML-writing content handler to escape it a second time.
    */
   @Test
-  public void testTextWithEscapableCharactersEmitsFullEscapedContent() throws SirixException, SAXException {
+  public void testTextWithEscapableCharactersEmitsFullDecodedContent() throws SirixException, SAXException {
     try (final var wtx = holder.getResourceSession().beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // element p:a
@@ -135,7 +134,6 @@ public class SAXSerializerTest extends XMLTestCase {
         holder.getResourceSession().getMostRecentRevisionNumber());
     serializer.call();
 
-    assertTrue("the full escaped text must arrive (was truncated at the unescaped length): " + textContent,
-        textContent.toString().contains("AT&amp;T &lt;rocks&gt;"));
+    assertTrue("the full decoded text must arrive: " + textContent, textContent.toString().contains("AT&T <rocks>"));
   }
 }

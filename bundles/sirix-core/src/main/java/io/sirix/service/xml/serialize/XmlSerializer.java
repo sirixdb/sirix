@@ -32,6 +32,7 @@ import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +54,6 @@ import io.sirix.settings.CharsForSerializing;
 import io.sirix.settings.Constants;
 import io.sirix.utils.SirixFiles;
 import io.sirix.utils.LogWrapper;
-import io.sirix.utils.XMLToken;
 import io.brackit.query.util.serialize.Serializer;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -79,6 +79,15 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   private static final long[] LONG_POWERS = {1L, 10L, 100L, 1000L, 10000L, 100000L, 1000000L, 10000000L, 100000000L,
       1000000000L, 10000000000L, 100000000000L, 1000000000000L, 10000000000000L, 100000000000000L, 1000000000000000L,
       10000000000000000L, 100000000000000000L, 1000000000000000000L};
+
+  private static final byte[] AMPERSAND_ESCAPE = "&amp;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] LESS_THAN_ESCAPE = "&lt;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] GREATER_THAN_ESCAPE = "&gt;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] DOUBLE_QUOTE_ESCAPE = "&quot;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] SINGLE_QUOTE_ESCAPE = "&apos;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] TAB_ESCAPE = "&#x9;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] LINE_FEED_ESCAPE = "&#xA;".getBytes(Constants.DEFAULT_ENCODING);
+  private static final byte[] CARRIAGE_RETURN_ESCAPE = "&#xD;".getBytes(Constants.DEFAULT_ENCODING);
 
   /** OutputStream to write to. */
   private final OutputStream out;
@@ -167,13 +176,13 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
               if (emittedPrefixes == null || emittedPrefixes.add(rtx.getPrefixKey())) {
                 if (rtx.getPrefixKey() == -1) {
                   out.write(CharsForSerializing.XMLNS.getBytes());
-                  write(rtx.nameForKey(rtx.getURIKey()));
+                  writeEscaped(rtx.rawNameForKey(rtx.getURIKey()), true);
                   out.write(CharsForSerializing.QUOTE.getBytes());
                 } else {
                   out.write(CharsForSerializing.XMLNS_COLON.getBytes());
-                  write(rtx.nameForKey(rtx.getPrefixKey()));
+                  out.write(rtx.rawNameForKey(rtx.getPrefixKey()));
                   out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-                  write(rtx.nameForKey(rtx.getURIKey()));
+                  writeEscaped(rtx.rawNameForKey(rtx.getURIKey()), true);
                   out.write(CharsForSerializing.QUOTE.getBytes());
                 }
               }
@@ -207,7 +216,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
             out.write(CharsForSerializing.SPACE.getBytes());
             writeQName(rtx);
             out.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-            out.write(XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+            writeEscaped(rtx.getRawValue(), true);
             out.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
@@ -235,7 +244,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         case TEXT:
           if (rtx.hasRightSibling() || rtx.hasLeftSibling())
             indent();
-          out.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+          writeEscaped(rtx.getRawValue(), false);
           if (indent && (rtx.hasRightSibling() || rtx.hasLeftSibling())) {
             out.write(CharsForSerializing.NEWLINE.getBytes());
           }
@@ -258,7 +267,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
           throw new IllegalStateException("Node kind not known!");
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -274,7 +283,47 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /**
+   * Escape decoded UTF-8 only at the output boundary. ASCII delimiters cannot occur inside a
+   * multibyte UTF-8 character, so unchanged spans can be copied without decoding or allocating an
+   * escaped string. Attribute whitespace and text CR need references to survive XML normalization.
+   */
+  private void writeEscaped(final byte[] value, final boolean attributeValue) throws IOException {
+    int start = 0;
+    for (int index = 0; index < value.length; index++) {
+      final byte[] replacement = switch (value[index]) {
+        case '&' -> AMPERSAND_ESCAPE;
+        case '<' -> LESS_THAN_ESCAPE;
+        case '>' -> GREATER_THAN_ESCAPE;
+        case '"' -> attributeValue
+            ? DOUBLE_QUOTE_ESCAPE
+            : null;
+        case '\'' -> attributeValue
+            ? SINGLE_QUOTE_ESCAPE
+            : null;
+        case '\t' -> attributeValue
+            ? TAB_ESCAPE
+            : null;
+        case '\n' -> attributeValue
+            ? LINE_FEED_ESCAPE
+            : null;
+        case '\r' -> CARRIAGE_RETURN_ESCAPE;
+        default -> null;
+      };
+      if (replacement != null) {
+        if (index > start) {
+          out.write(value, start, index - start);
+        }
+        out.write(replacement);
+        start = index + 1;
+      }
+    }
+    if (start < value.length) {
+      out.write(value, start, value.length - start);
     }
   }
 
@@ -314,7 +363,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         }
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -340,7 +389,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
 
       out.flush();
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -392,7 +441,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         }
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -418,7 +467,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
         out.write(CharsForSerializing.NEWLINE.getBytes());
       }
     } catch (final IOException e) {
-      throw new java.io.UncheckedIOException(e);
+      throw new UncheckedIOException(e);
     }
   }
 
