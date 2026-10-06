@@ -73,8 +73,7 @@ final class ReservedXmlPrefixTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void storedAttributeCountDiffersFromNamespaceCount(final VersioningType versioningType) {
-    run(versioningType,
-        "xn:store('reserved','resource1',<leaf xmlns:p='urn:attributes' p:first='a' second='b'/>)");
+    run(versioningType, "xn:store('reserved','resource1',<leaf xmlns:p='urn:attributes' p:first='a' second='b'/>)");
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).versioningType(versioningType).build();
         final var session = store.lookup("reserved").getDatabase().beginResourceSession("resource1");
         final var rtx = session.beginNodeReadOnlyTrx()) {

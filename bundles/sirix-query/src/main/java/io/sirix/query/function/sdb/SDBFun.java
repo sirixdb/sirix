@@ -265,11 +265,8 @@ public final class SDBFun {
 
     // explain — query plan inspection
     Functions.predefine(new Explain(Explain.EXPLAIN,
-        new Signature(SequenceType.STRING,
-            new SequenceType(AtomicType.STR, Cardinality.One))));
-    Functions.predefine(new Explain(Explain.EXPLAIN,
-        new Signature(SequenceType.STRING,
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.STRING, new SequenceType(AtomicType.STR, Cardinality.One))));
+    Functions.predefine(new Explain(Explain.EXPLAIN, new Signature(SequenceType.STRING,
+        new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
   }
 }
