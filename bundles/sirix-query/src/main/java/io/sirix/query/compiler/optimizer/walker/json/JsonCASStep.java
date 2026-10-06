@@ -96,9 +96,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
         && new QNm(Bits.BIT_NSURI, Bits.BIT_PREFIX, "array-values").equals(parent.getValue()));
 
     if (parent.getType() == XQ.FilterExpr) {
+      revisionData.bind(indexExpr, parent);
       parent.getParent().replaceChild(parent.getChildIndex(), indexExpr);
     } else {
       final var filterExpr = parent.getParent();
+      revisionData.bind(indexExpr, filterExpr);
       filterExpr.getParent().replaceChild(filterExpr.getChildIndex(), indexExpr);
     }
 
@@ -179,6 +181,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   protected AST visit(AST astNode) {
+    for (AST parent = astNode.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent.getType() == XQExt.IndexExpr) {
+        return astNode;
+      }
+    }
     if (astNode.getType() != XQ.FilterExpr) {
       return astNode;
     }

@@ -19,6 +19,9 @@ import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.UpdateOp;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import java.util.IdentityHashMap;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.query.compiler.optimizer.PlanCache;
@@ -104,6 +107,36 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   private @Nullable Date date;
 
   private @Nullable Time time;
+
+  private final IdentityHashMap<JsonResourceSession, RevisionMemo> revisionMemos = new IdentityHashMap<>();
+
+  private static final class RevisionMemo {
+    private final Object2IntOpenHashMap<Instant> revisions = new Object2IntOpenHashMap<>();
+    private int head = -1;
+  }
+
+  /** Query-context-local timestamp lookup; a new commit invalidates prior floor resolutions. */
+  public int resolveRevision(final JsonResourceSession session, final Instant instant) {
+    requireNonNull(session);
+    requireNonNull(instant);
+    final RevisionMemo memo = revisionMemos.computeIfAbsent(session, unused -> new RevisionMemo());
+    final int head = session.getMostRecentRevisionNumber();
+    if (memo.head != head) {
+      memo.revisions.clear();
+      memo.head = head;
+    }
+    final int cached = memo.revisions.getOrDefault(instant, -1);
+    if (cached >= 0) {
+      return cached;
+    }
+    final int revision = session.getRevisionNumber(instant);
+    // Bound contexts reused by a long-lived client, without retaining compiled-plan state.
+    if (memo.revisions.size() == 256) {
+      memo.revisions.clear();
+    }
+    memo.revisions.put(instant, revision);
+    return revision;
+  }
 
   public static SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
     return new SirixQueryContext(nodeStore, null, CommitStrategy.AUTO, null, null);
@@ -389,6 +422,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public void close() {
+    revisionMemos.clear();
     xmlStore.close();
     jsonStore.close();
   }
