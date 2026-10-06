@@ -73,7 +73,9 @@ final class EmptyAttributeAxisWorkBudgetTest {
       if (descendant) {
         assertTrue(rtx.moveToFirstChild());
       }
-      assertEquals(descendant ? 1 : 0, rtx.getAttributeCount());
+      assertEquals(descendant
+          ? 1
+          : 0, rtx.getAttributeCount());
       final CountingReader reader = new CountingReader(rtx.getStorageEngineReader());
       final XmlNodeReadOnlyTrx measuredTrx = new ForwardingXmlNodeReadOnlyTrx() {
         @Override
@@ -94,25 +96,29 @@ final class EmptyAttributeAxisWorkBudgetTest {
         }
         return output.toString();
       });
-      assertEquals(descendant ? "1" : "0", query.result());
+      assertEquals(descendant
+          ? "1"
+          : "0", query.result());
       if (descendant) {
-        query.work().assertAtLeast(reader.nameRecords, 1,
-            "the cold nonempty attribute query must exercise the name-record counting seam");
+        query.work()
+             .assertAtLeast(reader.nameRecords, 1,
+                 "the cold nonempty attribute query must exercise the name-record counting seam");
       } else {
-        query.work().assertZero(reader.nameRecords,
-            "an empty attribute axis must not reconstruct dictionaries for descendant attributes: " + step);
+        query.work()
+             .assertZero(reader.nameRecords,
+                 "an empty attribute axis must not reconstruct dictionaries for descendant attributes: " + step);
       }
     }
   }
 
   private BasicXmlDBStore newStore() {
     return BasicXmlDBStore.newBuilder()
-                         .location(directory)
-                         .storageType(StorageType.FILE_CHANNEL)
-                         .hashType(HashType.NONE)
-                         .buildPathSummary(false)
-                         .versioningType(VersioningType.FULL)
-                         .build();
+                          .location(directory)
+                          .storageType(StorageType.FILE_CHANNEL)
+                          .hashType(HashType.NONE)
+                          .buildPathSummary(false)
+                          .versioningType(VersioningType.FULL)
+                          .build();
   }
 
   private static final class CountingReader extends AbstractForwardingStorageEngineReader {
@@ -130,7 +136,9 @@ final class EmptyAttributeAxisWorkBudgetTest {
       return reader;
     }
 
+    // The inherited StorageEngineReader contract requires this generic return type.
     @Override
+    @SuppressWarnings("TypeParameterUnusedInFormals")
     public <V extends DataRecord> V getRecord(final long key, final IndexType indexType, final int index) {
       if (indexType == IndexType.NAME) {
         records++;
