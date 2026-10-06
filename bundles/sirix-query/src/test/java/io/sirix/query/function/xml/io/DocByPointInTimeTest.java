@@ -100,9 +100,8 @@ public final class DocByPointInTimeTest extends TestCase {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"()", "(), ()", "(), false()", "(), true()",
-      "xs:dateTime('2219-05-01T00:00:00Z'), ()", "xs:dateTime('2219-05-01T00:00:00Z'), false()",
-      "xs:dateTime('2219-05-01T00:00:00Z'), true()"})
+  @ValueSource(strings = {"()", "(), ()", "(), false()", "(), true()", "xs:dateTime('2219-05-01T00:00:00Z'), ()",
+      "xs:dateTime('2219-05-01T00:00:00Z'), false()", "xs:dateTime('2219-05-01T00:00:00Z'), true()"})
   public void registeredOpenFormsReturnLatestRevision(final String arguments) {
     XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
     holder.getXmlNodeTrx().close();
@@ -110,8 +109,7 @@ public final class DocByPointInTimeTest extends TestCase {
     final Path database = XmlTestHelper.PATHS.PATH1.getFile();
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
-      final String query =
-          "xn:open('" + database + "','" + XmlTestHelper.RESOURCE + "', " + arguments + ")";
+      final String query = "xn:open('" + database + "','" + XmlTestHelper.RESOURCE + "', " + arguments + ")";
       final XmlDBNode node = (XmlDBNode) new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());
@@ -134,8 +132,8 @@ public final class DocByPointInTimeTest extends TestCase {
       }
 
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
-      final String query = "xn:open('" + database + "','resource1', xs:dateTime('"
-          + firstCommit + "'), " + option + ")";
+      final String query =
+          "xn:open('" + database + "','resource1', xs:dateTime('" + firstCommit + "'), " + option + ")";
       final XmlDBNode node = (XmlDBNode) new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
 
       assertEquals(1, node.getTrx().getRevisionNumber());

@@ -137,8 +137,8 @@ public final class OpenRevisionsTest {
     final Path database = XmlTestHelper.PATHS.PATH1.getFile();
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
-      final String query = "xn:open-revisions('" + database + "','" + XmlTestHelper.RESOURCE
-          + "', xs:dateTime('" + start + "'), xs:dateTime('" + end + "'))";
+      final String query = "xn:open-revisions('" + database + "','" + XmlTestHelper.RESOURCE + "', xs:dateTime('"
+          + start + "'), xs:dateTime('" + end + "'))";
       final Sequence nodes = new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
 
       if (firstRevision == 0) {

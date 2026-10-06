@@ -67,8 +67,8 @@ final class EmptyAttributeAxisWorkBudgetTest {
   }
 
   @ParameterizedTest
-  @CsvSource(value = {"@missing|@id", "attribute::attribute(missing)|attribute::attribute(id)",
-      "@p:missing|@p:id", "attribute::attribute(p:missing)|attribute::attribute(p:id)"}, delimiter = '|')
+  @CsvSource(value = {"@missing|@id", "attribute::attribute(missing)|attribute::attribute(id)", "@p:missing|@p:id",
+      "attribute::attribute(p:missing)|attribute::attribute(p:id)"}, delimiter = '|')
   void localNameMissDoesNotLoadDescendantNamespaces(final String missingStep, final String matchingStep)
       throws Exception {
     final StringBuilder xml =
@@ -100,8 +100,7 @@ final class EmptyAttributeAxisWorkBudgetTest {
         final StringWriter output = new StringWriter();
         try (final PrintWriter writer = new PrintWriter(output)) {
           new Query(chain, "xquery version \"1.0\"; declare namespace p='urn:root'; "
-              + "declare variable $root external; count($root/" + step + ")")
-              .serialize(context, writer);
+              + "declare variable $root external; count($root/" + step + ")").serialize(context, writer);
         }
         return output.toString();
       });
