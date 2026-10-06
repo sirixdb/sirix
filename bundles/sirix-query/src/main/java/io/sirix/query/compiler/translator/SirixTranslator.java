@@ -176,7 +176,8 @@ public class SirixTranslator extends TopDownTranslator {
     final Expr translated = super.anyExpr(node);
     return Boolean.TRUE.equals(node.getProperty(LetMaterializationStage.MATERIALIZE))
         ? new MaterializeExpr(translated, (QNm[]) node.getProperty(LetMaterializationStage.GLOBAL_DEFAULTS),
-            node.checkProperty(LetMaterializationStage.NATIVE_STORE))
+            new ConjunctInputs(new QNm[0], (QNm[]) node.getProperty(LetMaterializationStage.CAPTURED), new QNm[0],
+                table, node.checkProperty(LetMaterializationStage.NATIVE_STORE)))
         : translated;
   }
 

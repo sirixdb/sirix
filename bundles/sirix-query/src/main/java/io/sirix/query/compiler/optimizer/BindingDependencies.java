@@ -61,8 +61,14 @@ abstract class BindingDependencies extends ScopeWalker {
         ? Bits.FS_DOT
         : (QNm) node.getValue();
     final Var variable = findScope(node).resolve(name);
+    if (parameter(node, name, variable == null
+        ? null
+        : variable.scope.getNode())) {
+      captured.add(name);
+      return true;
+    }
     if (variable == null) {
-      return collectUnresolved(node, name, candidate, inputs, captured, defaults, visited);
+      return collectUnresolved(name, candidate, inputs, captured, defaults, visited);
     }
     final AST binding = variable.scope.getNode();
     if (binding.getType() == XQ.LetBind || binding.getType() == XQ.ForBind) {
@@ -78,12 +84,8 @@ abstract class BindingDependencies extends ScopeWalker {
     return binding.getType() == XQ.Count || withinCandidate(binding, candidate);
   }
 
-  private boolean collectUnresolved(final AST node, final QNm name, final AST candidate, final Set<QNm> inputs,
+  private boolean collectUnresolved(final QNm name, final AST candidate, final Set<QNm> inputs,
       final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
-    if (parameter(node, name)) {
-      captured.add(name);
-      return true;
-    }
     if (inputs != null) {
       inputs.add(name);
     }
@@ -143,8 +145,11 @@ abstract class BindingDependencies extends ScopeWalker {
         && collect(source, candidate, inputs, captured, defaults, visited);
   }
 
-  private static boolean parameter(final AST node, final QNm name) {
+  static boolean parameter(final AST node, final QNm name, final AST binding) {
     for (AST parent = node.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent == binding) {
+        return false;
+      }
       if (parent.getType() == XQ.FunctionDecl || parent.getType() == XQ.InlineFuncItem) {
         for (int i = 0; i < parent.getChildCount(); i++) {
           final AST child = parent.getChild(i);

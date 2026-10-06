@@ -25,6 +25,12 @@ same source proof. Dependency cycles or exhausted proof budgets decline admissio
 
 Updates, unknown calls, user functions without a purity proof, function parameters, external
 variables, unresolved context items and clock/timezone calls are conservatively excluded.
+Named and inline function parameters are distinguished from same-named globals before lookup,
+including dependencies reached through aliases. Captured outer let and for values are checked
+at each binding using the existing scalar-input guard: only empty or atomic values permit
+materialization. Opaque sequences, objects and arrays retain evaluation per reference without
+inspecting their fields. Global-default proofs exclude constructors and stored composite reads,
+including those reached through aliases, because their values may have escaped to a consumer.
 Caller bindings can override even non-external global declarations in Brackit. Immutable metadata
 records the global defaults used by each proof; the materializing expression checks for overrides
 once when that binding evaluates and leaves an overridden source lazy. External declarations,

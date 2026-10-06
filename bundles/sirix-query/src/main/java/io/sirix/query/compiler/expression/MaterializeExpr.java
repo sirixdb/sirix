@@ -8,22 +8,21 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.ExprUtil;
 import java.util.Objects;
-import io.sirix.query.json.BasicJsonDBStore;
 
 /** Fully consumes a proven-pure let initializer once for each evaluation of its binding. */
 public final class MaterializeExpr implements Expr {
   private static final QNm[] NO_GLOBALS = new QNm[0];
   private final Expr source;
   private final QNm[] globalDefaults;
-  private final boolean nativeStore;
+  private final ConjunctInputs inputs;
 
   public MaterializeExpr(final Expr source) {
-    this(source, NO_GLOBALS, false);
+    this(source, NO_GLOBALS, new ConjunctInputs(NO_GLOBALS, NO_GLOBALS, NO_GLOBALS, null, false));
   }
 
-  public MaterializeExpr(final Expr source, final QNm[] globalDefaults, final boolean nativeStore) {
+  public MaterializeExpr(final Expr source, final QNm[] globalDefaults, final ConjunctInputs inputs) {
     this.source = Objects.requireNonNull(source);
-    this.nativeStore = nativeStore;
+    this.inputs = Objects.requireNonNull(inputs);
     Objects.requireNonNull(globalDefaults);
     this.globalDefaults = globalDefaults.length == 0
         ? NO_GLOBALS
@@ -37,8 +36,7 @@ public final class MaterializeExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext context, final Tuple tuple) {
-    // Only the stock store guarantees the read-only document/field behavior used by the proof.
-    if (nativeStore && !(context.getJsonItemStore() instanceof BasicJsonDBStore)) {
+    if (!inputs.admit(context, tuple)) {
       return source.evaluate(context, tuple);
     }
     // DeclVariable gives caller bindings precedence even over non-external declarations.

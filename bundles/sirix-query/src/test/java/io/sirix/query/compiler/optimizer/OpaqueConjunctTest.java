@@ -203,7 +203,7 @@ final class OpaqueConjunctTest {
   }
 
   static Stream<Arguments> parameterPaths() {
-    return Stream.of("scalar", "object", "alias", "local-shadow", "inline")
+    return Stream.of("scalar", "object", "alias", "local-shadow", "inline", "inline-outer-local")
                  .flatMap(shape -> Stream.of(false, true).map(cheap -> Arguments.of(shape, cheap)));
   }
 
@@ -229,8 +229,10 @@ final class OpaqueConjunctTest {
             : shape.equals("local-shadow")
                 ? "let $input := 0 return " + predicate
                 : predicate;
-        final String text = "declare variable $input external; declare variable $c := 0; " + (shape.equals("inline")
-            ? "let $f := function($c) { " + body + " } return $f($input)"
+        final String text = "declare variable $input external; declare variable $c := 0; " + (shape.startsWith("inline")
+            ? (shape.equals("inline-outer-local")
+                ? "let $c := 0 "
+                : "") + "let $f := function($c) { " + body + " } return $f($input)"
             : "declare function local:f($c) { " + body + " }; local:f($input)");
         assertEquals("true", serialize(chain, context, text));
         assertEquals(2, reads.scalar);
