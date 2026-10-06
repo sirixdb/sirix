@@ -19,11 +19,8 @@ import java.util.Comparator;
  * regarding the document order.
  * </p>
  * <p>
- * The signature is:
+ * Registered signatures are defined in {@link XMLFun}.
  * </p>
- * <ul>
- * <li><code>sdb:sort($sequence as node()*) as node()*</code></li>
- * </ul>
  *
  * @author Johannes Lichtenberger
  *

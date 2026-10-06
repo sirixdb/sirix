@@ -64,13 +64,11 @@ import java.util.stream.Collectors;
 
 /**
  * <p>
- * Function for diffing two revisions of a resource in a collection/database. The Supported
- * signature is:
+ * Function for diffing two revisions of an XML resource in a collection/database.
  * </p>
- *
- * <pre>
- * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string</code>
- * </pre>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -78,7 +76,7 @@ import java.util.stream.Collectors;
 public final class Diff extends AbstractFunction implements DiffObserver {
 
   /**
-   * Sort by document order name.
+   * Diff function name.
    */
   public final static QNm DIFF = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "diff");
 
