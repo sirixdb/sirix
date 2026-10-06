@@ -10,11 +10,9 @@ import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
-import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.Stream;
-import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.node.TemporalNodeCollection;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
@@ -22,8 +20,6 @@ import io.brackit.query.jdm.type.ElementType;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.parser.DocumentParser;
-import io.brackit.query.node.parser.NodeStreamSubtreeParser;
-import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
@@ -34,6 +30,7 @@ import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 
 /**
@@ -101,7 +98,7 @@ public final class Load extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+      final String resName = FunUtil.getString(args, 1, "resName", null, null, false);
       final Sequence resources = args[2];
       if (resources == null)
         throw new QueryException(new QNm("No sequence of resources specified!"));
@@ -123,12 +120,11 @@ public final class Load extends AbstractFunction {
       if (createNew) {
         coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
       } else {
-        try {
-          coll = store.lookup(collName);
-          add(coll, resName, resources, commitMessage, commitTimesstamp);
-        } catch (final DocumentException e) {
-          // collection does not exist
+        coll = store.lookup(collName);
+        if (coll == null) {
           coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
+        } else {
+          add(coll, resName, resources, commitMessage, commitTimesstamp);
         }
       }
 
@@ -139,132 +135,39 @@ public final class Load extends AbstractFunction {
   }
 
   private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
-    if (resources instanceof final Atomic res) {
-      coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())), commitMessage,
-          commitTimestamp);
-    } else {
-      try (ParserStream parsers = new ParserStream(resources)) {
-        for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          coll.add(resName, parser);
-        }
+      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
+    try (final ParserStream parsers = new ParserStream(resources)) {
+      long resourceNumber = resName == null
+          ? coll.getDocumentCount() + 1
+          : 0;
+      for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
+        final String resourceName = resName == null
+            ? "resource" + resourceNumber++
+            : resName;
+        coll.add(resourceName, parser, commitMessage, commitTimestamp);
       }
     }
     return coll;
   }
 
   private static XmlDBCollection create(final BasicXmlDBStore store, final String collName, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
+      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
     if (resources instanceof Atomic res) {
-      return store.create(collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())),
-          commitMessage, commitTimestamp);
+      return store.create(collName, resName, parser(res), commitMessage, commitTimestamp);
     } else {
       return store.create(collName, new ParserStream(resources));
     }
   }
 
-  private static class StoreParser implements NodeSubtreeParser {
-
-    private final NodeStreamSubtreeParser parser;
-    private final boolean intercept;
-
-    public StoreParser(final Node<?> node) {
-      parser = new NodeStreamSubtreeParser(node.getSubtree());
-      intercept = (node.getKind() != Kind.DOCUMENT);
-    }
-
-    @Override
-    public void parse(NodeSubtreeHandler handler) {
-      if (intercept) {
-        handler = new InterceptorHandler(handler);
+  private static NodeSubtreeParser parser(final Atomic resource) {
+    final String uri = resource.stringValue();
+    return handler -> {
+      try (final InputStream input = URIHandler.getInputStream(uri)) {
+        new DocumentParser(input).parse(handler);
+      } catch (final IOException e) {
+        throw new DocumentException(e);
       }
-      parser.parse(handler);
-    }
-  }
-
-  private static class InterceptorHandler implements NodeSubtreeHandler {
-    private final NodeSubtreeHandler handler;
-
-    public InterceptorHandler(final NodeSubtreeHandler handler) {
-      this.handler = handler;
-    }
-
-    @Override
-    public void beginFragment() {
-      handler.beginFragment();
-      handler.startDocument();
-    }
-
-    @Override
-    public void endFragment() {
-      handler.endDocument();
-      handler.endFragment();
-    }
-
-    @Override
-    public void startDocument() {
-      handler.startDocument();
-    }
-
-    @Override
-    public void endDocument() {
-      handler.endDocument();
-    }
-
-    @Override
-    public void text(final Atomic content) {
-      handler.text(content);
-    }
-
-    @Override
-    public void comment(final Atomic content) {
-      handler.comment(content);
-    }
-
-    @Override
-    public void processingInstruction(final QNm target, final Atomic content) {
-      handler.processingInstruction(target, content);
-    }
-
-    @Override
-    public void startMapping(final String prefix, final String uri) {
-      handler.startMapping(prefix, uri);
-    }
-
-    @Override
-    public void endMapping(final String prefix) {
-      handler.endMapping(prefix);
-    }
-
-    @Override
-    public void startElement(final QNm name) {
-      handler.startElement(name);
-    }
-
-    @Override
-    public void endElement(final QNm name) {
-      handler.endElement(name);
-    }
-
-    @Override
-    public void attribute(final QNm name, final Atomic value) {
-      handler.attribute(name, value);
-    }
-
-    @Override
-    public void begin() {
-      handler.begin();
-    }
-
-    @Override
-    public void end() {
-      handler.end();
-    }
-
-    @Override
-    public void fail() {
-      handler.fail();
-    }
+    };
   }
 
   private static class ParserStream implements Stream<NodeSubtreeParser> {
@@ -281,8 +184,8 @@ public final class Load extends AbstractFunction {
         if (i == null) {
           return null;
         }
-        if (i instanceof Node<?> n) {
-          return new StoreParser(n);
+        if (i instanceof Atomic resource) {
+          return parser(resource);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
               "Cannot create subtree parser for item of type: %s", i.itemType());

@@ -315,10 +315,8 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
 
       wtx.commit(commitMessage, commitTimestamp);
 
-      final var xmlDBNode = new XmlDBNode(wtx, this);
-      documentDataToXmlDBNodes.put(new DocumentData(resourceName, 1), xmlDBNode);
-      instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
-      return xmlDBNode;
+      // Historical caches must use revision-specific readers, never the mutable writer.
+      return new XmlDBNode(wtx, this);
     } catch (final Exception e) {
       wtx.close();
       resource.close();
