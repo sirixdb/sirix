@@ -36,7 +36,7 @@ import io.brackit.query.node.parser.NavigationalSubtreeProcessor;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeListener2HandlerAdapter;
 import io.brackit.query.node.parser.NodeSubtreeParser;
-import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -1488,15 +1488,20 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
     // Only the standalone root needs inherited bindings. Nearest declarations win,
     // including default-namespace undeclarations, without changing stored scopes.
-    final Int2ObjectLinkedOpenHashMap<String> namespaces = new Int2ObjectLinkedOpenHashMap<>(rtx.getNamespaceCount());
+    final Object2ObjectLinkedOpenHashMap<String, String> namespaces =
+        new Object2ObjectLinkedOpenHashMap<>(rtx.getNamespaceCount());
     try {
       do {
         final long ownerKey = rtx.getNodeKey();
         for (int i = 0, count = rtx.getNamespaceCount(); i < count; i++) {
           rtx.moveToNamespace(i);
           final int prefixKey = rtx.getPrefixKey();
-          if (!namespaces.containsKey(prefixKey)) {
-            namespaces.put(prefixKey, rtx.getValue());
+          // Name dictionaries depend on node kind, so decode on the namespace node.
+          final String prefix = prefixKey == -1
+              ? ""
+              : rtx.nameForKey(prefixKey);
+          if (!namespaces.containsKey(prefix)) {
+            namespaces.put(prefix, rtx.getValue());
           }
           rtx.moveTo(ownerKey);
         }
@@ -1510,12 +1515,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       @Override
       protected void notifyStartElement(final AbstractTemporalNode<XmlDBNode> node) {
         if (node == XmlDBNode.this) {
-          final var iterator = namespaces.int2ObjectEntrySet().fastIterator();
+          final var iterator = namespaces.object2ObjectEntrySet().fastIterator();
           while (iterator.hasNext()) {
             final var namespace = iterator.next();
-            handler.startMapping(namespace.getIntKey() == -1
-                ? ""
-                : rtx.nameForKey(namespace.getIntKey()), namespace.getValue());
+            handler.startMapping(namespace.getKey(), namespace.getValue());
           }
           handler.startElement(node.getName());
         } else {
@@ -1529,10 +1532,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           handler.endElement(node.getName());
           final var iterator = namespaces.keySet().iterator();
           while (iterator.hasNext()) {
-            final int prefixKey = iterator.nextInt();
-            handler.endMapping(prefixKey == -1
-                ? ""
-                : rtx.nameForKey(prefixKey));
+            handler.endMapping(iterator.next());
           }
         } else {
           super.notifyEndElement(node);

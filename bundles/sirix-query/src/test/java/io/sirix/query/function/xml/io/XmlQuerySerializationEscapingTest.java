@@ -116,6 +116,45 @@ final class XmlQuerySerializationEscapingTest {
             + "<reset xmlns='' xmlns:p='urn:nested'><p:leaf/></reset><p:leaf/></p:child></root>");
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void fileImportedDocumentKeepsUnusedAndAttributeOnlyPrefixes(final VersioningType versioning) throws Exception {
+    assertFileImportedNamespacePrefixes(versioning, false);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void fileImportedSubtreeKeepsUnusedAndAttributeOnlyPrefixes(final VersioningType versioning) throws Exception {
+    assertFileImportedNamespacePrefixes(versioning, true);
+  }
+
+  private void assertFileImportedNamespacePrefixes(final VersioningType versioning, final boolean detached)
+      throws Exception {
+    final String collection = "namespace-prefixes";
+    final String input = "<root xmlns='urn:default' xmlns:unused='urn:unused' xmlns:q='urn:attribute'"
+        + " q:value='plain'><child/></root>";
+    final Path file = directory.resolve(collection + ".xml");
+    Files.writeString(file, input, StandardCharsets.UTF_8);
+    serializeBrackit(versioning, "xml:load('" + collection + "','resource1','" + file.toUri() + "')");
+    final Element expectedRoot = parse(input).getDocumentElement();
+    final Element expected = detached
+        ? (Element) expectedRoot.getFirstChild()
+        : expectedRoot;
+    final String output = serializeBrackit(versioning, expression(collection, detached));
+    final Element actual = parse(output).getDocumentElement();
+    assertElement(expected, actual, false);
+    assertEquals("urn:unused", actual.lookupNamespaceURI("unused"));
+    assertEquals("urn:attribute", actual.lookupNamespaceURI("q"));
+    try (final var store = store(versioning)) {
+      final var reparsed = store.create(collection + "-reparsed", "resource1", new DocumentParser(output))
+                                .getDocument("resource1")
+                                .getFirstChild();
+      assertEquals("urn:default", reparsed.getScope().defaultNS());
+      assertEquals("urn:unused", reparsed.getScope().resolvePrefix("unused"));
+      assertEquals("urn:attribute", reparsed.getScope().resolvePrefix("q"));
+    }
+  }
+
   private void assertFileImportedSubtree(final VersioningType versioning, final String collection,
       final String input) throws Exception {
     final Path file = directory.resolve(collection + ".xml");
