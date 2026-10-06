@@ -1629,6 +1629,31 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public int getRevisionNumber(final Instant pointInTime, final int revisionCeiling) {
+    requireNonNull(pointInTime);
+    checkArgument(revisionCeiling >= 0, "Revision ceiling must not be negative.");
+    assertAccess(revisionCeiling);
+
+    final RevisionIndex index = storage.getRevisionIndexHolder().get();
+    final long timestamp = pointInTime.toEpochMilli();
+    if (timestamp >= index.getTimestampMillis(revisionCeiling)) {
+      return revisionCeiling;
+    }
+
+    int low = 0;
+    int high = revisionCeiling - 1;
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+      if (index.getTimestampMillis(mid) <= timestamp) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return Math.max(0, high);
+  }
+
+  @Override
   public Optional<User> getUser() {
     assertNotClosed();
 

@@ -59,13 +59,12 @@ public final class OpenRevisions extends AbstractFunction {
 
     final var resourceSession = col.getDatabase().beginResourceSession(expResName);
     final int revisionCeiling = resourceSession.getMostRecentRevisionNumber();
-    final int endRevision = Math.min(revisionCeiling, resourceSession.getRevisionNumber(endPointInTime));
+    final int endRevision = resourceSession.getRevisionNumber(endPointInTime, revisionCeiling);
     if (endRevision == 0) {
       return null;
     }
 
-    final int startRevision =
-        Math.max(1, Math.min(revisionCeiling, resourceSession.getRevisionNumber(startPointInTime)));
+    final int startRevision = Math.max(1, resourceSession.getRevisionNumber(startPointInTime, revisionCeiling));
 
     final var documentNodes = new ArrayList<XmlDBNode>(endRevision - startRevision + 1);
 

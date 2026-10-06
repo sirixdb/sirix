@@ -395,6 +395,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   int getRevisionNumber(Instant pointInTime);
 
+  int getRevisionNumber(Instant pointInTime, int revisionCeiling);
+
   /**
    * Safely close resource session and immediately release all resources. If there are running
    * transactions, they will automatically be closed. Uncommitted write transactions are rolled back
