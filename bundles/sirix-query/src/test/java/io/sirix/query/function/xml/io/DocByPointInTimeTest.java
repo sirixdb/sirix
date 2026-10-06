@@ -51,6 +51,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -80,7 +81,8 @@ public final class DocByPointInTimeTest extends TestCase {
     final Path database = XmlTestHelper.PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store =
+        BasicXmlDBStore.newBuilder().location(Objects.requireNonNull(database.getParent())).build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
@@ -123,9 +125,10 @@ public final class DocByPointInTimeTest extends TestCase {
 
     final Instant firstCommit = Instant.parse("2001-01-01T00:00:00Z");
     final Path database = XmlTestHelper.PATHS.PATH2.getFile();
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store =
+        BasicXmlDBStore.newBuilder().location(Objects.requireNonNull(database.getParent())).build()) {
       final XmlDBCollection collection =
-          store.create(database.toString(), new DocumentParser("<root/>"), null, firstCommit);
+          store.create(database.toString(), new DocumentParser("<root/>"), "", firstCommit);
       final XmlResourceSession session = collection.getDocument("resource1").getTrx().getResourceSession();
       try (final var writer = session.beginNodeTrx()) {
         writer.commit(null, Instant.parse("2002-01-01T00:00:00Z"));

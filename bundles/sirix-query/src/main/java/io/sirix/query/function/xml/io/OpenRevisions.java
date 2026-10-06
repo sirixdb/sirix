@@ -14,6 +14,7 @@ import io.brackit.query.sequence.ItemSequence;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,7 +35,7 @@ public final class OpenRevisions extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public @Nullable Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
