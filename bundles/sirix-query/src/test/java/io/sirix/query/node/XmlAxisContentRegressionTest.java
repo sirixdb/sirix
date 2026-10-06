@@ -13,12 +13,10 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.update.op.ReplaceElementContentOp;
-import io.brackit.query.update.op.UpdateOp;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
-import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.settings.VersioningType;
 import java.nio.file.Path;
 import java.io.StringWriter;
@@ -31,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 final class XmlAxisContentRegressionTest {
   private static final String XML =
@@ -150,28 +150,54 @@ final class XmlAxisContentRegressionTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void writerBackedContentReplacementSkipsDetachedTargets(final VersioningType versioning) {
-    try (final BasicXmlDBStore store = newStore(versioning)) {
-      final BrackitQueryContext context = new BrackitQueryContext();
-      final XmlDBCollection collection = store.create("writer-targets", new DocumentParser(XML));
-      final XmlDBNode original = collection.getDocument(1);
-      final long rootKey = original.getFirstChild().getNodeKey();
-      final long targetKey = original.getFirstChild().getFirstChild().getNodeKey();
-      try (final XmlNodeTrx trx = original.getTrx().getResourceSession().beginNodeTrx()) {
-        assertTrue(trx.moveTo(targetKey));
-        final XmlDBNode target = new XmlDBNode(trx, collection);
-        final XmlDBNode child = target.getFirstChild().getNextSibling();
-        new SirixReplaceValue(new Str("new"), target).evaluateToItem(context, null);
-        new SirixReplaceValue(new Str("detached"), child).evaluateToItem(context, null);
-        for (final UpdateOp operation : context.getUpdateList().list()) {
-          operation.apply();
-        }
-        child.delete();
-        assertFalse(trx.isClosed());
-        trx.commit();
-      }
-      assertDocument(collection, 2, "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", rootKey, targetKey);
-      assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
-    }
+    checkWriterUpdate(versioning,
+        "(replace value of node r/target with 'new', delete nodes r/target/node())",
+        "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedDescendantReplacementCompletesBookkeeping(final VersioningType versioning) {
+    checkWriterUpdate(versioning,
+        "(replace value of node r/target with 'new', replace value of node r/target/b with 'detached')",
+        "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedAncestorReplacementDiscardsEarlierTextBoundaries(final VersioningType versioning) {
+    checkWriterUpdate(versioning,
+        "(replace value of node r/target/b with 'descendant', replace value of node r/target with 'new')",
+        "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedNodeReplacementSkipsDetachedContent(final VersioningType versioning) {
+    checkWriterUpdate(versioning,
+        "(replace node r/target with <new/>, replace value of node r/target with 'detached')",
+        "<r keep=\"yes\"><new xmlns=\"\"/><tail/></r>", false);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedSingleDeleteCommitsAutomatically(final VersioningType versioning) {
+    checkWriterUpdate(versioning, "delete node r/target", "<r keep=\"yes\"><tail/></r>", false);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedNestedDeletesCommitAutomatically(final VersioningType versioning) {
+    checkWriterUpdate(versioning, "(delete node r/target, delete node r/target/b)",
+        "<r keep=\"yes\"><tail/></r>", false);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerBackedPropertyUpdatesOfDeletedTargetsRemainNoOps(final VersioningType versioning) {
+    checkWriterUpdate(versioning,
+        "(replace value of node r/target with 'new', replace value of node r/target/b with 'detached', delete node r/target/b)",
+        "<r keep=\"yes\"><target a=\"v\">new</target><tail/></r>", true);
   }
 
   @ParameterizedTest
@@ -217,10 +243,16 @@ final class XmlAxisContentRegressionTest {
             assertEquals(0, trx.getAttributeCount());
           }
           if (writerBacked) {
-            for (final Executable read : new Executable[] {target::getKind, target::getName, target::getValue,
-                target::getParent, target::getFirstChild, target::getLastChild, target::getChildren,
-                target::getSubtree, target::getAttributes, target::getNextSibling, target::getPreviousSibling,
-                target::getTrx, target::getRtx}) {
+            assertEquals(Kind.ELEMENT, target.getKind());
+            assertSame(trx, target.getTrx());
+            assertNull(target.getParent());
+            assertNull(target.getFirstChild());
+            assertNull(target.getLastChild());
+            assertNull(target.getNextSibling());
+            assertNull(target.getPreviousSibling());
+            assertEquals(survivorKey, trx.getNodeKey());
+            for (final Executable read : new Executable[] {target::getName, target::getValue, target::getChildren,
+                target::getSubtree, target::getAttributes, target::getRtx}) {
               assertThrows(DocumentException.class, read);
               assertEquals(survivorKey, trx.getNodeKey());
             }
@@ -376,6 +408,33 @@ final class XmlAxisContentRegressionTest {
 
   private void checkUpdate(final VersioningType versioning, final String update, final String expected) {
     checkUpdate(versioning, update, expected, true);
+  }
+
+  private void checkWriterUpdate(final VersioningType versioning, final String update, final String expected,
+      final boolean retainsTarget) {
+    try (final BasicXmlDBStore store = newStore(versioning);
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
+      final XmlDBCollection collection = store.create("writer-update", new DocumentParser(XML));
+      final XmlDBNode original = collection.getDocument(1);
+      final long rootKey = original.getFirstChild().getNodeKey();
+      final long targetKey = original.getFirstChild().getFirstChild().getNodeKey();
+      final XmlResourceSession session = original.getTrx().getResourceSession();
+      try (final XmlNodeTrx trx = session.beginNodeTrx()) {
+        final XmlDBNode document = new XmlDBNode(trx, collection);
+        context.setContextItem(document);
+        new Query(chain, update).execute(context);
+        assertTrue(trx.isClosed());
+        assertSame(trx, document.getTrx());
+        assertFalse(session.hasRunningNodeWriteTrx());
+        assertTrue(context.getUpdateList().list().isEmpty());
+        assertEquals(2, session.getMostRecentRevisionNumber());
+      }
+      assertDocument(collection, 2, expected, rootKey, retainsTarget
+          ? targetKey
+          : -1);
+      assertDocument(collection, 1, XML.replace("'", "\"").replace("<!--note-->", "<!-- note -->"), rootKey, targetKey);
+    }
   }
 
   private void checkUpdate(final VersioningType versioning, final String update, final String expected,

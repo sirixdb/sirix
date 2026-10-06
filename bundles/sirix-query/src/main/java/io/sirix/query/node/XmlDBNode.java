@@ -2,6 +2,7 @@ package io.sirix.query.node;
 
 import io.sirix.utils.ToStringHelper;
 import io.sirix.axis.AbstractTemporalAxis;
+import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
@@ -129,7 +130,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isSelfOf(final Node<?> other) {
-    moveRtx();
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       return node.nodeKey == nodeKey && isSameDocument(node);
@@ -177,8 +177,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isDescendantOf(node.deweyID);
         } else {
-          while (rtx.moveToParent()) {
-            if (rtx.getNodeKey() == node.nodeKey) {
+          final long otherKey = node.nodeKey;
+          for (final var axis = new AncestorAxis(rtx); axis.hasNext();) {
+            if (axis.nextLong() == otherKey) {
               return true;
             }
           }
@@ -195,7 +196,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   @Override
   public XmlNodeReadOnlyTrx getTrx() {
-    moveRtx();
+    if (!rtx.isClosed()) {
+      rtx.moveTo(nodeKey);
+    }
     return rtx;
   }
 
@@ -285,9 +288,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isPrecedingSiblingOf(node.deweyID);
         } else {
+          final long otherKey = node.nodeKey;
           while (rtx.hasRightSibling()) {
             rtx.moveToRightSibling();
-            if (rtx.getNodeKey() == node.nodeKey) {
+            if (rtx.getNodeKey() == otherKey) {
               return true;
             }
           }
@@ -306,9 +310,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isFollowingSiblingOf(node.deweyID);
         } else {
+          final long otherKey = node.nodeKey;
           while (rtx.hasLeftSibling()) {
             rtx.moveToLeftSibling();
-            if (rtx.getNodeKey() == node.nodeKey) {
+            if (rtx.getNodeKey() == otherKey) {
               return true;
             }
           }
@@ -434,9 +439,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Kind getKind() {
-    moveRtx();
+    if (!rtx.isClosed()) {
+      rtx.moveTo(nodeKey);
+    }
     // $CASES-OMITTED$
-    return switch (rtx.getKind()) {
+    return switch (kind) {
       case XML_DOCUMENT -> Kind.DOCUMENT;
       case ELEMENT -> Kind.ELEMENT;
       case TEXT -> Kind.TEXT;
@@ -550,8 +557,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getParent() {
-    moveRtx();
-    if (rtx.hasParent()) {
+    if (rtx.moveTo(nodeKey) && rtx.hasParent()) {
       rtx.moveToParent();
       return new XmlDBNode(rtx, collection);
     }
@@ -560,8 +566,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getFirstChild() {
-    moveRtx();
-    if (rtx.hasFirstChild()) {
+    if (rtx.moveTo(nodeKey) && rtx.hasFirstChild()) {
       rtx.moveToFirstChild();
       return new XmlDBNode(rtx, collection);
     }
@@ -570,8 +575,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getLastChild() {
-    moveRtx();
-    if (rtx.hasLastChild()) {
+    if (rtx.moveTo(nodeKey) && rtx.hasLastChild()) {
       rtx.moveToLastChild();
       return new XmlDBNode(rtx, collection);
     }
@@ -599,8 +603,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getNextSibling() {
-    moveRtx();
-    if (rtx.hasRightSibling()) {
+    if (rtx.moveTo(nodeKey) && rtx.hasRightSibling()) {
       rtx.moveToRightSibling();
       return new XmlDBNode(rtx, collection);
     }
@@ -609,8 +612,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getPreviousSibling() {
-    moveRtx();
-    if (rtx.hasLeftSibling()) {
+    if (rtx.moveTo(nodeKey) && rtx.hasLeftSibling()) {
       rtx.moveToLeftSibling();
       return new XmlDBNode(rtx, collection);
     }
