@@ -6,10 +6,12 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.Bits;
 import io.brackit.query.compiler.optimizer.walker.Walker;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.index.IndexType;
+import io.sirix.index.AtomicUtil;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.function.jn.io.Doc;
 import io.sirix.query.function.jn.io.DocByPointInTime;
@@ -46,6 +48,9 @@ public final class JsonCASSourceStep extends Walker {
     } else {
       return node;
     }
+    if (variable == null && dependsOnSequenceFocus(predicate)) {
+      return node;
+    }
     if (source.getType() != XQ.ArrayAccess || source.getChildCount() != 2
         || source.getChild(1).getType() != XQ.SequenceExpr || source.getChild(1).getChildCount() != 0) {
       return node;
@@ -72,6 +77,9 @@ public final class JsonCASSourceStep extends Walker {
       return node;
     }
     final Atomic atomic = (Atomic) equality.getChild(2).getValue();
+    if (!AtomicUtil.isExactIntegerProbe(atomic)) {
+      return node;
+    }
     final var path = new Path<QNm>();
     for (final QNm name : names) {
       path.childObjectField(name);
@@ -83,13 +91,10 @@ public final class JsonCASSourceStep extends Walker {
     }
     // Borrow the store-owned session. Historical availability is checked again at execution.
     final var session = collection.getDatabase().beginResourceSession(resource.stringValue());
-    final Type type = atomic.type().instanceOf(Type.INR)
-        ? Type.INR
-        : atomic.type();
-    if (session.getRtxIndexController(session.getMostRecentRevisionNumber())
-               .getIndexes()
-               .findCASIndex(path, type)
-               .isEmpty()) {
+    final Type type = Type.INR;
+    final var definition = session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                                  .getIndexes().findCASIndex(path, type);
+    if (definition.isEmpty() || !definition.get().hasNumericValuesOnly()) {
       return node;
     }
     final AST index = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
@@ -99,6 +104,7 @@ public final class JsonCASSourceStep extends Walker {
     index.setProperty("indexType", IndexType.CAS);
     index.setProperty("casSourcePath", path);
     index.setProperty("casSourceType", type);
+    index.setProperty("casSourceFields", names.toArray(QNm[]::new));
     index.setProperty("atomic", atomic);
     index.setProperty("revisionByInstant", DocByPointInTime.OPEN.equals(document.getValue()));
     index.addChild(document.getChildCount() == 3
@@ -107,6 +113,19 @@ public final class JsonCASSourceStep extends Walker {
     index.addChild(source.copyTree());
     node.replaceChild(sourceIndex, index);
     return node;
+  }
+
+  private static boolean dependsOnSequenceFocus(final AST node) {
+    if (node.getType() == XQ.DynamicFunctionCallExpr || Bits.FS_POSITION.equals(node.getValue())
+        || Bits.FS_LAST.equals(node.getValue())) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (dependsOnSequenceFocus(node.getChild(i))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static AST equality(final AST node, final Object variable) {

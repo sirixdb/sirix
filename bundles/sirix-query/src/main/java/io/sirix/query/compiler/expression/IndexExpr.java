@@ -33,6 +33,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.node.NodeKind;
 import io.sirix.index.IndexDef;
+import io.sirix.index.AtomicUtil;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.cas.CASFilter;
@@ -45,6 +46,8 @@ import io.sirix.query.compiler.optimizer.walker.json.QueryPathSegment;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonItemFactory;
 import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.json.JsonDBObject;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -115,7 +118,7 @@ public final class IndexExpr implements Expr {
       final var indexController = resourceSession.getRtxIndexController(resolvedRevision);
       for (final IndexDef expected : indexDefsToPaths.keySet()) {
         final IndexDef actual = indexController.getIndexes().getIndexDef(expected.getID(), expected.getType());
-        if (actual == null || !actual.hasSameDefinition(expected)) {
+        if (actual == null || !actual.hasSameDefinition(expected) || !supportsNumericQuery(actual)) {
           rtx.close();
           return fallback.evaluate(ctx, tuple);
         }
@@ -299,6 +302,28 @@ public final class IndexExpr implements Expr {
     }
   }
 
+  private boolean supportsNumericQuery(final IndexDef definition) {
+    final Type type = definition.getContentType();
+    if (definition.getType() != IndexType.CAS || !type.isNumeric()) {
+      return true;
+    }
+    if (!definition.hasNumericValuesOnly()) {
+      return false;
+    }
+    if (!type.instanceOf(Type.INR)) {
+      return definition.hasCompleteNumericCoverage();
+    }
+    if (!AtomicUtil.isExactIntegerProbe((Atomic) properties.get("atomic"))) {
+      return false;
+    }
+    final String comparison = (String) properties.get("comparator");
+    if ("ValueCompEQ".equals(comparison) || "GeneralCompEQ".equals(comparison)) {
+      return true;
+    }
+    final Atomic upper = (Atomic) properties.get("upperBoundAtomic");
+    return definition.hasCompleteNumericCoverage() && (upper == null || AtomicUtil.isExactIntegerProbe(upper));
+  }
+
   private int resolveRevision(final SirixQueryContext context, final Tuple tuple, final JsonResourceSession session) {
     if (revisionOperand == null) {
       return revision == -1
@@ -328,18 +353,23 @@ public final class IndexExpr implements Expr {
     final Type type = (Type) properties.get("casSourceType");
     final var controller = session.getRtxIndexController(revisionNumber);
     final var definition = controller.getIndexes().findCASIndex(path, type);
-    if (definition.isEmpty()) {
+    if (definition.isEmpty() || !definition.get().hasNumericValuesOnly()) {
       return fallback.evaluate(context, tuple);
     }
     final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revisionNumber);
     boolean retained = false;
     try {
+      final long arrayKey = resolveSourceArray(rtx, collection);
+      if (arrayKey < 0) {
+        rtx.close();
+        return fallback.evaluate(context, tuple);
+      }
+      final boolean deweyIDs = session.getResourceConfig().areDeweyIDsStored;
       final Atomic value = (Atomic) properties.get("atomic");
       final CASFilter filter = new CASFilter(Set.of(path), value, SearchMode.EQUAL, new JsonPCRCollector(rtx));
       final Iterator<NodeReferences> references =
           controller.openCASIndex(rtx.getStorageEngineReader(), definition.get(), filter);
       final LongLinkedOpenHashSet keys = new LongLinkedOpenHashSet();
-      long arrayKey = -1;
       while (references.hasNext()) {
         final var postings = references.next().nodeKeyIterator();
         while (postings.hasNext()) {
@@ -348,8 +378,14 @@ public final class IndexExpr implements Expr {
             rtx.moveToParent();
           }
           rtx.moveToParent();
-          keys.add(rtx.getNodeKey());
-          arrayKey = rtx.getParentKey();
+          if (rtx.getParentKey() != arrayKey) {
+            continue;
+          }
+          if (keys.add(rtx.getNodeKey()) && keys.size() == 2 && !deweyIDs
+              && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey)) {
+            rtx.close();
+            return fallback.evaluate(context, tuple);
+          }
         }
       }
       if (keys.isEmpty()) {
@@ -358,7 +394,7 @@ public final class IndexExpr implements Expr {
       final long[] ordered = keys.toLongArray();
       Arrays.sort(ordered);
       if (ordered.length > 1) {
-        if (session.getResourceConfig().areDeweyIDsStored) {
+        if (deweyIDs) {
           final SirixDeweyID[] ids = new SirixDeweyID[ordered.length];
           final int[] positions = new int[ordered.length];
           for (int i = 0; i < ordered.length; i++) {
@@ -371,9 +407,6 @@ public final class IndexExpr implements Expr {
           for (int i = 0; i < ordered.length; i++) {
             ordered[i] = unsorted[positions[i]];
           }
-        } else if (!hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey)) {
-          rtx.close();
-          return fallback.evaluate(context, tuple);
         }
       }
       final Item[] items = new Item[ordered.length];
@@ -390,6 +423,25 @@ public final class IndexExpr implements Expr {
         rtx.close();
       }
     }
+  }
+
+  private long resolveSourceArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+    rtx.moveToDocumentRoot();
+    if (!rtx.moveToFirstChild()) {
+      return -1;
+    }
+    final QNm[] fields = (QNm[]) properties.get("casSourceFields");
+    if (fields.length == 0) {
+      return rtx.isArray() ? rtx.getNodeKey() : -1;
+    }
+    Sequence item = JsonItemFactory.INSTANCE.getSequence(rtx, collection);
+    for (final QNm field : fields) {
+      if (!(item instanceof JsonDBObject object)) {
+        return -1;
+      }
+      item = object.get(field);
+    }
+    return item instanceof JsonDBArray array ? array.getNodeKey() : -1;
   }
 
   private static boolean hasOrderedArrayEvidence(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,

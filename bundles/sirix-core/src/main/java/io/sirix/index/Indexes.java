@@ -162,7 +162,15 @@ public final class Indexes implements Materializable {
    * Returns whether index definitions have been mutated since last serialization or init.
    */
   public boolean isDirty() {
-    return dirty;
+    if (dirty) {
+      return true;
+    }
+    for (final IndexDef definition : indexes) {
+      if (definition.isNumericCoverageDirty()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -170,6 +178,9 @@ public final class Indexes implements Materializable {
    */
   public void clearDirty() {
     dirty = false;
+    for (final IndexDef definition : indexes) {
+      definition.clearNumericCoverageDirty();
+    }
   }
 
   /**

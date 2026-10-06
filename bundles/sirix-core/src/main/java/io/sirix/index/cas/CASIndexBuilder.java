@@ -5,6 +5,7 @@ import io.sirix.api.visitor.VisitResultType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.AtomicUtil;
+import io.sirix.index.IndexDef;
 import io.sirix.index.hot.HOTBulkIndexLoader;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -15,6 +16,7 @@ import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.node.json.ObjectNamedStringNode;
+import io.sirix.node.NodeKind;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
@@ -40,6 +42,7 @@ public final class CASIndexBuilder {
   private final PathSummaryReader pathSummaryReader;
   private final Set<Path<QNm>> paths;
   private final Type type;
+  private final IndexDef definition;
 
   /** Path-class records covered by {@link #paths}, resolved lazily on the first indexed node. */
   private @Nullable LongSet resolvedPCRs;
@@ -53,11 +56,12 @@ public final class CASIndexBuilder {
   private final @Nullable HOTBulkIndexLoader<CASValue> bulkLoader;
 
   public CASIndexBuilder(final HOTIndexWriter<CASValue> indexWriter, final PathSummaryReader pathSummaryReader,
-      final Set<Path<QNm>> paths, final Type type) {
+      final IndexDef definition) {
     this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
+    this.definition = definition;
+    this.paths = definition.getPaths();
     this.indexWriter = indexWriter;
-    this.type = type;
+    this.type = definition.getContentType();
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into
     // it, so an index that already holds entries (a rebuild over a populated definition) keeps
     // the incremental path.
@@ -69,12 +73,12 @@ public final class CASIndexBuilder {
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
     try {
       if (matchesIndexedPath(pathNodeKey)) {
-        final Str strValue = switch (node) {
+        final Atomic strValue = switch (node) {
           case ImmutableValueNode immutableValueNode -> new Str(immutableValueNode.getValue());
-          case ImmutableNumberNode immutableNumberNode -> new Str(String.valueOf(immutableNumberNode.getValue()));
+          case ImmutableNumberNode immutableNumberNode -> AtomicUtil.fromNumber(immutableNumberNode.getValue());
           case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
           // Fused kinds carry primitive values inline.
-          case ObjectNamedNumberNode namedNum -> new Str(String.valueOf(namedNum.getValue()));
+          case ObjectNamedNumberNode namedNum -> AtomicUtil.fromNumber(namedNum.getValue());
           case ObjectNamedBooleanNode namedBool -> new Str(String.valueOf(namedBool.getValue()));
           case ObjectNamedStringNode namedStr ->
             new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING));
@@ -91,9 +95,7 @@ public final class CASIndexBuilder {
         Atomic typedValue = strValue;
         boolean isOfType = false;
         try {
-          if (type != Type.STR) {
-            typedValue = AtomicUtil.toType(strValue, type);
-          }
+          typedValue = AtomicUtil.toIndexType(strValue, definition);
           isOfType = true;
         } catch (final SirixRuntimeException e) {
           LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", strValue, type,
@@ -120,22 +122,41 @@ public final class CASIndexBuilder {
     resolvedPCRs = null;
   }
 
+  public void rejectValue(final long pathNodeKey, final boolean arrayField) {
+    if (!type.isNumeric() || !definition.hasNumericValuesOnly()) {
+      return;
+    }
+    if (matchesIndexedPath(pathNodeKey) || arrayField
+        && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey())) {
+      definition.markNonNumericValue();
+    }
+  }
+
+  public void observePath(final long pathNodeKey, final NodeKind kind) {
+    if (!type.isNumeric() || !definition.hasNumericValuesOnly()) {
+      return;
+    }
+    switch (kind) {
+      case ARRAY, OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_OBJECT, NULL_VALUE, OBJECT_NAMED_NULL ->
+        rejectValue(pathNodeKey, kind == NodeKind.OBJECT_NAMED_ARRAY);
+      default -> { }
+    }
+  }
+
   /**
    * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
-   * drain, which stringifies each value from the same primitives the write path carried. Same path
+   * drain. Same path
    * filter, the same KEEP-the-conversion typing discipline and skip-on-conversion-failure as
    * {@link #process}, and the same bulk-vs-incremental arm.
    */
-  public void add(final Str strValue, final long pathNodeKey, final long nodeKey) {
+  public void add(final Atomic strValue, final long pathNodeKey, final long nodeKey) {
     try {
       if (!matchesIndexedPath(pathNodeKey)) {
         return;
       }
       Atomic typedValue = strValue;
       try {
-        if (type != Type.STR) {
-          typedValue = AtomicUtil.toType(strValue, type);
-        }
+        typedValue = AtomicUtil.toIndexType(strValue, definition);
       } catch (final SirixRuntimeException e) {
         LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", strValue, type, nodeKey, e);
         return;
