@@ -18,6 +18,8 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -393,7 +395,11 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   public JsonDBItem add(final Path file) {
     requireNonNull(file);
 
-    return add(JsonShredder.createFileReader(file), new ArrayObject(new QNm[0], new Sequence[0]));
+    try (final JsonReader reader = JsonShredder.createFileReader(file)) {
+      return add(reader, new ArrayObject(new QNm[0], new Sequence[0]));
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
 }

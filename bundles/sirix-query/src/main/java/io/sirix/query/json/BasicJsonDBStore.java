@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -511,7 +512,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Path path, Object options) {
-    return createCollection(collName, null, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, null, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
@@ -547,12 +552,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path) {
     final var options = new ArrayObject(new QNm[0], new Sequence[0]);
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, optResName, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path, Object options) {
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, optResName, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override

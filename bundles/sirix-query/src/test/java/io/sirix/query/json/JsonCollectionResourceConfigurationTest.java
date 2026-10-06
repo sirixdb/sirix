@@ -10,14 +10,18 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.StringReader;
 import java.nio.file.Files;
@@ -29,10 +33,71 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 class JsonCollectionResourceConfigurationTest {
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2, 3, 4})
+  void pathImportsCloseTheirReadersOnSuccessAndFailure(final int operation) throws Exception {
+    try (final BasicJsonDBStore store = configuredStore(directory, VersioningType.SLIDING_SNAPSHOT, false)) {
+      for (final boolean malformed : new boolean[] {false, true}) {
+        final String name = "collection" + malformed;
+        final JsonDBCollection collection = store.create(name);
+        final Path file = Files.writeString(directory.resolve("input.json"), malformed
+            ? "[\"one\""
+            : "[\"one\"]");
+        try (final JsonReader reader = spy(JsonShredder.createFileReader(file));
+            final MockedStatic<JsonShredder> factory = mockStatic(JsonShredder.class)) {
+          factory.when(() -> JsonShredder.createFileReader(file)).thenReturn(reader);
+          if (malformed) {
+            assertThrows(SirixIOException.class, () -> {
+              if (operation == 0) {
+                collection.add(file);
+              } else {
+                createFromPath(store, name, file, operation);
+              }
+            });
+          } else if (operation == 0) {
+            assertNotNull(collection.add(file));
+          } else {
+            assertEquals(1, createFromPath(store, name, file, operation).getDocumentCount());
+          }
+          verify(reader).close();
+          Files.delete(file);
+        }
+      }
+    }
+  }
+
+  private static JsonDBCollection createFromPath(final BasicJsonDBStore store, final String name, final Path file,
+      final int operation) {
+    final ArrayObject options = new ArrayObject(new QNm[0], new Sequence[0]);
+    return switch (operation) {
+      case 1 -> store.create(name, file);
+      case 2 -> store.create(name, file, options);
+      case 3 -> store.create(name, "resource", file);
+      case 4 -> store.create(name, "resource", file, options);
+      default -> throw new IllegalArgumentException("Unknown path import operation: " + operation);
+    };
+  }
+
+  @Test
+  void callerSuppliedReadersRemainOpen() throws Exception {
+    try (final BasicJsonDBStore store = configuredStore(directory, VersioningType.SLIDING_SNAPSHOT, false);
+        final JsonReader initial = spy(new JsonReader(new StringReader("[\"one\"]")));
+        final JsonReader added = spy(new JsonReader(new StringReader("[\"two\"]")))) {
+      final JsonDBCollection collection = store.create("collection", "seed", initial);
+      assertNotNull(collection.add("added", added));
+      verify(initial, never()).close();
+      verify(added, never()).close();
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
