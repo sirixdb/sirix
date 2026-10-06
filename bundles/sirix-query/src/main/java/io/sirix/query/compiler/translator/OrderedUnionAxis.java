@@ -8,6 +8,11 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Merges forward, document-ordered structural axes sharing one transaction. Descendant plans must
+ * merge before positional predicates consume their streams; sorting afterwards is too late.
+ * Without Dewey IDs, tree links determine order because inserted node keys need not be monotonic.
+ */
 final class OrderedUnionAxis extends AbstractAxis {
   private final Axis first;
   private final Axis second;
@@ -94,6 +99,7 @@ final class OrderedUnionAxis extends AbstractAxis {
     final long firstBranch = firstAncestors.getLong(firstIndex);
     final long secondBranch = secondAncestors.getLong(secondIndex);
     final long parentKey = firstAncestors.getLong(firstIndex + 1);
+    // Ordered operands let the sibling scan resume at the previously emitted branch.
     final int previousIndex = previousAncestors.size() - firstAncestors.size() + firstIndex;
     if (previousIndex >= 0 && previousAncestors.getLong(previousIndex + 1) == parentKey) {
       rtx.moveTo(previousAncestors.getLong(previousIndex));

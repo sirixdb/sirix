@@ -1649,8 +1649,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public int hashCode() {
-    // Must be consistent with equals() which uses isSelfOf()
-    // comparing node key, revision, and resource ID
+    // Omitting database identity only increases collisions; isSameDocument still guards equality.
     return Objects.hash(nodeKey, rtx.getRevisionNumber(), rtx.getResourceSession().getResourceConfig().getID());
   }
 

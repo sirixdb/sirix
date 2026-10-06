@@ -299,7 +299,9 @@ The model captures SirixDB's specific storage architecture:
 cost = pages × IO_COST_PER_PAGE + tuples × CPU_COST_PER_TUPLE
      = (totalNodes / 1024) × 1.0 + totalNodes × 0.01
 ```
-Why is this relatively cheap? SirixDB's keyed trie stores data in document order, so sequential reads benefit from OS prefetching (io_uring). Reading 1000 consecutive pages is much faster than reading 1000 random pages.
+This models the benefit of sequential page access over random fetches. Its locality assumption
+depends on the stored layout; see the [record-key contract](PROJECTION_INDEX_DEEP_DIVE.md#15-glossary)
+before using key order as a proxy for document order.
 
 **Index scan** — looking up records via a HOT (Height Optimized Trie) index:
 ```
