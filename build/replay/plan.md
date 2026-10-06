@@ -895,3 +895,55 @@ Copy improves to 34.16 ms versus 93.66 ms on the primary workload; sparse baseli
 noncompletion is retained rather than replaced with a fabricated comparison. Final
 handoff is the first done gate only; Firstmate must instruct no-mistakes before that
 pipeline starts, and the pipeline owns push. Merge still needs explicit approval.
+
+## Review: anonymous-array PATH membership and boundary hashing (2026-10-06)
+
+The shared move/container-rename notification boundary now dispatches anonymous ARRAY
+records using their own PCR, for old DELETE and final INSERT. The executable regression
+starts with [{"rows":[[1]]},{"rows":[[2]]}], renames the first rows field to archive,
+and also exercises exclusive renames, first-child/right/left-sibling moves, source
+rollback/retry and import failure/retry. Cold source and copied PATH results are checked
+against paths reconstructed from document names and links, including removed paths.
+
+Hash capture is limited to changed boundaries and ancestors. Cross-parent path remapping
+and shared/merged container path classes additionally capture anonymous arrays whose PCR
+is a hash input; exclusive in-place renames retain descendant PCRs. Dewey maintenance
+remains on its existing subtree path. The new deterministic budget independently varies
+16/4096 unchanged descendants across both move directions and array/object renames, with
+ROLLING hashing, Dewey IDs off and path summaries off. It measures hash record reads,
+actual preparations/persists, distinct written document pages, captured records and
+primitive scratch capacity, and checks unchanged descendant records and canonical hashes.
+Correctness coverage also spans all hash modes, versioning types and Dewey/path-summary
+combinations; constant-work assertions apply only when descendant inputs stay unchanged.
+
+Pre-fix mutation verification failed all 80 selected cases: all 48 PATH histories and
+all 32 hashing budgets. Shared rename failed at revision 2 with the archive nested-array
+posting missing; exclusive histories failed after cross-parent moves. Old hashing grew
+from 19–20 to 4099–4100 preparations/captured records, from 76–82 to 16396–16402 reads,
+and from 576–640 to 469512 bytes of scratch growth; large cases wrote five document pages.
+
+The restored focused run passed 804 core cases and 44 query cases (five query skips).
+The 48 cold source/copy PATH histories passed across every versioning/hash/Dewey setting.
+All 32 new work-budget cases passed: both sizes used 16 reads/four preparations for moves
+and 12 reads/three preparations for renames, one or two written pages, zero scratch growth
+and zero unchanged descendant preparations. Metadata/hash snapshots survived cold reopen.
+Hash correctness also passed with path summaries and Dewey IDs independently on/off, and
+the existing hashing/replay/projection budgets, identity/index oracles, public diff
+regressions and selected PATH/hash query checks and query budgets stayed green.
+
+Commands used run-review-boundary.sh with the captured heavy limiter, the run-private
+Maven/Gradle homes and TMPDIR, --no-parallel, 2 GiB daemon/test heaps and 1800-second
+post-admission timeout under the 2026-10-07T01:40Z cutoff. Raw mutation/fixed logs, XML,
+summaries and source digests are retained under review-array-hashing/ in this worktree.
+The only initial attempt stopped at a test-local naming collision before execution;
+mutation and restored runs compiled successfully after that correction. Scoped
+spotlessJavaApply/spotlessJavaCheck on the six Java files changed in this round passed,
+followed by git diff --check. The initial run-local formatter configuration attempt
+failed before applying formatting; its corrected retry passed. No full suite or full
+lint phase was run in this review round.
+Existing work bounds remain unchanged. Historical full-suite evidence predates these
+repairs; the pipeline owns the subsequent full validation phases. Staged page buffers and
+delta/epoch state still scale with the imported epoch and remain retained until commit,
+including KEEP_OPEN_ASYNC_FLUSH. The paired latency report and its source/public-diff
+uncertainty remain unchanged; the one-element move fixture does not establish wide-move
+latency or production p99. No new benchmark campaign is claimed.

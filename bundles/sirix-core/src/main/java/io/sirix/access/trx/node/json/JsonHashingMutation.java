@@ -7,6 +7,7 @@ import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.index.IndexType;
 import io.sirix.node.BytesOut;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -95,12 +96,15 @@ final class JsonHashingMutation {
     capturePath(first);
   }
 
-  void captureSubtree(final long key) {
+  void capturePathChanges(final long key) {
     final long saved = cursor.getNodeKey();
     cursor.moveTo(key);
     final var axis = new DescendantAxis(cursor, IncludeSelf.YES);
     while (axis.hasNext()) {
-      capturePath(axis.nextLong());
+      final long descendant = axis.nextLong();
+      if (cursor.getKind() == NodeKind.ARRAY) {
+        capturePath(descendant);
+      }
     }
     cursor.moveTo(saved);
   }

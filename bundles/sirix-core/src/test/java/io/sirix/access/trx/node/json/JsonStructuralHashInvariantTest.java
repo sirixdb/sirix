@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Direct source-only oracle; deliberately has no dependency on identity replay. */
 @Isolated
-final class JsonStructuralHashInvariantTest {
+public final class JsonStructuralHashInvariantTest {
   private static final long PRIME = 77081L;
 
   @TempDir
@@ -57,6 +57,81 @@ final class JsonStructuralHashInvariantTest {
                      versioning -> Stream.of(HashType.values())
                                          .flatMap(hash -> Stream.of(false, true)
                                                                 .map(dewey -> Arguments.of(versioning, hash, dewey))));
+  }
+
+  static Stream<Arguments> pathConfigurations() {
+    return configurations().flatMap(configuration -> Stream.of(false, true).map(paths -> {
+      final Object[] values = configuration.get();
+      return Arguments.of(values[0], values[1], values[2], paths);
+    }));
+  }
+
+  @ParameterizedTest
+  @MethodSource("pathConfigurations")
+  void boundaryMovesAndExclusiveRenamesPreserveHashesWithEveryMetadataMode(final VersioningType versioning,
+      final HashType hash, final boolean dewey, final boolean paths) throws Exception {
+    final Path path = directory.resolve("boundaries");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final var database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .hashKind(hash)
+                                                   .useDeweyIDs(dewey)
+                                                   .buildPathSummary(paths)
+                                                   .build());
+      try (final var session = database.beginResourceSession("resource"); final var writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "[{\"old\":[[1,2]],\"exclusive\":{\"inside\":[[3,4]]}},0,{\"other\":[[5,6]]}]"), JsonNodeTrx.Commit.NO);
+        assertTrue(writer.moveTo(1));
+        assertTrue(writer.moveToFirstChild());
+        final long moved = writer.getNodeKey();
+        assertTrue(writer.moveToFirstChild());
+        final long arrayField = writer.getNodeKey();
+        assertTrue(writer.moveToRightSibling());
+        final long objectField = writer.getNodeKey();
+        assertTrue(writer.moveTo(moved));
+        assertTrue(writer.moveToRightSibling());
+        final long zero = writer.getNodeKey();
+        assertTrue(writer.moveToRightSibling());
+        final long other = writer.getNodeKey();
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(zero));
+        writer.moveSubtreeToRightSibling(moved);
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(1));
+        writer.moveSubtreeToFirstChild(moved);
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(other));
+        writer.moveSubtreeToLeftSibling(moved);
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(arrayField));
+        writer.setObjectKeyName("renamedArray");
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(objectField));
+        writer.setObjectKeyName("renamedObject");
+        assertGraph(writer, hash);
+        writer.commit();
+        assertTrue(writer.moveTo(other));
+        assertTrue(writer.moveToFirstChild());
+        writer.moveSubtreeToFirstChild(moved);
+        assertGraph(writer, hash);
+        writer.rollback();
+        assertGraph(writer, hash);
+        assertTrue(writer.moveTo(other));
+        assertTrue(writer.moveToFirstChild());
+        writer.moveSubtreeToFirstChild(moved);
+        assertGraph(writer, hash);
+        writer.commit();
+      }
+    }
+    assertReopened(path, hash,
+        "[0,{\"other\":[{\"renamedArray\":[[1,2]],\"renamedObject\":{\"inside\":[[3,4]]}},[5,6]]}]");
   }
 
   @ParameterizedTest
@@ -270,7 +345,7 @@ final class JsonStructuralHashInvariantTest {
     }
   }
 
-  static void assertGraph(final JsonNodeReadOnlyTrx reader, final HashType hash) {
+  public static void assertGraph(final JsonNodeReadOnlyTrx reader, final HashType hash) {
     try (final var bytes = Bytes.elasticHeapByteBuffer()) {
       validate(reader, 0, -1, hash, bytes, new LongOpenHashSet());
     }

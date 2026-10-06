@@ -79,6 +79,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
+| `sirix-core` `JsonStructuralHashingWorkBudgetTest` | cold boundary moves in both directions and exclusive array/object renames, 16/4096 unchanged descendants, all versioning types | hashing captures or prepares unchanged descendants, writes their document pages or grows scratch state; untouched records and canonical hashes must survive the mutation and cold reopening |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
 | `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar or non-bound insertion/removal edits rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
@@ -277,6 +278,27 @@ To see the figures while choosing a bound, print every capture:
 ```bash
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' -Dsirix.workBudget.print=true -i
 ```
+
+Structural boundary hashing mutation evidence (2026-10-06): restoring unconditional subtree
+capture failed all 32 versioning/size/mutation cases. At 16/4096 descendants, the old code
+captured and prepared 19–20/4099–4100 records, read 76–82/16396–16402 records, and grew
+primitive scratch arrays by 576–640/469512 bytes. The large cases wrote five document pages.
+The fixed moves used 16 reads/four preparations and the fixed renames used 12 reads/three
+preparations at both sizes, with one/two written pages, zero scratch growth and no retained
+descendant preparations. All 32 budgets and 48 cold source/copy PATH histories passed;
+the focused final run passed 804 core and 44 query cases (five query skips).
+The budget covers both same-parent move directions and exclusive array/object renames with
+ROLLING hashing, Dewey IDs off and path summaries off. It also compares untouched descendant
+records and validates canonical hashes after cold reopening. Existing bounds are unchanged.
+
+`JsonHashingWorkProbe` decorates the real hash-maintenance storage writer. Its preparations
+and persists are actual document-record operations; written pages count distinct document
+pages receiving those persists, not disk syscalls or bytes. Captured keys and primitive
+backing-array payloads measure live scratch state, excluding JVM object headers. The fresh
+cold writer fixture makes scratch growth observable; boundary work has nonzero floors,
+and unchanged descendant preparations must be zero. These are work bounds, not latency or
+whole-transaction memory guarantees. Mutation and focused verification artifacts live under
+`build/replay/review-array-hashing/` in the active worktree.
 
 ## Changing a budget
 

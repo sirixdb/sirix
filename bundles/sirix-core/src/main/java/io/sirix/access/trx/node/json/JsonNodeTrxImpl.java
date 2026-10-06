@@ -2917,7 +2917,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
-          final JsonHashingMutation hashes = beginMoveHashes(toMove.getNodeKey(), nodeAnchor.getNodeKey());
+          final JsonHashingMutation hashes = beginMoveHashes(toMove, nodeAnchor, MovePosition.AS_FIRST_CHILD);
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -3031,7 +3031,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
-          final JsonHashingMutation hashes = beginMoveHashes(toMove.getNodeKey(), nodeAnchor.getNodeKey());
+          final JsonHashingMutation hashes = beginMoveHashes(toMove, nodeAnchor, MovePosition.AS_RIGHT_SIBLING);
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -3162,6 +3162,9 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptSubtreeForMove(final Node node, final IndexController.ChangeType type) {
     assert type != null;
+    if (!indexController.hasAnyPrimitiveIndex()) {
+      return;
+    }
     final long beforeNodeKey = getNodeKey();
     moveTo(node.getNodeKey());
     final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
@@ -3179,15 +3182,18 @@ final class JsonNodeTrxImpl extends
         moveTo(nodeKey);
       } else if (currentNode instanceof NameNode nameNode) {
         pathNodeKey = nameNode.getPathNodeKey();
+      } else if (kind == NodeKind.ARRAY) {
+        pathNodeKey = getPathNodeKey();
       }
-      if (pathNodeKey != -1 && indexController.hasAnyPrimitiveIndex()) {
+      if (pathNodeKey != -1) {
         notifyPrimitiveIndexChange(type, currentNode, pathNodeKey);
       }
     }
     moveTo(beforeNodeKey);
   }
 
-  private @Nullable JsonHashingMutation beginMoveHashes(final long moved, final long anchor) {
+  private @Nullable JsonHashingMutation beginMoveHashes(final StructNode moved, final StructNode anchor,
+      final MovePosition position) {
     if (nodeHashing.isBulkInsert() && !nodeHashing.isAutoCommit()) {
       return null;
     }
@@ -3195,9 +3201,25 @@ final class JsonNodeTrxImpl extends
     if (!hashes.begin()) {
       return null;
     }
-    hashes.captureNeighborhood(moved);
-    hashes.captureNeighborhood(anchor);
-    hashes.captureSubtree(moved);
+    final long movedKey = moved.getNodeKey();
+    final long oldParent = moved.getParentKey();
+    final long left = moved.getLeftSiblingKey();
+    final long right = moved.getRightSiblingKey();
+    final long anchorKey = anchor.getNodeKey();
+    final long newParent = position == MovePosition.AS_FIRST_CHILD
+        ? anchorKey
+        : anchor.getParentKey();
+    final long boundary = position == MovePosition.AS_FIRST_CHILD
+        ? anchor.getFirstChildKey()
+        : anchor.getRightSiblingKey();
+    hashes.capturePath(movedKey);
+    hashes.capturePath(left);
+    hashes.capturePath(right);
+    hashes.capturePath(anchorKey);
+    hashes.capturePath(boundary);
+    if (buildPathSummary && oldParent != newParent) {
+      hashes.capturePathChanges(movedKey);
+    }
     return hashes;
   }
 
@@ -3822,10 +3844,6 @@ final class JsonNodeTrxImpl extends
       }
       final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
       final boolean updateHashes = (!nodeHashing.isBulkInsert() || nodeHashing.isAutoCommit()) && hashes.begin();
-      if (updateHashes) {
-        // A shared path class can split, changing descendant path keys as well as this name.
-        hashes.captureSubtree(getNodeKey());
-      }
       final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
       final NameNode nameNode = (NameNode) node;
 
@@ -3850,8 +3868,21 @@ final class JsonNodeTrxImpl extends
           ? pathSummaryWriter.getPathSummary().getPathNodeForPathNodeKey(oldFieldPath)
           : null;
       final boolean remapArrayDescendants = oldField != null && oldField.getReferences() > 1;
-      final boolean containerRename = currentKind == NodeKind.OBJECT_NAMED_ARRAY
-          || currentKind == NodeKind.OBJECT_NAMED_OBJECT;
+      final boolean containerRename =
+          currentKind == NodeKind.OBJECT_NAMED_ARRAY || currentKind == NodeKind.OBJECT_NAMED_OBJECT;
+      if (updateHashes) {
+        hashes.capturePath(node.getNodeKey());
+        if (remapArrayDescendants) {
+          hashes.capturePathChanges(node.getNodeKey());
+        } else if (buildPathSummary && currentKind == NodeKind.OBJECT_NAMED_OBJECT) {
+          final var summary = pathSummaryWriter.getPathSummary();
+          final PathNode oldPath = summary.getPathNodeForPathNodeKey(oldPathNodeKey);
+          if (oldPath.getReferences() > 1
+              || summary.findChild(oldPath.getParentKey(), renamed, NodeKind.OBJECT_NAMED_OBJECT) >= 0) {
+            hashes.capturePathChanges(node.getNodeKey());
+          }
+        }
+      }
       // The rollback-only latch arms at the first statement a failed rename would need to
       // unwind — the DELETE de-index. Everything above leaves no half-applied state.
       renameStarted = true;
