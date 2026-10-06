@@ -7912,6 +7912,15 @@ sdb:rollback(item) & discard uncommitted changes\\
 \bottomrule
 \end{longtable}
 
+For XML resources, \code{xn:open} with an empty time argument reads the latest revision; a supplied
+time selects the revision active at that instant, or an empty sequence before the resource's first
+commit. Its registered optional fourth boolean argument is accepted but has no effect on revision
+selection or transaction mode. \code{xn:open-revisions} requires the start time to precede the end
+time and returns each revision from the one active at the start through the one active at the end,
+inclusively. A start before creation begins at revision~1; an end before creation yields an empty
+sequence. If both endpoints select the same revision, it is returned once. Registered XML signatures
+are defined in \code{XMLFun}.
+
 \section{Brackit physical-operator reference}
 \label{app:brackitops}
 
@@ -8048,7 +8057,7 @@ object they are fused into the \code{OBJECT\_NAMED\_*} parent.
 \label{app:indexfuncs}
 
 Secondary indexes (\S\ref{sec:catalogue}, \S\ref{app:indextypes}) are created and inspected from the
-query language through the \code{jn:} family below. Creating an index returns the document node;
+query language through the \code{jn:} family below. Creating an index returns its definition as an XML fragment;
 \code{find-*} returns the index number; once an index exists the optimiser rewrites matching predicate
 and path queries onto it automatically (Ch.~\ref{ch:query}), so explicit \code{scan-*} calls are rarely
 needed in application code.
@@ -8077,7 +8086,7 @@ session creates a typed CAS index and then lets an ordinary predicate use it:
 
 \dcap{Create an index, then let the optimiser reach for it}
 \begin{diagramS}
-jn:create-cas-index(jn:doc('db','res'), 'xs:decimal', '/store/book/[]/price')   (* returns the doc node *)
+jn:create-cas-index(jn:doc('db','res'), 'xs:decimal', '/store/book/[]/price')
 
 (* thereafter this is rewritten onto the CAS index automatically (\S\ref{app:indextypes}): *)
 jn:doc('db','res').store.book[][?$$.price ge 10 and $$.price le 50]

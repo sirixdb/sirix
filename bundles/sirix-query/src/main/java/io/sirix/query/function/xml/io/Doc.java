@@ -15,13 +15,11 @@ import io.sirix.query.node.XmlDBCollection;
 /**
  * <p>
  * Function for opening a document in a collection/database. If successful, this function returns
- * the document-node. Supported signatures are:
+ * the document-node.
  * </p>
- * <ul>
- * <li><code>xn:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
- * </li>
- * <li><code>xn:doc($coll as xs:string, $res as xs:string) as node()</code></li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Max Bechtold
  * @author Johannes Lichtenberger

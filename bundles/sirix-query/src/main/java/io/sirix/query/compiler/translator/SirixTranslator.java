@@ -525,6 +525,8 @@ public class SirixTranslator extends TopDownTranslator {
         if (name == null) {
           return new SirixNodeStream(axis, dbNode.getCollection());
         }
+        // Keep name resolution lazy: XmlNameFilter rejects local-name misses before loading the
+        // namespace dictionary. EmptyAttributeAxisWorkBudgetTest guards this cold-query budget.
         return new SirixNodeStream(new FilterAxis<>(axis, new XmlNameFilter(rtx, name)), dbNode.getCollection());
       }
       return new KindFilter(test, new SirixNodeStream(axis, dbNode.getCollection()));

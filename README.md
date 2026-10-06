@@ -198,8 +198,8 @@ xn:store('names', (), <root>
 </root>)
 ```
 
-`xml:load` reads XML documents from URI strings, including a sequence of URIs. For example,
-`xml:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
+`xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
+`xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
 documents to an existing collection, or creates it if absent. An empty resource-name argument
 assigns names starting at `resource` followed by the current document count plus one. A failed
 addition reports the import error without replacing the collection or its existing documents.
@@ -211,7 +211,7 @@ stored URI `https://example.test/ns?a=1&b=2` is written as
 query results also carry inherited namespace bindings, including unused and attribute-only
 prefixes; nearer declarations take precedence, including default-namespace undeclarations.
 
-When creating a collection from a sequence, `xml:store` and `xml:load` import documents
+When creating a collection from a sequence, `xn:store` and `xn:load` import documents
 concurrently and return successfully only after every import has committed and closed its write
 transaction. The query context can then be closed immediately. Import or stream failures reach
 the caller after submitted workers finish; interruption interrupts and drains the workers and
@@ -321,7 +321,7 @@ For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
 Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
 resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
-`xml:store(..., false())`, or `xml:load(..., false())`. Reopening a collection with different store
+`xn:store(..., false())`, or `xn:load(..., false())`. Reopening a collection with different store
 settings affects future additions; existing resources retain their persisted configuration.
 The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
 

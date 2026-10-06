@@ -28,13 +28,9 @@ import java.util.Set;
 
 /**
  * Function for creating path indexes on stored documents, optionally restricted to a set of paths.
- * If successful, this function returns statistics about the newly created index as an XML fragment.
- * Supported signatures are:<br>
- * <ul>
- * <li><code>xn:create-path-index($doc as node(), $paths as xs:string*) as
- * node()</code></li>
- * <li><code>xn:create-path-index($doc as node()) as node()</code></li>
- * </ul>
+ * <p>
+ * Registered signatures are defined in {@link XMLFun}.
+ * </p>
  *
  * @author Max Bechtold
  * @author Johannes Lichtenberger

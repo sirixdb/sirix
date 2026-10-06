@@ -26,11 +26,8 @@ import java.util.Optional;
  * Otherwise it returns -1.
  * </p>
  * <p>
- * Supported signatures are:
+ * Registered signatures are defined in {@link XMLFun}.
  * </p>
- * <ul>
- * <li><code>xn:find-name-index($doc as node(), $name as xs:QName) as xs:int</code></li>
- * </ul>
  *
  * @author Johannes Lichtenberger
  *
