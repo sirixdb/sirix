@@ -81,6 +81,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
+| `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar or non-bound insertion/removal edits rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
 | `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend and remove empty outer groups beside 16/4096 retained rows, all four versioning types | boundary links queue retained row removals/insertions or allocate their order labels; cold row data, sorted memberships, labels and key/numeric segment offsets must be preserved, with a one-row insertion as a positive control |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
@@ -98,6 +99,14 @@ visits ranged from 922–1115 and 605518–622379. The fixed append/prepend and 
 zero row edits, zero label bytes and 190–268 record visits across both sizes. The positive indexed
 insertion control queued one row and allocated a 10-byte label. Raw logs and XML for this run live
 under `build/replay/review-boundary-results/` in the active worktree.
+
+Valid-time identity mutation evidence (2026-10-06): restoring broad object/parent scheduling
+failed all eight versioning/width cases on the first nested append, inspecting 38 fields at
+width 16 and 8198 at width 4096. The fixed nested/scalar and non-bound insertion/removal edits
+inspected zero fields in all 32 captures. Direct bound updates inspected 38 and 8198 fields,
+proving the counter is connected. This guards listener scans, not total replay work: distinct
+field-path width still affects other epoch record/path-state work. Raw logs and XML live under
+`build/replay/review-valid-time-results/` in the active worktree; no new timing evidence is claimed.
 
 ### The native-image guard, and what it cannot catch
 
@@ -154,6 +163,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   The zero budgets for empty boundary changes have a positive indexed insertion control. These use
   the same `sirix.replay.workDiag` gate; label bytes count only the emitted label buffers, not total
   JVM allocations.
+- `EngineWorkCounters.REPLAY_VALID_TIME_BOUND_FIELDS`: direct children inspected by the valid-time
+  listener while reconstructing bounds. It shares the `sirix.replay.workDiag` gate and counts scans
+  of old and final objects. Unrelated identity edits require zero; a direct bound update must scan
+  both versions as a positive control. Full replay record/path counters remain separate diagnostics.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of

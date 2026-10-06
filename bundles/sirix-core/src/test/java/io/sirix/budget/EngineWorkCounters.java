@@ -184,10 +184,13 @@ public final class EngineWorkCounters {
   public static final WorkCounter REPLAY_PROJECTION_LABEL_BYTES = replay("replay.projectionLabelBytes",
       "one byte allocated for a final projection identity row's order label",
       ReplayWorkDiagnostics::projectionIdentityLabelBytes);
+  public static final WorkCounter REPLAY_VALID_TIME_BOUND_FIELDS = replay("replay.validTimeBoundFields",
+      "one direct child inspected while the valid-time listener reconstructs an object's bounds",
+      ReplayWorkDiagnostics::validTimeBoundFields);
   public static final List<WorkCounter> REPLAY =
       List.of(REPLAY_RECORD_VISITS, REPLAY_PATH_STEPS, REPLAY_CREATED_IDENTITIES, REPLAY_STAGED_RECORDS,
           REPLAY_ANCESTOR_STEPS, REPLAY_SIDECAR_READS, REPLAY_FALLBACK_PAGES, DIFF_BOOKKEEPING, REPLAY_PROJECTION_ROWS,
-          REPLAY_PROJECTION_LABEL_BYTES);
+          REPLAY_PROJECTION_LABEL_BYTES, REPLAY_VALID_TIME_BOUND_FIELDS);
 
   private static WorkCounter replay(final String name, final String unit, final LongSupplier read) {
     return WorkCounter.gated(name, unit, read, "-Dsirix.replay.workDiag=true", () -> ReplayWorkDiagnostics.ENABLED);

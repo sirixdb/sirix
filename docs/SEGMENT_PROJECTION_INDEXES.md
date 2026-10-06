@@ -2096,6 +2096,9 @@ view scans cannot evade the R8 budget. The diagnostic map exists only when this 
 `projectionIdentityRows()` counts queued old row removals and final row insertions;
 `projectionIdentityLabelBytes()` counts bytes allocated for emitted identity-epoch row labels.
 Empty boundary edits must leave both at zero; inserting an indexed row is the positive control.
+`validTimeBoundFields()` counts direct children inspected by the valid-time listener while
+reconstructing bounds. Unrelated identity edits must leave it at zero; a direct bound update
+provides a positive scan control. Object topology changes retain constant-work order checks.
 Counters are process-wide totals, off in production and enabled in core tests. Capture whole replay
 epochs to include commit and path-cache lifecycle costs. Label bytes measure emitted buffers only;
 the other counters are work units, not total JVM allocations or disk reads.

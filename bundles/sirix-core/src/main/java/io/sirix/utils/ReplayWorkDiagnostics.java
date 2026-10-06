@@ -20,6 +20,7 @@ public final class ReplayWorkDiagnostics {
   private static final LongAdder BOOKKEEPING = new LongAdder();
   private static final LongAdder PROJECTION_IDENTITY_ROWS = new LongAdder();
   private static final LongAdder PROJECTION_IDENTITY_LABEL_BYTES = new LongAdder();
+  private static final LongAdder VALID_TIME_BOUND_FIELDS = new LongAdder();
 
   private ReplayWorkDiagnostics() {}
 
@@ -73,6 +74,11 @@ public final class ReplayWorkDiagnostics {
       PROJECTION_IDENTITY_LABEL_BYTES.add(bytes);
   }
 
+  public static void validTimeBoundFieldVisited() {
+    if (ENABLED)
+      VALID_TIME_BOUND_FIELDS.increment();
+  }
+
   public static long recordVisits() {
     return RECORD_VISITS.sum();
   }
@@ -111,5 +117,9 @@ public final class ReplayWorkDiagnostics {
 
   public static long projectionIdentityLabelBytes() {
     return PROJECTION_IDENTITY_LABEL_BYTES.sum();
+  }
+
+  public static long validTimeBoundFields() {
+    return VALID_TIME_BOUND_FIELDS.sum();
   }
 }
