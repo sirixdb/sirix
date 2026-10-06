@@ -550,6 +550,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         return currAstNode;
       }).orElse(null);
     } else if (stepNode.getType() == XQExt.IndexExpr) {
+      if (stepNode.getProperty("casSourcePath") != null) {
+        return null;
+      }
       final Deque<QueryPathSegment> currentPathSegmentNamesToArrayIndexes =
           (Deque<QueryPathSegment>) stepNode.getProperty("pathSegmentNamesToArrayIndexes");
 
