@@ -3,10 +3,23 @@ package io.sirix.query.compiler.expression;
 import io.sirix.query.compiler.optimizer.walker.json.Paths;
 import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.DateTime;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.type.AtomicType;
+import io.brackit.query.jdm.type.Cardinality;
+import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.sequence.FunctionConversionSequence;
+import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.node.SirixDeweyID;
+import java.util.Arrays;
+import java.time.Instant;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -47,21 +60,33 @@ import static java.util.stream.Collectors.toSet;
 
 public final class IndexExpr implements Expr {
 
+  private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
+  private static final SequenceType INSTANT_REVISION_TYPE = new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne);
+  private static final SequenceType INTEGER_REVISION_TYPE = new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne);
+
   private final String databaseName;
 
   private final String resourceName;
 
-  private final Integer revision;
+  private final int revision;
 
   private final Map<IndexDef, List<Path<QNm>>> indexDefsToPaths;
 
   private final Map<String, Object> properties;
 
+  private final Expr revisionOperand;
+  private final Expr fallback;
+
   public IndexExpr(final Map<String, Object> properties) {
-    this.properties = properties;
-    requireNonNull(properties);
-    databaseName = (String) properties.get("databaseName");
-    resourceName = (String) properties.get("resourceName");
+    this(properties, null, null);
+  }
+
+  public IndexExpr(final Map<String, Object> properties, final Expr revisionOperand, final Expr fallback) {
+    this.revisionOperand = revisionOperand;
+    this.fallback = fallback;
+    this.properties = requireNonNull(properties);
+    databaseName = requireNonNull((String) properties.get("databaseName"));
+    resourceName = requireNonNull((String) properties.get("resourceName"));
     revision = (Integer) properties.get("revision");
     // noinspection unchecked
     indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) properties.get("indexDefs");
@@ -75,19 +100,25 @@ public final class IndexExpr implements Expr {
     final var database = jsonCollection.getDatabase();
 
     final var resourceSession = database.beginResourceSession(resourceName);
+    final int resolvedRevision = resolveRevision((SirixQueryContext) ctx, tuple, resourceSession);
+    if (properties.containsKey("casSourcePath")) {
+      return evaluateCASSource(ctx, tuple, jsonCollection, resourceSession, resolvedRevision);
+    }
     final JsonNodeReadOnlyTrx rtx;
     try {
-      rtx = revision == -1
-          ? resourceSession.beginNodeReadOnlyTrx()
-          : resourceSession.beginNodeReadOnlyTrx(revision);
+      rtx = resourceSession.beginNodeReadOnlyTrx(resolvedRevision);
     } catch (final Exception e) {
-      resourceSession.close();
       throw e;
     }
     try {
-      final var indexController = revision == -1
-          ? resourceSession.getRtxIndexController(resourceSession.getMostRecentRevisionNumber())
-          : resourceSession.getRtxIndexController(revision);
+      final var indexController = resourceSession.getRtxIndexController(resolvedRevision);
+      for (final IndexDef expected : indexDefsToPaths.keySet()) {
+        final IndexDef actual = indexController.getIndexes().getIndexDef(expected.getID(), expected.getType());
+        if (actual == null || !actual.hasSameDefinition(expected)) {
+          rtx.close();
+          return fallback.evaluate(ctx, tuple);
+        }
+      }
       var nodeKeys = new ArrayList<Long>();
 
       final var indexType = (IndexType) properties.get("indexType");
@@ -249,7 +280,8 @@ public final class IndexExpr implements Expr {
         default -> throw new QueryException(JNFun.ERR_INVALID_INDEX_TYPE, "Index type not known: " + indexType);
       }
 
-      if (sequence.size() == 0) {
+      if (sequence.isEmpty()) {
+        rtx.close();
         return null;
       }
 
@@ -261,13 +293,112 @@ public final class IndexExpr implements Expr {
       } catch (final Exception s) {
         e.addSuppressed(s);
       }
-      try {
-        resourceSession.close();
-      } catch (final Exception s) {
-        e.addSuppressed(s);
-      }
       throw e;
     }
+  }
+
+  private int resolveRevision(final SirixQueryContext context, final Tuple tuple, final JsonResourceSession session) {
+    if (revisionOperand == null) {
+      return revision == -1
+          ? session.getMostRecentRevisionNumber()
+          : revision;
+    }
+    final boolean byInstant = Boolean.TRUE.equals(properties.get("revisionByInstant"));
+    final Item value = (Item) FunctionConversionSequence.asTypedSequence(byInstant
+        ? INSTANT_REVISION_TYPE
+        : INTEGER_REVISION_TYPE, revisionOperand.evaluate(context, tuple), true);
+    if (byInstant) {
+      final Instant instant = DATE_TIME_TO_INSTANT.convert((DateTime) value);
+      return context.resolveRevision(session, instant);
+    }
+    final int number = value == null
+        ? -1
+        : ((IntNumeric) value).intValue();
+    return number == -1
+        ? session.getMostRecentRevisionNumber()
+        : number;
+  }
+
+  @SuppressWarnings("unchecked")
+  private Sequence evaluateCASSource(final QueryContext context, final Tuple tuple, final JsonDBCollection collection,
+      final JsonResourceSession session, final int revisionNumber) {
+    final Path<QNm> path = (Path<QNm>) properties.get("casSourcePath");
+    final Type type = (Type) properties.get("casSourceType");
+    final var controller = session.getRtxIndexController(revisionNumber);
+    final var definition = controller.getIndexes().findCASIndex(path, type);
+    if (definition.isEmpty()) {
+      return fallback.evaluate(context, tuple);
+    }
+    final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revisionNumber);
+    boolean retained = false;
+    try {
+      final Atomic value = (Atomic) properties.get("atomic");
+      final CASFilter filter = new CASFilter(Set.of(path), value, SearchMode.EQUAL, new JsonPCRCollector(rtx));
+      final Iterator<NodeReferences> references =
+          controller.openCASIndex(rtx.getStorageEngineReader(), definition.get(), filter);
+      final LongLinkedOpenHashSet keys = new LongLinkedOpenHashSet();
+      long arrayKey = -1;
+      while (references.hasNext()) {
+        final var postings = references.next().nodeKeyIterator();
+        while (postings.hasNext()) {
+          rtx.moveTo(postings.next());
+          if (!rtx.getKind().isFusedObjectNamed()) {
+            rtx.moveToParent();
+          }
+          rtx.moveToParent();
+          keys.add(rtx.getNodeKey());
+          arrayKey = rtx.getParentKey();
+        }
+      }
+      if (keys.isEmpty()) {
+        return null;
+      }
+      final long[] ordered = keys.toLongArray();
+      Arrays.sort(ordered);
+      if (ordered.length > 1) {
+        if (session.getResourceConfig().areDeweyIDsStored) {
+          final SirixDeweyID[] ids = new SirixDeweyID[ordered.length];
+          final int[] positions = new int[ordered.length];
+          for (int i = 0; i < ordered.length; i++) {
+            rtx.moveTo(ordered[i]);
+            ids[i] = rtx.getDeweyID();
+            positions[i] = i;
+          }
+          IntArrays.quickSort(positions, (left, right) -> ids[left].compareTo(ids[right]));
+          final long[] unsorted = ordered.clone();
+          for (int i = 0; i < ordered.length; i++) {
+            ordered[i] = unsorted[positions[i]];
+          }
+        } else if (!hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey)) {
+          rtx.close();
+          return fallback.evaluate(context, tuple);
+        }
+      }
+      final Item[] items = new Item[ordered.length];
+      final JsonItemFactory factory = new JsonItemFactory();
+      for (int i = 0; i < ordered.length; i++) {
+        rtx.moveTo(ordered[i]);
+        items[i] = factory.getSequence(rtx, collection);
+      }
+      retained = true;
+      return new ItemSequence(items);
+    } finally {
+      if (!retained && !rtx.isClosed()) {
+        rtx.close();
+      }
+    }
+  }
+
+  private static boolean hasOrderedArrayEvidence(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,
+      final long arrayKey) {
+    rtx.moveTo(arrayKey);
+    for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+      if (definition.isValidTimeIndex() && controller.isExactValidTimeArray(rtx.getStorageEngineReader(), definition,
+          arrayKey, (int) rtx.getChildCount())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private SearchMode getSearchMode(String comparisonType) {
@@ -285,9 +416,7 @@ public final class IndexExpr implements Expr {
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
       List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
-    try (final var pathSummary = revision == -1
-        ? resourceSession.openPathSummary()
-        : resourceSession.openPathSummary(revision)) {
+    try (final var pathSummary = resourceSession.openPathSummary(rtx.getRevisionNumber())) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new LongLinkedOpenHashSet((int) currentNodeReferences.cardinality());
         currentNodeReferences.forEachNodeKey(currNodeKeys::add);

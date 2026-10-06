@@ -16,6 +16,7 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.compiler.optimizer.TopDownOptimizer;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.walker.json.JsonCASStep;
+import io.sirix.query.compiler.optimizer.walker.json.JsonCASSourceStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonValidTimeStep;
 import io.sirix.query.json.JsonDBStore;
@@ -414,6 +415,7 @@ public class SirixOptimizer extends TopDownOptimizer {
       // Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
       ast = new JsonValidTimeStep(jsonItemStore).rewrite(ast);
+      ast = new JsonCASSourceStep(jsonItemStore).walk(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);
