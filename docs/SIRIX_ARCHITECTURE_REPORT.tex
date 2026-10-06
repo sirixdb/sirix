@@ -7918,8 +7918,11 @@ commit. Its registered optional fourth boolean argument is accepted but has no e
 selection or transaction mode. \code{xn:open-revisions} requires the start time to precede the end
 time and returns each revision from the one active at the start through the one active at the end,
 inclusively. A start before creation begins at revision~1; an end before creation yields an empty
-sequence. If both endpoints select the same revision, it is returned once. Registered XML signatures
-are defined in \code{XMLFun}.
+sequence. Both endpoints use the latest committed revision captured before either lookup, so commits
+appended during evaluation cannot change the range. Timestamp lookups use millisecond precision;
+ties select the highest revision within that captured ceiling. Results are in ascending revision
+order, with each revision returned once, even when both endpoints select the same revision.
+Registered XML signatures are defined in \code{XMLFun}.
 
 \section{Brackit physical-operator reference}
 \label{app:brackitops}

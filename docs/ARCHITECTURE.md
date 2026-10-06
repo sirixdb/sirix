@@ -1988,14 +1988,6 @@ The `PageContainer` holds two views of a page during modification:
 │   │ // Read revision at specific timestamp                              │   │
 │   │ var rtxTime = session.beginNodeReadOnlyTrx(instant);                │   │
 │   │                                                                     │   │
-│   │ // Read revisions between two timestamps                            │   │
-│   │ int startRev = session.getRevisionNumber(startInstant);             │   │
-│   │ int endRev = session.getRevisionNumber(endInstant);                 │   │
-│   │ for (int rev = startRev; rev <= endRev; rev++) {                    │   │
-│   │     try (var trx = session.beginNodeReadOnlyTrx(rev)) {             │   │
-│   │         // Process each revision in the time range                  │   │
-│   │     }                                                               │   │
-│   │ }                                                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Read-Write Transaction (NodeTrx)                                          │
@@ -2009,6 +2001,9 @@ The `PageContainer` holds two views of a page during modification:
 ```
 
 ### Concurrency Model
+
+For consistent timestamp-range lookups, see the bounded
+[`ResourceSession.getRevisionNumber(Instant, int)` contract](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
 
 For process ownership and handle lifecycle, see the
 [operational rules](operations.md#10-known-limitations-and-operational-caveats).

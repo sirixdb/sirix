@@ -55,8 +55,8 @@ window). Found/flagged while writing the spec:
   as implemented, likely to be revised.
 * `POST /` (and `GET /`) with a missing/empty `query` falling back to the
   database listing — don't rely on it.
-* Updating queries and empty result sequences return an **empty body** rather
-  than `{"rest":[]}`.
+* Empty and updating query response shapes: see the `executeQuery` responses
+  in the [OpenAPI contract](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
 * Failed `If-Match` preconditions return **400** (message: "Someone might
   have changed the resource in the meantime."), not 412, and the legacy
   request-`ETag` header is still accepted as an `If-Match` synonym. A future

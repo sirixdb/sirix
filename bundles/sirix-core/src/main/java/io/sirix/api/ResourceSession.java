@@ -384,10 +384,12 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the revision number that was valid at the given point in time using floor semantics.
    *
    * <p>
-   * Selects the last revision committed at or before the requested timestamp. A timestamp between
-   * revisions selects the earlier revision; an exact match selects that revision. A timestamp before
-   * all revisions selects the bootstrap revision 0, and one after all revisions selects the most
-   * recent revision.
+   * Compares timestamps at millisecond precision. A timestamp between revisions selects the earlier
+   * revision; an exact match selects a revision with that timestamp. If multiple revisions share the
+   * matched timestamp, the selected revision is unspecified; use
+   * {@link #getRevisionNumber(Instant, int)} for deterministic tie selection. A timestamp before all
+   * revisions selects the bootstrap revision 0, and one after all revisions selects the most recent
+   * revision.
    *
    * @param pointInTime the point in time
    * @return the revision number valid at that time
@@ -395,6 +397,24 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   int getRevisionNumber(Instant pointInTime);
 
+  /**
+   * Get the revision valid at the given point in time within a committed revision ceiling.
+   *
+   * <p>
+   * Compares timestamps at millisecond precision and selects the highest revision number at or below
+   * {@code revisionCeiling} committed at or before the requested timestamp, including when multiple
+   * revisions share that timestamp. Returns the bootstrap revision 0 if no revision qualifies. Later
+   * commits cannot change the result for the same point in time and ceiling; capture
+   * {@link #getMostRecentRevisionNumber()} once and reuse it when resolving related timestamps.
+   *
+   * @param pointInTime the point in time
+   * @param revisionCeiling the inclusive upper bound on committed revision numbers
+   * @return the revision number valid at that time, bounded by {@code revisionCeiling}
+   * @throws NullPointerException if {@code pointInTime} is {@code null}
+   * @throws IllegalArgumentException if the ceiling is negative or exceeds the latest committed
+   *         revision
+   * @throws IllegalStateException if this resource session is closed
+   */
   int getRevisionNumber(Instant pointInTime, int revisionCeiling);
 
   /**
