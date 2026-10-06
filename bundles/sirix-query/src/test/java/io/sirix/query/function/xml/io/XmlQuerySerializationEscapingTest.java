@@ -155,8 +155,8 @@ final class XmlQuerySerializationEscapingTest {
     }
   }
 
-  private void assertFileImportedSubtree(final VersioningType versioning, final String collection,
-      final String input) throws Exception {
+  private void assertFileImportedSubtree(final VersioningType versioning, final String collection, final String input)
+      throws Exception {
     final Path file = directory.resolve(collection + ".xml");
     Files.writeString(file, input, StandardCharsets.UTF_8);
     serializeBrackit(versioning, "xml:load('" + collection + "','resource1','" + file.toUri() + "')");

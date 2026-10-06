@@ -1510,9 +1510,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       moveRtx();
     }
 
+    // Mapping events belong to this exact root node instance, so both hooks compare object identity.
     new NavigationalSubtreeProcessor<AbstractTemporalNode<XmlDBNode>>(this,
         Collections.singletonList(new NodeSubtreeListener2HandlerAdapter(handler))) {
       @Override
+      @SuppressWarnings("ReferenceEquality")
       protected void notifyStartElement(final AbstractTemporalNode<XmlDBNode> node) {
         if (node == XmlDBNode.this) {
           final var iterator = namespaces.object2ObjectEntrySet().fastIterator();
@@ -1527,6 +1529,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       }
 
       @Override
+      @SuppressWarnings("ReferenceEquality")
       protected void notifyEndElement(final AbstractTemporalNode<XmlDBNode> node) {
         if (node == XmlDBNode.this) {
           handler.endElement(node.getName());
