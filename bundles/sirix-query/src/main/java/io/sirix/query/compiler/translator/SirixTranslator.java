@@ -138,6 +138,7 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Specialize only the built-in xs:dateTime singleton.
   protected Expr castExpr(final AST node) {
     final AST type = node.getChild(1);
     final Type target = resolveType((QNm) type.getChild(0).getChild(0).getValue(), true);

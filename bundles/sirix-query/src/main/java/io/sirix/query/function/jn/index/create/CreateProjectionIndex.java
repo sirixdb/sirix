@@ -26,6 +26,7 @@ import io.sirix.index.path.summary.PathStats;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.query.json.JsonDBItem;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -59,11 +60,8 @@ import java.util.function.Consumer;
  * {@code "timestamp"} ({@code datetime}) or {@code "date"}, exactly as {@code mapType} accepts them
  * and its rejection message lists them. Double/decimal columns store exact doubles in an
  * order-preserving encoding; a decimal not exactly representable as a double marks the column
- * not-value-exact and value-exact consumers decline it (fail-closed). A declared temporal column
- * stores the epoch rather than the text and therefore requires every value to be exactly
- * {@code YYYY-MM-DDTHH:MM:SS} (timestamp) or {@code YYYY-MM-DD} (date);
- * {@code -Dsirix.projection.temporalKinds=false} makes such a column build and serve as an ordinary
- * string-dictionary column instead (see {@code ProjectionTemporalCodec}).
+ * not-value-exact and value-exact consumers decline it (fail-closed). Temporal input shapes, text
+ * reconstruction and the string-column kill switch are defined by {@link ProjectionTemporalCodec}.
  *
  * <p>
  * {@code $sortColumns}, when non-empty, additionally declares a sorted view of every record ordered
@@ -500,8 +498,7 @@ public final class CreateProjectionIndex extends AbstractFunction {
       case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
-      // Declared temporal columns: every value must be exactly YYYY-MM-DDTHH:MM:SS (timestamp) or
-      // YYYY-MM-DD (date), and the column stores the epoch rather than the text.
+      // Temporal input validation and text reconstruction are owned by ProjectionTemporalCodec.
       case "timestamp", "datetime" -> Type.DATI;
       case "date" -> Type.DATE;
       default -> throw new QueryException(new QNm("Unsupported projection column type '" + type

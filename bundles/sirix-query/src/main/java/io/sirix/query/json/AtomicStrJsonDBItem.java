@@ -6,6 +6,7 @@ import io.brackit.query.atomic.Str;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.StructuredDBItem;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 
@@ -18,7 +19,7 @@ public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, Struct
 
   /** Immutable per-field memo. Non-fixed layouts retain the general parser. */
   private final long epochMillis;
-  private DateTime dateTime;
+  private @Nullable DateTime dateTime;
 
   /** Sirix node key. */
   private final long nodeKey;

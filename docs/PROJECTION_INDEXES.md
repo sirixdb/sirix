@@ -16,8 +16,11 @@ and open-row-group appends.
 Bit-packed segments come to roughly **5% of the in-memory size**, so the on-disk tax over the
 versioned document store stays ~10%. Double columns store exact values in an order-preserving
 encoding; value-exact consumers decline columns tainted by lossy decimal conversions
-(fail-closed). A column declared `timestamp` or `date` stores the epoch instead of the text, which
-accepts `YYYY-MM-DDTHH:MM:SS`, `YYYY-MM-DDTHH:MM:SSZ`, or `YYYY-MM-DD`.
+(fail-closed). A column declared `timestamp` (or `datetime`) accepts
+`YYYY-MM-DDTHH:MM:SS` or `YYYY-MM-DDTHH:MM:SSZ` and stores epoch seconds;
+`date` accepts `YYYY-MM-DD` and stores epoch days. String values must have a valid
+proleptic Gregorian date and, for timestamps, a time from `00:00:00` through `23:59:59`.
+Other string shapes, including fractions and numeric timezone offsets, fail the build.
 The epoch lane does not store the suffix, so `Z` cells carry the existing unrepresentable flag:
 text-sensitive projection queries fall back to the original record and preserve its spelling.
 `-Dsirix.projection.temporalKinds=false` builds and serves it as an ordinary string column.

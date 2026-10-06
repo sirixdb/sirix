@@ -24,14 +24,8 @@ original `Instant.parse` path, including its nanosecond precision, rejection of
 zone-less strings and treatment of unparseable bounds. Missing/unparseable bounds
 remain open-ended, and a record with no bounds remains invalid.
 
-The projection timestamp codec accepts both 19-byte zone-less text and the same
-text suffixed with `Z`. Both parse to the same epoch second.
-The persisted epoch lane contains no spelling bit. Extraction therefore marks a
-`Z` cell with the existing unrepresentable flag, so text-sensitive query routes
-fall back to its original record. This preserves emission, comparison, grouping
-and ordering of mixed spellings without changing the persisted format. Zone-less
-columns retain their existing projection routes. Fractions and offsets still fail
-the declared timestamp-column build.
+For declared projection timestamp columns, accepted input shapes and original-text
+fallback are defined in [Projection Indexes](../../PROJECTION_INDEXES.md).
 
 ## Verification plan
 

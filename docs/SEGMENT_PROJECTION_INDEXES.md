@@ -408,10 +408,9 @@ inverse and preserves order; non-finite values are unrepresentable (`proj/Projec
 `0 ≤ f ≤ e ≤ 18`, dropped once exceptions exceed `max(1, rows/8)`; |digits| < 2^53
 (`proj/ProjectionAlpEncoding.java:9-253`; `proj/ProjectionIndexRowGroupCodec.java:138-172`).
 
-**Temporal.** `dddd-dd-ddTdd:dd:dd`, optionally suffixed with `Z`, and `dddd-dd-dd` are accepted; fractions
-and offsets in a declared temporal column fail the build (`ProjectionTemporalCodec`). `Z` cells store the
-same epoch seconds and set the existing unrepresentable flag so text-sensitive consumers read the
-original record. Zone-less cells retain exact reconstruction and all temporal serving routes.
+**Temporal.** The epoch uses the long lane without a spelling bit; text reconstruction is gated by
+the cell's representability. Accepted input shapes and original-record fallback are defined in
+[Projection Indexes](PROJECTION_INDEXES.md); `ProjectionTemporalCodec` implements the conversion.
 
 #### DICT (segKind 2)
 

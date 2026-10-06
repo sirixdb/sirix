@@ -86,9 +86,10 @@ public final class JsonDBObject extends AbstractItem
   private final JsonItemFactory jsonItemFactory;
 
   /**
-   * Field values memoized on first successful lookup. Lazily allocated: a scan creates one
-   * {@link JsonDBObject} per record and reads each field once, so eagerly building this map allocated
-   * it and threw it away for every record.
+   * Read-only field values memoized on first successful lookup. Writers bypass this map; see
+   * {@link #firstChildKey}. Lazily allocated: a scan creates one {@link JsonDBObject} per record and
+   * reads each field once, so eagerly building this map allocated it and threw it away for every
+   * record.
    */
   private Map<QNm, Sequence> fields;
 
