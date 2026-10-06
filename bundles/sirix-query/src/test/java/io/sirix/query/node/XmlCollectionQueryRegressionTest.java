@@ -35,14 +35,15 @@ class XmlCollectionQueryRegressionTest {
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
       final XmlDBCollection collection = store.create("collection", new DocumentParser("<value>seed</value>"));
-      new Query(chain, "xml:load('collection',(),('" + first.toUri() + "','" + second.toUri()
-          + "'),false())").evaluate(context);
+      new Query(chain, "xml:load('collection',(),('" + first.toUri() + "','" + second.toUri() + "'),false())").evaluate(
+          context);
       assertEquals(3, collection.getDocumentCount());
       assertEquals("seed", value(chain, context, "resource1", ""));
       assertEquals("first", value(chain, context, "resource2", ""));
       assertEquals("second", value(chain, context, "resource3", ""));
       for (final String name : new String[] {"resource2", "resource3"}) {
-        assertEquals(versioning, collection.getDatabase().beginResourceSession(name).getResourceConfig().versioningType);
+        assertEquals(versioning,
+            collection.getDatabase().beginResourceSession(name).getResourceConfig().versioningType);
       }
     }
     try (final BasicXmlDBStore store = openStore(versioning);
@@ -62,8 +63,8 @@ class XmlCollectionQueryRegressionTest {
     try (final BasicXmlDBStore store = openStore(VersioningType.SLIDING_SNAPSHOT);
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
-      new Query(chain, "xml:load('collection',(),('" + first.toUri() + "','" + second.toUri()
-          + "'),false())").evaluate(context);
+      new Query(chain, "xml:load('collection',(),('" + first.toUri() + "','" + second.toUri() + "'),false())").evaluate(
+          context);
       assertEquals(2, store.lookup("collection").getDocumentCount());
       assertEquals("first", value(chain, context, "resource1", ""));
       assertEquals("second", value(chain, context, "resource2", ""));
@@ -81,8 +82,10 @@ class XmlCollectionQueryRegressionTest {
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
       store.create("collection", new DocumentParser("<value>seed</value>"));
-      assertThrows(QueryException.class, () -> new Query(chain, "xml:load('collection',(),('" + invalid.toUri()
-          + "','" + valid.toUri() + "'),false())").evaluate(context));
+      assertThrows(QueryException.class,
+          () -> new Query(chain,
+              "xml:load('collection',(),('" + invalid.toUri() + "','" + valid.toUri() + "'),false())").evaluate(
+                  context));
     }
     try (final BasicXmlDBStore store = openStore(VersioningType.SLIDING_SNAPSHOT);
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
@@ -108,7 +111,8 @@ class XmlCollectionQueryRegressionTest {
       assertEquals("two", value(chain, context, "tree", ""));
       assertEquals("one", value(chain, context, "tree", ",1"));
       assertEquals("one", collection.getDocument("tree", timestamp).getValue().stringValue());
-      new Query(chain, "replace value of node xml:doc('collection','tree')/value/text() with 'three'").evaluate(context);
+      new Query(chain, "replace value of node xml:doc('collection','tree')/value/text() with 'three'").evaluate(
+          context);
       assertEquals("three", value(chain, context, "tree", ""));
       assertEquals("two", value(chain, context, "tree", ",2"));
       assertEquals("one", value(chain, context, "tree", ",1"));
@@ -122,7 +126,7 @@ class XmlCollectionQueryRegressionTest {
 
   private static String value(final SirixCompileChain chain, final SirixQueryContext context, final String resource,
       final String revision) {
-    return ((Atomic) new Query(chain, "string(xml:doc('collection','" + resource + "'" + revision
-        + "))").evaluate(context)).stringValue();
+    return ((Atomic) new Query(chain, "string(xml:doc('collection','" + resource + "'" + revision + "))").evaluate(
+        context)).stringValue();
   }
 }
