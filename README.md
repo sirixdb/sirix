@@ -204,6 +204,13 @@ documents to an existing collection, or creates it if absent. An empty resource-
 assigns names starting at `resource` followed by the current document count plus one. A failed
 addition reports the import error without replacing the collection or its existing documents.
 
+XML serialization escapes default and prefixed namespace declaration values, attribute values,
+and text at output; stored values and query namespace scopes remain decoded. For example, the
+stored URI `https://example.test/ns?a=1&b=2` is written as
+`xmlns="https://example.test/ns?a=1&amp;b=2"`, so reparsing preserves the URI. Standalone element
+query results also carry inherited namespace bindings, including unused and attribute-only
+prefixes; nearer declarations take precedence, including default-namespace undeclarations.
+
 When creating a collection from a sequence, `xml:store` and `xml:load` import documents
 concurrently and return successfully only after every import has committed and closed its write
 transaction. The query context can then be closed immediately. Import or stream failures reach
