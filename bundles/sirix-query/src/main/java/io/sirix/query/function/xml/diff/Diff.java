@@ -60,10 +60,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -90,10 +86,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private final List<DiffTuple> diffs;
 
-  private final ExecutorService pool;
-
-  private CountDownLatch latch;
-
   /**
    * Constructor.
    *
@@ -105,7 +97,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
     buffer = new StringBuilder();
     diffs = new ArrayList<>();
-    pool = Executors.newSingleThreadExecutor();
   }
 
   @Override
@@ -127,20 +118,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
     diffs.clear();
     buffer.setLength(0);
-    latch = new CountDownLatch(1);
-
     try (final XmlResourceSession resourceSession = doc.getTrx().getResourceSession()) {
-      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession, revision2, revision1,
+      DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession, revision2, revision1,
           resourceSession.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,
-          Set.of(this)).skipSubtrees(true)));
-
-      try {
-        latch.await(100000, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        throw new QueryException(new QNm("Interrupted exception"), e);
-      }
+          Set.of(this)).skipSubtrees(true));
 
       if (diffs.size() == 1
           && (diffs.get(0).getDiff() == DiffType.SAMEHASH || diffs.get(0).getDiff() == DiffType.SAME)) {
@@ -345,7 +328,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   @Override
   public void diffDone() {
-    latch.countDown();
+    // The diff is invoked synchronously.
   }
 
   private static String printSubtreeNode(final XmlNodeReadOnlyTrx rtx) {
