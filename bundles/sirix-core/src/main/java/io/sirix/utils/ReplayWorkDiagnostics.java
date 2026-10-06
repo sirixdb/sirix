@@ -18,6 +18,8 @@ public final class ReplayWorkDiagnostics {
   private static final LongAdder SIDECAR_READS = new LongAdder();
   private static final LongAdder FALLBACK_PAGES = new LongAdder();
   private static final LongAdder BOOKKEEPING = new LongAdder();
+  private static final LongAdder PROJECTION_IDENTITY_ROWS = new LongAdder();
+  private static final LongAdder PROJECTION_IDENTITY_LABEL_BYTES = new LongAdder();
 
   private ReplayWorkDiagnostics() {}
 
@@ -61,6 +63,16 @@ public final class ReplayWorkDiagnostics {
       BOOKKEEPING.add(operations);
   }
 
+  public static void projectionIdentityRows(final long rows) {
+    if (ENABLED)
+      PROJECTION_IDENTITY_ROWS.add(rows);
+  }
+
+  public static void projectionIdentityLabelBytes(final long bytes) {
+    if (ENABLED)
+      PROJECTION_IDENTITY_LABEL_BYTES.add(bytes);
+  }
+
   public static long recordVisits() {
     return RECORD_VISITS.sum();
   }
@@ -91,5 +103,13 @@ public final class ReplayWorkDiagnostics {
 
   public static long bookkeepingOperations() {
     return BOOKKEEPING.sum();
+  }
+
+  public static long projectionIdentityRows() {
+    return PROJECTION_IDENTITY_ROWS.sum();
+  }
+
+  public static long projectionIdentityLabelBytes() {
+    return PROJECTION_IDENTITY_LABEL_BYTES.sum();
   }
 }

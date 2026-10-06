@@ -30,6 +30,7 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.utils.LogWrapper;
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.service.json.replay.JsonIdentityDelta;
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -434,12 +435,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     for (final var target : delta.puts().values()) {
       final ImmutableNode old = readNode(target.key());
       if (old instanceof final StructNode structural && target.key() != 0
-          && (old.getParentKey() != target.parent() || structural.getLeftSiblingKey() != target.left()
-              || structural.getRightSiblingKey() != target.right() || old.getKind() != target.kind()
+          && (old.getParentKey() != target.parent() || old.getKind() != target.kind()
               || pathNodeKeyOf(old) != target.pathKey()
               || old.getKind().playsObjectKeyRole() && old instanceof final NameNode named
                   && !Objects.equals(target.name(),
-                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)))) {
+                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT))
+              || identitySiblingChanged(structural.getLeftSiblingKey(), target.left(), target.parent(), true, delta)
+              || identitySiblingChanged(structural.getRightSiblingKey(), target.right(), target.parent(), false,
+                  delta))) {
         relocated.add(target.key());
       }
       collectIdentityRecord(target.key(), oldRecords);
@@ -449,6 +452,42 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       collectIdentitySubtree(key, oldRecords, visited);
     }
     identityEpoch = new IdentityEpoch(delta, oldRecords, relocated);
+  }
+
+  private boolean identitySiblingChanged(final long oldKey, final long targetKey, final long parent,
+      final boolean left, final JsonIdentityDelta delta) {
+    return oldKey != targetKey
+        && retainedIdentitySibling(oldKey, parent, left, false, delta)
+            != retainedIdentitySibling(targetKey, parent, left, true, delta);
+  }
+
+  private long retainedIdentitySibling(long key, final long parent, final boolean left, final boolean targetState,
+      final JsonIdentityDelta delta) {
+    long skipped = 0;
+    final long changed = (long) delta.puts().size() + delta.deletes().size();
+    while (key >= 0) {
+      final ImmutableNode old = readNode(key);
+      final var target = delta.puts().get(key);
+      if (old != null && old.getParentKey() == parent && !delta.deletes().contains(key)
+          && (target == null || target.parent() == parent)) {
+        return key;
+      }
+      if (++skipped > changed) {
+        throw new IllegalStateException("Projection identity import has cyclic sibling links");
+      }
+      if (targetState && target != null) {
+        key = left
+            ? target.left()
+            : target.right();
+      } else if (old instanceof final StructNode structural) {
+        key = left
+            ? structural.getLeftSiblingKey()
+            : structural.getRightSiblingKey();
+      } else {
+        throw new IllegalStateException("Projection identity import cannot read sibling " + key);
+      }
+    }
+    return NO_RECORD_KEY;
   }
 
   /**
@@ -476,6 +515,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       for (final long key : epoch.relocatedNodes()) {
         collectIdentitySubtree(key, finalRecords, visited);
       }
+      ReplayWorkDiagnostics.projectionIdentityRows((long) epoch.oldRecords().size() + finalRecords.size());
       applyingIdentityEpoch = true;
       identityMembershipRemovals = epoch.oldRecords();
       final LongArrayList batch = new LongArrayList(STRUCTURAL_BATCH_SIZE);
@@ -492,7 +532,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         directory.fullLabel(key, this::readNode, orderRelabelSink());
       }
       for (final long key : ordered) {
-        labels.put(key, directory.fullLabel(key, this::readNode, orderRelabelSink()).toBytes());
+        final byte[] label = directory.fullLabel(key, this::readNode, orderRelabelSink()).toBytes();
+        ReplayWorkDiagnostics.projectionIdentityLabelBytes(label.length);
+        labels.put(key, label);
       }
       LongArrays.quickSort(ordered, (left, right) -> compareOrderLabels(labels.get(left), labels.get(right)));
       final ObjectArrayList<byte[]> batchLabels = new ObjectArrayList<>(STRUCTURAL_BATCH_SIZE);

@@ -44,6 +44,7 @@ import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertSnapsho
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Isolated
@@ -53,6 +54,7 @@ final class JsonIdentityProjectionEpochTest {
 
   @AfterEach
   void clearCaches() {
+    JsonNodeTrxImpl.replayTestHook = null;
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
@@ -66,6 +68,116 @@ final class JsonIdentityProjectionEpochTest {
     return IndexDefs.createProjectionIdxDef(parse("/[]/rows/[]", PathParser.Type.JSON),
         List.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), List.of(Type.LON), 0, IndexDef.DbType.JSON,
         new ProjectionSortedSpec(List.of(0)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("configurations")
+  void boundaryChainsMovesAndReparentingSurviveRollback(final VersioningType versioning, final HashType hash,
+      final boolean dewey) {
+    final Path sourcePath = directory.resolve("source");
+    final Path targetPath = directory.resolve("target");
+    try (final var database = create(sourcePath, versioning, hash, dewey);
+        final var session = database.beginResourceSession("resource");
+        final var writer = session.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+          "[{\"rows\":[{\"score\":1},{\"score\":2}]},{\"rows\":[{\"score\":3},{\"score\":4}]}]"),
+          JsonNodeTrx.Commit.NO);
+      writer.commit();
+      assertTrue(writer.moveTo(1));
+      assertTrue(writer.moveToFirstChild());
+      final long firstGroup = writer.getNodeKey();
+      assertTrue(writer.moveToFirstChild());
+      assertTrue(writer.moveToFirstChild());
+      final long firstRow = writer.getNodeKey();
+      assertTrue(writer.moveTo(firstGroup));
+      assertTrue(writer.moveToRightSibling());
+      final long secondGroup = writer.getNodeKey();
+      assertTrue(writer.moveToFirstChild());
+      final long secondRows = writer.getNodeKey();
+      final LongArrayList emptyGroups = new LongArrayList(6);
+      for (int revision = 2; revision <= 4; revision++) {
+        for (int empty = 0; empty < 2; empty++) {
+          if (revision == 4) {
+            assertTrue(writer.moveTo(firstGroup));
+            writer.insertObjectAsRightSibling();
+          } else {
+            assertTrue(writer.moveTo(1));
+            if (revision == 2) {
+              writer.insertObjectAsLastChild();
+            } else {
+              writer.insertObjectAsFirstChild();
+            }
+          }
+          emptyGroups.add(writer.getNodeKey());
+        }
+        writer.commit();
+      }
+      for (final long key : emptyGroups) {
+        assertTrue(writer.moveTo(key));
+        writer.remove();
+      }
+      writer.commit();
+      assertTrue(writer.moveTo(secondRows));
+      writer.moveSubtreeToFirstChild(firstRow);
+      writer.commit();
+      assertTrue(writer.moveTo(1));
+      writer.moveSubtreeToFirstChild(secondGroup);
+      writer.commit();
+      writer.revertTo(1);
+      writer.commit();
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource");
+        final var writer = target.beginNodeTrx()) {
+      final var controller = (JsonIndexController) target.getWtxIndexController(1);
+      controller.createIndexes(Set.of(
+          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+              IndexDef.DbType.JSON),
+          IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+              IndexDef.DbType.JSON)), writer);
+      controller.createProjectionIndexesAtLoadStart(Set.of(projection()), writer);
+      final var importer = (InternalJsonNodeTrx) writer;
+      try (final var first = source.beginNodeReadOnlyTrx(1)) {
+        importer.importRevision(JsonIdentityDeltaReader.snapshot(first, 1), first);
+      }
+      for (int revision = 2; revision <= 8; revision++) {
+        try (final var before = source.beginNodeReadOnlyTrx(revision - 1);
+            final var after = source.beginNodeReadOnlyTrx(revision)) {
+          final var delta = JsonIdentityDeltaReader.between(before, after, revision);
+          JsonNodeTrxImpl.replayTestHook = (phase, transaction) -> {
+            if (phase.equals("derived-state-finalized")) {
+              throw new IllegalStateException("injected projection failure");
+            }
+          };
+          assertEquals("injected projection failure",
+              assertThrows(IllegalStateException.class, () -> importer.importRevision(delta, after)).getMessage());
+          JsonNodeTrxImpl.replayTestHook = null;
+          assertEquals(revision - 1, target.getMostRecentRevisionNumber());
+          assertSnapshot(before, writer, 0);
+          try (final var committed = target.beginNodeReadOnlyTrx(revision - 1)) {
+            assertProjection(committed);
+          }
+          importer.importRevision(delta, after);
+        }
+      }
+    }
+    clearCaches();
+    try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
+        final var targetDb = Databases.openJsonDatabase(targetPath);
+        final var source = sourceDb.beginResourceSession("resource");
+        final var target = targetDb.beginResourceSession("resource")) {
+      for (int revision = 1; revision <= 8; revision++) {
+        try (final var original = source.beginNodeReadOnlyTrx(revision);
+            final var copied = target.beginNodeReadOnlyTrx(revision)) {
+          assertSnapshot(original, copied, 0);
+          assertProjection(copied);
+        }
+        assertPaths(source, revision, target, revision);
+      }
+    }
   }
 
   @ParameterizedTest

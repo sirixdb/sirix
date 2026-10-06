@@ -178,9 +178,16 @@ public final class EngineWorkCounters {
   public static final WorkCounter DIFF_BOOKKEEPING = replay("diff.bookkeepingOperations",
       "one pending-diff keyed operation, entry visited by an iterator, or entry cleared",
       ReplayWorkDiagnostics::bookkeepingOperations);
+  public static final WorkCounter REPLAY_PROJECTION_ROWS = replay("replay.projectionRows",
+      "one old row removal or final row insertion queued by a projection identity epoch",
+      ReplayWorkDiagnostics::projectionIdentityRows);
+  public static final WorkCounter REPLAY_PROJECTION_LABEL_BYTES = replay("replay.projectionLabelBytes",
+      "one byte allocated for a final projection identity row's order label",
+      ReplayWorkDiagnostics::projectionIdentityLabelBytes);
   public static final List<WorkCounter> REPLAY =
       List.of(REPLAY_RECORD_VISITS, REPLAY_PATH_STEPS, REPLAY_CREATED_IDENTITIES, REPLAY_STAGED_RECORDS,
-          REPLAY_ANCESTOR_STEPS, REPLAY_SIDECAR_READS, REPLAY_FALLBACK_PAGES, DIFF_BOOKKEEPING);
+          REPLAY_ANCESTOR_STEPS, REPLAY_SIDECAR_READS, REPLAY_FALLBACK_PAGES, DIFF_BOOKKEEPING, REPLAY_PROJECTION_ROWS,
+          REPLAY_PROJECTION_LABEL_BYTES);
 
   private static WorkCounter replay(final String name, final String unit, final LongSupplier read) {
     return WorkCounter.gated(name, unit, read, "-Dsirix.replay.workDiag=true", () -> ReplayWorkDiagnostics.ENABLED);

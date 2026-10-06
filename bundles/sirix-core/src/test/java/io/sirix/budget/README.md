@@ -81,6 +81,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
+| `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend and remove empty outer groups beside 16/4096 retained rows, all four versioning types | boundary links queue retained row removals/insertions or allocate their order labels; cold row data, sorted memberships, labels and key/numeric segment offsets must be preserved, with a one-row insertion as a positive control |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
@@ -89,6 +90,14 @@ failure table and tells the reader where the work went.
 The original budgets were checked **by mutation**: the defect it guards was put back, the test was seen
 to fail with the expected counter, and the source was restored. The measured healthy and broken
 figures are in each test's comments.
+
+Projection identity boundary mutation evidence (2026-10-06): restoring the raw left/right-link
+comparison failed all 16 versioning/size/direction cases on queued row edits: 32 for 16 retained
+rows and 8192 for 4096 rows. Emitted label buffers were 160 and 44536 bytes respectively; record
+visits ranged from 922–1115 and 605518–622379. The fixed append/prepend and removal captures used
+zero row edits, zero label bytes and 190–268 record visits across both sizes. The positive indexed
+insertion control queued one row and allocated a 10-byte label. Raw logs and XML for this run live
+under `build/replay/review-boundary-results/` in the active worktree.
 
 ### The native-image guard, and what it cannot catch
 
@@ -140,6 +149,11 @@ maintains, so a budget quotes the same numbers an investigation would:
   production; the core test fork enables it, and captures require that gate to be live. The sidecar
   zero budget has a positive read control. These totals include lifecycle work during the capture;
   they do not represent unique records, allocated bytes, or physical disk reads.
+- `EngineWorkCounters.REPLAY_PROJECTION_ROWS` and `REPLAY_PROJECTION_LABEL_BYTES`: old row removals
+  and final row insertions queued by an identity epoch, and bytes allocated for its final row labels.
+  The zero budgets for empty boundary changes have a positive indexed insertion control. These use
+  the same `sirix.replay.workDiag` gate; label bytes count only the emitted label buffers, not total
+  JVM allocations.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
