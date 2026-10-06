@@ -21,7 +21,6 @@ import java.util.Arrays;
 import java.util.stream.Stream;
 
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertSnapshot;
-import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -42,7 +41,7 @@ final class JsonIdentityHistoryTest {
   void coldHistoryPreservesExactSourceEventsAndSuffixBoundary(final VersioningType versioning, final HashType hash,
       final boolean dewey) {
     final Path sourcePath = directory.resolve("source");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var source = database.beginResourceSession("resource");
         final var writer = source.beginNodeTrx()) {
       writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"x\":1},0]"), JsonNodeTrx.Commit.NO);
@@ -67,7 +66,7 @@ final class JsonIdentityHistoryTest {
     for (final int start : new int[] {1, 3, 4}) {
       final Path targetPath = directory.resolve("target-" + start);
       try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-          final var targetDb = create(targetPath, versioning, hash, dewey);
+          final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
           final var source = sourceDb.beginResourceSession("resource");
           final var target = targetDb.beginResourceSession("resource");
           final var writer = target.beginNodeTrx()) {

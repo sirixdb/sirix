@@ -45,7 +45,6 @@ import java.util.stream.Stream;
 import static io.brackit.query.util.path.Path.parse;
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertPaths;
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertSnapshot;
-import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -81,17 +80,20 @@ final class JsonIdentityProjectionEpochTest {
       final boolean dewey, final boolean emptied) {
     final Path sourcePath = directory.resolve("source");
     final Path targetPath = directory.resolve("target");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var session = database.beginResourceSession("resource");
         final var writer = session.beginNodeTrx()) {
       writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
           [{"rows":[{"score":10}]},{"rows":[{"score":20}]},
            {"rows":[{"score":30}]},{"rows":[{"score":40}]}]
           """), JsonNodeTrx.Commit.NO);
-      session.getWtxIndexController(1).createIndexes(Set.of(
-          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
-          IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
-              IndexDef.DbType.JSON), projection()), writer);
+      session.getWtxIndexController(1)
+             .createIndexes(Set.of(
+                 IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+                     IndexDef.DbType.JSON),
+                 IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
+                     IndexDef.DbType.JSON),
+                 projection()), writer);
       final long[] groups = new long[4];
       assertTrue(writer.moveTo(1));
       assertTrue(writer.moveToFirstChild());
@@ -174,7 +176,7 @@ final class JsonIdentityProjectionEpochTest {
     }
     clearCaches();
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx()) {
@@ -182,7 +184,8 @@ final class JsonIdentityProjectionEpochTest {
       controller.createIndexes(Set.of(
           IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
           IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
-              IndexDef.DbType.JSON)), writer);
+              IndexDef.DbType.JSON)),
+          writer);
       controller.createProjectionIndexesAtLoadStart(Set.of(projection()), writer);
       final var importer = (InternalJsonNodeTrx) writer;
       try (final var first = source.beginNodeReadOnlyTrx(1)) {
@@ -239,7 +242,8 @@ final class JsonIdentityProjectionEpochTest {
       writer.remove();
     } else {
       assertTrue(writer.moveTo(rows));
-      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"score\":" + score + "}"), JsonNodeTrx.Commit.NO);
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"score\":" + score + "}"),
+          JsonNodeTrx.Commit.NO);
     }
   }
 
@@ -255,11 +259,12 @@ final class JsonIdentityProjectionEpochTest {
       final boolean dewey) {
     final Path sourcePath = directory.resolve("source");
     final Path targetPath = directory.resolve("target");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var session = database.beginResourceSession("resource");
         final var writer = session.beginNodeTrx()) {
-      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "[{\"rows\":[{\"score\":1},{\"score\":2}]},{\"rows\":[{\"score\":3},{\"score\":4}]}]"),
+      writer.insertSubtreeAsFirstChild(
+          JsonShredder.createStringReader(
+              "[{\"rows\":[{\"score\":1},{\"score\":2}]},{\"rows\":[{\"score\":3},{\"score\":4}]}]"),
           JsonNodeTrx.Commit.NO);
       writer.commit();
       assertTrue(writer.moveTo(1));
@@ -321,16 +326,16 @@ final class JsonIdentityProjectionEpochTest {
     }
     clearCaches();
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx()) {
       final var controller = (JsonIndexController) target.getWtxIndexController(1);
       controller.createIndexes(Set.of(
-          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
-              IndexDef.DbType.JSON),
+          IndexDefs.createPathIdxDef(Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON),
           IndexDefs.createCASIdxDef(false, Type.LON, Set.of(parse("/[]/rows/[]/score", PathParser.Type.JSON)), 0,
-              IndexDef.DbType.JSON)), writer);
+              IndexDef.DbType.JSON)),
+          writer);
       controller.createProjectionIndexesAtLoadStart(Set.of(projection()), writer);
       final var importer = (InternalJsonNodeTrx) writer;
       try (final var first = source.beginNodeReadOnlyTrx(1)) {
@@ -378,7 +383,7 @@ final class JsonIdentityProjectionEpochTest {
   void containerPermutationsAndRestorationCrossMaintenanceBatches(final VersioningType versioning, final HashType hash,
       final boolean dewey) {
     final Path sourcePath = directory.resolve("source");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var session = database.beginResourceSession("resource");
         final var writer = session.beginNodeTrx()) {
       final StringBuilder json = new StringBuilder(8000).append('[');
@@ -425,7 +430,7 @@ final class JsonIdentityProjectionEpochTest {
       final Path targetPath = directory.resolve("target-" + start);
       clearCaches();
       try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-          final var targetDb = create(targetPath, versioning, hash, dewey);
+          final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
           final var source = sourceDb.beginResourceSession("resource");
           final var target = targetDb.beginResourceSession("resource");
           final var writer = target.beginNodeTrx()) {
@@ -473,7 +478,7 @@ final class JsonIdentityProjectionEpochTest {
       final boolean dewey) {
     final Path sourcePath = directory.resolve("source");
     final Path targetPath = directory.resolve("target");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var source = database.beginResourceSession("resource");
         final var writer = source.beginNodeTrx()) {
       writer.commit();
@@ -490,7 +495,7 @@ final class JsonIdentityProjectionEpochTest {
     }
     clearCaches();
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx()) {

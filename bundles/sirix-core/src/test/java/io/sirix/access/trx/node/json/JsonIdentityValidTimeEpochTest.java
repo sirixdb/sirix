@@ -222,8 +222,8 @@ final class JsonIdentityValidTimeEpochTest {
         continue;
       }
       final long parent = reader.getParentKey();
-      final boolean inverted = reader.getLeftSiblingKey() > key
-          || reader.getRightSiblingKey() >= 0 && reader.getRightSiblingKey() < key;
+      final boolean inverted =
+          reader.getLeftSiblingKey() > key || (reader.getRightSiblingKey() >= 0 && reader.getRightSiblingKey() < key);
       Instant from = null;
       Instant to = null;
       int fromCount = 0;
@@ -246,7 +246,7 @@ final class JsonIdentityValidTimeEpochTest {
       }
       assertTrue(reader.moveTo(key));
       final boolean duplicate = fromCount > 1 || toCount > 1;
-      if (!duplicate && (from == null && to == null || from != null && to != null && from.isAfter(to))) {
+      if (!duplicate && ((from == null && to == null) || (from != null && to != null && from.isAfter(to)))) {
         continue;
       }
       expected.add(key);
@@ -258,8 +258,8 @@ final class JsonIdentityValidTimeEpochTest {
         unorderedParents.add(parent);
       }
       for (int point = 0; point < POINTS.size(); point++) {
-        if (duplicate || (from == null || !POINTS.get(point).isBefore(from))
-            && (to == null || !POINTS.get(point).isAfter(to))) {
+        if (duplicate || ((from == null || !POINTS.get(point).isBefore(from))
+            && (to == null || !POINTS.get(point).isAfter(to)))) {
           hits.get(point).add(key);
         }
       }
@@ -321,22 +321,23 @@ final class JsonIdentityValidTimeEpochTest {
   }
 
   private static IndexDef definition() {
-    return IndexDefs.createValidTimeIdxDef(Set.of(parse("/left/[]/validFrom", PathParser.Type.JSON),
-        parse("/left/[]/validTo", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+    return IndexDefs.createValidTimeIdxDef(
+        Set.of(parse("/left/[]/validFrom", PathParser.Type.JSON), parse("/left/[]/validTo", PathParser.Type.JSON)), 0,
+        IndexDef.DbType.JSON);
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType version, final HashType hash,
-      final boolean dewey) {
+  private static Database<JsonResourceSession> create(final Path path, final VersioningType version,
+      final HashType hash, final boolean dewey) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     final var database = Databases.openJsonDatabase(path);
     assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                          .storageType(StorageType.FILE_CHANNEL)
-                                                          .versioningApproach(version)
-                                                          .hashKind(hash)
-                                                          .useDeweyIDs(dewey)
-                                                          .buildPathStatistics(true)
-                                                          .validTimePaths("validFrom", "validTo")
-                                                          .build()));
+                                                            .storageType(StorageType.FILE_CHANNEL)
+                                                            .versioningApproach(version)
+                                                            .hashKind(hash)
+                                                            .useDeweyIDs(dewey)
+                                                            .buildPathStatistics(true)
+                                                            .validTimePaths("validFrom", "validTo")
+                                                            .build()));
     return database;
   }
 }

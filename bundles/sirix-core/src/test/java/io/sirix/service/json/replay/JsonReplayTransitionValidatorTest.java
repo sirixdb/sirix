@@ -21,7 +21,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,7 +34,7 @@ final class JsonReplayTransitionValidatorTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void rejectsDetachedReciprocalSiblingCycleWithoutCountsOrDewey(final VersioningType versioning) {
-    rejectsAndRetries(versioning, "[0,0,0,0]", records -> {
+    rejectsAndRetries(versioning, "[0,0,0,0]", false, records -> {
       replace(records, 1, 0, -1, -1, 2, 2);
       replace(records, 2, 1, -1, -1, -1, -1);
       replace(records, 3, 1, 5, 4, -1, -1);
@@ -44,7 +46,7 @@ final class JsonReplayTransitionValidatorTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void rejectsDetachedParentCycleWithoutCountsOrDewey(final VersioningType versioning) {
-    rejectsAndRetries(versioning, "[[[]]]", records -> {
+    rejectsAndRetries(versioning, "[[[]]]", false, records -> {
       replace(records, 0, -1, -1, -1, -1, -1);
       replace(records, 1, 3, -1, -1, 2, 2);
       replace(records, 2, 1, -1, -1, 3, 3);
@@ -52,10 +54,24 @@ final class JsonReplayTransitionValidatorTest {
     }, "Replay parent cycle");
   }
 
-  private void rejectsAndRetries(final VersioningType versioning, final String json,
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void rejectsMissingLeftSiblingDeweyIDAndRetries(final VersioningType versioning) {
+    rejectsAndRetries(versioning, "[0,0]", true, records -> {
+      final var left = requireNonNull(records.get(2));
+      assertNotNull(left.deweyID());
+      records.put(left.key(),
+          new JsonReplayRecord(left.key(), left.kind(), left.parent(), left.left(), left.right(), left.firstChild(),
+              left.lastChild(), left.childCount(), left.descendantCount(), left.pathKey(), left.nameKey(),
+              left.previousRevision(), left.lastModifiedRevision(), left.hash(), null, left.name(), left.stringValue(),
+              left.numberValue(), left.booleanValue()));
+    }, "Invalid replay Dewey boundary at 3");
+  }
+
+  private void rejectsAndRetries(final VersioningType versioning, final String json, final boolean dewey,
       final Consumer<Long2ObjectMap<JsonReplayRecord>> corrupt, final String diagnostic) {
-    try (final var sourceDb = create(directory.resolve("source"), versioning);
-        final var targetDb = create(directory.resolve("target"), versioning);
+    try (final var sourceDb = create(directory.resolve("source"), versioning, dewey);
+        final var targetDb = create(directory.resolve("target"), versioning, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
       try (final var writer = source.beginNodeTrx()) {
@@ -73,7 +89,8 @@ final class JsonReplayTransitionValidatorTest {
         corrupt.accept(records);
         final var invalid = new JsonIdentityDelta(valid.manifest(), records, LongSets.emptySet());
         final var failure = assertThrows(IllegalStateException.class, () -> importer.importRevision(invalid, second));
-        assertTrue(failure.getMessage().contains(diagnostic), failure.getMessage());
+        final String message = requireNonNull(failure.getMessage());
+        assertTrue(message.contains(diagnostic), message);
         assertEquals(1, target.getMostRecentRevisionNumber());
         JsonReplayGraphValidator.validate(writer);
         importer.importRevision(valid, second);
@@ -92,7 +109,8 @@ final class JsonReplayTransitionValidatorTest {
             old.name(), old.stringValue(), old.numberValue(), old.booleanValue()));
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning) {
+  private static Database<JsonResourceSession> create(final Path path, final VersioningType versioning,
+      final boolean dewey) {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     final var database = Databases.openJsonDatabase(path);
     database.createResource(ResourceConfiguration.newBuilder("resource")
@@ -100,7 +118,7 @@ final class JsonReplayTransitionValidatorTest {
                                                  .versioningApproach(versioning)
                                                  .hashKind(HashType.NONE)
                                                  .storeChildCount(false)
-                                                 .useDeweyIDs(false)
+                                                 .useDeweyIDs(dewey)
                                                  .build());
     return database;
   }

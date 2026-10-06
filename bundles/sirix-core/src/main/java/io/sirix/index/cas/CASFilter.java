@@ -6,6 +6,7 @@ import io.sirix.index.path.PathFilter;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Set;
 
@@ -23,7 +24,7 @@ public final class CASFilter {
   private final PathFilter pathFilter;
 
   /** The key to compare. */
-  private final Atomic key;
+  private final @Nullable Atomic key;
 
   /** Denotes the search mode. */
   private final SearchMode mode;
@@ -32,11 +33,11 @@ public final class CASFilter {
    * Constructor. Initializes the internal state.
    *
    * @param paths paths to match
-   * @param key the atomic key to filter
+   * @param key the atomic key to filter, or null to select all keys
    * @param mode the search mode to apply
    * @param pcrCollector the path class record collector
    */
-  public CASFilter(final Set<Path<QNm>> paths, final Atomic key, final SearchMode mode,
+  public CASFilter(final Set<Path<QNm>> paths, final @Nullable Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) {
     this.pathFilter = new PathFilter(requireNonNull(paths), pcrCollector);
     this.key = key;
@@ -59,7 +60,7 @@ public final class CASFilter {
     return mode;
   }
 
-  public Atomic getKey() {
+  public @Nullable Atomic getKey() {
     return key;
   }
 

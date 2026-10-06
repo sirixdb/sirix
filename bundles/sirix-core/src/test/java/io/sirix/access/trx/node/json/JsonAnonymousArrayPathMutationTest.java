@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertSnapshot;
-import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,7 +58,7 @@ final class JsonAnonymousArrayPathMutationTest {
       final HashType hash, final boolean dewey, final boolean shared) {
     final Path sourcePath = directory.resolve("source");
     final Path targetPath = directory.resolve("target");
-    try (final var database = create(sourcePath, versioning, hash, dewey);
+    try (final var database = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var session = database.beginResourceSession("resource");
         final var writer = session.beginNodeTrx()) {
       writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(shared
@@ -117,7 +116,7 @@ final class JsonAnonymousArrayPathMutationTest {
     }
     clearCaches();
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx()) {

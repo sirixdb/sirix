@@ -65,9 +65,10 @@ final class ProjectionIdentityImportWorkBudgetTest {
 
   static Stream<Arguments> configurations() {
     return Stream.of(VersioningType.values())
-                 .flatMap(version -> Stream.of(16, 4096)
-                                           .flatMap(rows -> Stream.of(false, true)
-                                                                  .map(prepend -> Arguments.of(version, rows, prepend))));
+                 .flatMap(
+                     version -> Stream.of(16, 4096)
+                                      .flatMap(rows -> Stream.of(false, true)
+                                                             .map(prepend -> Arguments.of(version, rows, prepend))));
   }
 
   static Stream<Arguments> moveConfigurations() {
@@ -165,8 +166,8 @@ final class ProjectionIdentityImportWorkBudgetTest {
 
   @ParameterizedTest
   @MethodSource("moveConfigurations")
-  void unindexedNeighbourMovesRetainIndexedPrefixes(final VersioningType version, final int rows,
-      final boolean prepend, final boolean dewey) throws Exception {
+  void unindexedNeighbourMovesRetainIndexedPrefixes(final VersioningType version, final int rows, final boolean prepend,
+      final boolean dewey) throws Exception {
     final Path sourcePath = directory.resolve("source");
     try (final var database = create(sourcePath, version, dewey);
         final var session = database.beginResourceSession("resource");
@@ -250,9 +251,11 @@ final class ProjectionIdentityImportWorkBudgetTest {
                 .assertBetween(REPLAY_RECORD_VISITS, 1, 1000, "classification must not walk the unchanged row subtree");
           } else if (revision == 6) {
             work.assertExactly(REPLAY_PROJECTION_ROWS, 1, "populate a formerly unindexed neighbour with one new row")
-                .assertBetween(REPLAY_PROJECTION_LABEL_BYTES, 1, 128, "the new row must receive its current order label");
+                .assertBetween(REPLAY_PROJECTION_LABEL_BYTES, 1, 128,
+                    "the new row must receive its current order label");
           } else {
-            work.assertAtLeast(REPLAY_PROJECTION_ROWS, 1, "indexed reorders and reparenting must maintain affected rows")
+            work.assertAtLeast(REPLAY_PROJECTION_ROWS, 1,
+                "indexed reorders and reparenting must maintain affected rows")
                 .assertAtLeast(REPLAY_PROJECTION_LABEL_BYTES, 1, "indexed moves must emit final order labels");
           }
         }
@@ -470,16 +473,17 @@ final class ProjectionIdentityImportWorkBudgetTest {
         new ProjectionSortedSpec(List.of(0)));
   }
 
-  private static Database<JsonResourceSession> create(final Path path, final VersioningType version, final boolean dewey) {
+  private static Database<JsonResourceSession> create(final Path path, final VersioningType version,
+      final boolean dewey) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     final var database = Databases.openJsonDatabase(path);
     assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                          .storageType(StorageType.FILE_CHANNEL)
-                                                          .versioningApproach(version)
-                                                          .hashKind(HashType.ROLLING)
-                                                          .useDeweyIDs(dewey)
-                                                          .buildPathStatistics(true)
-                                                          .build()));
+                                                            .storageType(StorageType.FILE_CHANNEL)
+                                                            .versioningApproach(version)
+                                                            .hashKind(HashType.ROLLING)
+                                                            .useDeweyIDs(dewey)
+                                                            .buildPathStatistics(true)
+                                                            .build()));
     return database;
   }
 }

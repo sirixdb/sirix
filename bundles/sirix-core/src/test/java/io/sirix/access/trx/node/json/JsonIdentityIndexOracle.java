@@ -199,7 +199,7 @@ final class JsonIdentityIndexOracle {
         if (matches == 1 && numeric) {
           assertEquals(number, page.numericColumn(0)[row], "projection scalar for record " + key);
         }
-        unrepresentable |= matches > 1 || matches == 1 && !numeric;
+        unrepresentable |= matches > 1 || (matches == 1 && !numeric);
         previous = ProjectionIdentityEpochOracle.assertOrder(page, row, previous);
       }
       // Column safety flags are sticky for a persisted leaf. Conservative poisoning is valid;

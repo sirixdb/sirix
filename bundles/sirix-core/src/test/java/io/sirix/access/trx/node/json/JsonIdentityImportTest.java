@@ -38,6 +38,7 @@ import io.sirix.cache.IndexLogKey;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -628,7 +629,7 @@ final class JsonIdentityImportTest {
     }
   }
 
-  private static void assertStats(final PathStats expected, final PathStats actual) {
+  private static void assertStats(final @Nullable PathStats expected, final @Nullable PathStats actual) {
     if (expected == null || actual == null) {
       assertEquals(expected, actual);
       return;

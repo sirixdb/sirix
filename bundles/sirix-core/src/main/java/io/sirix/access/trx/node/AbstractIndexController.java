@@ -717,7 +717,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public CASFilter createCASFilter(final Set<String> stringPaths, final Atomic key, final SearchMode mode,
+  public CASFilter createCASFilter(final Set<String> stringPaths, final @Nullable Atomic key, final SearchMode mode,
       final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(stringPaths.size());
     if (!stringPaths.isEmpty()) {

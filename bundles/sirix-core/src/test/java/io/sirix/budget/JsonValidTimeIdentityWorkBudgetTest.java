@@ -179,21 +179,22 @@ final class JsonValidTimeIdentityWorkBudgetTest {
   }
 
   private static IndexDef definition() {
-    return IndexDefs.createValidTimeIdxDef(Set.of(parse("/[]/validFrom", PathParser.Type.JSON),
-        parse("/[]/validTo", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+    return IndexDefs.createValidTimeIdxDef(
+        Set.of(parse("/[]/validFrom", PathParser.Type.JSON), parse("/[]/validTo", PathParser.Type.JSON)), 0,
+        IndexDef.DbType.JSON);
   }
 
   private static Database<JsonResourceSession> create(final Path path, final VersioningType version) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     final var database = Databases.openJsonDatabase(path);
     assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                          .storageType(StorageType.FILE_CHANNEL)
-                                                          .versioningApproach(version)
-                                                          .hashKind(HashType.ROLLING)
-                                                          .useDeweyIDs(false)
-                                                          .buildPathStatistics(true)
-                                                          .validTimePaths("validFrom", "validTo")
-                                                          .build()));
+                                                            .storageType(StorageType.FILE_CHANNEL)
+                                                            .versioningApproach(version)
+                                                            .hashKind(HashType.ROLLING)
+                                                            .useDeweyIDs(false)
+                                                            .buildPathStatistics(true)
+                                                            .validTimePaths("validFrom", "validTo")
+                                                            .build()));
     return database;
   }
 }

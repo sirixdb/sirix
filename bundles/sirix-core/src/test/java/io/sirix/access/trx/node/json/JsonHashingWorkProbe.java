@@ -70,7 +70,7 @@ public final class JsonHashingWorkProbe implements AutoCloseable {
               });
       writerField.set(mutation, counted);
     } catch (final ReflectiveOperationException failure) {
-      throw new AssertionError(failure);
+      throw new LinkageError("Unable to instrument hashing mutation", failure);
     }
   }
 
@@ -109,7 +109,7 @@ public final class JsonHashingWorkProbe implements AutoCloseable {
       return (long) (states.elements().length + ready.elements().length + keys.length) * Long.BYTES
           + (long) values.length * Integer.BYTES;
     } catch (final ReflectiveOperationException failure) {
-      throw new AssertionError(failure);
+      throw new LinkageError("Unable to inspect hashing scratch storage", failure);
     }
   }
 

@@ -210,9 +210,16 @@ public final class JsonReplayTransitionValidator {
           : require(node.right()).left() != node.key() || require(node.right()).parent() != node.parent()) {
         throw new IllegalStateException("Invalid replay right boundary at " + node.key());
       }
-      if (deweyIDs && (node.dewey() == null || parent.dewey() == null || !node.dewey().isDescendantOf(parent.dewey())
-          || (node.left() != -1 && require(node.left()).dewey().compareTo(node.dewey()) >= 0))) {
-        throw new IllegalStateException("Invalid replay Dewey boundary at " + node.key());
+      if (deweyIDs) {
+        final SirixDeweyID nodeID = node.dewey();
+        final SirixDeweyID parentID = parent.dewey();
+        final SirixDeweyID leftID = node.left() == -1
+            ? null
+            : require(node.left()).dewey();
+        if (nodeID == null || parentID == null || !nodeID.isDescendantOf(parentID)
+            || (node.left() != -1 && (leftID == null || leftID.compareTo(nodeID) >= 0))) {
+          throw new IllegalStateException("Invalid replay Dewey boundary at " + node.key());
+        }
       }
     }
     if ((node.first() == -1) != (node.last() == -1)

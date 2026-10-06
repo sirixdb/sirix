@@ -142,7 +142,6 @@ public final class JsonTestHelper {
    * @param resourceConfig the custom resource configuration to use
    * @return a database-obj
    */
-  @Ignore
   public static Database<JsonResourceSession> getDatabaseWithResourceConfig(final Path file,
       final ResourceConfiguration resourceConfig) {
     if (INSTANCES.containsKey(file)) {

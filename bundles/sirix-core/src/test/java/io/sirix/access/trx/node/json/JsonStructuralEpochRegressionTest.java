@@ -17,7 +17,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
-import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static io.sirix.access.trx.node.json.JsonStructuralHashInvariantTest.assertGraph;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,7 +44,7 @@ final class JsonStructuralEpochRegressionTest {
           long removed;
           long moved;
           long destination;
-          try (final var database = create(path, versioning, hash, dewey);
+          try (final var database = JsonIdentityImportTest.create(path, versioning, hash, dewey);
               final var source = database.beginResourceSession("resource");
               final var writer = source.beginNodeTrx(threshold, mode)) {
             try {

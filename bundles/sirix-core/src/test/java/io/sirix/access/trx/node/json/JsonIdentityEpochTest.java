@@ -30,9 +30,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import static java.util.Objects.requireNonNull;
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertPaths;
 import static io.sirix.access.trx.node.json.JsonIdentityImportTest.assertSnapshot;
-import static io.sirix.access.trx.node.json.JsonIdentityImportTest.create;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -66,8 +66,8 @@ final class JsonIdentityEpochTest {
       final boolean dewey, final AfterCommitState mode) {
     final Path sourcePath = directory.resolve("source");
     final Path targetPath = directory.resolve("target");
-    try (final var sourceDb = create(sourcePath, versioning, hash, dewey);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+    try (final var sourceDb = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
       seed(source);
@@ -122,8 +122,8 @@ final class JsonIdentityEpochTest {
   @MethodSource("configurations")
   void rejectsWrongEpochWithoutChangingTheCleanDestination(final VersioningType versioning, final HashType hash,
       final boolean dewey) {
-    try (final var sourceDb = create(directory.resolve("source"), versioning, hash, dewey);
-        final var targetDb = create(directory.resolve("target"), versioning, hash, dewey);
+    try (final var sourceDb = JsonIdentityImportTest.create(directory.resolve("source"), versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(directory.resolve("target"), versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
       seed(source);
@@ -180,8 +180,11 @@ final class JsonIdentityEpochTest {
 
   @Test
   void readerRejectsUncommittedCrossResourceAndNonconsecutiveEpochs() {
-    try (final var sourceDb = create(directory.resolve("source"), VersioningType.FULL, HashType.ROLLING, true);
-        final var otherDb = create(directory.resolve("other"), VersioningType.FULL, HashType.ROLLING, true);
+    try (
+        final var sourceDb =
+            JsonIdentityImportTest.create(directory.resolve("source"), VersioningType.FULL, HashType.ROLLING, true);
+        final var otherDb =
+            JsonIdentityImportTest.create(directory.resolve("other"), VersioningType.FULL, HashType.ROLLING, true);
         final var source = sourceDb.beginResourceSession("resource");
         final var other = otherDb.beginResourceSession("resource")) {
       seed(source);
@@ -207,10 +210,10 @@ final class JsonIdentityEpochTest {
   @Test
   void commitWaitsForCompleteImportRatherThanPublishingStaging() throws Exception {
     try (
-        final var sourceDb =
-            create(directory.resolve("source"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
-        final var targetDb =
-            create(directory.resolve("target"), VersioningType.SLIDING_SNAPSHOT, HashType.ROLLING, true);
+        final var sourceDb = JsonIdentityImportTest.create(directory.resolve("source"), VersioningType.SLIDING_SNAPSHOT,
+            HashType.ROLLING, true);
+        final var targetDb = JsonIdentityImportTest.create(directory.resolve("target"), VersioningType.SLIDING_SNAPSHOT,
+            HashType.ROLLING, true);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource")) {
       seed(source);
@@ -234,12 +237,12 @@ final class JsonIdentityEpochTest {
               Thread.currentThread().interrupt();
               throw new IllegalStateException(failure);
             }
-            assertFalse(pending.get().isDone());
+            assertFalse(requireNonNull(pending.get()).isDone());
           }
         };
         ((InternalJsonNodeTrx) writer).importRevision(JsonIdentityDeltaReader.snapshot(reader, 1), reader);
         JsonNodeTrxImpl.replayTestHook = null;
-        pending.get().get(30, TimeUnit.SECONDS);
+        requireNonNull(pending.get()).get(30, TimeUnit.SECONDS);
         assertEquals(2, target.getMostRecentRevisionNumber());
         for (int revision = 1; revision <= 2; revision++) {
           try (final var copy = target.beginNodeReadOnlyTrx(revision)) {
@@ -256,7 +259,7 @@ final class JsonIdentityEpochTest {
       final boolean dewey, final AfterCommitState mode) {
     final Path sourcePath = directory.resolve("source-epochs");
     final Path targetPath = directory.resolve("target-epochs");
-    try (final var sourceDb = create(sourcePath, versioning, hash, dewey);
+    try (final var sourceDb = JsonIdentityImportTest.create(sourcePath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource")) {
       try (final var writer = source.beginNodeTrx(3, mode)) {
         writer.insertSubtreeAsFirstChild(
@@ -279,7 +282,7 @@ final class JsonIdentityEpochTest {
     }
     Databases.clearGlobalCaches();
     try (final var sourceDb = Databases.openJsonDatabase(sourcePath);
-        final var targetDb = create(targetPath, versioning, hash, dewey);
+        final var targetDb = JsonIdentityImportTest.create(targetPath, versioning, hash, dewey);
         final var source = sourceDb.beginResourceSession("resource");
         final var target = targetDb.beginResourceSession("resource");
         final var writer = target.beginNodeTrx(1, mode)) {
