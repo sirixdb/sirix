@@ -204,6 +204,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .map(mapDBNodeToWtx)
               .flatMap(Optional::stream)
               .filter(trx -> trxIDs.add(trx.getId()))
+              .toList()
               .forEach(trx -> {
                 trx.commit(commitMessage, commitTimestamp);
                 invalidateStatisticsForResource(trx);
@@ -226,6 +227,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .map(mapDBNodeToWtx)
               .flatMap(Optional::stream)
               .filter(trx -> trxIDs.add(trx.getId()))
+              .toList()
               .forEach(trx -> {
                 trx.commit(commitMessage, commitTimestamp);
                 invalidateStatisticsForResource(trx);

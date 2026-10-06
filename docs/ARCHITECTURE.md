@@ -682,8 +682,8 @@ Axes are iterators that traverse from a context node to related nodes. SirixDB p
 | `DescendantAxis` | Down | All descendants (depth-first, pre-order) |
 | `PostOrderAxis` | Down | All descendants (depth-first, post-order) |
 | `LevelOrderAxis` | Down | All descendants (breadth-first) |
-| `ParentAxis` | Up | Direct parent |
-| `AncestorAxis` | Up | All ancestors to root |
+| `ParentAxis` | Up | [Parent traversal contract](../bundles/sirix-core/src/main/java/io/sirix/axis/ParentAxis.java) |
+| `AncestorAxis` | Up | [Ancestor traversal contract](../bundles/sirix-core/src/main/java/io/sirix/axis/AncestorAxis.java) |
 | `FollowingSiblingAxis` | Right | Siblings after this node |
 | `PrecedingSiblingAxis` | Left | Siblings before this node |
 | `SelfAxis` | None | The node itself |

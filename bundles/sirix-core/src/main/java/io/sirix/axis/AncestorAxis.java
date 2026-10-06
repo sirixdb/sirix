@@ -22,13 +22,11 @@
 package io.sirix.axis;
 
 import io.sirix.api.NodeCursor;
-import io.sirix.node.NodeKind;
-import io.sirix.settings.Fixed;
 
 /**
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not
- * included.
+ * Iterate over all ancestors, including the document node, starting at a given node. Self is
+ * included only when requested.
  * </p>
  */
 public final class AncestorAxis extends AbstractAxis {
@@ -73,8 +71,7 @@ public final class AncestorAxis extends AbstractAxis {
       return cursor.getNodeKey();
     }
 
-    if (cursor.getKind() != NodeKind.XML_DOCUMENT && cursor.hasParent()
-        && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+    if (cursor.hasParent()) {
       return cursor.getParentKey();
     }
 

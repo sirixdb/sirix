@@ -31,6 +31,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
+import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
 import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
@@ -128,6 +129,16 @@ public class SirixTranslator extends TopDownTranslator {
     super(options, (node, compiler) -> SirixPipelineStrategy.hasMembershipJoin(node)
         ? new SirixPipelineStrategy().compilePipeExpr(node, compiler)
         : pipelineStrategy.compilePipeExpr(node, compiler));
+  }
+
+  @Override
+  protected Expr replaceExpr(final AST node) throws QueryException {
+    if (node.getType() == XQ.ReplaceValueExpr) {
+      final Expr target = expr(node.getChild(0), true);
+      final Expr source = expr(node.getChild(1), true);
+      return new SirixReplaceValue(source, target);
+    }
+    return super.replaceExpr(node);
   }
 
   @Override
