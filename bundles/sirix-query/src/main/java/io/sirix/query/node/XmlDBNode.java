@@ -32,8 +32,11 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.node.TemporalNode;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.parser.NavigationalSubtreeParser;
+import io.brackit.query.node.parser.NavigationalSubtreeProcessor;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
+import io.brackit.query.node.parser.NodeSubtreeListener2HandlerAdapter;
 import io.brackit.query.node.parser.NodeSubtreeParser;
+import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -1475,9 +1478,70 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void parse(final NodeSubtreeHandler handler) {
+    requireNonNull(handler);
     moveRtx();
-    final NodeSubtreeParser parser = new NavigationalSubtreeParser(this);
-    parser.parse(handler);
+    if (kind != NodeKind.ELEMENT) {
+      final NodeSubtreeParser parser = new NavigationalSubtreeParser(this);
+      parser.parse(handler);
+      return;
+    }
+
+    // Only the standalone root needs inherited bindings. Nearest declarations win,
+    // including default-namespace undeclarations, without changing stored scopes.
+    final Object2ObjectLinkedOpenHashMap<String, String> namespaces =
+        new Object2ObjectLinkedOpenHashMap<>(rtx.getNamespaceCount());
+    try {
+      do {
+        final long ownerKey = rtx.getNodeKey();
+        for (int i = 0, count = rtx.getNamespaceCount(); i < count; i++) {
+          rtx.moveToNamespace(i);
+          final int prefixKey = rtx.getPrefixKey();
+          // Name dictionaries depend on node kind, so decode on the namespace node.
+          final String prefix = prefixKey == -1
+              ? ""
+              : rtx.nameForKey(prefixKey);
+          if (!namespaces.containsKey(prefix)) {
+            namespaces.put(prefix, rtx.getValue());
+          }
+          rtx.moveTo(ownerKey);
+        }
+      } while (rtx.moveToParent() && rtx.isElement());
+    } finally {
+      moveRtx();
+    }
+
+    // Mapping events belong to this exact root node instance, so both hooks compare object identity.
+    new NavigationalSubtreeProcessor<AbstractTemporalNode<XmlDBNode>>(this,
+        Collections.singletonList(new NodeSubtreeListener2HandlerAdapter(handler))) {
+      @Override
+      @SuppressWarnings("ReferenceEquality")
+      protected void notifyStartElement(final AbstractTemporalNode<XmlDBNode> node) {
+        if (node == XmlDBNode.this) {
+          final var iterator = namespaces.object2ObjectEntrySet().fastIterator();
+          while (iterator.hasNext()) {
+            final var namespace = iterator.next();
+            handler.startMapping(namespace.getKey(), namespace.getValue());
+          }
+          handler.startElement(node.getName());
+        } else {
+          super.notifyStartElement(node);
+        }
+      }
+
+      @Override
+      @SuppressWarnings("ReferenceEquality")
+      protected void notifyEndElement(final AbstractTemporalNode<XmlDBNode> node) {
+        if (node == XmlDBNode.this) {
+          handler.endElement(node.getName());
+          final var iterator = namespaces.keySet().iterator();
+          while (iterator.hasNext()) {
+            handler.endMapping(iterator.next());
+          }
+        } else {
+          super.notifyEndElement(node);
+        }
+      }
+    }.process();
   }
 
   @Override

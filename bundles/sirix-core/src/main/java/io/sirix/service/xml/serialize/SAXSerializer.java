@@ -32,7 +32,6 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.service.AbstractSerializer;
 import io.sirix.utils.LogWrapper;
-import io.sirix.utils.XMLToken;
 import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.ContentHandler;
@@ -231,10 +230,8 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    */
   private void generateText(final XmlNodeReadOnlyTrx rtx) {
     try {
-      // Escaping GROWS the array ('&' -> "&amp;" etc.), so the length passed to characters()
-      // must be the ESCAPED array's length — passing the unescaped value's length truncated
-      // the SAX characters() event for any value containing an escapable character.
-      final char[] content = XMLToken.escapeContent(rtx.getValue()).toCharArray();
+      // SAX events carry decoded characters; the content handler escapes them when writing XML.
+      final char[] content = rtx.getValue().toCharArray();
       contentHandler.characters(content, 0, content.length);
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
