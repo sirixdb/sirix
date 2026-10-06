@@ -3,7 +3,8 @@
 CAS routing preserves `jn:open`'s timestamp and `jn:doc`'s integer revision as an
 expression evaluated for each input tuple. The timestamp lookup uses the resource
 session's revision-by-instant lookup. Its bounded memo belongs to the query context,
-not a cached plan, and is invalidated when the resource publishes another revision.
+not a cached plan, is synchronized across workers, and is invalidated when the
+resource publishes another revision.
 Revision arguments retain Brackit's original function conversion and cardinality
 rules, including untyped atomic values and integer range checks.
 
@@ -20,11 +21,15 @@ that sorted node keys have array order. Without either proof, the original array
 source runs. This conservative fallback matters after inserts and moves. Single
 point matches do not require an ordering proof.
 
-The SH1 loader creates integer CAS paths `/[]/id` and `/[]/pid` on contracts and
-`/[]/id` on products at E0, after automatic valid-time index creation. The
-half-open valid-time rewrite and its residual handling remain independent.
+The SH1 loader creates the integer CAS path `/[]/id` on contracts and products
+at E0, after automatic valid-time index creation. The half-open valid-time rewrite
+and its residual handling remain independent.
 
 ## Verification
+
+The full-suite counts and mutation results below are author-reported evidence
+from before the review fixes. The regression coverage descriptions also include
+tests added during review; the outer pipeline owns final validation of the corrected tree.
 
 All Gradle and Java invocations run through the task's two-slot `heavy` limiter,
 which admits a JVM only with at least 6 GiB available. This task uses an initially
@@ -40,7 +45,11 @@ Gradle flags: `--no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g
 - `RuntimeRevisionCASTest`: historical filter and correlated FLWOR queries on all
   four versioning types, prolog and integer operands, pre-index revisions, and
   array order after insertion, function argument conversions and invalid inputs,
-  with executable optimized-plan assertions.
+  with executable optimized-plan assertions. Review regression coverage also checks
+  nested tuple-relative projections, public CAS plan metadata, interleaved worker
+  cursor navigation, parallel historical queries, and concurrent memo invalidation.
+- `BitemporalBusinessKeyIndexTest`: persisted catalogues keep only the required
+  business-key `id` path and preserve automatic valid-time indexes for all three relations.
 - `CASLookupWorkBudgetTest`: 50 publication-row lookups among 1,000 objects read
   bounded candidate nodes and resolve only the two distinct instants; publishing
   another revision invalidates the memo.
@@ -58,10 +67,14 @@ The baseline is commit `842f48e080ef3897c4fc421d05650dc2a7c35e33` with the origi
 The input is the campaign's t100k stream (234,884 events, 25 publications).
 All generated stores and outputs stay under `build/runtime-cas/`. Authoritative
 timing logs are `before-original.log` and `after-final.log`; every retained and
-discarded repetition matched the oracle. The after run uses the final compiled
-production classes from the successful full-suite build. A task-local
+discarded repetition matched the oracle. The after run uses the author's compiled
+production classes from the successful full-suite build before review fixes. A task-local
 copy of the loader permits that output directory; loading logic and JVM flags
 are unchanged. The before runtime uses an isolated overlay compiled from the initial commit's original versions of every changed production class.
+
+The recorded after measurements include the contracts `pid` CAS path subsequently
+removed during review. These timings have not been rerun on the corrected tree;
+they remain the accepted author-provided before/after evidence.
 
 Protocol: one warm process, ten repetitions for Q1/Q2/Q3/Q10 and three for Q5,
 discard the first, report medians. Each repetition compiles, fully consumes,
@@ -90,6 +103,11 @@ target. The total includes compilation, serialization and
 canonicalization. Component medians are independent and need not sum to the
 total median. These runs share the laptop with other workers. No timing is a
 test assertion.
+
+The recorded acceptance decision accepts these results for this PR against the
+SH1-at-or-below-XTDB bar. The approximate 1 ms figure was the profiling report's
+engineering estimate. The remaining query compilation work is tracked as a
+separate follow-up; this PR does not require further latency work.
 
 Mutation verification uses separately compiled overlay classes, leaving the
 production source and running validation builds untouched. Removing CAS routing

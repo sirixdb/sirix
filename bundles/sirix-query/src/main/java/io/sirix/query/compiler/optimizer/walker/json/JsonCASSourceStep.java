@@ -9,6 +9,7 @@ import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.walker.Walker;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.index.IndexType;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.function.jn.io.Doc;
 import io.sirix.query.function.jn.io.DocByPointInTime;
@@ -95,6 +96,7 @@ public final class JsonCASSourceStep extends Walker {
     index.setProperty("databaseName", database.stringValue());
     index.setProperty("resourceName", resource.stringValue());
     index.setProperty("revision", -1);
+    index.setProperty("indexType", IndexType.CAS);
     index.setProperty("casSourcePath", path);
     index.setProperty("casSourceType", type);
     index.setProperty("atomic", atomic);

@@ -116,7 +116,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   /** Query-context-local timestamp lookup; a new commit invalidates prior floor resolutions. */
-  public int resolveRevision(final JsonResourceSession session, final Instant instant) {
+  public synchronized int resolveRevision(final JsonResourceSession session, final Instant instant) {
     requireNonNull(session);
     requireNonNull(instant);
     final RevisionMemo memo = revisionMemos.computeIfAbsent(session, unused -> new RevisionMemo());
@@ -422,7 +422,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public void close() {
-    revisionMemos.clear();
+    synchronized (this) {
+      revisionMemos.clear();
+    }
     xmlStore.close();
     jsonStore.close();
   }

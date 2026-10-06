@@ -171,7 +171,7 @@ public final class BitemporalSirixLoadMain {
                                                  .build());
   }
 
-  private static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
+  static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
       final String resource) {
     if (!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource)) {
       return;
@@ -179,10 +179,7 @@ public final class BitemporalSirixLoadMain {
     final var storage = writer.getStorageEngineWriter();
     final int indexId = storage.getCASPage(storage.getActualRevisionRootPage()).nextUnallocatedIndex();
     final var id = parse("/[]/id", PathParser.Type.JSON);
-    final var paths = BitemporalSchema.CONTRACTS.equals(resource)
-        ? Set.of(id, parse("/[]/pid", PathParser.Type.JSON))
-        : Set.of(id);
-    final IndexDef definition = IndexDefs.createCASIdxDef(false, Type.INR, paths, indexId, IndexDef.DbType.JSON);
+    final IndexDef definition = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(id), indexId, IndexDef.DbType.JSON);
     session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(definition), writer);
   }
 

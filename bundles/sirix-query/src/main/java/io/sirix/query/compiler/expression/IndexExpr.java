@@ -44,6 +44,7 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.compiler.optimizer.walker.json.QueryPathSegment;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonItemFactory;
+import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -192,7 +193,8 @@ public final class IndexExpr implements Expr {
       }
 
       final var sequence = new ArrayList<Item>();
-      final var jsonItemFactory = new JsonItemFactory();
+      final var jsonItemFactory = JsonItemFactory.INSTANCE;
+      final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
 
       switch (indexType) {
         case PATH, NAME -> nodeKeys.forEach(nodeKey -> {
@@ -210,11 +212,11 @@ public final class IndexExpr implements Expr {
             if (!isFusedRecord) {
               rtx.moveToFirstChild();
             }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           } else if (arrayIndexes.getFirst() == Integer.MIN_VALUE) {
             if (rtx.moveToFirstChild()) {
               do {
-                sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+                sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
               } while (rtx.moveToRightSibling());
             }
           } else {
@@ -234,7 +236,7 @@ public final class IndexExpr implements Expr {
                         + " for nodeKey " + nodeKey));
               }
             }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           }
         });
         case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
@@ -274,7 +276,7 @@ public final class IndexExpr implements Expr {
                 rtx.moveToParent();
               }
             }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           });
         });
         default -> throw new QueryException(JNFun.ERR_INVALID_INDEX_TYPE, "Index type not known: " + indexType);
@@ -375,10 +377,11 @@ public final class IndexExpr implements Expr {
         }
       }
       final Item[] items = new Item[ordered.length];
-      final JsonItemFactory factory = new JsonItemFactory();
+      final JsonItemFactory factory = JsonItemFactory.INSTANCE;
+      final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
       for (int i = 0; i < ordered.length; i++) {
         rtx.moveTo(ordered[i]);
-        items[i] = factory.getSequence(rtx, collection);
+        items[i] = factory.getSequence(itemTrx, collection);
       }
       retained = true;
       return new ItemSequence(items);
