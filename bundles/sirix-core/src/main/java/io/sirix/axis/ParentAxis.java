@@ -22,8 +22,6 @@
 package io.sirix.axis;
 
 import io.sirix.api.NodeCursor;
-import io.sirix.node.NodeKind;
-import io.sirix.settings.Fixed;
 
 /**
  * <p>
@@ -55,8 +53,7 @@ public final class ParentAxis extends AbstractAxis {
   protected long nextKey() {
     final NodeCursor cursor = getCursor();
 
-    if (cursor.getKind() != NodeKind.XML_DOCUMENT && mFirst && cursor.hasParent()
-        && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+    if (mFirst && cursor.hasParent()) {
       mFirst = false;
       return cursor.getParentKey();
     }

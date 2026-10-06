@@ -40,10 +40,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Comprehensive tests for JSON navigation axes.
  *
- * <p>Test document structure (node keys 0-20) — iter#32 fusion collapses each
- * {@code (key, primitive)} pair onto a single OBJECT_NAMED_* record, eliminating
- * the legacy OBJECT_KEY + primitive_VALUE child pair.
- * <pre>
+ * <p>
+ * Test document structure (node keys 0-20) — iter#32 fusion collapses each {@code (key, primitive)}
+ * pair onto a single OBJECT_NAMED_* record, eliminating the legacy OBJECT_KEY + primitive_VALUE
+ * child pair.
+ * 
+ * <pre>{@code
  * 0: JSON_DOCUMENT
  * 1: OBJECT (root)
  *   2: OBJECT_KEY "foo"
@@ -65,7 +67,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       18: STRING_VALUE "boo"
  *       19: OBJECT (empty)
  *       20: ARRAY (empty)
- * </pre>
+ * }</pre>
  */
 final class JsonAxisComprehensiveTest {
 
@@ -86,13 +88,13 @@ final class JsonAxisComprehensiveTest {
   private JsonResourceSession openSession;
 
   /**
-   * Creates the standard test document and returns a read-only transaction positioned at the
-   * document root. The session is tracked and closed in tearDown.
+   * Creates the standard test document and returns a read-only transaction positioned at the document
+   * root. The session is tracked and closed in tearDown.
    */
   private JsonNodeReadOnlyTrx openReadTrx() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var wtx = session.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -202,8 +204,8 @@ final class JsonAxisComprehensiveTest {
 
       // Post-order (iter#32 structural fusion): leaves before parents.
       // Subtree of fused node 6:
-      //   7: OBJECT_NAMED_STRING "hello":"world"
-      //   8: OBJECT_NAMED_BOOLEAN "helloo":true
+      // 7: OBJECT_NAMED_STRING "hello":"world"
+      // 8: OBJECT_NAMED_BOOLEAN "helloo":true
       // Post-order: 7, 8, 6
       assertEquals(List.of(7L, 8L, 6L), visited);
     }
@@ -225,10 +227,10 @@ final class JsonAxisComprehensiveTest {
       }
 
       // Children of root object after iter#32 structural fusion:
-      //   2: OBJECT_NAMED_ARRAY "foo"
-      //   6: OBJECT_NAMED_OBJECT "bar"
-      //   9: OBJECT_NAMED_STRING "baz"
-      //  10: OBJECT_NAMED_ARRAY "tada"
+      // 2: OBJECT_NAMED_ARRAY "foo"
+      // 6: OBJECT_NAMED_OBJECT "bar"
+      // 9: OBJECT_NAMED_STRING "baz"
+      // 10: OBJECT_NAMED_ARRAY "tada"
       assertEquals(List.of(2L, 6L, 9L, 10L), children);
     }
   }
@@ -328,8 +330,8 @@ final class JsonAxisComprehensiveTest {
         ancestors.add(axis.nextLong());
       }
 
-      // Ancestors from node 7 up: fused OBJECT_NAMED_OBJECT "bar"(6), root OBJECT(1).
-      assertEquals(List.of(6L, 1L), ancestors);
+      // Ancestors from node 7 up: fused OBJECT_NAMED_OBJECT "bar"(6), root OBJECT(1), document(0).
+      assertEquals(List.of(6L, 1L, 0L), ancestors);
     }
   }
 
@@ -371,7 +373,7 @@ final class JsonAxisComprehensiveTest {
       }
 
       // OBJECTs in document after iter#32 structural fusion (excludes fused OBJECT_NAMED_OBJECT):
-      //   root(1), {"foo":"bar"}(11), {"baz":false}(13), empty(16) — 4 OBJECTs.
+      // root(1), {"foo":"bar"}(11), {"baz":false}(13), empty(16) — 4 OBJECTs.
       assertEquals(4, objectCount);
     }
   }
@@ -418,10 +420,10 @@ final class JsonAxisComprehensiveTest {
       assertEquals(1L, visited.getFirst().longValue());
 
       // Level 1 children (object keys / fused records) must appear before any level 2 node.
-      final int idxFoo = visited.indexOf(2L);    // OBJECT_NAMED_ARRAY "foo"
-      final int idxBar = visited.indexOf(6L);    // OBJECT_NAMED_OBJECT "bar"
-      final int idxBaz = visited.indexOf(9L);    // OBJECT_NAMED_STRING "baz":"hello"
-      final int idxTada = visited.indexOf(10L);  // OBJECT_NAMED_ARRAY "tada"
+      final int idxFoo = visited.indexOf(2L); // OBJECT_NAMED_ARRAY "foo"
+      final int idxBar = visited.indexOf(6L); // OBJECT_NAMED_OBJECT "bar"
+      final int idxBaz = visited.indexOf(9L); // OBJECT_NAMED_STRING "baz":"hello"
+      final int idxTada = visited.indexOf(10L); // OBJECT_NAMED_ARRAY "tada"
 
       // All object key children must be present
       assertTrue(idxFoo >= 0);
@@ -431,7 +433,7 @@ final class JsonAxisComprehensiveTest {
 
       // Level 2 nodes (array elements + bar's inner fields) must come after all level 1 keys.
       final int maxLevel1 = Math.max(Math.max(idxFoo, idxBar), Math.max(idxBaz, idxTada));
-      final int idxStringBar = visited.indexOf(3L);  // STRING_VALUE "bar" (foo array elem 0)
+      final int idxStringBar = visited.indexOf(3L); // STRING_VALUE "bar" (foo array elem 0)
       final int idxNamedHello = visited.indexOf(7L); // OBJECT_NAMED_STRING "hello":"world"
       assertTrue(idxStringBar > maxLevel1, "Level 2 node should come after all level 1 nodes");
       assertTrue(idxNamedHello > maxLevel1, "Level 2 node should come after all level 1 nodes");
@@ -536,9 +538,7 @@ final class JsonAxisComprehensiveTest {
         }
       };
 
-      final var axis = VisitorDescendantAxis.newBuilder(rtx)
-          .visitor(countingVisitor)
-          .build();
+      final var axis = VisitorDescendantAxis.newBuilder(rtx).visitor(countingVisitor).build();
 
       int totalCount = 0;
       while (axis.hasNext()) {

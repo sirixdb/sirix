@@ -51,16 +51,16 @@ public class AncestorAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(12L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {9L, 1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {9L, 1L, 0L});
 
     rtx.moveTo(4L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {1L, 0L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {1L, 0L});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx), new long[] {0L});
   }
 
   @Test
@@ -68,15 +68,15 @@ public class AncestorAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {11L, 9L, 1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {11L, 9L, 1L, 0L});
 
     rtx.moveTo(5L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {5L, 1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {5L, 1L, 0L});
 
     rtx.moveTo(4L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {4L, 1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {4L, 1L, 0L});
 
     rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {1L, 0L});
   }
 }
