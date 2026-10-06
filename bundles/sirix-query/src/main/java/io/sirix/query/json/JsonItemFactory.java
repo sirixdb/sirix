@@ -16,20 +16,21 @@ import java.math.BigInteger;
 public final class JsonItemFactory {
 
   /**
-   * Shared instance. The class holds no state whatsoever - it is a pure dispatcher on the
-   * cursor's node kind - so one instance serves every caller. A scan allocated a fresh factory
-   * per materialized item, which at 290k records per pass is 290k objects for nothing.
+   * Shared instance. The class holds no state whatsoever - it is a pure dispatcher on the cursor's
+   * node kind - so one instance serves every caller. A scan allocated a fresh factory per
+   * materialized item, which at 290k records per pass is 290k objects for nothing.
    */
   public static final JsonItemFactory INSTANCE = new JsonItemFactory();
 
   public JsonItemFactory() {}
 
   /**
-   * Build a name-mode item that always represents the OBJECT_KEY (or fused OBJECT_NAMED_*)
-   * field NAME as a string, regardless of whether the underlying record is fused.
+   * Build a name-mode item that always represents the OBJECT_KEY (or fused OBJECT_NAMED_*) field NAME
+   * as a string, regardless of whether the underlying record is fused.
    *
-   * <p>The generic {@link #getSequence(JsonNodeReadOnlyTrx, JsonDBCollection)} method returns
-   * the VALUE for fused records — callers that iterate {@code obj.names()} (e.g. {@code
+   * <p>
+   * The generic {@link #getSequence(JsonNodeReadOnlyTrx, JsonDBCollection)} method returns the VALUE
+   * for fused records — callers that iterate {@code obj.names()} (e.g. {@code
    * bit:fields($obj)}) must use this method instead so the iteration yields field names.
    */
   public JsonItem getNameSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
@@ -58,7 +59,7 @@ public final class JsonItemFactory {
       // the name (via filter axes or direct lookup). Return the inline primitive as its
       // typed JSON atomic item.
       case OBJECT_NAMED_STRING:
-        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());
+        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValueBytes());
       case OBJECT_NAMED_BOOLEAN:
         return new AtomicBooleanJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
       case OBJECT_NAMED_NULL:
@@ -82,7 +83,7 @@ public final class JsonItemFactory {
         throw new AssertionError();
       }
       case STRING_VALUE:
-        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());
+        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValueBytes());
       case BOOLEAN_VALUE:
         return new AtomicBooleanJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
       case NULL_VALUE:

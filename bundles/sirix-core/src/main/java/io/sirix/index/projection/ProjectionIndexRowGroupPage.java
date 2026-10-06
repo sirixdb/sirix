@@ -243,8 +243,8 @@ public final class ProjectionIndexRowGroupPage {
    * bit-packed integer per row that FOR-packs, zone-maps, sorts, groups and compares through the
    * NUMERIC_LONG kernels untouched, and {@link ProjectionTemporalCodec} maps back to the exact
    * original bytes on emission. That round trip is what makes the kind lossless, and it holds only
-   * because the builder REFUSES any value that is not exactly canonical — see
-   * {@link ProjectionTemporalCodec}.
+   * for zone-less cells; Z-suffixed cells use the existing unrepresentable flag to preserve text —
+   * see {@link ProjectionTemporalCodec}.
    *
    * <p>
    * <b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b>, the precedent

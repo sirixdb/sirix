@@ -31,6 +31,10 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
+import io.sirix.query.compiler.expression.StoredDateTimeCast;
+import io.sirix.query.function.StoredDateTimeConstructor;
+import io.brackit.query.function.ConstructorFunction;
+import io.brackit.query.jdm.Type;
 import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
@@ -134,6 +138,17 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   @Override
+  protected Expr castExpr(final AST node) {
+    final AST type = node.getChild(1);
+    final Type target = resolveType((QNm) type.getChild(0).getChild(0).getValue(), true);
+    if (target == Type.DATI) {
+      final boolean allowEmpty = type.getChildCount() == 2 && type.getChild(1).getType() == XQ.CardinalityZeroOrOne;
+      return new StoredDateTimeCast(node.getStaticContext(), expr(node.getChild(0), true), allowEmpty);
+    }
+    return super.castExpr(node);
+  }
+
+  @Override
   protected Expr replaceExpr(final AST node) throws QueryException {
     if (node.getType() == XQ.ReplaceValueExpr) {
       final Expr target = expr(node.getChild(0), true);
@@ -217,6 +232,13 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (node.getValue() instanceof QNm name && "http://www.w3.org/2001/XMLSchema".equals(name.getNamespaceURI())
+        && "dateTime".equals(name.getLocalName()) && node.getChildCount() == 1
+        && node.getChild(0).getType() != XQ.ArgumentPlaceHolder
+        && ctx.getFunctions().resolve(name, 1) instanceof ConstructorFunction constructor) {
+      return new FunctionExpr(node.getStaticContext(), new StoredDateTimeConstructor(constructor),
+          new Expr[] {expr(node.getChild(0), true)});
+    }
     if (OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(node.getValue()) && node.getChildCount() == 7
         && node.checkProperty(OpenBitemporal.INTERNAL_SLICE)) {
       final Expr[] arguments = new Expr[7];

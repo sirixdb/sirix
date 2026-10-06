@@ -6,6 +6,8 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Object;
 import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.query.json.AtomicStrJsonDBItem;
+import io.sirix.query.json.StoredDateTimeParser;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -45,23 +47,36 @@ public final class ValidTimeIndexScan {
     // Open-ended intervals: a null (absent/unparseable) bound is unbounded on that side. This mirrors
     // the interval index exactly — its writer maps a null bound to the domain min/max and registers
     // the record (ValidTimeIntervalIndexWriter.toInterval) — so all paths still return the same set.
-    final Instant validFrom = validFromSeq == null
-        ? null
-        : parseInstant(validFromSeq);
-    final Instant validTo = validToSeq == null
-        ? null
-        : parseInstant(validToSeq);
-
-    if (validFrom == null && validTo == null) {
+    final int fromComparison = compareBound(validTime, validFromSeq);
+    final int toComparison = compareBound(validTime, validToSeq);
+    if (fromComparison == Integer.MIN_VALUE && toComparison == Integer.MIN_VALUE) {
       return false;
     }
-    if (validFrom != null && (validTime.isBefore(validFrom) || (strictStart && validTime.equals(validFrom)))) {
+    if (fromComparison != Integer.MIN_VALUE && (fromComparison < 0 || (strictStart && fromComparison == 0))) {
       return false;
     }
-    if (validTo != null && (validTime.isAfter(validTo) || (strictEnd && validTime.equals(validTo)))) {
+    if (toComparison != Integer.MIN_VALUE && (toComparison > 0 || (strictEnd && toComparison == 0))) {
       return false;
     }
     return true;
+  }
+
+  private static int compareBound(final Instant validTime, final Sequence value) {
+    if (value instanceof AtomicStrJsonDBItem stored) {
+      final long millis = stored.epochMillis();
+      if (millis != StoredDateTimeParser.NOT_FIXED_UTC) {
+        final int seconds = Long.compare(validTime.getEpochSecond(), millis / 1_000);
+        return seconds != 0
+            ? seconds
+            : Integer.compare(validTime.getNano(), 0);
+      }
+    }
+    final Instant bound = value == null
+        ? null
+        : parseInstant(value);
+    return bound == null
+        ? Integer.MIN_VALUE
+        : validTime.compareTo(bound);
   }
 
   private static @Nullable Instant parseInstant(final Sequence seq) {
