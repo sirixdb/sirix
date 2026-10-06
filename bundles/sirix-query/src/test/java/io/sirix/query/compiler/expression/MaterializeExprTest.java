@@ -7,11 +7,16 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jsonitem.array.DArray;
 import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -62,6 +67,27 @@ final class MaterializeExprTest {
       assertEquals(binding + 1, opened.get(), "references traverse only materialized items");
     }
     verify(source, times(2)).evaluate(null, null);
+  }
+
+  @Test
+  void singletonArrayRemainsOneSequenceItem() {
+    final DArray array = new DArray(List.of(Int32.ONE, new Int32(2)));
+    final Expr source = mock(Expr.class);
+    when(source.evaluate(null, null)).thenReturn(new ItemSequence(array));
+    final Sequence result = new MaterializeExpr(source).evaluate(null, null);
+    assertEquals(Int32.ONE, result.size());
+    try (final Iter iterator = result.iterate()) {
+      assertSame(array, iterator.next());
+      assertNull(iterator.next());
+    }
+  }
+
+  @Test
+  void anArraySourceKeepsItsExistingRepresentation() {
+    final DArray array = new DArray(List.of(Int32.ONE, new Int32(2)));
+    final Expr source = mock(Expr.class);
+    when(source.evaluate(null, null)).thenReturn(array);
+    assertSame(array, new MaterializeExpr(source).evaluate(null, null));
   }
 
   @Test

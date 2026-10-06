@@ -23,6 +23,15 @@ invoked on individual bodies, which do not contain those declarations. Engine-pr
 inside the candidate source, including join outputs and filter context items, are covered by the
 same source proof. Dependency cycles or exhausted proof budgets decline admission.
 
+Consumer admission requires a terminal return with scalar reductions. Direct composite returns,
+aliases, deferred bodies and bindings retained across further iteration stay lazy. One first-item
+prefix may precede direct scalar reductions when none of the later references navigates fields or
+members; repeated prefixes and prefixes combined with projections are excluded. Global-dependent
+bindings additionally require an eager scalar result or result-object construction, so all dependent
+uses finish before a result reaches the caller. Q3's aggregate object satisfies this boundary.
+The same purity proof and input guards cover result fields evaluated before those reductions.
+Singleton array results remain wrapped as one sequence item, preserving their cardinality.
+
 Updates, unknown calls, user functions without a purity proof, function parameters, external
 variables, unresolved context items and clock/timezone calls are conservatively excluded.
 Named and inline function parameters are distinguished from same-named globals before lookup,

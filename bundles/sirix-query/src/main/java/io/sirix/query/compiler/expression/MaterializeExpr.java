@@ -6,6 +6,8 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Array;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import java.util.Objects;
 
@@ -45,7 +47,11 @@ public final class MaterializeExpr implements Expr {
       if (context.isBound(name))
         return source.evaluate(context, tuple);
     }
-    return ExprUtil.materialize(source.evaluate(context, tuple));
+    final Sequence evaluated = source.evaluate(context, tuple);
+    final Sequence result = ExprUtil.materialize(evaluated);
+    return result instanceof Array array && !(evaluated instanceof Item)
+        ? new ItemSequence(array)
+        : result;
   }
 
   @Override

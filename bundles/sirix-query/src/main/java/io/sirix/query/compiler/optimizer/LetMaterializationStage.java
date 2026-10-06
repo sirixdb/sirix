@@ -1,5 +1,6 @@
 package io.sirix.query.compiler.optimizer;
 
+import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.Bits;
@@ -53,11 +54,16 @@ public final class LetMaterializationStage implements Stage {
 
   private static final class Admission extends ScopeWalker {
     private static final int MAX_PROOF_WORK = 1024;
+    private static final int REJECTED = 1;
+    private static final int PROJECTED = 2;
+    private static final int PREFIX = 4;
     private final List<AST> candidates = new ArrayList<>();
     private final Map<AST, Integer> references = new IdentityHashMap<>();
+    private final Map<AST, Integer> consumers = new IdentityHashMap<>();
     private final Map<QNm, AST> declarations = new HashMap<>();
     private final Set<QNm> defaults = new LinkedHashSet<>();
     private final Set<QNm> captured = new LinkedHashSet<>();
+    private AST candidateBinding;
     private AST candidateSource;
     private int remaining;
     private boolean nativeStore;
@@ -101,9 +107,15 @@ public final class LetMaterializationStage implements Stage {
         final QNm name = (QNm) node.getValue();
         final Var variable = findScope(node).resolve(name);
         if (variable != null && variable.scope.getNode().getType() == XQ.LetBind
+            && initializer(variable.scope.getNode()).getType() == XQ.PipeExpr
             && !BindingDependencies.parameter(node, name, variable.scope.getNode())) {
           final AST binding = variable.scope.getNode();
           references.put(binding, Math.min(2, references.getOrDefault(binding, 0) + 1));
+          final int previous = consumers.getOrDefault(binding, 0);
+          int kind = consumer(node, binding);
+          if ((previous & kind & PREFIX) != 0)
+            kind |= REJECTED;
+          consumers.put(binding, previous | kind);
         }
       }
       return node;
@@ -112,14 +124,17 @@ public final class LetMaterializationStage implements Stage {
     @Override
     protected AST finish(final AST ast) {
       for (final AST binding : candidates) {
-        if (references.getOrDefault(binding, 0) > 1) {
+        final int kinds = consumers.getOrDefault(binding, REJECTED);
+        if (references.getOrDefault(binding, 0) > 1 && (kinds & REJECTED) == 0
+            && (kinds & (PREFIX | PROJECTED)) != (PREFIX | PROJECTED)) {
           remaining = MAX_PROOF_WORK;
           defaults.clear();
           captured.clear();
           nativeStore = false;
           final AST source = initializer(binding);
+          candidateBinding = binding;
           candidateSource = source;
-          if (pureSource(source, new HashSet<>(), false)) {
+          if (pureSource(source, new HashSet<>(), false) && (defaults.isEmpty() || eagerResult(binding))) {
             source.setProperty(MATERIALIZE, true);
             source.setProperty(GLOBAL_DEFAULTS, defaults.toArray(QNm[]::new));
             source.setProperty(CAPTURED, captured.toArray(QNm[]::new));
@@ -128,6 +143,77 @@ public final class LetMaterializationStage implements Stage {
         }
       }
       return ast;
+    }
+
+    private int consumer(final AST reference, final AST binding) {
+      final AST end = binding.getLastChild();
+      if (end.getType() != XQ.End)
+        return REJECTED;
+      int kind = 0;
+      boolean reduced = false;
+      AST child = reference;
+      for (AST parent = reference.getParent(); parent != null; child = parent, parent = parent.getParent()) {
+        if (parent == end)
+          return reduced ? kind : REJECTED;
+        final int type = parent.getType();
+        if (type == XQ.PipeExpr || type == XQ.End || type == XQ.InlineFuncItem || type == XQ.FunctionDecl
+            || type == XQ.ArrayConstructor)
+          return REJECTED;
+        if (reduced) {
+          if ((kind & PREFIX) != 0 && type != XQ.ParenthesizedExpr && type != XQ.SequenceExpr)
+            return REJECTED;
+          continue;
+        }
+        if (type == XQ.ParenthesizedExpr)
+          continue;
+        if ((type == XQ.DerefExpr || type == XQ.ArrayAccess) && parent.getChild(0) == child) {
+          kind |= PROJECTED;
+          continue;
+        }
+        final String name = functionName(parent);
+        if (name == null || parent.getChild(0) != child)
+          return REJECTED;
+        if (scalarFunction(name)) {
+          reduced = true;
+        } else if ((name.equals("data") || name.equals("distinct-values")) && parent.getChildCount() == 1) {
+          kind |= PROJECTED;
+        } else if (name.equals("subsequence") && parent.getChildCount() == 3 && kind == 0
+            && Int32.ONE.equals(parent.getChild(1).getValue()) && Int32.ONE.equals(parent.getChild(2).getValue())) {
+          kind |= PREFIX;
+          reduced = true;
+        } else {
+          return REJECTED;
+        }
+      }
+      return REJECTED;
+    }
+
+    private boolean eagerResult(final AST binding) {
+      AST result = binding.getLastChild().getChild(0);
+      while (result.getType() == XQ.ParenthesizedExpr && result.getChildCount() == 1)
+        result = result.getChild(0);
+      if (result.getType() != XQ.ObjectConstructor && !scalarFunction(functionName(result)))
+        return false;
+      candidateSource = result;
+      return pureSource(result, new HashSet<>(), false);
+    }
+
+    private String functionName(final AST node) {
+      if (node.getType() != XQ.FunctionCall || !(node.getValue() instanceof QNm name)
+          || !(Namespaces.FN_NSURI.equals(name.getNamespaceURI())
+              || Namespaces.DEFAULT_FN_NSURI.equals(name.getNamespaceURI())))
+        return null;
+      final Function function = sctx.getFunctions().resolve(name, node.getChildCount());
+      return function != null && function.isBuiltIn() && !(function instanceof UDF) && !function.isUpdating()
+          ? name.getLocalName()
+          : null;
+    }
+
+    private static boolean scalarFunction(final String name) {
+      return name != null && switch (name) {
+        case "count", "sum", "avg", "min", "max" -> true;
+        default -> false;
+      };
     }
 
     private boolean pureSource(final AST source, final Set<AST> visited, final boolean globalDefault) {
@@ -188,6 +274,8 @@ public final class LetMaterializationStage implements Stage {
           return true;
         }
         final AST binding = variable.scope.getNode();
+        if (binding == candidateBinding)
+          return true;
         // Every local binding's producer is already part of this source proof. This includes
         // variables rebound by a join and a filter's context item; both are engine-produced values.
         for (AST ancestor = binding; ancestor != null; ancestor = ancestor.getParent()) {

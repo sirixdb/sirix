@@ -24,6 +24,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
 
+@Isolated
 final class LetMaterializationTest {
   @ParameterizedTest
   @ValueSource(strings = {"current-dateTime()", "current-date()", "current-time()", "local:unknown($n)"})
@@ -181,6 +183,222 @@ final class LetMaterializationTest {
     }
   }
 
+  static Stream<Arguments> escapedResultPaths() {
+    return Stream.of("object", "array", "stored")
+        .flatMap(producer -> Stream.of("direct", "alias", "object-field", "function", "prefix", "repeated-prefix")
+            .flatMap(consumer -> Stream.of(1, 2)
+                .flatMap(rows -> Stream.of(false, true)
+                    .map(enabled -> Arguments.of(producer, consumer, rows, enabled)))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("escapedResultPaths")
+  void escapedResultsAreFreshForLaterReferences(final String producer, final String consumer, final int rows,
+      final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final boolean array = producer.equals("array");
+      final String source = switch (producer) {
+        case "object" -> "{\"value\":0}";
+        case "array" -> "[0]";
+        case "stored" -> "jn:doc('input','rows')";
+        default -> throw new IllegalArgumentException(producer);
+      };
+      final String sum = "sum($rows" + (array ? "[0]" : ".value") + ")";
+      final String result = switch (consumer) {
+        case "direct" -> "return ($rows," + sum + "," + sum + ")";
+        case "alias" -> "let $alias := $rows return ($alias," + sum + "," + sum + ")";
+        case "object-field" -> "return ({\"row\":subsequence($rows,1,1)}," + sum + "," + sum + ")";
+        case "function" -> "let $f := function() {" + sum + "} return ($rows,$f(),$f())";
+        case "prefix" -> "return (subsequence($rows,1,1)," + sum + "," + sum + ")";
+        case "repeated-prefix" -> "return (subsequence($rows,1,1),subsequence($rows,1,1))";
+        default -> throw new IllegalArgumentException(consumer);
+      };
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        if (producer.equals("stored"))
+          store.create("input", "rows", "{\"value\":0}");
+        final Query query = new Query(chain, "let $rows := (for $n in 1 to " + rows + " return " + source
+            + ") " + result);
+        try (final Iter output = query.execute(context).iterate()) {
+          final Item first = output.next();
+          final Item escaped = consumer.equals("object-field")
+              ? assertInstanceOf(Item.class, assertInstanceOf(Object.class, first).get(new QNm("row")))
+              : first;
+          if (array)
+            assertInstanceOf(Array.class, escaped).replaceAt(0, Int32.ONE);
+          else
+            assertInstanceOf(Object.class, escaped).replace(new QNm("value"), Int32.ONE);
+          if (consumer.equals("repeated-prefix")) {
+            final Item next = output.next();
+            assertEquals(Int32.ZERO, array
+                ? assertInstanceOf(Array.class, next).at(0)
+                : assertInstanceOf(Object.class, next).get(new QNm("value")));
+          } else {
+            if (!consumer.equals("object-field") && !consumer.equals("prefix")) {
+              for (int i = 1; i < rows; i++) {
+                final Item next = output.next();
+                assertEquals(Int32.ZERO, array
+                    ? assertInstanceOf(Array.class, next).at(0)
+                    : assertInstanceOf(Object.class, next).get(new QNm("value")));
+              }
+            }
+            assertEquals("0", output.next().toString());
+            assertEquals("0", output.next().toString());
+          }
+          assertNull(output.next());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void aLongerPrefixPreservesInterleavingWithinItsProducer(final boolean enabled) {
+    withMaterialization(enabled, () -> {
+      try (final SirixCompileChain chain = SirixCompileChain.create();
+          final SirixQueryContext context = SirixQueryContext.create()) {
+        final Query query = new Query(chain, "let $rows := (let $a := {\"value\":0} for $n in 1 to 2"
+            + " return if ($n eq 1) then $a else {\"value\":$a.value})"
+            + " return (subsequence($rows,1,2),count($rows),count($rows))");
+        try (final Iter output = query.execute(context).iterate()) {
+          assertInstanceOf(Object.class, output.next()).replace(new QNm("value"), Int32.ONE);
+          assertEquals(Int32.ONE, assertInstanceOf(Object.class, output.next()).get(new QNm("value")));
+          assertEquals("2", output.next().toString());
+          assertEquals("2", output.next().toString());
+          assertNull(output.next());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  static Stream<Arguments> globalUsePaths() {
+    return Stream.of(false, true)
+        .flatMap(alias -> Stream.of(false, true)
+            .flatMap(prefix -> Stream.of(false, true).map(enabled -> Arguments.of(alias, prefix, enabled))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("globalUsePaths")
+  void globalsAreReadAgainAfterCallerInterleaving(final boolean alias, final boolean prefix,
+      final boolean enabled) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      final String text = "declare variable $c := 0; " + (alias
+          ? "declare variable $d := (for $n in 1 to 3 return if ($n le 2) then $c else ()); "
+          : "") + "let $rows := (for $n in 1 to 2 return " + (alias ? "$d" : "$c")
+          + ") return (" + (prefix ? "0," : "") + "sum($rows),sum($rows))";
+      try (final SirixCompileChain chain = SirixCompileChain.create();
+          final SirixQueryContext context = SirixQueryContext.create()) {
+        final Query query = new Query(chain, text);
+        try (final Iter output = query.execute(context).iterate()) {
+          assertEquals("0", output.next().toString());
+          context.bind(new QNm("c"), increasing(iterations));
+          assertEquals(alias ? "10" : "3", output.next().toString());
+          if (prefix)
+            assertEquals(alias ? "26" : "7", output.next().toString());
+          assertNull(output.next());
+          assertEquals((alias ? 4 : 2) * (prefix ? 2 : 1), iterations.get());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void deferredFunctionsKeepTheirGlobalReads(final boolean enabled) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      try (final SirixCompileChain chain = SirixCompileChain.create();
+          final SirixQueryContext context = SirixQueryContext.create()) {
+        final Query query = new Query(chain, "declare variable $c := 0;"
+            + " let $rows := (for $n in 1 to 2 return $c)"
+            + " let $f := function() {(sum($rows),sum($rows))} return (0,$f())");
+        try (final Iter output = query.execute(context).iterate()) {
+          assertEquals("0", output.next().toString());
+          context.bind(new QNm("c"), increasing(iterations));
+          assertEquals("3", output.next().toString());
+          assertEquals("7", output.next().toString());
+          assertNull(output.next());
+          assertEquals(4, iterations.get());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  static Stream<Arguments> outerTuplePaths() {
+    return Stream.of(false, true)
+        .flatMap(retained -> Stream.of(false, true).map(enabled -> Arguments.of(retained, enabled)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("outerTuplePaths")
+  void globalRebindingRespectsTheBindingTuple(final boolean retained, final boolean enabled) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      final String binding = "let $rows := (for $n in 1 to 2 return $c) ";
+      final String outer = "for $outer in 1 to 2 ";
+      final String text = "declare variable $c := 0; " + (retained ? binding + outer : outer + binding)
+          + "return {\"total\":sum($rows),\"count\":count($rows)}";
+      try (final SirixCompileChain chain = SirixCompileChain.create();
+          final SirixQueryContext context = SirixQueryContext.create()) {
+        final Query query = new Query(chain, text);
+        try (final Iter output = query.execute(context).iterate()) {
+          final Object first = assertInstanceOf(Object.class, output.next());
+          assertEquals(Int32.ZERO, first.get(new QNm("total")));
+          context.bind(new QNm("c"), increasing(iterations));
+          final Object second = assertInstanceOf(Object.class, output.next());
+          assertEquals(new Int32(3), second.get(new QNm("total")));
+          assertEquals(new Int32(2), second.get(new QNm("count")));
+          assertEquals(4, iterations.get());
+          assertNull(output.next());
+        }
+        assertEquals(enabled && !retained ? 1 : 0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {1, 2})
+  void nonEscapingArrayResultsRetainTheirSequenceCardinality(final int rows) {
+    assertPlanAndAnswer("let $rows := (for $n in 1 to " + rows
+        + " return [1,2]) return (count($rows),sum($rows[0]))", 1, rows + " " + rows);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void eagerResultFieldsCannotHideOpaqueCallbacks(final boolean enabled) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      try (final SirixCompileChain chain = SirixCompileChain.create();
+          final SirixQueryContext context = SirixQueryContext.create()) {
+        final Query query = new Query(chain, "declare variable $c := 0; let $a := {\"value\":0}"
+            + " return ($a,(let $rows := (for $n in 1 to 2 return $c)"
+            + " return {\"effect\":$a.value,\"total\":sum($rows),\"count\":count($rows)}))");
+        try (final Iter output = query.execute(context).iterate()) {
+          final Object first = assertInstanceOf(Object.class, output.next());
+          first.replace(new QNm("value"), new LazySequence() {
+            @Override
+            public Iter iterate() {
+              context.bind(new QNm("c"), increasing(iterations));
+              return Int32.ZERO.iterate();
+            }
+          });
+          final Object second = assertInstanceOf(Object.class, output.next());
+          assertEquals(Int32.ZERO, second.get(new QNm("effect")));
+          assertEquals(new Int32(3), second.get(new QNm("total")));
+          assertEquals(new Int32(2), second.get(new QNm("count")));
+          assertEquals(4, iterations.get());
+          assertNull(output.next());
+        }
+      }
+    });
+  }
+
   @Test
   void effectfulGlobalInitializersDoNotProveLazyDependenciesPure() {
     assertPlanAndAnswer("declare variable $input := (for $n in 1 to 3 return current-dateTime());"
@@ -229,7 +447,8 @@ final class LetMaterializationTest {
     try (final SirixCompileChain chain = SirixCompileChain.create();
         final SirixQueryContext context = SirixQueryContext.create()) {
       final Query query = new Query(chain, "declare variable $input := 1 to 2;"
-          + "let $rows := (for $n in $input return $n) return (count($rows),count($rows))");
+          + "let $rows := (for $n in $input return $n)"
+          + " return {\"first\":count($rows),\"second\":count($rows)}");
       assertEquals(1, markers(chain.getOptimizedAST()), "the default initializer is statically pure");
       context.bind(new QNm("input"), new LazySequence() {
         @Override
@@ -254,7 +473,7 @@ final class LetMaterializationTest {
       try (final PrintWriter writer = new PrintWriter(output)) {
         query.serialize(context, writer);
       }
-      assertEquals("2 2", output.toString().trim());
+      assertEquals("{\"first\":2,\"second\":2}", output.toString().trim());
       assertEquals(2, iterations.get(), "a caller's unproven lazy value retains evaluation per reference");
     }
   }
@@ -360,6 +579,20 @@ final class LetMaterializationTest {
         };
       }
     };
+  }
+
+  private static void withMaterialization(final boolean enabled, final Runnable action) {
+    final String property = LetMaterializationStage.ENABLED_PROPERTY;
+    final String previous = System.getProperty(property);
+    System.setProperty(property, Boolean.toString(enabled));
+    try {
+      action.run();
+    } finally {
+      if (previous == null)
+        System.clearProperty(property);
+      else
+        System.setProperty(property, previous);
+    }
   }
 
   private static int markers(final AST node) {
