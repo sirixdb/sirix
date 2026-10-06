@@ -52,8 +52,9 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Replaces Sirix element content by navigating the writer, while retaining immutable read targets
- * in the pending update list. Other node kinds keep Brackit's replace-value implementation.
+ * Replaces Sirix element content through the writer cursor so child removal cannot navigate a stale
+ * read snapshot. Retains the original target for Brackit's pending-update bookkeeping; other node
+ * kinds use Brackit's replace-value implementation.
  */
 public final class SirixReplaceValue extends ConstructedNodeBuilder implements Expr {
   private final Expr sourceExpr;
@@ -115,8 +116,8 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
     return false;
   }
 
-  /** Keeps the original read target for Brackit's update ordering and compatibility checks. */
-  private record ReplaceContent(XmlDBNode target, String value, XmlNodeReadOnlyTrx reader, long key) implements UpdateOp {
+  private record ReplaceContent(XmlDBNode target, String value, XmlNodeReadOnlyTrx reader,
+      long key) implements UpdateOp {
     @Override
     public XmlDBNode getTarget() {
       return target;

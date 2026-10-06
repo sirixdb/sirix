@@ -105,7 +105,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final SirixDeweyID deweyID;
 
   /**
-   * Restore the shared transaction cursor to this wrapper's node.
+   * Reject detached targets before a getter or mutation can use an unrelated cursor position.
    */
   private void moveRtx() {
     if (!rtx.moveTo(nodeKey)) {
@@ -190,7 +190,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   /**
-   * Get the transaction.
+   * Get the backing transaction, including for a detached node or a closed transaction. An open
+   * cursor is positioned on this node if it still exists.
    *
    * @return transaction handle
    */

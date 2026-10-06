@@ -334,6 +334,12 @@ XQuery `insert nodes` preserves the source sequence order at every insertion pos
 of the parent's existing children. Copied elements retain local namespace bindings,
 including prefix rebinding and default namespace undeclarations on descendants.
 
+XQuery `replace value of node $element with $value` replaces the element's children
+with the atomized source text, preserving the element, its attributes and namespace
+bindings. An empty value removes all children. XML-illegal characters are rejected
+before the replacement is queued. Deletes and element-content replacements whose
+targets were already removed by another pending update have no effect.
+
 JSONiq `insert json $value into $array at position $index` uses zero-based positions
 from `0` through the array length; the length appends, including position `0` for an
 empty array. Omitting `at position` also appends. A sequence inserted as one array

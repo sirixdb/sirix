@@ -25,7 +25,8 @@ import io.sirix.api.NodeCursor;
 
 /**
  * <p>
- * Iterate to parent node starting at a given node. Self is not included.
+ * Iterate to the parent node, including the document node for a content root. Self is not included;
+ * the document node itself has no parent.
  * </p>
  */
 public final class ParentAxis extends AbstractAxis {
