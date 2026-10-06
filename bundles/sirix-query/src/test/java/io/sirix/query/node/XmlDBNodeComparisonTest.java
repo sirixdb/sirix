@@ -115,9 +115,8 @@ class XmlDBNodeComparisonTest {
   @ParameterizedTest
   @CsvSource({"false, true", "false, false", "true, true", "true, false"})
   void attributesAndNamespacesCanBeOrderingContexts(final boolean storeDeweyIds, final boolean sharedCursor) {
-    final String[] documents = {"<r><a/><b id='x'/></r>", "<r><a id='x'/><b/></r>",
-        "<r><a/><b xmlns:p='urn:p'/></r>", "<r><a xmlns:p='urn:p'/><b/></r>",
-        "<r><a id='x'><d/></a><b/></r>", "<r><a xmlns:p='urn:p'><d/></a><b/></r>"};
+    final String[] documents = {"<r><a/><b id='x'/></r>", "<r><a id='x'/><b/></r>", "<r><a/><b xmlns:p='urn:p'/></r>",
+        "<r><a xmlns:p='urn:p'/><b/></r>", "<r><a id='x'><d/></a><b/></r>", "<r><a xmlns:p='urn:p'><d/></a><b/></r>"};
     try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
       final XmlDBCollection collection = store.create("collection", new DocumentParser("<seed/>"));
       for (int index = 0; index < documents.length; index++) {
@@ -131,8 +130,14 @@ class XmlDBNodeComparisonTest {
           final XmlDBNode a = root.getFirstChild();
           final XmlDBNode b = a.getNextSibling();
           final boolean preceding = index == 0 || index == 2;
-          final XmlDBNode owner = preceding ? b : a;
-          final XmlDBNode result = index < 4 ? (preceding ? a : b) : a.getFirstChild();
+          final XmlDBNode owner = preceding
+              ? b
+              : a;
+          final XmlDBNode result = index < 4
+              ? (preceding
+                  ? a
+                  : b)
+              : a.getFirstChild();
           final XmlDBNode sharedContext;
           if (index == 0 || index == 1 || index == 4) {
             sharedContext = owner.getAttribute(new QNm("id"));
@@ -204,8 +209,8 @@ class XmlDBNodeComparisonTest {
   @CsvSource({"false, true", "false, false", "true, true", "true, false"})
   void attributesAndNamespacesHaveStructuralAncestors(final boolean storeDeweyIds, final boolean sharedCursor) {
     try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
-      final XmlDBCollection collection = store.create("collection",
-          new DocumentParser("<r xmlns:p='urn:p' id='r'><a xmlns:q='urn:q' id='a'/></r>"));
+      final XmlDBCollection collection =
+          store.create("collection", new DocumentParser("<r xmlns:p='urn:p' id='r'><a xmlns:q='urn:q' id='a'/></r>"));
       try (final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1");
           final XmlNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
           final XmlNodeReadOnlyTrx otherTrx = session.beginNodeReadOnlyTrx()) {
@@ -226,7 +231,7 @@ class XmlDBNodeComparisonTest {
           }
           for (int ancestor = 0; ancestor < ancestors.length; ancestor++) {
             final boolean expected = ancestor < 2 || index >= 2;
-            final boolean owner = index < 2 && ancestor == 1 || index >= 2 && ancestor == 2;
+            final boolean owner = (index < 2 && ancestor == 1) || (index >= 2 && ancestor == 2);
             assertEquals(owner, ancestors[ancestor].isParentOf(other));
             assertEquals(ancestor == 0, ancestors[ancestor].isDocumentOf(other));
             if (index % 2 == 0) {
@@ -248,8 +253,8 @@ class XmlDBNodeComparisonTest {
   void documentOrderIncludesNamespacesAndAttributesAtEveryDepth(final boolean storeDeweyIds,
       final boolean sharedCursor) {
     try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
-      final XmlDBCollection collection = store.create("collection", new DocumentParser(
-          "<r xmlns:p='urn:p' xmlns:q='urn:q' id='r' other='x'>"
+      final XmlDBCollection collection =
+          store.create("collection", new DocumentParser("<r xmlns:p='urn:p' xmlns:q='urn:q' id='r' other='x'>"
               + "<a xmlns:s='urn:s' id='a' other='y'><d id='d'/></a><b/></r>"));
       try (final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1");
           final XmlNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx();
@@ -283,13 +288,13 @@ class XmlDBNodeComparisonTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"database, false, false", "database, true, true", "database, false, true",
-      "database, true, false", "resource, false, false", "resource, true, true", "resource, false, true",
-      "resource, true, false", "revision, false, false", "revision, true, true"})
+  @CsvSource({"database, false, false", "database, true, true", "database, false, true", "database, true, false",
+      "resource, false, false", "resource, true, true", "resource, false, true", "resource, true, false",
+      "revision, false, false", "revision, true, true"})
   void relationshipsRequireTheSameDocument(final String difference, final boolean firstDeweyIds,
       final boolean secondDeweyIds) {
-    final String document = "<r xmlns:r='urn:r' id='r'>"
-        + "<a xmlns:p='urn:p' id='a'><d/></a><b xmlns:q='urn:q' id='b'/></r>";
+    final String document =
+        "<r xmlns:r='urn:r' id='r'>" + "<a xmlns:p='urn:p' id='a'><d/></a><b xmlns:q='urn:q' id='b'/></r>";
     try (final BasicXmlDBStore store = configuredStore(firstDeweyIds)) {
       assertNotNull(store.create("first", new DocumentParser(document)));
     }
@@ -299,7 +304,9 @@ class XmlDBNodeComparisonTest {
       final XmlDBCollection secondCollection = difference.equals("database")
           ? store.create("second", new DocumentParser(document))
           : firstCollection;
-      final String secondResource = difference.equals("resource") ? "second" : "resource1";
+      final String secondResource = difference.equals("resource")
+          ? "second"
+          : "resource1";
       if (difference.equals("resource")) {
         assertNotNull(secondCollection.add(secondResource, new DocumentParser(document)));
       }
@@ -309,11 +316,14 @@ class XmlDBNodeComparisonTest {
           writer.commit();
         }
       }
-      try (final XmlNodeReadOnlyTrx firstTrx =
-          firstCollection.getDatabase().beginResourceSession("resource1").beginNodeReadOnlyTrx(1);
+      try (
+          final XmlNodeReadOnlyTrx firstTrx =
+              firstCollection.getDatabase().beginResourceSession("resource1").beginNodeReadOnlyTrx(1);
           final XmlNodeReadOnlyTrx secondTrx = secondCollection.getDatabase()
-                                                           .beginResourceSession(secondResource)
-                                                           .beginNodeReadOnlyTrx(difference.equals("revision") ? 2 : 1)) {
+                                                               .beginResourceSession(secondResource)
+                                                               .beginNodeReadOnlyTrx(difference.equals("revision")
+                                                                   ? 2
+                                                                   : 1)) {
         final XmlDBNode firstDocument = new XmlDBNode(firstTrx, firstCollection);
         final XmlDBNode secondDocument = new XmlDBNode(secondTrx, secondCollection);
         final ResourceConfiguration firstConfig = firstTrx.getResourceSession().getResourceConfig();
@@ -353,8 +363,9 @@ class XmlDBNodeComparisonTest {
     try (final BasicXmlDBStore store = configuredStore(storeDeweyIds)) {
       final XmlDBCollection collection = store.create("collection", new DocumentParser("<r><a/><b><d/></b></r>"));
       assertNotNull(collection.add("second", new DocumentParser("<r><c><d/><e/></c></r>")));
-      try (final XmlNodeReadOnlyTrx firstTrx =
-          collection.getDatabase().beginResourceSession("resource1").beginNodeReadOnlyTrx();
+      try (
+          final XmlNodeReadOnlyTrx firstTrx =
+              collection.getDatabase().beginResourceSession("resource1").beginNodeReadOnlyTrx();
           final XmlNodeReadOnlyTrx secondTrx =
               collection.getDatabase().beginResourceSession("second").beginNodeReadOnlyTrx()) {
         final XmlDBNode firstRoot = new XmlDBNode(firstTrx, collection).getFirstChild();

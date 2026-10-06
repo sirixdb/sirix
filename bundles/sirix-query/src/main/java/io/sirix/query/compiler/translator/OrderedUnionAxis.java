@@ -10,8 +10,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Merges forward, document-ordered structural axes sharing one transaction. Descendant plans must
- * merge before positional predicates consume their streams; sorting afterwards is too late.
- * Without Dewey IDs, tree links determine order because inserted node keys need not be monotonic.
+ * merge before positional predicates consume their streams; sorting afterwards is too late. Without
+ * Dewey IDs, tree links determine order because inserted node keys need not be monotonic.
  */
 final class OrderedUnionAxis extends AbstractAxis {
   private final Axis first;
@@ -20,6 +20,7 @@ final class OrderedUnionAxis extends AbstractAxis {
   private final LongArrayList secondAncestors = new LongArrayList(16);
   private final LongArrayList previousAncestors = new LongArrayList(16);
 
+  @SuppressWarnings("ReferenceEquality") // Operands must share the exact mutable cursor instance.
   OrderedUnionAxis(final XmlNodeReadOnlyTrx rtx, final Axis first, final Axis second) {
     super(rtx);
     this.first = requireNonNull(first);
@@ -84,7 +85,7 @@ final class OrderedUnionAxis extends AbstractAxis {
       firstIndex--;
       secondIndex--;
     }
-    final boolean firstPrecedes = firstIndex < 0 || secondIndex < 0
+    final boolean firstPrecedes = (firstIndex < 0 || secondIndex < 0)
         ? firstIndex < secondIndex
         : precedesBranches(rtx, firstIndex, secondIndex);
     final LongArrayList emittedAncestors = firstPrecedes

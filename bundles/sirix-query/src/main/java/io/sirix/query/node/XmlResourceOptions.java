@@ -4,6 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.io.StorageType;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -22,7 +23,7 @@ record XmlResourceOptions(StorageType storageType, boolean buildPathSummary, boo
     requireNonNull(versioningType);
   }
 
-  ResourceConfiguration create(final String resourceName, final Instant commitTimestamp) {
+  ResourceConfiguration create(final String resourceName, final @Nullable Instant commitTimestamp) {
     return ResourceConfiguration.newBuilder(resourceName)
                                 .useDeweyIDs(storeDeweyIds)
                                 .useTextCompression(false)

@@ -1043,7 +1043,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public void makeDir(final String path) {
     try {
-      Files.createDirectory(java.nio.file.Paths.get(path));
+      Files.createDirectory(Paths.get(path));
     } catch (final IOException e) {
       throw new DocumentException(e.getCause());
     }

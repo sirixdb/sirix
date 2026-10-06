@@ -49,26 +49,27 @@ class XmlPathSummaryParallelQueryTest {
   Path directory;
 
   @ParameterizedTest
-  @CsvSource({"descendant, false", "descendant-or-self, false", "child, false",
-      "descendant, true", "descendant-or-self, true", "child, true"})
+  @CsvSource({"descendant, false", "descendant-or-self, false", "child, false", "descendant, true",
+      "descendant-or-self, true", "child, true"})
   void parallelFlworCachesKeepPublicationWithinTheirWorker(final String axis, final boolean storeDeweyIds)
       throws Exception {
     final String children = axis.equals("child")
         ? "<n/>".repeat(SirixTranslator.CHILD_THRESHOLD + 1)
         : "";
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                    .location(directory)
-                                                    .storageType(StorageType.FILE_CHANNEL)
-                                                    .storeDeweyIds(storeDeweyIds)
-                                                    .buildPathSummary(true)
-                                                    .build();
+    try (
+        final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                     .location(directory)
+                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                     .storeDeweyIds(storeDeweyIds)
+                                                     .buildPathSummary(true)
+                                                     .build();
+        @SuppressWarnings("NullAway") // The factory documents null for an unused JSON store.
         final SirixCompileChain chain = SirixCompileChain.createParallel(store, null);
         final SirixQueryContext emptyContext = SirixQueryContext.createWithNodeStore(store);
         final SirixQueryContext presentContext = SirixQueryContext.createWithNodeStore(store)) {
       final XmlDBCollection collection = store.create("collection");
       assertNotNull(collection.add("empty", new DocumentParser("<r><a id='revision'>" + children + "</a></r>")));
-      assertNotNull(collection.add("present", new DocumentParser(
-          "<r><a id='present'><hit/>" + children + "</a></r>")));
+      assertNotNull(collection.add("present", new DocumentParser("<r><a id='present'><hit/>" + children + "</a></r>")));
       final XmlResourceSession emptySession = collection.getDatabase().beginResourceSession("empty");
       emptySession.getNodeTrx().ifPresent(XmlNodeTrx::close);
       try (final XmlNodeTrx writer = emptySession.beginNodeTrx()) {
@@ -93,8 +94,8 @@ class XmlPathSummaryParallelQueryTest {
       final CountDownLatch releaseEmpty = new CountDownLatch(1);
       final CountDownLatch emptyFinished = new CountDownLatch(1);
       final XmlDBNode pausedEmpty = pauseFirstMatch(empty, emptyComputed, releaseEmpty);
-      final Query query = new Query(chain, "declare variable $starts external; "
-          + "for $s in $starts where exists($s/" + axis + "::hit) return string($s/@id)");
+      final Query query = new Query(chain, "declare variable $starts external; " + "for $s in $starts where exists($s/"
+          + axis + "::hit) return string($s/@id)");
       try (final ExecutorService workers = Executors.newFixedThreadPool(2)) {
         final Future<?> emptyResult = workers.submit(() -> {
           try {
@@ -140,8 +141,8 @@ class XmlPathSummaryParallelQueryTest {
 
   private static XmlDBNode contextNode(final XmlDBCollection collection, final XmlResourceSession session,
       final int revision) {
-    return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(session.beginNodeReadOnlyTrx(revision)), collection)
-        .getFirstChild().getFirstChild();
+    return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(session.beginNodeReadOnlyTrx(revision)),
+        collection).getFirstChild().getFirstChild();
   }
 
   private static XmlDBNode pauseFirstMatch(final XmlDBNode node, final CountDownLatch computed,

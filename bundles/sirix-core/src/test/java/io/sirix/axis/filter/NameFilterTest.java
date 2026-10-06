@@ -72,10 +72,8 @@ public class NameFilterTest {
     assertTrue(rtx.moveTo(1));
     final QNm name = rtx.getName();
     assertNotNull(name);
-    assertTrue(new XmlNameFilter(rtx,
-        new QNm(name.getNamespaceURI(), "alias", name.getLocalName())).filter());
-    assertFalse(new XmlNameFilter(rtx,
-        new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
+    assertTrue(new XmlNameFilter(rtx, new QNm(name.getNamespaceURI(), "alias", name.getLocalName())).filter());
+    assertFalse(new XmlNameFilter(rtx, new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
     assertTrue(new XmlNameFilter(rtx, name.toString()).filter());
     assertFalse(new XmlNameFilter(rtx, "alias:" + name.getLocalName()).filter());
   }
@@ -88,8 +86,7 @@ public class NameFilterTest {
     final QNm name = rtx.getName();
     assertNotNull(name);
     assertTrue(new XmlNameFilter(rtx, name).filter());
-    assertFalse(new XmlNameFilter(rtx,
-        new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
+    assertFalse(new XmlNameFilter(rtx, new QNm("urn:other", name.getPrefix(), name.getLocalName())).filter());
     assertTrue(new XmlNameFilter(rtx, name.toString()).filter());
   }
 

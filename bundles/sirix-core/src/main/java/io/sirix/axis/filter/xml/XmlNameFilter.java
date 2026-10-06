@@ -29,9 +29,9 @@ import org.jspecify.annotations.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Filters named XML nodes. The {@link QNm} constructor matches
- * namespace URI and local name, ignoring the prefix. The {@link String} constructor matches the
- * lexical prefix and local name without resolving a namespace context.
+ * Filters named XML nodes. The {@link QNm} constructor matches namespace URI and local name,
+ * ignoring the prefix. The {@link String} constructor matches the lexical prefix and local name
+ * without resolving a namespace context.
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 

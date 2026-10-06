@@ -130,8 +130,10 @@ class XmlCollectionResourceConfigurationTest {
     try (final BasicXmlDBStore store = configuredStore(directory, VersioningType.SLIDING_SNAPSHOT, true)) {
       for (final String name : new String[] {"blocked", "blocked/collection"}) {
         final DocumentException failure = assertThrows(DocumentException.class, () -> store.create(name));
-        assertTrue(failure.getMessage().contains("Could not create document with name " + name));
-        assertFalse(failure.getMessage().contains("exists"));
+        final String message = failure.getMessage();
+        assertNotNull(message);
+        assertTrue(message.contains("Could not create document with name " + name));
+        assertFalse(message.contains("exists"));
         assertEquals("preserved", Files.readString(blocker));
       }
       assertNotNull(store.create("available"));
@@ -140,7 +142,9 @@ class XmlCollectionResourceConfigurationTest {
 
   private static void assertDuplicateRejected(final BasicXmlDBStore store) {
     final DocumentException failure = assertThrows(DocumentException.class, () -> store.create("collection"));
-    assertTrue(failure.getMessage().contains("Document with name collection exists!"));
+    final String message = failure.getMessage();
+    assertNotNull(message);
+    assertTrue(message.contains("Document with name collection exists!"));
   }
 
   private static BasicXmlDBStore configuredStore(final Path location, final VersioningType versioning,
