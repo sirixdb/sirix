@@ -42,9 +42,12 @@ import junit.framework.TestCase;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Query;
+import io.brackit.query.node.parser.DocumentParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -93,6 +96,49 @@ public final class DocByPointInTimeTest extends TestCase {
       final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"()", "(), ()", "(), false()", "(), true()",
+      "xs:dateTime('2219-05-01T00:00:00Z'), ()", "xs:dateTime('2219-05-01T00:00:00Z'), false()",
+      "xs:dateTime('2219-05-01T00:00:00Z'), true()"})
+  public void registeredOpenFormsReturnLatestRevision(final String arguments) {
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
+
+    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+      final String query =
+          "xn:open('" + database + "','" + XmlTestHelper.RESOURCE + "', " + arguments + ")";
+      final XmlDBNode node = (XmlDBNode) new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
+
+      assertEquals(5, node.getTrx().getRevisionNumber());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"()", "false()", "true()"})
+  public void datedFourArgumentOpenReturnsHistoricalRevision(final String option) {
+    holder.getXmlNodeTrx().close();
+
+    final Instant firstCommit = Instant.parse("2001-01-01T00:00:00Z");
+    final Path database = XmlTestHelper.PATHS.PATH2.getFile();
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final XmlDBCollection collection =
+          store.create(database.toString(), new DocumentParser("<root/>"), null, firstCommit);
+      final XmlResourceSession session = collection.getDocument("resource1").getTrx().getResourceSession();
+      try (final var writer = session.beginNodeTrx()) {
+        writer.commit(null, Instant.parse("2002-01-01T00:00:00Z"));
+      }
+
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+      final String query = "xn:open('" + database + "','resource1', xs:dateTime('"
+          + firstCommit + "'), " + option + ")";
+      final XmlDBNode node = (XmlDBNode) new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
+
+      assertEquals(1, node.getTrx().getRevisionNumber());
     }
   }
 

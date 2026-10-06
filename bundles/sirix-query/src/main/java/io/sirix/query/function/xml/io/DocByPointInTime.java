@@ -44,7 +44,7 @@ public final class DocByPointInTime extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 3) {
+    if (args.length < 3 || args.length > 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
@@ -56,6 +56,9 @@ public final class DocByPointInTime extends AbstractFunction {
 
     final String expResName = ((Str) args[1]).stringValue();
     final DateTime dateTime = (DateTime) args[2];
+    if (dateTime == null) {
+      return col.getDocument(expResName);
+    }
     final Instant pointInTime = dateTimeToInstant.convert(dateTime);
 
     return col.getDocument(expResName, pointInTime);

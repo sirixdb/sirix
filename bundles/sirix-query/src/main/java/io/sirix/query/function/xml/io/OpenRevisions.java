@@ -57,20 +57,29 @@ public final class OpenRevisions extends AbstractFunction {
     if (!startPointInTime.isBefore(endPointInTime))
       throw new QueryException(new QNm("No valid arguments specified!"));
 
-    final var startDocNode = col.getDocument(expResName, startPointInTime);
     final var endDocNode = col.getDocument(expResName, endPointInTime);
-
-    var startRevision = startDocNode.getTrx().getRevisionNumber();
-    final int endRevision = endDocNode.getTrx().getRevisionNumber();
-
-    final var documentNodes = new ArrayList<XmlDBNode>();
-    documentNodes.add(startDocNode);
-
-    while (++startRevision < endRevision) {
-      documentNodes.add(col.getDocument(expResName, startRevision));
+    if (endDocNode == null) {
+      return null;
     }
 
-    documentNodes.add(endDocNode);
+    var startDocNode = col.getDocument(expResName, startPointInTime);
+    if (startDocNode == null) {
+      startDocNode = col.getDocument(expResName, 1);
+    }
+
+    final int startRevision = startDocNode.getTrx().getRevisionNumber();
+    final int endRevision = endDocNode.getTrx().getRevisionNumber();
+
+    final var documentNodes = new ArrayList<XmlDBNode>(endRevision - startRevision + 1);
+    documentNodes.add(startDocNode);
+
+    for (int revision = startRevision + 1; revision < endRevision; revision++) {
+      documentNodes.add(col.getDocument(expResName, revision));
+    }
+
+    if (endRevision != startRevision) {
+      documentNodes.add(endDocNode);
+    }
 
     return new ItemSequence(documentNodes.toArray(new XmlDBNode[0]));
   }

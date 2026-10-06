@@ -34,6 +34,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.node.XmlDBNode;
 import io.sirix.utils.XmlDocumentCreator;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -108,6 +109,50 @@ public final class OpenRevisionsTest {
         Assert.assertNotNull(iter.next());
         Assert.assertNotNull(iter.next());
         Assert.assertNotNull(iter.next());
+        Assert.assertNull(iter.next());
+      }
+    }
+  }
+
+  @Test
+  public void intervalBeginningBeforeCreationReturnsAllRevisions() {
+    assertRevisionInterval("2000-01-01T00:00:00Z", "2219-05-01T00:00:00Z", 1, 5);
+  }
+
+  @Test
+  public void intervalBeforeCreationReturnsEmptySequence() {
+    assertRevisionInterval("1999-01-01T00:00:00Z", "2000-01-01T00:00:00Z", 0, 0);
+  }
+
+  @Test
+  public void intervalAfterLatestCommitReturnsLatestRevisionOnce() {
+    assertRevisionInterval("2218-05-01T00:00:00Z", "2219-05-01T00:00:00Z", 5, 5);
+  }
+
+  private void assertRevisionInterval(final String start, final String end, final int firstRevision,
+      final int lastRevision) {
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
+
+    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+      final String query = "xn:open-revisions('" + database + "','" + XmlTestHelper.RESOURCE
+          + "', xs:dateTime('" + start + "'), xs:dateTime('" + end + "'))";
+      final Sequence nodes = new Query(SirixCompileChain.createWithNodeStore(store), query).evaluate(ctx);
+
+      if (firstRevision == 0) {
+        Assert.assertNull(nodes);
+        return;
+      }
+
+      Assert.assertNotNull(nodes);
+      try (final Iter iter = nodes.iterate()) {
+        for (int revision = firstRevision; revision <= lastRevision; revision++) {
+          final XmlDBNode node = (XmlDBNode) iter.next();
+          Assert.assertNotNull(node);
+          Assert.assertEquals(revision, node.getTrx().getRevisionNumber());
+        }
         Assert.assertNull(iter.next());
       }
     }
