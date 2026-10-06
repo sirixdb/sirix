@@ -45,6 +45,7 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.node.XmlDBNode;
+import io.sirix.utils.XMLToken;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -89,7 +90,13 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
     }
     if (targetItem instanceof XmlDBNode node && node.getKind() == Kind.ELEMENT) {
       final String text = buildTextContent(sourceExpr.evaluate(ctx, tuple));
-      ctx.addPendingUpdate(new ReplaceContent(node, text));
+      final int invalidCodePoint = text == null
+          ? -1
+          : XMLToken.firstInvalidXmlChar(text);
+      if (invalidCodePoint != -1) {
+        throw new DocumentException("Replacement value contains an invalid XML character: U+%04X", invalidCodePoint);
+      }
+      ctx.addPendingUpdate(new ReplaceContent(node, text, node.getTrx(), node.getNodeKey()));
       return null;
     }
     // Preserve Brackit's validation and value-update behavior for other targets. An Item is itself
@@ -108,7 +115,7 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
   }
 
   /** Keeps the original read target for Brackit's update ordering and compatibility checks. */
-  private record ReplaceContent(XmlDBNode target, String value) implements UpdateOp {
+  private record ReplaceContent(XmlDBNode target, String value, XmlNodeReadOnlyTrx reader, long key) implements UpdateOp {
     @Override
     public XmlDBNode getTarget() {
       return target;
@@ -121,7 +128,6 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
 
     @Override
     public void apply() {
-      final XmlNodeReadOnlyTrx reader = target.getTrx();
       final XmlResourceSession resource = reader.getResourceSession();
       final XmlNodeTrx writer;
       final Optional<XmlNodeTrx> runningWriter = resource.getNodeTrx();
@@ -133,9 +139,8 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
           writer.revertTo(reader.getRevisionNumber());
         }
       }
-      final long key = target.getNodeKey();
       if (!writer.moveTo(key)) {
-        throw new DocumentException("Update target no longer exists: %s", key);
+        return;
       }
       while (writer.hasFirstChild()) {
         writer.moveToFirstChild();
