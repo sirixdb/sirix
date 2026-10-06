@@ -35,6 +35,8 @@ import io.sirix.query.compiler.expression.StoredDateTimeCast;
 import io.sirix.query.function.StoredDateTimeConstructor;
 import io.brackit.query.function.ConstructorFunction;
 import io.brackit.query.jdm.Type;
+import io.sirix.query.compiler.expression.MaterializeExpr;
+import io.sirix.query.compiler.optimizer.LetMaterializationStage;
 import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
@@ -171,7 +173,11 @@ public class SirixTranslator extends TopDownTranslator {
     } else if (node.getType() == XQ.DerefDescendantExpr) {
       return derefDescendantExpr(node);
     }
-    return super.anyExpr(node);
+    final Expr translated = super.anyExpr(node);
+    return Boolean.TRUE.equals(node.getProperty(LetMaterializationStage.MATERIALIZE))
+        ? new MaterializeExpr(translated, (QNm[]) node.getProperty(LetMaterializationStage.GLOBAL_DEFAULTS),
+            node.checkProperty(LetMaterializationStage.NATIVE_STORE))
+        : translated;
   }
 
   HashMembershipJoin membershipJoin(final Operator in, final AST node) {

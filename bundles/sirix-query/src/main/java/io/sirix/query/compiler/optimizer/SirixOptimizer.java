@@ -152,6 +152,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     if (CheapFirstConjunctStage.enabled()) {
       getStages().add(new CheapFirstConjunctStage());
     }
+    // Final admission uses the physical binding scopes after every structural rewrite.
+    getStages().add(new LetMaterializationStage());
   }
 
   /**
