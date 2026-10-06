@@ -83,7 +83,9 @@ public final class JsonDiffSerializer {
   public String serializeSidecarFromFrozenEpoch(final JsonNodeTrx frozen,
       final @Nullable Long2IntMap knownNewArrayPositions) {
     Objects.requireNonNull(frozen);
-    if (frozen.getResourceSession() != resourceSession || frozen.getRevisionNumber() != newRevisionNumber
+    @SuppressWarnings("ReferenceEquality")
+    final boolean foreignSession = frozen.getResourceSession() != resourceSession;
+    if (foreignSession || frozen.getRevisionNumber() != newRevisionNumber
         || !frozen.getStorageEngineReader().hasTrxIntentLog()) {
       throw new IllegalArgumentException("Sidecar writer must own the exact frozen revision");
     }
@@ -130,7 +132,7 @@ public final class JsonDiffSerializer {
             ? resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)
             : null) {
       final JsonNodeReadOnlyTrx newRtx = frozen == null
-          ? ownedNewRtx
+          ? Objects.requireNonNull(ownedNewRtx)
           : frozen;
       final var oldArrayPositions = new ArrayPositionCache(null);
       final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions);
@@ -418,7 +420,7 @@ public final class JsonDiffSerializer {
    * @param revisionNumber the revision number
    * @return the path string, or null if unavailable
    */
-  private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues,
+  private @Nullable String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues,
       ArrayPositionCache arrayPositions) {
     if (!resourceSession.getResourceConfig().withPathSummary) {
       return null;
@@ -489,7 +491,7 @@ public final class JsonDiffSerializer {
     }
   }
 
-  private String pathFromSummary(final JsonNodeReadOnlyTrx rtx, final PathSummaryReader pathReader,
+  private @Nullable String pathFromSummary(final JsonNodeReadOnlyTrx rtx, final PathSummaryReader pathReader,
       final long pathNodeKey, final boolean cursorOnFusedNamedArray, final ArrayPositionCache arrayPositions) {
     long effectivePathNodeKey = pathNodeKey;
     if (cursorOnFusedNamedArray) {

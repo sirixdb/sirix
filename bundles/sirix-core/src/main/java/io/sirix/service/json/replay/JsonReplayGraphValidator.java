@@ -36,8 +36,8 @@ public final class JsonReplayGraphValidator {
         final long children = frames.getLong(offset + 3);
         final long descendants = frames.getLong(offset + 4);
         if (node.getLastChildKey() != frames.getLong(offset + 2)
-            || config.storeChildCount() && node.getChildCount() != children
-            || config.hashType != HashType.NONE && node.getDescendantCount() != descendants) {
+            || (config.storeChildCount() && node.getChildCount() != children)
+            || (config.hashType != HashType.NONE && node.getDescendantCount() != descendants)) {
           throw new IllegalStateException("Replay child links or counts disagree at " + key + ": last="
               + node.getLastChildKey() + "/" + frames.getLong(offset + 2) + ", children=" + node.getChildCount() + "/"
               + children + ", descendants=" + node.getDescendantCount() + "/" + descendants);

@@ -8,6 +8,7 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
+import org.jspecify.annotations.Nullable;
 
 /** Paired immutable record tries; no presentation hashes or numeric-frontier scans. */
 final class JsonReplayPageWalk {
@@ -35,23 +36,24 @@ final class JsonReplayPageWalk {
     exponents = newReader.getUberPage().getPageCountExp(type);
   }
 
-  void read(final PageReference oldRoot, final int oldHeight, final PageReference newRoot, final int newHeight) {
+  void read(final @Nullable PageReference oldRoot, final int oldHeight, final @Nullable PageReference newRoot,
+      final int newHeight) {
     if (oldHeight < 0 || newHeight < 0 || oldHeight > exponents.length || newHeight > exponents.length) {
       throw new IllegalStateException("Invalid record trie height");
     }
     walk(populated(oldRoot), oldHeight, populated(newRoot), newHeight, 0);
   }
 
-  private static PageReference populated(final PageReference reference) {
+  private static @Nullable PageReference populated(final @Nullable PageReference reference) {
     return reference == null
-        || reference.getKey() < 0 && reference.getPage() == null && reference.getPageFragments().isEmpty()
+        || (reference.getKey() < 0 && reference.getPage() == null && reference.getPageFragments().isEmpty())
             ? null
             : reference;
   }
 
-  private void walk(final PageReference oldRef, final int oldHeight, final PageReference newRef, final int newHeight,
-      final long prefix) {
-    if (oldRef == null && newRef == null || oldHeight == newHeight && sameDurableRegion(oldRef, newRef)) {
+  private void walk(final @Nullable PageReference oldRef, final int oldHeight, final @Nullable PageReference newRef,
+      final int newHeight, final long prefix) {
+    if ((oldRef == null && newRef == null) || (oldHeight == newHeight && sameDurableRegion(oldRef, newRef))) {
       return;
     }
     final int height = Math.max(oldHeight, newHeight);
@@ -65,8 +67,8 @@ final class JsonReplayPageWalk {
     final IndirectPage newPage = newRef != null && newHeight == height
         ? dereference(newReader, newRef)
         : null;
-    if (oldRef != null && oldHeight == height && oldPage == null
-        || newRef != null && newHeight == height && newPage == null) {
+    if ((oldRef != null && oldHeight == height && oldPage == null)
+        || (newRef != null && newHeight == height && newPage == null)) {
       throw new IllegalStateException("Missing indirect page for a populated record reference");
     }
     final int shift = exponents[exponents.length - height];
@@ -104,7 +106,7 @@ final class JsonReplayPageWalk {
     return reader.dereferenceIndirectPageReference(reference);
   }
 
-  private static boolean sameDurableRegion(final PageReference left, final PageReference right) {
+  private static boolean sameDurableRegion(final @Nullable PageReference left, final @Nullable PageReference right) {
     return left != null && right != null && left.getKey() >= 0 && left.getKey() == right.getKey()
         && left.getDatabaseId() == right.getDatabaseId() && left.getResourceId() == right.getResourceId()
         && left.getPageFragments().equals(right.getPageFragments());

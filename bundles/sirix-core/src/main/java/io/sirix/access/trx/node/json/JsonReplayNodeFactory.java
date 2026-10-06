@@ -34,7 +34,10 @@ final class JsonReplayNodeFactory {
     final var dewey = record.deweyID();
     final int nameKey = record.nameKey();
     final long pathKey = record.pathKey();
-    return switch (record.kind()) {
+    // JsonReplayRecord validates payload presence by kind. Node constructors also support
+    // absent Dewey IDs, despite their non-null parameter annotations.
+    @SuppressWarnings("NullAway")
+    final StructNode staged = switch (record.kind()) {
       case JSON_DOCUMENT -> new JsonDocumentRootNode(key, -1, -1, 0, 0, hashFunction, dewey);
       case ARRAY ->
         new ArrayNode(key, -1, pathKey, previous, modified, -1, -1, -1, -1, 0, 0, record.hash(), hashFunction, dewey);
@@ -61,6 +64,7 @@ final class JsonReplayNodeFactory {
           record.hash(), hashFunction, dewey);
       default -> throw new IllegalArgumentException("Unsupported replay kind " + record.kind());
     };
+    return staged;
   }
 
   static void link(final StructNode node, final JsonReplayRecord record) {

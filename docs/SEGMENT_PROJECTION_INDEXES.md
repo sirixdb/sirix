@@ -2085,32 +2085,10 @@ PEXT candidate checks do not contribute; a PEXT miss can fall back to counted bi
 `sideReferenceReads()` counts overflow-reference map probes, including misses.
 These are process-wide running totals, captured as differences just like the always-on counters.
 
-**Gated identity replay work counters.** `sirix.replay.workDiag` enables `ReplayWorkDiagnostics`:
-`recordVisits()` counts node cursor moves plus storage record lookup/prepare calls (nested calls count);
-`pathSteps()` includes cached path moves and writer initialization; `createdIdentities()` counts PUTs
-absent from the base; `stagedRecords()` counts detached document records before links are installed;
-`ancestorSteps()` counts memoized parent-proof hops; `sidecarReads()` counts attempted presentation reads;
-`fallbackPages()` counts authoritative indirect and complete-leaf resolutions, including guard retries;
-`bookkeepingOperations()` counts keyed pending-diff operations and every iterator entry visited, so map
-view scans cannot evade the R8 budget. The diagnostic map exists only when this static-final gate is on.
-`projectionIdentityRows()` counts queued old row removals and final row insertions;
-`projectionIdentityLabelBytes()` counts bytes allocated for emitted identity-epoch row labels.
-Empty insertion/removal boundaries and same-parent unindexed-neighbor moves must leave both at zero.
-Retained prefixes must preserve their old interval between unchanged sibling identities and be
-mutually ordered within each final changed sibling run. The epoch compares changed boundaries
-without walking unchanged runs; an inverted run invalidates its labelled anchors together.
-Inserting an indexed row is the positive control. `projectionOrderSlots()` counts order-slot
-requests, including absent slots, so unlabelled-run work is independently budgeted.
-`projectionRecordReads()` counts document lookups by this maintenance listener; whole-epoch
-record diagnostics also include transition validation and other import work.
-`validTimeBoundFields()` counts direct children inspected by the valid-time listener while
-reconstructing bounds. Unrelated identity edits must leave it at zero; a direct bound update
-provides a positive scan control. Object topology changes retain constant-work order checks.
-Pure same-parent field reordering preserves valid-time counts and payloads; duplicate bounds
-remain inexact whole-domain candidates whose predicate verification uses final document order.
-Counters are process-wide totals, off in production and enabled in core tests. Capture whole replay
-epochs to include commit and path-cache lifecycle costs. Label bytes measure emitted buffers only;
-the other counters are work units, not total JVM allocations or disk reads.
+**Gated identity replay work counters.** The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
+owns the `sirix.replay.workDiag` counters, their units and guarded maintenance work.
+The retained-order proof is documented at
+[`ProjectionIndexChangeListener.collectIdentityOrderChanges`](../bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java).
 
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the

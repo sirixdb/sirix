@@ -4,84 +4,38 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-06 01:51 Berlin)
+## Current checkpoint (2026-10-06, after review repairs)
 
-The branch is rebased on origin/main af9f20e5a, including the separately owned tombstone
-recreation and restore-key fix. Production identity routing is dbcb19f8f; its sole rebase
-conflict removed the retired allocator and updated that API's JavaDoc. The upstream
-storage fix and its tests are retained. Inbox 007 resolved the scratch-patch handoff;
-the sidecar-free matrix was re-authored against the shared assertJsonCopyStructure helper.
+Production history copy uses identity deltas. The submitted change includes the accepted
+projection batch-order, valid-time scheduling, anonymous-array PATH and boundary-hashing
+repairs. The [latest focused verification](#review-anonymous-array-path-membership-and-boundary-hashing-2026-10-06)
+records the PATH/hash repair results; the [budget README](../../bundles/sirix-core/src/test/java/io/sirix/budget/README.md)
+owns the work-budget inventory and mutation evidence for these paths.
 
-Gates 1–7 passed before this rebase (604 cases in gate-7-final, including all 144 generated
-configurations and unchanged work budgets). The pre-rebase full core suite passed
-13,870 tests, zero failures/errors, 77 skips. The query suite ran 2,112 tests with one
-outdated structural-hash expectation and seven skips. Both Java formatting checks passed.
-All XML is archived under full-core-query-1-results. The query expectation now includes
-revisions 4/5, whose neighboring insertions change hash-covered sibling links.
+The full suites and normal/forced historical matrix recorded under
+[gate 8](#migration-gate-8-complete-2026-10-06-0151-berlin) predate the subsequent review
+repairs. They are historical evidence, not full validation of the submitted change.
+The outer no-mistakes run is active and owns subsequent validation and delivery;
+merge still requires explicit approval.
 
-Commit c10f64aae removes the generated allocation workaround, enables upstream
-R16 coverage, retires its known-limitation row and adds an explicit sidecar-free historical
-matrix with actual fork settings printed. gate8-rebase-focused passed 413 core and 111
-query tests, including the complete generated matrix, exact core/query budgets and query
-integration tests. The four-version forced-recompute matrix passed 150 tests per version,
-zero failures/errors/skips, with all fork configurations verified and formatting clean.
-Measure latency before final full core/query suites, so any performance
-repair is covered by that last full validation.
+The [latency report](latency/report.md) describes the measured candidate and retains the
+source/public-diff uncertainty. No new campaign covers the review repairs, and the
+one-element move fixture does not establish wide-move latency or production p99.
+The [identity replay contract](../../docs/DISK_FORMAT.md#json-identity-replay) owns the
+import memory limitations.
 
-Gate 8 also requires pinned alternating latency acceptance. The standalone harness,
-artifact exporter, deadline-aware fork runner and paired 5000-draw bootstrap are prepared
-under build/replay/latency. Both artifacts compile, their external dependency hashes and
-JVM options match. Baseline smoke reproduced the known sparse-trie CPU loop; candidate
-all-scenario and baseline supported-scenario smoke runs then passed. Primary 12-pair,
-extended six-pair and candidate-only sparse six-fork campaigns are complete. Every
-paired metric's lower bound is below 1.05. Primary copy improves 93.66 to 34.16 ms;
-source append ratio 1.075 (CI 1.007–1.128) and extended unchanged-prefix estimates
-leave material source/public/copy slowdowns unresolved and are explicit in report.md.
-The final full core/query suites and formatting passed: core 13912 tests (77 skips),
-query 2573 (7 skips), zero failures/errors, 53m55s. Both complete XML archives and
-summaries are retained. Normal FULL/DIFFERENTIAL/INCREMENTAL each pass 150/150, completing
-the final branch's historical matrix alongside normal SLIDING_SNAPSHOT from the full
-suite and all four forced runs. All eight migration gates are complete. Commit the
-evidence and hand off to Firstmate; no no-mistakes run or push has started.
-No no-mistakes run, push
-or done handoff. Stop remains 04:00 Berlin on October 6; no validation may extend past
-03:40. The private Maven repository build/replay/m2 and heavy runner remain in use.
-The final full run will use SIRIX_REPLAY_VALIDATION_SECONDS=4500 and
-SIRIX_REPLAY_VALIDATION_DEADLINE=2026-10-06T01:40Z; the runner checks admission after
-acquiring its heavy slot and reserves timeout grace before the cutoff.
+Current JVM checks use the captured `run-review-boundary.sh` runner with run-private
+Maven/Gradle homes, 2 GiB heaps, one admitted command at a time and `--no-parallel`.
+The validation cutoff is 2026-10-07T01:40Z; admission is checked after acquiring a heavy
+slot and reserves timeout grace. Earlier dated checkpoints below retain their original
+commands, source revisions and stop windows.
 
 ## Contract and concrete implementation
 
-- Keep BasicJsonDiff, its public JSON format, compact fragments and HASHED early stop independent.
-- Introduce io.sirix.service.json.replay.JsonReplayManifest (protocol version 1),
-  JsonReplayRecord (logical payload and final topology), JsonIdentityDelta (PUT/DELETE),
-  and JsonIdentityDeltaReader (authoritative document-page comparison).
-- Manifest v1 is an internal typed value: protocol version, exact source resource identity,
-  base and target revision, mapped destination revision, base/target allocation frontier,
-  source configuration contract (Dewey/hash), complete changed-key set and final records.
-  It is NOT the public diff JSON. Initially no replay sidecar is emitted or trusted:
-  missing, corrupt, legacy, cumulative and post-revert presentation sidecars all take
-  the same authoritative committed-storage path. A durable cache is optional later.
-- Add a private transaction import implementation in access.trx.node.json, reached by
-  an explicit import entry point on InternalJsonNodeTrx. Stage detached logical records in the
-  transaction intent log without calling public insert/move methods. Record identity
-  creation and final link installation are separate phases. Normal bulk factory paths
-  remain allocation-only; explicit replacement/existence checks belong to import.
-- Finalize names, path summaries, indexes, hashes and stored Dewey IDs explicitly.
-  Never copy foreign resource-local dictionary/path/index identifiers blindly. Preserve
-  source node revision metadata for full-history copy; define an explicit offset for
-  supported history suffixes. Reject unsupported contracts before modifying destination.
-- Import is one locked compound epoch: threshold/scheduled commits cannot publish staged
-  records. Validate target closure, compatible parents, ordered reciprocal links,
-  acyclicity, counts and allocation bounds before publication. Failure rolls back the
-  current epoch; prior successfully copied revisions remain the advertised history.
-- JsonResourceCopy chooses identity replay only after shadow/oracle validation passes.
-  Existing snapshot-only subtree copying retains its normal allocation semantics.
-- Authoritative delta discovery walks populated indirect document-page references,
-  skips only equal durable immutable references plus fragment chains, resolves complete
-  logical records through StorageEngineReader for every versioning type, and compares
-  exact identity-sensitive records. No numeric frontier scan; no content-hash identity
-  shortcut. Boundary/count/hash changes are ordinary changed records.
+The authoritative [JSON identity replay contract](../../docs/DISK_FORMAT.md#json-identity-replay)
+describes the protocol, discovery, publication, compatibility and memory limits.
+[JSON update diffs](../../docs/JSON_UPDATE_DIFFS.md) owns presentation-sidecar lifecycle
+and position resolution. The ordered gates below record the migration and its evidence.
 
 ## Ordered migration gates (keep current)
 

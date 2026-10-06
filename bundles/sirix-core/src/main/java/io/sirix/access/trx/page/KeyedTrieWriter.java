@@ -120,7 +120,7 @@ final class KeyedTrieWriter {
 
     final int capacityExponent = inpLevelPageCountExp[0] + Constants.INP_REFERENCE_COUNT_EXPONENT;
     if (pageKey < 0 || maxHeight < 0 || maxHeight > inpLevelPageCountExp.length
-        || capacityExponent < Long.SIZE - 1 && pageKey >>> capacityExponent != 0) {
+        || (capacityExponent < Long.SIZE - 1 && pageKey >>> capacityExponent != 0)) {
       throw new IllegalArgumentException("Page key or trie height exceeds the keyed index range");
     }
 

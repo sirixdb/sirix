@@ -437,9 +437,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (old instanceof StructNode && target.key() != 0
           && (old.getParentKey() != target.parent() || old.getKind() != target.kind()
               || pathNodeKeyOf(old) != target.pathKey()
-              || old.getKind().playsObjectKeyRole() && old instanceof final NameNode named
+              || (old.getKind().playsObjectKeyRole() && old instanceof final NameNode named
                   && !Objects.equals(target.name(),
-                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)))) {
+                      storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT))))) {
         relocated.add(target.key());
       }
       collectIdentityRecord(target.key(), oldRecords);
@@ -452,6 +452,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     identityEpoch = new IdentityEpoch(delta, oldRecords, relocated);
   }
 
+  /**
+   * Retained labels must stay between the same unchanged sibling boundaries and be mutually ordered
+   * across each final changed run. Compare only changed links; unchanged unlabelled runs are not
+   * searched for anchors. An inverted run invalidates all its retained labels together.
+   */
   private void collectIdentityOrderChanges(final JsonIdentityDelta delta, final LongOpenHashSet relocated) {
     final var directory = structuralOrderDirectory();
     final Long2ObjectOpenHashMap<SirixDeweyID> anchors = new Long2ObjectOpenHashMap<>();
@@ -476,17 +481,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (label == null) {
         continue;
       }
-      if (identityBoundary(structural.getLeftSiblingKey(), true, false, delta, oldLeft, chain)
-              != identityBoundary(target.left(), true, true, delta, finalLeft, chain)
-          || identityBoundary(structural.getRightSiblingKey(), false, false, delta, oldRight, chain)
-              != identityBoundary(target.right(), false, true, delta, finalRight, chain)) {
+      if (identityBoundary(structural.getLeftSiblingKey(), true, false, delta, oldLeft,
+          chain) != identityBoundary(target.left(), true, true, delta, finalLeft, chain)
+          || identityBoundary(structural.getRightSiblingKey(), false, false, delta, oldRight,
+              chain) != identityBoundary(target.right(), false, true, delta, finalRight, chain)) {
         relocated.add(target.key());
       } else {
         anchors.put(target.key(), label);
       }
     }
     for (final var start : delta.puts().values()) {
-      if (start.parent() < 0 || start.left() >= 0 && delta.puts().containsKey(start.left())) {
+      if (start.parent() < 0 || (start.left() >= 0 && delta.puts().containsKey(start.left()))) {
         continue;
       }
       chain.clear();
@@ -2135,7 +2140,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       failMaintenance(failure);
       throw failure;
     }
-    if (pendingStructuralRecords != null || identityEpoch != null && !applyingIdentityEpoch) {
+    if (pendingStructuralRecords != null || (identityEpoch != null && !applyingIdentityEpoch)) {
       final IllegalStateException failure = new IllegalStateException("Projection index " + indexDef.getID()
           + " cannot publish maintenance during an incomplete structural change; rollback is required");
       failMaintenance(failure);

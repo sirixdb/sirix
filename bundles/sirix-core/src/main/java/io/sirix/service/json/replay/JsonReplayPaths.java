@@ -72,8 +72,8 @@ public final class JsonReplayPaths {
         }
         if (key != 0 && (old == null || current == null || old.getParentKey() != current.getParentKey()
             || !Objects.equals(oldName, newName)
-            || old instanceof final PathNode a && current instanceof final PathNode b
-                && (a.getPathKind() != b.getPathKind() || a.getLevel() != b.getLevel()))) {
+            || (old instanceof final PathNode a && current instanceof final PathNode b
+                && (a.getPathKind() != b.getPathKind() || a.getLevel() != b.getLevel())))) {
           logicalRoots.add(key);
         }
         if (current == null) {
@@ -85,6 +85,8 @@ public final class JsonReplayPaths {
         }
         final StructNode copy;
         if (current instanceof final PathNode path) {
+          // The same PathNode branch above computes a non-null newName.
+          @SuppressWarnings("NullAway")
           final var pathCopy = new PathNode(newName, path.getPathKind(), path.getReferences(), path.getLevel(), key,
               path.getParentKey(), manifest.mapPreviousRevision(path.getPreviousRevisionNumber()),
               manifest.mapLastModifiedRevision(path.getLastModifiedRevisionNumber()), (SirixDeweyID) null,
@@ -141,7 +143,7 @@ public final class JsonReplayPaths {
 
   private static boolean same(final @Nullable StructNode left, final @Nullable StructNode right) {
     if (left == null || right == null) {
-      return left == right;
+      return left == null && right == null;
     }
     if (left.getKind() != right.getKind() || left.getParentKey() != right.getParentKey()
         || left.getFirstChildKey() != right.getFirstChildKey() || left.getLastChildKey() != right.getLastChildKey()
@@ -152,9 +154,9 @@ public final class JsonReplayPaths {
         || left.getLastModifiedRevisionNumber() != right.getLastModifiedRevisionNumber()) {
       return false;
     }
-    return !(left instanceof final PathNode a) || right instanceof final PathNode b
+    return !(left instanceof final PathNode a) || (right instanceof final PathNode b
         && a.getPathKind() == b.getPathKind() && a.getReferences() == b.getReferences() && a.getLevel() == b.getLevel()
         && a.getURIKey() == b.getURIKey() && a.getPrefixKey() == b.getPrefixKey()
-        && a.getLocalNameKey() == b.getLocalNameKey() && a.getPathNodeKey() == b.getPathNodeKey();
+        && a.getLocalNameKey() == b.getLocalNameKey() && a.getPathNodeKey() == b.getPathNodeKey());
   }
 }

@@ -760,7 +760,8 @@ final class ProjectionStructuralOrderDirectory {
       return localLabel;
     }
 
-    @Nullable SirixDeweyID localLabel(final long nodeKey) {
+    @Nullable
+    SirixDeweyID localLabel(final long nodeKey) {
       ReplayWorkDiagnostics.projectionOrderSlotRead();
       final byte[] encoded = store.get(slotKey(nodeKey));
       if (encoded == null) {

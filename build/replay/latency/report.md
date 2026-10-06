@@ -6,7 +6,7 @@ The candidate includes the independently tested source hash/count, sparse-trie a
 repairs as well as identity replay. These measurements compare the whole branch and do
 not isolate each commit's contribution to source or public-diff costs.
 
-## Current acceptance status
+## Measured candidate acceptance status
 
 The primary append campaign is complete. No primary metric has a 95% paired-bootstrap
 lower ratio bound above 1.05, the specified confirmed-regression rule. Copy is 34.16 ms
@@ -24,11 +24,10 @@ are wide. The 32768-element unchanged-prefix workload has a copy point estimate 
 133.22 ms versus 116.42 ms (ratio interval 0.887–1.376), and public compact diff is
 39.01 ms versus 31.43 ms (interval 1.044–1.614). These results do not exclude material
 slowdowns; absence of a confirmed regression is not equivalence. Six candidate-only
-sparse forks are complete. Final combined full suites and formatting passed: 13912 core
-tests (77 skipped) and 2573 query tests (seven skipped), zero failures/errors. The last
-three normal historical replay modes each passed 150/150, completing normal/forced
-coverage for all four versioning types. This is the committed implementation handoff;
-Firstmate's no-mistakes validation/push stage has not started, and merge is not authorized.
+sparse forks are complete. These measurements cover the candidate source named above;
+they predate the subsequent review repairs. The move fixture contains one-element
+subtrees and does not establish wide-move latency. The [implementation plan](../plan.md)
+owns verification and handoff status; no new benchmark campaign is claimed here.
 
 ## Primary matched results
 
@@ -50,13 +49,10 @@ is retained, with no outlier trimming or optional stopping.
 Current-thread allocated bytes are collected around the same operations. They exclude
 background-thread allocations and are not total heap/RSS measurements.
 
-Identity import memory includes the detached delta, epoch/validation state and staged page
-buffers, and scales with the imported epoch (the whole document for an initial snapshot).
-Compound import suppresses intermediate rotation and does not request an async flush, so
-staged page buffers remain retained until commit even under KEEP_OPEN_ASYNC_FLUSH; failure
-rolls back the current epoch. The intent log does not enforce a resident-page bound here.
-Tested work bounds and these paired latency measurements do not establish a fixed memory
-bound, constant total heap, a streaming manifest or a production latency guarantee.
+The [identity replay contract](../../../docs/DISK_FORMAT.md#json-identity-replay) owns the
+epoch-sized memory retention and absence of a resident-page bound, including
+`KEEP_OPEN_ASYNC_FLUSH`. These calling-thread allocation measurements do not establish
+a fixed memory bound, constant total heap or a production latency guarantee.
 
 | Operation | Baseline MiB | Candidate MiB |
 |---|---:|---:|

@@ -122,22 +122,21 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       final ImmutableNode old = loadNode(target.key());
       final boolean oldObject = isObject(old);
       final boolean targetObject = target.kind() == NodeKind.OBJECT || target.kind() == NodeKind.OBJECT_NAMED_OBJECT;
-      if (oldObject != targetObject || targetObject && old != null && old.getParentKey() != target.parent()) {
+      if (oldObject != targetObject || (targetObject && old != null && old.getParentKey() != target.parent())) {
         captureIdentityObject(target.key(), intervals);
       }
-      if (targetObject && (!(old instanceof final StructNode structure) || !oldObject
-          || old.getParentKey() != target.parent() || structure.getLeftSiblingKey() != target.left()
-          || structure.getRightSiblingKey() != target.right())) {
+      if (targetObject
+          && (!(old instanceof final StructNode structure) || !oldObject || old.getParentKey() != target.parent()
+              || structure.getLeftSiblingKey() != target.left() || structure.getRightSiblingKey() != target.right())) {
         indexWriter.checkOrder(target.key(), target.parent(), target.left(), target.right());
       }
       final String oldName = old instanceof final NameNode named
           ? storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)
           : null;
-      if ((isBoundName(oldName) || isBoundName(target.name()))
-          && (old == null || old.getKind() != target.kind() || old.getParentKey() != target.parent()
-              || !Objects.equals(oldName, target.name())
-              || old.getKind() == NodeKind.OBJECT_NAMED_STRING && old instanceof final ValueNode value
-                  && !Objects.equals(value.getValue(), target.stringValue()))) {
+      if ((isBoundName(oldName) || isBoundName(target.name())) && (old == null || old.getKind() != target.kind()
+          || old.getParentKey() != target.parent() || !Objects.equals(oldName, target.name())
+          || (old.getKind() == NodeKind.OBJECT_NAMED_STRING && old instanceof final ValueNode value
+              && !Objects.equals(value.getValue(), target.stringValue())))) {
         if (old != null && isBoundName(oldName)) {
           captureIdentityObject(old.getParentKey(), intervals);
         }

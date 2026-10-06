@@ -72,9 +72,6 @@ public final class JsonResourceCopy implements Callable<Void> {
    */
   private final InsertPosition insert;
 
-  /**
-   * Determines if diffs between revisions should be copied.
-   */
   private final boolean copyAllRevisionsUpToMostRecent;
 
   /**
@@ -192,7 +189,7 @@ public final class JsonResourceCopy implements Callable<Void> {
       throw new IllegalArgumentException("Identity history copy requires an internal JSON transaction");
     }
     if (insert != InsertPosition.AS_FIRST_CHILD || !wtx.isDocumentRoot()
-        || !rtx.isDocumentRoot() && rtx.getParentKey() != 0) {
+        || (!rtx.isDocumentRoot() && rtx.getParentKey() != 0)) {
       throw new IllegalArgumentException(
           "Identity history copy requires a complete source document and destination root");
     }

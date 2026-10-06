@@ -7,6 +7,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.interfaces.DataRecord;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 
@@ -83,7 +84,7 @@ public final class JsonReplayHistory {
     }
   }
 
-  private static RevisionReferencesNode history(final StorageEngineReader reader, final long key) {
+  private static @Nullable RevisionReferencesNode history(final StorageEngineReader reader, final long key) {
     final DataRecord record = reader.getRecord(key, IndexType.RECORD_TO_REVISIONS, 0);
     if (record == null) {
       return null;

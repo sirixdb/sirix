@@ -417,15 +417,19 @@ mode. Only identical immutable persisted page/fragment references permit skippin
 presentation hashes and diff sidecars are never identity proofs. Sparse frontiers do not cause
 a scan of every numeric key, and an unchanged epoch does not reconstruct the whole document.
 
-The transaction-local importer stages identities and payloads before installing their final
-links. It validates the graph, maintains logical names, path summaries and configured indexes,
-and publishes one complete revision. Threshold/time commits cannot expose staging records.
-Failure rolls back the current epoch; previously completed copied revisions remain available.
+The transaction-local importer requires a clean document epoch and rejects incompatible epochs or
+configurations before staging. It stages identities and payloads before installing their final
+links, then validates graph closure, compatible parents, reciprocal ordered links, acyclicity,
+enabled counts and allocation bounds. It maintains logical names, path summaries and the destination's
+configured indexes, then publishes one complete revision. Threshold/time commits cannot expose
+staging records.
+Failure before publication rolls back the current epoch; previously completed copied revisions
+remain available.
 Import memory includes the detached delta, epoch/validation state and staged page buffers, and
 scales with the imported epoch, or with the document size for the initial snapshot. Compound
 import suppresses intermediate rotation and does not request an async flush, so staged page
-buffers remain retained until commit even under `KEEP_OPEN_ASYNC_FLUSH`; failure rolls back the
-current epoch. The intent log does not enforce a resident-page bound for identity import.
+buffers remain retained until commit even under `KEEP_OPEN_ASYNC_FLUSH`.
+The intent log does not enforce a resident-page bound for identity import.
 Work budgets constrain counted traversal and maintenance work; they do not establish a fixed
 memory bound, constant total heap, a streaming manifest or a latency guarantee.
 

@@ -2907,6 +2907,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
         // An intermediate commit replaces the writer and invalidates its flyweight records.
         // Resolve the source again only when that boundary actually rotated the epoch.
+        @SuppressWarnings("ReferenceEquality")
         final StructNode toMove = previousWriter == storageEngineWriter
             ? originalToMove
             : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
@@ -3021,6 +3022,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
         // An intermediate commit replaces the writer and invalidates its flyweight records.
         // Resolve the source again only when that boundary actually rotated the epoch.
+        @SuppressWarnings("ReferenceEquality")
         final StructNode toMove = previousWriter == storageEngineWriter
             ? originalToMove
             : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
@@ -4748,7 +4750,9 @@ final class JsonNodeTrxImpl extends
             ((JsonIndexController) indexController).restoreInitialIdentityDeclarations(initialDefinitions, this);
           }
         } catch (final RuntimeException | Error cleanupFailure) {
-          if (cleanupFailure != failure) {
+          @SuppressWarnings("ReferenceEquality")
+          final boolean distinctFailure = cleanupFailure != failure;
+          if (distinctFailure) {
             try {
               failure.addSuppressed(cleanupFailure);
             } catch (final RuntimeException | Error ignored) {

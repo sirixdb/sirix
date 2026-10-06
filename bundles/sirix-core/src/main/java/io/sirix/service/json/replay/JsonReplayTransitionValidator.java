@@ -114,20 +114,22 @@ public final class JsonReplayTransitionValidator {
         continue;
       }
       final Shape prior = old(key);
-      if (childCounts && current.children() != Math.addExact(prior == null
+      if ((childCounts && current.children() != Math.addExact(prior == null
           ? 0
-          : prior.children(), childChanges.get(key))
-          || descendantCounts && current.descendants() != Math.addExact(prior == null
+          : prior.children(), childChanges.get(key)))
+          || (descendantCounts && current.descendants() != Math.addExact(prior == null
               ? 0
-              : prior.descendants(), descendantChanges.get(key))) {
+              : prior.descendants(), descendantChanges.get(key)))) {
         throw new IllegalStateException("Replay child contributions disagree at " + key);
       }
       final boolean append = !nonAppendParents.contains(key) && (prior == null
-          || prior.kind() == current.kind() && (prior.first() == -1 || prior.first() == current.first()));
+          || (prior.kind() == current.kind() && (prior.first() == -1 || prior.first() == current.first())));
       validateChildren(current, prior, append);
     }
   }
 
+  // Every non-root old parent exists in the already validated base graph.
+  @SuppressWarnings("NullAway")
   private void observe(final @Nullable Shape prior, final @Nullable Shape current) {
     addBoundaries(prior);
     addBoundaries(current);
@@ -189,8 +191,8 @@ public final class JsonReplayTransitionValidator {
   }
 
   private void validateBoundary(final Shape node) {
-    if ((node.key() == 0) != (node.kind() == NodeKind.JSON_DOCUMENT) || node.key() == 0
-        && (node.parent() != -1 || node.left() != -1 || node.right() != -1 || node.first() != node.last())) {
+    if ((node.key() == 0) != (node.kind() == NodeKind.JSON_DOCUMENT) || (node.key() == 0
+        && (node.parent() != -1 || node.left() != -1 || node.right() != -1 || node.first() != node.last()))) {
       throw new IllegalStateException("Invalid replay document root");
     }
     if (node.key() != 0) {
@@ -209,13 +211,13 @@ public final class JsonReplayTransitionValidator {
         throw new IllegalStateException("Invalid replay right boundary at " + node.key());
       }
       if (deweyIDs && (node.dewey() == null || parent.dewey() == null || !node.dewey().isDescendantOf(parent.dewey())
-          || node.left() != -1 && require(node.left()).dewey().compareTo(node.dewey()) >= 0)) {
+          || (node.left() != -1 && require(node.left()).dewey().compareTo(node.dewey()) >= 0))) {
         throw new IllegalStateException("Invalid replay Dewey boundary at " + node.key());
       }
     }
     if ((node.first() == -1) != (node.last() == -1)
-        || node.first() >= 0 && (require(node.first()).parent() != node.key() || require(node.first()).left() != -1
-            || require(node.last()).parent() != node.key() || require(node.last()).right() != -1)) {
+        || (node.first() >= 0 && (require(node.first()).parent() != node.key() || require(node.first()).left() != -1
+            || require(node.last()).parent() != node.key() || require(node.last()).right() != -1))) {
       throw new IllegalStateException("Invalid replay child boundary at " + node.key());
     }
   }
@@ -256,7 +258,7 @@ public final class JsonReplayTransitionValidator {
     long descendants = 0;
     final LongSet visited = new LongOpenHashSet();
     while (key >= 0) {
-      if (!visited.add(key) || append && old(key) != null) {
+      if (!visited.add(key) || (append && old(key) != null)) {
         throw new IllegalStateException("Replay child cycle or non-new append suffix at " + key);
       }
       final Shape child = require(key);
@@ -269,8 +271,8 @@ public final class JsonReplayTransitionValidator {
       count++;
       descendants = Math.addExact(descendants, Math.addExact(child.descendants(), 1));
     }
-    if (parent.last() != previous || childCounts && parent.children() != count
-        || !append && descendantCounts && parent.descendants() != descendants) {
+    if (parent.last() != previous || (childCounts && parent.children() != count)
+        || (!append && descendantCounts && parent.descendants() != descendants)) {
       throw new IllegalStateException("Replay child chain counts disagree at " + parent.key());
     }
     final LongSet required = requiredChildren.get(parent.key());
@@ -334,7 +336,7 @@ public final class JsonReplayTransitionValidator {
         && Objects.equals(expected.numberValue(), actual.numberValue())
         && expected.booleanValue() == actual.booleanValue()
         && (expected.key() == 0
-            || manifest.mapPreviousRevision(expected.previousRevision()) == actual.previousRevision()
-                && manifest.mapLastModifiedRevision(expected.lastModifiedRevision()) == actual.lastModifiedRevision());
+            || (manifest.mapPreviousRevision(expected.previousRevision()) == actual.previousRevision()
+                && manifest.mapLastModifiedRevision(expected.lastModifiedRevision()) == actual.lastModifiedRevision()));
   }
 }
