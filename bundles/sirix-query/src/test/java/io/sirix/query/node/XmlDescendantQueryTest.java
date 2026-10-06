@@ -146,7 +146,7 @@ class XmlDescendantQueryTest {
       for (int index = 0; index < documents.length; index++) {
         final String resource = "tree" + index;
         assertNotNull(collection.add(resource, new DocumentParser(documents[index])));
-        final String start = "xml:doc('collection','" + resource + "')/r/a" + (index >= 4
+        final String start = "xn:doc('collection','" + resource + "')/r/a" + (index >= 4
             ? "/hit"
             : "");
         for (final String axis : new String[] {"descendant", "descendant-or-self"}) {
@@ -182,7 +182,7 @@ class XmlDescendantQueryTest {
         final String resource = "tree" + index;
         assertNotNull(collection.add(resource, new DocumentParser(documents[index])));
         for (final String axis : new String[] {"descendant", "descendant-or-self"}) {
-          final String query = "string-join(for $hit in xml:doc('collection','" + resource + "')" + starts[index] + "/"
+          final String query = "string-join(for $hit in xn:doc('collection','" + resource + "')" + starts[index] + "/"
               + axis + "::hit return concat(name($hit), ':', string($hit/@id)), ',')";
           assertEquals(expected[index], ((Str) new Query(chain, query).evaluate(context)).stringValue(), query);
         }
@@ -202,7 +202,7 @@ class XmlDescendantQueryTest {
           + "<a><p:hit id='inside'/></a><outside><q:hit id='outside'/></outside></r>")));
       for (final String axis : new String[] {"descendant", "descendant-or-self"}) {
         final String query =
-            "declare namespace q='urn:scope'; " + "string-join(for $hit in xml:doc('collection','tree')/r/a/" + axis
+            "declare namespace q='urn:scope'; " + "string-join(for $hit in xn:doc('collection','tree')/r/a/" + axis
                 + "::q:hit return string($hit/@id), ',')";
         assertEquals("inside", ((Str) new Query(chain, query).evaluate(context)).stringValue(), query);
       }

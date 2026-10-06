@@ -47,12 +47,12 @@ class XmlCollectionResourceConfigurationTest {
         collection.add(new DocumentParser("<value>one</value>"));
         collection.add("timestamp", new DocumentParser("<value>one</value>"), "initial",
             Instant.parse("2020-01-01T00:00:00Z"));
-        new Query(chain, "xml:store('collection','element',<value>one</value>,false())").evaluate(context);
-        new Query(chain, "xml:store('collection','document',document {<value>one</value>},false())").evaluate(context);
+        new Query(chain, "xn:store('collection','element',<value>one</value>,false())").evaluate(context);
+        new Query(chain, "xn:store('collection','document',document {<value>one</value>},false())").evaluate(context);
         new Query(chain,
-            "xml:store('collection',(),(<value>one</value>,document {<value>one</value>}),false())").evaluate(context);
+            "xn:store('collection',(),(<value>one</value>,document {<value>one</value>}),false())").evaluate(context);
         final Path first = Files.writeString(directory.resolve("first.xml"), "<value>one</value>");
-        new Query(chain, "xml:load('collection','loaded','" + first.toUri() + "',false())").evaluate(context);
+        new Query(chain, "xn:load('collection','loaded','" + first.toUri() + "',false())").evaluate(context);
         assertEquals(9, collection.getDocumentCount());
         for (final Path resource : collection.getDatabase().listResources()) {
           final String name = resource.getFileName().toString();
