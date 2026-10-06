@@ -19,6 +19,7 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static io.sirix.service.xml.serialize.XmlSerializationAssertions.assertElement;
@@ -96,6 +97,44 @@ final class XmlQuerySerializationEscapingTest {
       assertEquals(root.getName(), reparsed.getName());
       assertEquals(root.getScope().defaultNS(), reparsed.getScope().defaultNS());
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void fileImportedSubtreeKeepsInheritedNamespaces(final VersioningType versioning) throws Exception {
+    assertFileImportedSubtree(versioning, "inherited",
+        "<root xmlns='urn:outer?a=1&amp;b=2' xmlns:p='urn:prefix?a=1&amp;b=2'>"
+            + "<p:child value='plain'><leaf p:value='plain'/><reset xmlns=''/></p:child></root>");
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void fileImportedSubtreeKeepsShadowedNamespaces(final VersioningType versioning) throws Exception {
+    assertFileImportedSubtree(versioning, "shadowed",
+        "<root xmlns='urn:outer?a=1&amp;b=2' xmlns:p='urn:prefix?a=1&amp;b=2'>"
+            + "<p:child xmlns:p='urn:local?a=1&amp;b=2' value='plain'><leaf/>"
+            + "<reset xmlns='' xmlns:p='urn:nested'><p:leaf/></reset><p:leaf/></p:child></root>");
+  }
+
+  private void assertFileImportedSubtree(final VersioningType versioning, final String collection,
+      final String input) throws Exception {
+    final Path file = directory.resolve(collection + ".xml");
+    Files.writeString(file, input, StandardCharsets.UTF_8);
+    serializeBrackit(versioning, "xml:load('" + collection + "','resource1','" + file.toUri() + "')");
+    final Element expected = (Element) parse(input).getDocumentElement().getFirstChild();
+    final String output = serializeBrackit(versioning, expression(collection, true));
+    assertElement(expected, parse(output).getDocumentElement(), false);
+    try (final var store = store(versioning)) {
+      final var child = store.lookup(collection).getDocument("resource1").getFirstChild().getFirstChild();
+      assertEquals(expected.getNamespaceURI(), child.getName().getNamespaceURI());
+      assertEquals(expected.lookupNamespaceURI(null), child.getScope().defaultNS());
+      assertEquals(expected.lookupNamespaceURI("p"), child.getScope().resolvePrefix("p"));
+      store.create(collection + "-reparsed", "resource1", new DocumentParser(output));
+    }
+    final String reparsed = serializeBrackit(versioning, expression(collection + "-reparsed", false));
+    assertElement(expected, parse(reparsed).getDocumentElement(), false);
+    assertElement(parse(input).getDocumentElement(),
+        parse(serializeBrackit(versioning, expression(collection, false))).getDocumentElement(), false);
   }
 
   private String serializeBrackit(final VersioningType versioning, final String expression) {

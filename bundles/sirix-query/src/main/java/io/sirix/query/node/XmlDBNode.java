@@ -32,8 +32,11 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.node.TemporalNode;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.parser.NavigationalSubtreeParser;
+import io.brackit.query.node.parser.NavigationalSubtreeProcessor;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
+import io.brackit.query.node.parser.NodeSubtreeListener2HandlerAdapter;
 import io.brackit.query.node.parser.NodeSubtreeParser;
+import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -1475,9 +1478,67 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void parse(final NodeSubtreeHandler handler) {
+    requireNonNull(handler);
     moveRtx();
-    final NodeSubtreeParser parser = new NavigationalSubtreeParser(this);
-    parser.parse(handler);
+    if (kind != NodeKind.ELEMENT) {
+      final NodeSubtreeParser parser = new NavigationalSubtreeParser(this);
+      parser.parse(handler);
+      return;
+    }
+
+    // Only the standalone root needs inherited bindings. Nearest declarations win,
+    // including default-namespace undeclarations, without changing stored scopes.
+    final Int2ObjectLinkedOpenHashMap<String> namespaces = new Int2ObjectLinkedOpenHashMap<>(rtx.getNamespaceCount());
+    try {
+      do {
+        final long ownerKey = rtx.getNodeKey();
+        for (int i = 0, count = rtx.getNamespaceCount(); i < count; i++) {
+          rtx.moveToNamespace(i);
+          final int prefixKey = rtx.getPrefixKey();
+          if (!namespaces.containsKey(prefixKey)) {
+            namespaces.put(prefixKey, rtx.getValue());
+          }
+          rtx.moveTo(ownerKey);
+        }
+      } while (rtx.moveToParent() && rtx.isElement());
+    } finally {
+      moveRtx();
+    }
+
+    new NavigationalSubtreeProcessor<AbstractTemporalNode<XmlDBNode>>(this,
+        Collections.singletonList(new NodeSubtreeListener2HandlerAdapter(handler))) {
+      @Override
+      protected void notifyStartElement(final AbstractTemporalNode<XmlDBNode> node) {
+        if (node == XmlDBNode.this) {
+          final var iterator = namespaces.int2ObjectEntrySet().fastIterator();
+          while (iterator.hasNext()) {
+            final var namespace = iterator.next();
+            handler.startMapping(namespace.getIntKey() == -1
+                ? ""
+                : rtx.nameForKey(namespace.getIntKey()), namespace.getValue());
+          }
+          handler.startElement(node.getName());
+        } else {
+          super.notifyStartElement(node);
+        }
+      }
+
+      @Override
+      protected void notifyEndElement(final AbstractTemporalNode<XmlDBNode> node) {
+        if (node == XmlDBNode.this) {
+          handler.endElement(node.getName());
+          final var iterator = namespaces.keySet().iterator();
+          while (iterator.hasNext()) {
+            final int prefixKey = iterator.nextInt();
+            handler.endMapping(prefixKey == -1
+                ? ""
+                : rtx.nameForKey(prefixKey));
+          }
+        } else {
+          super.notifyEndElement(node);
+        }
+      }
+    }.process();
   }
 
   @Override
