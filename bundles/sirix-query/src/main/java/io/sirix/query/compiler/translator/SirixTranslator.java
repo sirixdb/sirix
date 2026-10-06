@@ -3,7 +3,6 @@ package io.sirix.query.compiler.translator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
 import io.sirix.axis.AncestorAxis;
@@ -18,7 +17,6 @@ import io.sirix.axis.ParentAxis;
 import io.sirix.axis.PrecedingAxis;
 import io.sirix.axis.PrecedingSiblingAxis;
 import io.sirix.axis.SelfAxis;
-import io.sirix.axis.filter.AbstractFilter;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.AttributeFilter;
 import io.sirix.axis.filter.xml.CommentFilter;
@@ -31,7 +29,6 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.page.NamePage;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
@@ -528,22 +525,7 @@ public class SirixTranslator extends TopDownTranslator {
         if (name == null) {
           return new SirixNodeStream(axis, dbNode.getCollection());
         }
-        final StorageEngineReader reader = rtx.getStorageEngineReader();
-        final NamePage names = reader.getNamePage(reader.getActualRevisionRootPage());
-        final String localName = name.getLocalName();
-        final String namespaceURI = Objects.toString(name.getNamespaceURI(), "");
-        final int localNameKey = names.keyForName(localName, NodeKind.ATTRIBUTE, reader);
-        final int namespaceKey = names.keyForName(namespaceURI, NodeKind.NAMESPACE, reader);
-        // Rename and dictionary collision-chain changes can leave equivalent expanded names
-        // with different keys. Keep resolved-name equality when the key fast path misses.
-        return new SirixNodeStream(new FilterAxis<>(axis, new AbstractFilter<XmlNodeReadOnlyTrx>(rtx) {
-          @Override
-          public boolean filter() {
-            return (rtx.getLocalNameKey() == localNameKey || localName.equals(rtx.nameForKey(rtx.getLocalNameKey())))
-                && (rtx.getURIKey() == namespaceKey
-                    || namespaceURI.equals(Objects.toString(rtx.getNamespaceURI(), "")));
-          }
-        }), dbNode.getCollection());
+        return new SirixNodeStream(new FilterAxis<>(axis, new XmlNameFilter(rtx, name)), dbNode.getCollection());
       }
       return new KindFilter(test, new SirixNodeStream(axis, dbNode.getCollection()));
     }
