@@ -673,12 +673,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }, new ArrayObject(new QNm[0], new Sequence[0]), projection);
   }
 
-  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+  private JsonDBCollection createCollection(final String collName, final @Nullable String optionalResourceName,
       final JsonReader reader, final Object options) {
     return createCollection(collName, optionalResourceName, reader, options, null);
   }
 
-  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+  private JsonDBCollection createCollection(final String collName, final @Nullable String optionalResourceName,
       final JsonReader reader, final Object options, final @Nullable ProjectionSpec projection) {
     final InitialJsonLoader loader = reader == null
         ? null
@@ -686,8 +686,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createCollectionWithLoader(collName, optionalResourceName, loader, options, projection);
   }
 
-  private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
-      final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
+  private JsonDBCollection createCollectionWithLoader(final String collName,
+      final @Nullable String optionalResourceName, final @Nullable InitialJsonLoader loader, final Object options,
+      final @Nullable ProjectionSpec projection) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {

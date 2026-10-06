@@ -28,19 +28,15 @@ import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 
 /**
- * <p>
- * Function for loading a document in a collection/database. The Supported signature is:
- * </p>
- *
- * <pre>
- * <code>xml:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as node()?</code>
- * </pre>
+ * Loads XML documents addressed by URI strings into a collection/database. See {@link XMLFun} for
+ * the registered overloads and the repository README for collection import semantics.
  *
  * @author Johannes Lichtenberger
  */
@@ -98,7 +94,8 @@ public final class Load extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", null, null, false);
+      @SuppressWarnings("NullAway") // FunUtil supports null defaults for absent optional arguments.
+      final @Nullable String resName = FunUtil.getString(args, 1, "resName", null, null, false);
       final Sequence resources = args[2];
       if (resources == null)
         throw new QueryException(new QNm("No sequence of resources specified!"));
@@ -134,8 +131,9 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
+  @SuppressWarnings("NullAway") // XmlDBCollection's legacy signature omits nullable commit metadata.
+  private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final @Nullable String resName,
+      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     try (final ParserStream parsers = new ParserStream(resources)) {
       long resourceNumber = resName == null
           ? coll.getDocumentCount() + 1
@@ -150,8 +148,9 @@ public final class Load extends AbstractFunction {
     return coll;
   }
 
-  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
+  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName,
+      final @Nullable String resName, final Sequence resources, final @Nullable String commitMessage,
+      final @Nullable Instant commitTimestamp) {
     if (resources instanceof Atomic res) {
       return store.create(collName, resName, parser(res), commitMessage, commitTimestamp);
     } else {

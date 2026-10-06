@@ -357,8 +357,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
   }
 
   @Override
-  public XmlDBCollection create(final String collName, final String optResName, final NodeSubtreeParser parser,
-      final String commitMessage, final Instant commitTimestamp) {
+  public XmlDBCollection create(final String collName, final @Nullable String optResName,
+      final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 

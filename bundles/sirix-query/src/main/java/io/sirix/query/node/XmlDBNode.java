@@ -135,7 +135,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     return false;
   }
 
-  /** Node keys and Dewey IDs are local to one database/resource revision. */
+  /** Query identity and structural relationships require the same database/resource revision. */
   private boolean isSameDocument(final XmlDBNode node) {
     final ResourceConfiguration configuration = rtx.getResourceSession().getResourceConfig();
     final ResourceConfiguration otherConfiguration = node.rtx.getResourceSession().getResourceConfig();
