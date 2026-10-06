@@ -34,7 +34,9 @@ import io.sirix.exception.SirixException;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.node.XmlDBCollectionImpl;
 import io.sirix.query.node.XmlDBNode;
+import io.sirix.query.node.XmlDBStore;
 import io.sirix.utils.XmlDocumentCreator;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -52,6 +54,13 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -127,6 +136,69 @@ public final class OpenRevisionsTest {
   @Test
   public void intervalAfterLatestCommitReturnsLatestRevisionOnce() {
     assertRevisionInterval("2218-05-01T00:00:00Z", "2219-05-01T00:00:00Z", 5, 5);
+  }
+
+  @Test
+  public void intervalUsesOneRevisionCeilingAcrossOneInterveningCommit() {
+    assertRevisionIntervalAcrossCommits(1);
+  }
+
+  @Test
+  public void intervalUsesOneRevisionCeilingAcrossTwoInterveningCommits() {
+    assertRevisionIntervalAcrossCommits(2);
+  }
+
+  private void assertRevisionIntervalAcrossCommits(final int commits) {
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
+
+    final Instant start = Instant.parse("2218-05-01T00:00:00Z");
+    final Instant end = Instant.parse("2219-05-01T00:00:00Z");
+    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final var collection = store.lookup(database.toString());
+      final var session = collection.getDatabase().beginResourceSession(XmlTestHelper.RESOURCE);
+      final var observedSession = spy(session);
+      final var observedDatabase = spy(collection.getDatabase());
+      doReturn(observedSession).when(observedDatabase).beginResourceSession(XmlTestHelper.RESOURCE);
+      final var observedCollection = new XmlDBCollectionImpl(database.toString(), observedDatabase);
+      final XmlDBStore observedStore = mock(XmlDBStore.class, delegatesTo(store));
+      doReturn(observedCollection).when(observedStore).lookup(database.toString());
+      final int[] endpointResolutions = {0};
+
+      try (final SirixQueryContext context = SirixQueryContext.createWithNodeStore(observedStore);
+          final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(observedStore);
+          final var writer = session.beginNodeTrx()) {
+        doAnswer(invocation -> {
+          final int revision = (int) invocation.callRealMethod();
+          final Instant pointInTime = invocation.getArgument(0);
+          if (end.equals(pointInTime)) {
+            Assert.assertEquals(5, revision);
+            for (int commit = 0; commit < commits; commit++) {
+              writer.commit();
+            }
+          } else {
+            Assert.assertEquals(start, pointInTime);
+            Assert.assertEquals(5 + commits, revision);
+          }
+          endpointResolutions[0]++;
+          return revision;
+        }).when(observedSession).getRevisionNumber(any(Instant.class));
+
+        final String query = "xn:open-revisions('" + database + "','" + XmlTestHelper.RESOURCE
+            + "', xs:dateTime('" + start + "'), xs:dateTime('" + end + "'))";
+        final Sequence nodes = new Query(chain, query).evaluate(context);
+        Assert.assertNotNull(nodes);
+        try (final Iter iter = nodes.iterate()) {
+          final XmlDBNode node = (XmlDBNode) iter.next();
+          Assert.assertNotNull(node);
+          Assert.assertEquals(5, node.getTrx().getRevisionNumber());
+          Assert.assertNull(iter.next());
+        }
+        Assert.assertEquals(2, endpointResolutions[0]);
+        Assert.assertEquals(5 + commits, session.getMostRecentRevisionNumber());
+      }
+    }
   }
 
   private void assertRevisionInterval(final String start, final String end, final int firstRevision,
