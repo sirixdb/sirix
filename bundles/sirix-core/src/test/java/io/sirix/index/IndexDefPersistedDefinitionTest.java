@@ -8,8 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
-import io.brackit.query.jdm.Type;
 import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.trx.node.IndexController;
@@ -33,6 +34,29 @@ import org.junit.jupiter.api.Test;
  * form is identical.
  */
 final class IndexDefPersistedDefinitionTest {
+
+  @Test
+  void validTimeCatalogRejectsUnsupportedFormats() {
+    final IndexDef definition =
+        IndexDefs.createValidTimeIdxDef(Set.of(json("/[]/vf"), json("/[]/vt")), 0, IndexDef.DbType.JSON);
+    assertTrue(definition.hasSameDefinition(roundTrip(definition)));
+    assertFalse(roundTrip(definition).hasUnsupportedValidTimeFormat());
+    final Node<?> persisted = definition.materialize();
+    final QNm format = new QNm("validTimeFormat");
+    assertTrue(persisted.deleteAttribute(format));
+    final IndexDef missingFormat = new IndexDef(IndexDef.DbType.JSON);
+    missingFormat.init(persisted);
+    assertTrue(missingFormat.hasUnsupportedValidTimeFormat());
+    for (final String obsolete : List.of("1", "2", "3", "4", "5")) {
+      persisted.deleteAttribute(format);
+      persisted.setAttribute(format, new Str(obsolete));
+      final IndexDef oldFormat = new IndexDef(IndexDef.DbType.JSON);
+      oldFormat.init(persisted);
+      assertTrue(oldFormat.hasUnsupportedValidTimeFormat());
+      assertTrue(roundTrip(oldFormat).hasUnsupportedValidTimeFormat());
+      assertFalse(definition.hasSameDefinition(oldFormat));
+    }
+  }
 
   private static Path<QNm> json(final String path) {
     return Path.parse(path, PathParser.Type.JSON);

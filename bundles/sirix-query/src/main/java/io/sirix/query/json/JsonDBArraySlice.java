@@ -9,12 +9,15 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.settings.Fixed;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,10 +48,14 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
   private final int toIndex;
 
+  private final boolean mutable;
+
+  private long observedMutationSequence;
+
   /**
    * Cached values.
    */
-  private List<Sequence> values;
+  private @Nullable List<Sequence> values;
 
   /** Last slice-relative index served by {@link #at(int)} / {@link #at(IntNumeric)}. */
   private int cursorSliceIndex = -1;
@@ -89,6 +96,11 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
     this.fromIndex = fromIndex;
     this.toIndex = toIndex;
+    final var reader = rtx.getStorageEngineReader();
+    mutable = reader instanceof StorageEngineWriter || reader.hasTrxIntentLog();
+    observedMutationSequence = rtx instanceof JsonNodeTrx writer
+        ? writer.getMutationSequence()
+        : 0;
   }
 
   @Override
@@ -125,6 +137,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
   @Override
   public List<Sequence> values() {
+    refreshMutableState();
     moveRtx();
 
     if (values == null) {
@@ -201,22 +214,29 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     cursorNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
+  private void refreshMutableState() {
+    if (!mutable) {
+      return;
+    }
+    if (rtx instanceof JsonNodeTrx writer) {
+      final long sequence = writer.getMutationSequence();
+      if (sequence == observedMutationSequence) {
+        return;
+      }
+      observedMutationSequence = sequence;
+    }
+    values = null;
+    invalidateCursor();
+  }
+
   @Override
   public Sequence at(final IntNumeric numericIndex) {
-    final int sliceIndex = numericIndex.intValue();
-    if (fromIndex + sliceIndex >= toIndex) {
-      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", sliceIndex);
-    }
-
-    if (values == null) {
-      return sequenceAtSliceIndex(sliceIndex);
-    }
-
-    return values.get(sliceIndex);
+    return at(numericIndex.intValue());
   }
 
   @Override
   public Sequence at(final int index) {
+    refreshMutableState();
     if (fromIndex + index >= toIndex) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", index);
     }

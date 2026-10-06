@@ -360,8 +360,9 @@ See the [JSON revision-diff sidecar contract](docs/DISK_FORMAT.md#json-revision-
 
 Query both time dimensions (see [Bitemporal: Two Kinds of Time](#bitemporal-two-kinds-of-time) above for why this matters).
 
-Configure a resource with valid time paths — SirixDB then maintains CAS indexes on them
-automatically (also settable via REST query parameters):
+Configure a resource with valid time paths (also settable via REST query parameters). The JSONiq
+and REST store layers create a VALIDTIME interval index and dateTime CAS indexes automatically;
+configuration through the core API alone does not create indexes:
 
 ```java
 var resourceConfig = ResourceConfiguration.newBuilder("employees")
@@ -379,6 +380,13 @@ jn:open-bitemporal('mydb','myresource',
     xs:dateTime('2024-01-20T10:00:00Z'),   (: transaction time - opens revision :)
     xs:dateTime('2024-07-15T12:00:00Z'))   (: valid time - filters via index :)
 ```
+
+`jn:open-bitemporal` uses half-open validity (`validFrom <= V < validTo`): a record starting at
+`V` is included and a record ending at `V` is excluded. `jn:valid-at` and the explicit two-argument
+valid-time index scan retain closed containment.
+
+For lazy key slices, strict endpoint predicates, and obsolete-index handling, see
+[Valid-time key slices](docs/VALID_TIME_KEY_SLICES.md).
 
 Revision metadata (`sdb:revision`, `sdb:timestamp`, `sdb:item-history`, author tracking,
 commit messages) and optional per-node **Merkle hashes** (`sdb:hash` — tamper detection and

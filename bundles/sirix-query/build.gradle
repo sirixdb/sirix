@@ -226,6 +226,7 @@ test {
     // with it off every counter reads zero and an upper bound on zero always holds. An explicit
     // -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
+    systemProperty 'sirix.validTime.scanDiag', System.getProperty('sirix.validTime.scanDiag', 'true')
 
     // NativeImageDowncallConfigTest guards the native-image downcall configuration. It is handed what
     // THIS BUILD evaluates, not the text of this script: the argument the opt-in produces and the one

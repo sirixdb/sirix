@@ -30,6 +30,9 @@ import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
 import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
+import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.brackit.query.function.FunctionExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.service.xml.xpath.expr.UnionAxis;
@@ -38,6 +41,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -47,6 +52,7 @@ import io.brackit.query.compiler.translator.PipelineStrategy;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.expr.DeclVariable;
+import io.brackit.query.expr.BoundVariable;
 import io.brackit.query.operator.Operator;
 import io.sirix.query.compiler.operator.HashMembershipJoin;
 import io.sirix.query.compiler.operator.HashMembershipJoin.Binding;
@@ -63,6 +69,7 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
+import io.brackit.query.util.Whitespace;
 import java.util.ArrayDeque;
 import java.util.BitSet;
 import java.util.Deque;
@@ -181,13 +188,43 @@ public class SirixTranslator extends TopDownTranslator {
   private static final Set<String> COMPUTED_AGG_FUNCS = Set.of("sum", "avg", "min", "max", "count");
 
   /**
-   * Gap item 2: {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole
-   * argument is a pipeline {@link ComputedAggregateDetectionStage} annotated as a servable
-   * computed-expression fold. Emits the projection-served expression with the GENERIC function call
-   * compiled alongside as the runtime fallback; every other call compiles exactly as before.
+   * Optimizer-marked valid-time scans retain deferred point evaluation so empty arrays do not
+   * evaluate the point expression.
+   *
+   * <p>
+   * {@code sum|avg|min|max|count(<computed pipe>)} — an aggregate call whose sole argument is a
+   * pipeline {@link ComputedAggregateDetectionStage} annotated as a servable computed-expression
+   * fold. Emits the projection-served expression with the GENERIC function call compiled alongside as
+   * the runtime fallback. Unmarked calls retain the generic translation.
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(node.getValue()) && node.getChildCount() == 7
+        && node.checkProperty(OpenBitemporal.INTERNAL_SLICE)) {
+      final Expr[] arguments = new Expr[7];
+      for (int i = 0; i < arguments.length; i++) {
+        arguments[i] = expr(node.getChild(i), true);
+      }
+      return new FunctionExpr(ctx, OpenBitemporal.forSlice(), arguments);
+    }
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
+      final AST pointNode = node.getChild(1);
+      Expr point = expr(pointNode, true);
+      if (pointNode.getType() == XQ.FunctionCall) {
+        try {
+          point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
+        } catch (final QueryException ignored) {
+        }
+      }
+      final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
+          ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
+          ((IntNumeric) node.getChild(4).getValue()).intValue());
+      if (point instanceof BoundVariable variable) {
+        table.resolve(variable.getName(), scan);
+      }
+      return scan;
+    }
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())

@@ -7,21 +7,15 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
-import io.brackit.query.jdm.Item;
-import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
-import io.brackit.query.sequence.BaseIter;
-import io.brackit.query.sequence.ItemSequence;
-import io.brackit.query.sequence.LazySequence;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonItemFactory;
 
 import java.time.Instant;
 
@@ -92,109 +86,14 @@ public final class ValidAt extends AbstractFunction {
           + "Configure valid time paths when creating the resource."));
     }
 
-    // Fastest path: a persistent valid-time interval index (Relational-Interval-Tree) stabs the
-    // query instant in O(h) and re-verifies each candidate (provably the same set as the scan).
-    final ValidTimeIntervalIndex.Result intervalResult =
-        ValidTimeIntervalIndex.tryIndexScan(document, validTime, validTimeConfig);
-    if (intervalResult != null) {
-      return new ItemSequence(intervalResult.items().toArray(new Item[0]));
+    // Exact interval keys avoid object reads; exceptional bounds retain demand-time verification
+    // against the same predicate as the fallback scan.
+    final Sequence intervalSequence =
+        ValidTimeIntervalIndex.sequence(document, validTime, validTimeConfig, false, false);
+    if (intervalSequence != null) {
+      return intervalSequence;
     }
 
-    // Fast path: if a CAS index exists on a valid-time path, narrow candidates with an index range
-    // scan and verify each by reading (provably the same result set as the linear scan below).
-    final ValidTimeIndexScan.Result indexResult =
-        ValidTimeIndexScan.tryIndexScan(document, validTime, validTimeConfig);
-    if (indexResult != null) {
-      return new ItemSequence(indexResult.items().toArray(new Item[0]));
-    }
-
-    // Fallback: lazy sequence that filters by valid time with a linear scan.
-    return new ValidTimeFilterSequence(document, validTime, validTimeConfig);
-  }
-
-  /**
-   * A lazy sequence that filters items by valid time.
-   */
-  private static class ValidTimeFilterSequence extends LazySequence {
-    private final JsonDBItem document;
-    private final Instant validTime;
-    private final ValidTimeConfig validTimeConfig;
-
-    ValidTimeFilterSequence(JsonDBItem document, Instant validTime, ValidTimeConfig validTimeConfig) {
-      this.document = document;
-      this.validTime = validTime;
-      this.validTimeConfig = validTimeConfig;
-    }
-
-    @Override
-    public Iter iterate() {
-      return new ValidTimeFilterIter(document, validTime, validTimeConfig);
-    }
-  }
-
-  /**
-   * Iterator that filters items by valid time.
-   */
-  private static class ValidTimeFilterIter extends BaseIter {
-    private final JsonDBItem document;
-    private final Instant validTime;
-    private final ValidTimeConfig validTimeConfig;
-    private final JsonItemFactory jsonItemFactory = new JsonItemFactory();
-    private Iter childIter;
-    private boolean initialized;
-
-    ValidTimeFilterIter(JsonDBItem document, Instant validTime, ValidTimeConfig validTimeConfig) {
-      this.document = document;
-      this.validTime = validTime;
-      this.validTimeConfig = validTimeConfig;
-      this.initialized = false;
-    }
-
-    @Override
-    public Item next() {
-      if (!initialized) {
-        initialized = true;
-        // Check if the document itself matches the valid time criteria
-        if (isValidAtTime(document)) {
-          return document;
-        }
-        // If the document is an array or object, iterate its children
-        if (document instanceof io.brackit.query.jdm.json.Array array) {
-          childIter = array.iterate();
-        }
-      }
-
-      if (childIter != null) {
-        Item item;
-        while ((item = childIter.next()) != null) {
-          if (item instanceof JsonDBItem jsonItem && isValidAtTime(jsonItem)) {
-            return item;
-          }
-        }
-      }
-
-      return null;
-    }
-
-    /**
-     * Checks if the given item is valid at the specified time.
-     *
-     * @param item the item to check
-     * @return true if the item is valid at the specified time
-     */
-    private boolean isValidAtTime(JsonDBItem item) {
-      // Delegate to the single shared predicate so the linear fallback, the interval-index
-      // re-verification, and the CAS-narrowing path stay in lock-step (incl. open-ended intervals).
-      return item instanceof io.brackit.query.jdm.json.Object obj
-          && ValidTimeIndexScan.isValidAtTime(obj, validTime,
-              validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
-    }
-
-    @Override
-    public void close() {
-      if (childIter != null) {
-        childIter.close();
-      }
-    }
+    return ValidTimeFilter.linearScanSequence(document, validTime, validTimeConfig);
   }
 }

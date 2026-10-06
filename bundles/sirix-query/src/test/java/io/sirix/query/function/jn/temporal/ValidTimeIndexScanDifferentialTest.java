@@ -7,6 +7,9 @@ package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.jdm.json.Object;
+import io.brackit.query.util.path.PathParser;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -48,31 +51,9 @@ import java.util.TreeSet;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Differential correctness gate for the CAS-index-accelerated valid-time functions
- * ({@code jn:valid-at} / {@code jn:open-bitemporal}).
- *
- * <p>
- * For a dataset of records with {@code validFrom}/{@code validTo} dateTime fields and CAS indexes on
- * those paths, for many {@code validTime} values (including every boundary case), this asserts that:
- * </p>
- * <ol>
- * <li>the index-accelerated path ({@link ValidTimeIndexScan#tryIndexScan}, which we assert is
- * actually taken) returns exactly the brute-force reference set;</li>
- * <li>the {@code jn:valid-at} query over an <em>indexed</em> resource returns exactly that set;</li>
- * <li>the {@code jn:valid-at} query over a <em>plain</em> resource (no index → linear-scan
- * fallback) returns exactly that set.</li>
- * </ol>
- * <p>
- * All three must agree, for every {@code t}, by id-set equality.
- * </p>
- *
- * @author Johannes Lichtenberger
- */
 @DisplayName("Valid-Time Index Scan Differential Test")
 public final class ValidTimeIndexScanDifferentialTest {
 
@@ -86,8 +67,8 @@ public final class ValidTimeIndexScanDifferentialTest {
 
   /**
    * Test times per store instance. Each query/getDocument pins a read-only trx (and its file
-   * descriptors) until the store closes, so chunking bounds concurrent open trxes to
-   * ~3 × chunk size — safe even under a 1024 open-file limit.
+   * descriptors) until the store closes, so chunking bounds concurrent open trxes to ~3 × chunk size
+   * — safe even under a 1024 open-file limit.
    */
   private static final int QUERY_CHUNK_SIZE = 100;
 
@@ -127,10 +108,10 @@ public final class ValidTimeIndexScanDifferentialTest {
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
-        final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var validFromPath = parse("/[]/validFrom", PathParser.Type.JSON);
         final var validFromIndex =
             IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
-        final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var validToPath = parse("/[]/validTo", PathParser.Type.JSON);
         final var validToIndex =
             IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
@@ -157,7 +138,6 @@ public final class ValidTimeIndexScanDifferentialTest {
     int boundaryEqualsTo = 0;
     int zeroMatchTimes = 0;
     int allMatchTimes = 0;
-    int indexPathTakenCount = 0;
 
     final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
 
@@ -175,8 +155,6 @@ public final class ValidTimeIndexScanDifferentialTest {
 
         try (var ctx = SirixQueryContext.createWithJsonStore(store);
             var chain = SirixCompileChain.createWithJsonStore(store)) {
-
-          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
 
           for (final Instant t : chunk) {
             // (0) brute-force oracle
@@ -205,27 +183,18 @@ public final class ValidTimeIndexScanDifferentialTest {
               }
             }
 
-            // (1) DIRECT index path — assert it is actually taken, then compare its result set.
-            final JsonDBItem indexedDoc = collection.getDocument(INDEXED_RESOURCE);
-            final ValidTimeIndexScan.Result indexScan =
-                ValidTimeIndexScan.tryIndexScan(indexedDoc, t, validTimeConfig);
-            assertNotNull(indexScan,
-                "Index path must be taken on the indexed resource (a CAS index exists) at t=" + t);
-            indexPathTakenCount++;
-            final Set<Integer> directIndexIds = idsOfItems(indexScan.items());
-            assertEquals(brute, directIndexIds,
-                "Direct index-scan result must equal brute force at t=" + t + " (candidates examined: "
-                    + indexScan.candidatesExamined() + ")");
-            // All result items wrap the document's trx; ids are materialized, so release it now.
-            indexedDoc.getTrx().close();
+            final Set<Integer> directIds = idsFromObjectQuery(chain, ctx, "jn:scan-valid-time-index(jn:doc('" + DB_NAME
+                + "','" + INDEXED_RESOURCE + "'),xs:dateTime('" + t + "'))");
+            assertEquals(brute, directIds, "Direct temporal scan must equal brute force at t=" + t);
 
-            // (2) jn:valid-at over the INDEXED resource (fast path through execute()).
+            // (2) jn:valid-at over the INDEXED resource.
             final Set<Integer> indexedQueryIds = idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t);
             assertEquals(brute, indexedQueryIds, "jn:valid-at over indexed resource must equal brute force at t=" + t);
 
             // (3) jn:valid-at over the PLAIN resource (linear-scan fallback).
             final Set<Integer> plainQueryIds = idsFromValidAtQuery(chain, ctx, PLAIN_RESOURCE, t);
-            assertEquals(brute, plainQueryIds, "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
+            assertEquals(brute, plainQueryIds,
+                "jn:valid-at over plain resource (scan) must equal brute force at t=" + t);
           }
         }
       }
@@ -235,8 +204,8 @@ public final class ValidTimeIndexScanDifferentialTest {
     try (var store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
       final JsonDBItem plainDoc = collection.getDocument(PLAIN_RESOURCE);
-      assertNull(ValidTimeIndexScan.tryIndexScan(plainDoc, testTimes.get(0), validTimeConfig),
-          "Plain resource must have no usable CAS index (linear-scan fallback)");
+      assertNull(ValidTimeIntervalIndex.sequence(plainDoc, testTimes.get(0), validTimeConfig, false, false),
+          "Plain resource must have no interval index (linear-scan fallback)");
     }
 
     // Make sure the curated boundary cases were actually present in the run (901 times over 178
@@ -245,11 +214,10 @@ public final class ValidTimeIndexScanDifferentialTest {
     assertTrue(boundaryEqualsTo > 0, "Expected at least one t exactly equal to a validTo");
     assertTrue(zeroMatchTimes > 0, "Expected at least one t where zero records match");
     assertTrue(allMatchTimes > 0, "Expected at least one t where all records match");
-    assertEquals(testTimes.size(), indexPathTakenCount, "Index path must have been taken for every t");
   }
 
   @Test
-  @DisplayName("a single xs:dateTime index does NOT enable the index path; jn:valid-at falls back correctly")
+  @DisplayName("jn:valid-at with one dateTime CAS index equals brute force")
   void validFromOnlyIndexFallsBackToLinearScan() throws IOException {
     records = buildDataset();
     final String json = toJson(records);
@@ -262,10 +230,7 @@ public final class ValidTimeIndexScanDifferentialTest {
       try (JsonResourceSession session = database.beginResourceSession(INDEXED_RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
-        // ONLY a validFrom CAS index. The union scan needs BOTH xs:dateTime indexes for its
-        // superset guarantee (a record whose validFrom fails the cast is only reachable via the
-        // validTo range), so a single index must NOT enable the index path.
-        final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var validFromPath = parse("/[]/validFrom", PathParser.Type.JSON);
         final var validFromIndex =
             IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(validFromIndex), wtx);
@@ -275,8 +240,6 @@ public final class ValidTimeIndexScanDifferentialTest {
     }
 
     final List<Instant> testTimes = buildTestTimes(records);
-    final ValidTimeConfig validTimeConfig = new ValidTimeConfig(VALID_FROM, VALID_TO);
-
     // Chunked for the same open-file-limit reason as indexEqualsScanEqualsBruteForceForAllT.
     for (int chunkStart = 0; chunkStart < testTimes.size(); chunkStart += QUERY_CHUNK_SIZE) {
       final List<Instant> chunk =
@@ -287,8 +250,6 @@ public final class ValidTimeIndexScanDifferentialTest {
         try (var ctx = SirixQueryContext.createWithJsonStore(store);
             var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-          final JsonDBCollection collection = (JsonDBCollection) store.lookup(DB_NAME);
-
           for (final Instant t : chunk) {
             final Set<Integer> brute = new TreeSet<>();
             for (final Record r : records) {
@@ -297,12 +258,6 @@ public final class ValidTimeIndexScanDifferentialTest {
               }
             }
 
-            final JsonDBItem doc = collection.getDocument(INDEXED_RESOURCE);
-            assertNull(ValidTimeIndexScan.tryIndexScan(doc, t, validTimeConfig),
-                "a single xs:dateTime index must NOT enable the index path at t=" + t);
-            doc.getTrx().close();
-
-            // The function as a whole falls back to the linear scan and stays correct.
             assertEquals(brute, idsFromValidAtQuery(chain, ctx, INDEXED_RESOURCE, t),
                 "jn:valid-at (single-index fallback) must equal brute force at t=" + t);
           }
@@ -326,10 +281,10 @@ public final class ValidTimeIndexScanDifferentialTest {
       try (JsonResourceSession session = database.beginResourceSession(INDEXED_RESOURCE);
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
-        final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var validFromPath = parse("/[]/validFrom", PathParser.Type.JSON);
         final var validFromIndex =
             IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
-        final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var validToPath = parse("/[]/validTo", PathParser.Type.JSON);
         final var validToIndex =
             IndexDefs.createCASIdxDef(false, Type.DATI, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
@@ -355,7 +310,7 @@ public final class ValidTimeIndexScanDifferentialTest {
           for (final Instant t : chunk) {
             final Set<Integer> brute = new TreeSet<>();
             for (final Record r : records) {
-              if (r.validAt(t)) {
+              if (!t.isBefore(r.validFrom()) && t.isBefore(r.validTo())) {
                 brute.add(r.id());
               }
             }
@@ -373,10 +328,8 @@ public final class ValidTimeIndexScanDifferentialTest {
   // ---- helpers -------------------------------------------------------------------------------
 
   private static void createResourceWithValidTime(final Database<JsonResourceSession> database, final String name) {
-    final var resourceConfig = ResourceConfiguration.newBuilder(name)
-                                                    .validTimePaths(VALID_FROM, VALID_TO)
-                                                    .buildPathSummary(true)
-                                                    .build();
+    final var resourceConfig =
+        ResourceConfiguration.newBuilder(name).validTimePaths(VALID_FROM, VALID_TO).buildPathSummary(true).build();
     database.createResource(resourceConfig);
   }
 
@@ -384,10 +337,10 @@ public final class ValidTimeIndexScanDifferentialTest {
   private static final Instant UNIVERSAL = Instant.parse("2020-06-01T12:00:00Z");
 
   /**
-   * Builds a varied dataset: random overlapping intervals, some open-ended (far-future validTo),
-   * some with millisecond fractions, plus point-in-time records — every interval is constructed to
-   * contain {@link #UNIVERSAL} so there is a guaranteed "all match" time, while {@code validFrom}
-   * still spans ~2.4 years and {@code validTo} varies widely (incl. open-ended).
+   * Builds a varied dataset: random overlapping intervals, some open-ended (far-future validTo), some
+   * with millisecond fractions, plus point-in-time records — every interval is constructed to contain
+   * {@link #UNIVERSAL} so there is a guaranteed "all match" time, while {@code validFrom} still spans
+   * ~2.4 years and {@code validTo} varies widely (incl. open-ended).
    */
   private static List<Record> buildDataset() {
     final List<Record> recs = new ArrayList<>();
@@ -400,8 +353,8 @@ public final class ValidTimeIndexScanDifferentialTest {
     // varied point that is always >= UNIVERSAL (so they all contain UNIVERSAL but still vary).
     final long maxFromOffsetDays = ChronoUnit.DAYS.between(base, UNIVERSAL); // ~883 days
     for (int i = 0; i < 160; i++) {
-      final Instant from = base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS)
-                               .plusSeconds(rnd.nextInt(86_400));
+      final Instant from =
+          base.plus(rnd.nextInt((int) maxFromOffsetDays), ChronoUnit.DAYS).plusSeconds(rnd.nextInt(86_400));
       final Instant to;
       if (i % 6 == 0) {
         to = Instant.parse("2999-12-31T23:59:59Z"); // open-ended
@@ -450,23 +403,23 @@ public final class ValidTimeIndexScanDifferentialTest {
 
   /**
    * Curated test times: before all, after all, every record's exact validFrom and validTo (boundary
-   * equality on both ends), points just inside/outside those boundaries, fractional-second points,
-   * a guaranteed zero-match time, and a guaranteed all-match time.
+   * equality on both ends), points just inside/outside those boundaries, fractional-second points, a
+   * guaranteed zero-match time, and a guaranteed all-match time.
    */
   private static List<Instant> buildTestTimes(final List<Record> recs) {
     final Set<Instant> times = new LinkedHashSet<>();
 
     times.add(Instant.parse("1900-01-01T00:00:00Z")); // before all -> zero match
     times.add(Instant.parse("2998-01-01T00:00:00Z")); // after all closed intervals
-    times.add(UNIVERSAL);                              // inside every interval -> all match
+    times.add(UNIVERSAL); // inside every interval -> all match
 
     for (final Record r : recs) {
-      times.add(r.validFrom());                                  // == validFrom (boundary)
-      times.add(r.validTo());                                    // == validTo (boundary)
-      times.add(r.validFrom().minusMillis(1));                   // just before from
-      times.add(r.validFrom().plusMillis(1));                    // just after from
-      times.add(r.validTo().minusMillis(1));                     // just before to
-      times.add(r.validTo().plusMillis(1));                      // just after to
+      times.add(r.validFrom()); // == validFrom (boundary)
+      times.add(r.validTo()); // == validTo (boundary)
+      times.add(r.validFrom().minusMillis(1)); // just before from
+      times.add(r.validFrom().plusMillis(1)); // just after from
+      times.add(r.validTo().minusMillis(1)); // just before to
+      times.add(r.validTo().plusMillis(1)); // just after to
     }
 
     return new ArrayList<>(times);
@@ -490,8 +443,8 @@ public final class ValidTimeIndexScanDifferentialTest {
     try {
       Item item;
       while ((item = iter.next()) != null) {
-        final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-        ids.add(((Numeric) obj.get(new io.brackit.query.atomic.QNm("id"))).intValue());
+        final Object obj = (Object) item;
+        ids.add(((Numeric) obj.get(new QNm("id"))).intValue());
       }
     } finally {
       iter.close();
@@ -499,13 +452,4 @@ public final class ValidTimeIndexScanDifferentialTest {
     return ids;
   }
 
-  private static Set<Integer> idsOfItems(final List<JsonDBItem> items) {
-    final Set<Integer> ids = new TreeSet<>();
-    for (final JsonDBItem item : items) {
-      final io.brackit.query.jdm.json.Object obj = (io.brackit.query.jdm.json.Object) item;
-      final Sequence idSeq = obj.get(new io.brackit.query.atomic.QNm("id"));
-      ids.add(((Numeric) idSeq).intValue());
-    }
-    return ids;
-  }
 }

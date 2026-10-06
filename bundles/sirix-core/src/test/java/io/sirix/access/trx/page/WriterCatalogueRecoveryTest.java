@@ -206,7 +206,13 @@ final class WriterCatalogueRecoveryTest {
       database.createResource(resource());
       try (final JsonResourceSession session = database.beginResourceSession("data")) {
         try (final JsonNodeTrx trx = session.beginNodeTrx()) {
-          valueKey = trx.insertNumberValueAsFirstChild(1).getNodeKey();
+          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"id\":1}]"), JsonNodeTrx.Commit.NO);
+          trx.moveToDocumentRoot();
+          assertTrue(trx.moveToFirstChild());
+          assertTrue(trx.moveToFirstChild());
+          assertTrue(trx.moveToFirstChild());
+          assertEquals(1, trx.getNumberValue().intValue());
+          valueKey = trx.getNodeKey();
           session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(cas), trx);
           trx.commit();
           session.getWtxIndexController(trx.getRevisionNumber()).dropIndexes(Set.of(cas), trx);
@@ -223,16 +229,31 @@ final class WriterCatalogueRecoveryTest {
           trx.rollback();
           assertTrue(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
           trx.revertTo(1);
-          assertTrue(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
+          assertEquals(1, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().size());
+          assertNotNull(session.getWtxIndexController(trx.getRevisionNumber())
+                               .getIndexes()
+                               .getIndexDef(cas.getID(), cas.getType()));
+          trx.commit();
+          try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+            assertJsonLookup(session, reader, cas, valueKey, 1);
+          }
         }
       }
     }
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         final JsonResourceSession session = database.beginResourceSession("data");
         final JsonNodeTrx trx = session.beginNodeTrx()) {
-      assertTrue(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().isEmpty());
+      assertEquals(4, session.getMostRecentRevisionNumber());
+      assertEquals(1, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDefs().size());
       assertEquals(1, session.getRtxIndexController(1).getIndexes().getIndexDefs().size());
       assertTrue(session.getRtxIndexController(3).getIndexes().getIndexDefs().isEmpty());
+      try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(3)) {
+        assertTrue(reader.moveTo(valueKey));
+        assertEquals(3, reader.getNumberValue().intValue());
+      }
+      try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        assertJsonLookup(session, reader, cas, valueKey, 1);
+      }
     }
   }
 

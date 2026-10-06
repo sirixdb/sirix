@@ -502,6 +502,13 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       return this;
     }
 
+    final ChangeListener[] replacingListeners = listenerSnapshot;
+    for (int i = 0; i < replacingListeners.length; i++) {
+      if (!(replacingListeners[i] instanceof ProjectionIndexChangeListener)) {
+        replacingListeners[i].beforePageFlush();
+      }
+    }
+
     // A load-time projection owns process-wide state outside the transaction's page log. Dropping its
     // definition removes the only listener that can finish or abort that state, so retire the exact
     // listener owner before touching the catalogue. Do not abort the remaining projection listeners:
@@ -591,9 +598,6 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void applyPendingIndexMaintenance(final boolean finalCommit) {
-    // Uniform listener lifecycle: every listener gets the commit-time hook;
-    // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
-    // default no-op, batching types (projection) apply their pending work.
     final ChangeListener[] activeListeners = listenerSnapshot;
     for (int i = 0; i < activeListeners.length; i++) {
       activeListeners[i].beforeCommit(finalCommit);

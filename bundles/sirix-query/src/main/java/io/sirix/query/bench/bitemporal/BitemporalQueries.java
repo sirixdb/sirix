@@ -15,13 +15,6 @@ public final class BitemporalQueries {
       declare variable $V := xs:dateTime('2024-06-15T00:00:00Z');
       declare variable $L := xs:dateTime('2024-05-30T00:00:00Z');
       declare variable $U := xs:dateTime('2024-07-29T00:00:00Z');
-      declare function local:slice($resource as xs:string,
-                                   $system as xs:dateTime,
-                                   $valid as xs:dateTime) {
-        for $r in jn:open-bitemporal('bt', $resource, $system, $valid)
-        where $valid lt xs:dateTime($r.vt)
-        return $r
-      };
       """;
 
   /** One query, including the schema used to reject accidental representation repairs. */
@@ -77,10 +70,10 @@ public final class BitemporalQueries {
             return {"min_cost":min($rows.cost),"max_cost":max($rows.cost),
                     "prices":count(distinct-values($rows.cost))}
             """);
-    add(queries, 4, "corrections", 1, "VALIDTIME+strict-residual", true,
+    add(queries, 4, "corrections", 1, "VALIDTIME-half-open", false,
         List.of("id", "old_cost", "new_cost", "old_qty", "new_qty"), """
-            for $a in local:slice('contracts',$A,$V)
-            for $b in local:slice('contracts',$B,$V)
+            for $a in jn:open-bitemporal('bt','contracts',$A,$V)
+            for $b in jn:open-bitemporal('bt','contracts',$B,$V)
             where $a.id eq $b.id and ($a.cost ne $b.cost or $a.qty ne $b.qty)
             order by $a.id
             return {"id":$a.id,"old_cost":$a.cost,"new_cost":$b.cost,
@@ -94,38 +87,38 @@ public final class BitemporalQueries {
             order by $e.epoch
             return {"epoch":$e.epoch,"cost":$c.cost,"qty":$c.qty}
             """);
-    add(queries, 6, "grouped publication evolution", 2, "VALIDTIME+strict-residual+generic-group", true,
+    add(queries, 6, "grouped publication evolution", 2, "VALIDTIME-half-open+generic-group", false,
         List.of("epoch", "grade", "n", "qty_sum"), """
             for $e in jn:doc('bt','epochs')[]
-            for $c in local:slice('contracts',xs:dateTime($e.ts),$V)
+            for $c in jn:open-bitemporal('bt','contracts',xs:dateTime($e.ts),$V)
             let $epoch := $e.epoch, $grade := $c.grade, $qty := $c.qty
             group by $epoch,$grade
             let $n := count($qty), $qty_sum := sum($qty)
             order by $epoch,$grade
             return {"epoch":$epoch,"grade":$grade,"n":$n,"qty_sum":$qty_sum}
             """);
-    add(queries, 7, "latest exposure by grade", 1, "VALIDTIME+strict-residual+generic-group", true,
+    add(queries, 7, "latest exposure by grade", 1, "VALIDTIME-half-open+generic-group", false,
         List.of("grade", "n", "qty_sum", "exposure"), """
-            for $c in local:slice('contracts',$B,$V)
+            for $c in jn:open-bitemporal('bt','contracts',$B,$V)
             let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty
             group by $grade
             let $n := count($qty), $qty_sum := sum($qty), $exposure := sum($value)
             order by $grade
             return {"grade":$grade,"n":$n,"qty_sum":$qty_sum,"exposure":$exposure}
             """);
-    add(queries, 8, "supplier grade distribution", 2, "VALIDTIME+strict-residual+generic-group", true,
+    add(queries, 8, "supplier grade distribution", 2, "VALIDTIME-half-open+generic-group", false,
         List.of("sid", "grade", "n", "min_cost", "max_cost"), """
-            for $c in local:slice('contracts',$A,$V)
+            for $c in jn:open-bitemporal('bt','contracts',$A,$V)
             let $sid := $c.sid, $grade := $c.grade, $cost := $c.cost
             group by $sid,$grade
             let $n := count($cost), $min_cost := min($cost), $max_cost := max($cost)
             order by $sid,$grade
             return {"sid":$sid,"grade":$grade,"n":$n,"min_cost":$min_cost,"max_cost":$max_cost}
             """);
-    add(queries, 9, "supplier temporal join", 2, "VALIDTIME+strict-residual+generic-join-group", true,
+    add(queries, 9, "supplier temporal join", 2, "VALIDTIME-half-open+generic-join-group", false,
         List.of("region", "grade", "n", "exposure"), """
-            for $c in local:slice('contracts',$B,$V)
-            for $s in local:slice('suppliers',$B,$V)
+            for $c in jn:open-bitemporal('bt','contracts',$B,$V)
+            for $s in jn:open-bitemporal('bt','suppliers',$B,$V)
             where $c.sid eq $s.id
             let $region := $s.region, $grade := $c.grade, $value := $c.cost * $c.qty
             group by $region,$grade
@@ -150,21 +143,21 @@ public final class BitemporalQueries {
             return {"category":$category,"contracts":$contracts,
                     "min_margin":$min_margin,"max_margin":$max_margin}
             """);
-    add(queries, 11, "daily grouped exposure", 2, "VALIDTIME+strict-residual+generic-group", true,
+    add(queries, 11, "daily grouped exposure", 2, "VALIDTIME-half-open+generic-group", false,
         List.of("day_no", "grade", "n", "exposure"), """
             for $d in jn:doc('bt','days')[]
             where $d.day_no ge 150 and $d.day_no lt 210
-            for $c in local:slice('contracts',$B,xs:dateTime($d.ts))
+            for $c in jn:open-bitemporal('bt','contracts',$B,xs:dateTime($d.ts))
             let $day_no := $d.day_no, $grade := $c.grade, $value := $c.cost * $c.qty
             group by $day_no,$grade
             let $n := count($value), $exposure := sum($value)
             order by $day_no,$grade
             return {"day_no":$day_no,"grade":$grade,"n":$n,"exposure":$exposure}
             """);
-    add(queries, 12, "retroactive disappearance", 1, "VALIDTIME+strict-residual+generic-anti-join-group", true,
+    add(queries, 12, "retroactive disappearance", 1, "VALIDTIME-half-open+generic-anti-join-group", false,
         List.of("grade", "n", "old_exposure"), """
-            let $new := local:slice('contracts',$D,$V)
-            for $a in local:slice('contracts',$A,$V)
+            let $new := jn:open-bitemporal('bt','contracts',$D,$V)
+            for $a in jn:open-bitemporal('bt','contracts',$A,$V)
             where empty(for $b in $new where $b.id eq $a.id return $b.id)
             let $grade := $a.grade, $value := $a.cost * $a.qty
             group by $grade

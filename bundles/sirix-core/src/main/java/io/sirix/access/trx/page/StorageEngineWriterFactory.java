@@ -107,7 +107,7 @@ public final class StorageEngineWriterFactory {
       final IndexController<?, ?> indexController =
           resourceSession.getWtxIndexController(newRevisionRootPage.getRevision());
 
-      resourceSession.restoreIndexCatalogue(lastStoredRevision, indexController.getIndexes());
+      resourceSession.restoreIndexCatalogue(representRevision, indexController.getIndexes());
 
       newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
       newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());

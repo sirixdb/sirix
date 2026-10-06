@@ -8,10 +8,6 @@ import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
-import io.brackit.query.jdm.type.AnyJsonItemType;
-import io.brackit.query.jdm.type.AtomicType;
-import io.brackit.query.jdm.type.Cardinality;
-import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -32,19 +28,19 @@ import java.util.Set;
  * successful, this function returns the document node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>jn:drop-valid-time-index($doc as json-item()) as json-item()</code> — drops ALL VALIDTIME
- * indexes on the resource.</li>
- * <li><code>jn:drop-valid-time-index($doc as json-item(), $idx-no as xs:int) as json-item()</code> —
- * drops the VALIDTIME index with the given id.</li>
+ * <li><code>jn:drop-valid-time-index($doc as json-item()) as json-item()</code> — drops ALL
+ * VALIDTIME indexes on the resource.</li>
+ * <li><code>jn:drop-valid-time-index($doc as json-item(), $idx-no as xs:int) as json-item()</code>
+ * — drops the VALIDTIME index with the given id.</li>
  * </ul>
  *
  * <p>
- * Removing the index from the catalogue means that, from the new revision onward, the interval index
- * is no longer maintained on writes nor used by {@code jn:valid-at} / {@code jn:open-bitemporal} /
- * {@code jn:scan-valid-time-index} / the optimizer; those fall back to the CAS-narrowing path or the
- * linear scan and still return correct results. The catalogue removal is persisted on the next commit
- * (call {@code sdb:commit($doc)} after this function). The index's pages remain referenced by older
- * revisions, so time-travel queries at those revisions still use the index.
+ * Removing the index from the catalogue means that, from the new revision onward, the interval
+ * index is no longer maintained on writes nor used by {@code jn:valid-at} /
+ * {@code jn:open-bitemporal} / {@code jn:scan-valid-time-index} / the optimizer; those fall back to
+ * the linear scan and still return correct results. The catalogue removal is persisted on the next
+ * commit (call {@code sdb:commit($doc)} after this function). The index's pages remain referenced
+ * by older revisions, so time-travel queries at those revisions still use the index.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -81,7 +77,9 @@ public final class DropValidTimeIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found."));
     }
 
-    final Integer requestedId = args.length == 2 && args[1] != null ? ((Int32) args[1]).intValue() : null;
+    final Integer requestedId = args.length == 2 && args[1] != null
+        ? ((Int32) args[1]).intValue()
+        : null;
 
     // Collect the VALIDTIME index definitions to drop.
     final Set<IndexDef> toDrop = new LinkedHashSet<>();

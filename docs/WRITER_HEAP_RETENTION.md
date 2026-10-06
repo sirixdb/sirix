@@ -53,15 +53,18 @@ it does not accumulate as revisions advance.
 `NodeStorageEngineWriter.close()` retires its controller's change listeners and
 transaction-serving handles after fencing asynchronous work. Cached catalogue
 definitions remain available, while listener retention follows active writer
-lifetimes, including the bounded pending writer of a pipelined commit. The existing
-catalogue cache size and persisted formats are unchanged.
+lifetimes, including the bounded pending writer of a pipelined commit. Listener retirement leaves
+the catalogue cache size and persisted formats unchanged.
 
 The controller belongs to the prepared revision root, which can differ from the
 represented revision after a revert. Factory construction restores its catalogue
-from the latest persisted snapshot at or below `lastStoredRevision` through the
+from the latest persisted snapshot at or below `representRevision` through the
 session's memoized resolver. An absent snapshot inherits; an explicitly persisted
-empty catalogue prevents older definitions from returning. Restoration discards
-uncommitted definitions on reused controllers.
+empty catalogue stops inheritance within that revision's history. Restoration
+discards uncommitted definitions on reused controllers. `revertTo(r)` restores revision `r`'s
+catalogue; incompatible VALIDTIME formats are rejected as described in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md#index-representation); it leaves the intervening
+revisions and their catalogues readable.
 
 On successful successor handoff, the predecessor's complete live catalogue replaces
 that restored catalogue, including an empty set or partial drops. This is necessary
@@ -71,6 +74,13 @@ The handoff retains the existing listener snapshot locally until rebinding succe
 failure aborts those exact owners independently, while successful intermediate
 epochs preserve active projection builds. The handoff uses the existing listener
 array and definition-set snapshot.
+
+Dropping definitions publishes pending non-projection maintenance through the page-flush
+hook before replacing listeners. Retained VALIDTIME definitions therefore keep endpoint,
+membership and verification changes when the writer commits immediately after a drop.
+Projection listeners keep the existing exact-owner abort and retained-owner handoff.
+`ValidTimePendingIndexDropTest` covers CAS, projection and partial VALIDTIME drops,
+strict and inclusive reads, rounded bounds, and historical revisions after reopen.
 
 The factory owns the reader, transaction intent log and backend until construction
 succeeds. A construction failure closes all three independently and preserves the
@@ -150,9 +160,11 @@ JSON/XML revert and failed-successor rollback plus database close/reopen, each i
 synchronous and pipelined modes. It checks restored definitions, maintained CAS
 lookups, removal of obsolete postings, and historical results after reopen. Revert
 also discards an uncommitted index definition. Two additional guards preserve an
-explicit empty catalogue through an absent later snapshot, rollback of an
-uncommitted definition, revert, and reopen. Round 1's projection-owner and listener
-retention guards remain in place.
+explicit empty catalogue through an absent later snapshot and rollback of an
+uncommitted definition. Reverting to the earlier indexed revision restores its
+definition and CAS lookup at the new head, including after reopen, while the
+intervening empty-catalogue revision and its data remain readable. Round 1's
+projection-owner and listener retention guards remain in place.
 
 Before changing production code, all twelve skipped-catalogue cases reproduced
 round 1's loss of definitions against `98507f0aa2def53bd56bf82059b781611a5ca98c`;

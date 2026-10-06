@@ -59,6 +59,12 @@ public final class IndexDef implements Materializable {
 
   private static final QNm ID_ATTRIBUTE = new QNm("id");
 
+  private static final QNm VALID_TIME_FORMAT_ATTRIBUTE = new QNm("validTimeFormat");
+
+  private static final String VALID_TIME_FORMAT = "6";
+
+  private String validTimeFormat = VALID_TIME_FORMAT;
+
   private static final QNm DIMENSION_ATTRIBUTE = new QNm("dimension");
 
   private static final QNm DISTANCE_TYPE_ATTRIBUTE = new QNm("distanceType");
@@ -270,6 +276,10 @@ public final class IndexDef implements Materializable {
     tmp.attribute(DB_TYPE_ATTRIBUTE, new Una(dbType.toString()));
     tmp.attribute(ID_ATTRIBUTE, new Una(Integer.toString(id)));
 
+    if (type == IndexType.VALIDTIME) {
+      tmp.attribute(VALID_TIME_FORMAT_ATTRIBUTE, new Una(validTimeFormat));
+    }
+
     if (contentType != null) {
       tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(contentType.toString()));
     }
@@ -456,6 +466,13 @@ public final class IndexDef implements Materializable {
     attribute = root.getAttribute(TYPE_ATTRIBUTE);
     if (attribute != null) {
       type = IndexType.valueOf(attribute.getValue().stringValue());
+    }
+
+    if (type == IndexType.VALIDTIME) {
+      attribute = root.getAttribute(VALID_TIME_FORMAT_ATTRIBUTE);
+      validTimeFormat = attribute == null
+          ? ""
+          : attribute.getValue().stringValue();
     }
 
     attribute = root.getAttribute(CONTENT_TYPE_ATTRIBUTE);
@@ -690,6 +707,10 @@ public final class IndexDef implements Materializable {
     return contentType;
   }
 
+  public boolean hasUnsupportedValidTimeFormat() {
+    return isValidTimeIndex() && !VALID_TIME_FORMAT.equals(validTimeFormat);
+  }
+
   /**
    * Compare the complete persisted meaning of two index definitions.
    *
@@ -717,6 +738,7 @@ public final class IndexDef implements Materializable {
   public boolean hasSameDefinition(final IndexDef other) {
     requireNonNull(other);
     return id == other.id && type == other.type && dbType == other.dbType && unique == other.unique
+        && (!isValidTimeIndex() || validTimeFormat.equals(other.validTimeFormat))
         && Objects.equals(contentType, other.contentType) && samePersistedPaths(paths, other.paths)
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)

@@ -44,6 +44,7 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.UberPage;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.index.path.summary.PathSummaryWriter;
+import io.sirix.index.IndexDef;
 import io.sirix.io.IOStorage;
 
 import java.time.Duration;
@@ -157,7 +158,16 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+    return rtxIndexControllers.computeIfAbsent(revision, _ -> {
+      final JsonIndexController controller = createIndexController(revision);
+      for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+        if (definition.hasUnsupportedValidTimeFormat()) {
+          controller.getIndexes().removeIndex(definition);
+        }
+      }
+      controller.clearChangeListeners();
+      return controller;
+    });
   }
 
   @SuppressWarnings("unchecked")

@@ -28,23 +28,25 @@ import java.time.Instant;
  * Incremental maintainer for a valid-time interval index.
  *
  * <p>
- * The listener receives one primitive change event per valid-time value-node
- * ({@code INSERT}/{@code DELETE}, with the field's local name and its string value). On the first
- * event for a record it reads that record's transaction-current bounds without moving the node
- * cursor. For a DELETE notification this is the still-persisted old interval; for an INSERT it
- * excludes the just-inserted node and thereby reconstructs the interval that preceded the insert.
- * The original interval is retained until the record's event burst ends, so a value replacement's
- * DELETE/INSERT pair becomes one old-delete/new-insert pair rather than two transient rewrites.
+ * The listener receives primitive field change events ({@code INSERT}/{@code DELETE}, with the
+ * field's local name and its value when present). Non-string bounds still count toward duplicate
+ * detection. On the first event for a record it reads that record's transaction-current bounds
+ * without moving the node cursor. For a DELETE notification this is the still-persisted old
+ * interval; for an INSERT it excludes the just-inserted node and thereby reconstructs the interval
+ * that preceded the insert. The original interval is retained until the record's event burst ends,
+ * so a value replacement's DELETE/INSERT pair becomes one old-delete/new-insert pair rather than
+ * two transient rewrites.
  * </p>
  *
  * <h2>Bounded coalescing</h2>
  * <p>
  * JSON mutation and shred notifications for one record are contiguous. When the containing object
  * key changes, the preceding record is reconciled and its state is retired. The final record is
- * reconciled before commit or asynchronous page flush. This bounds listener memory to one small
- * state object even for a 100M-record load; a non-contiguous revisit remains correct because the
- * earlier interval has already been published and the later burst re-seeds from the current record.
- * No document cursor is moved and no full index rebuild is involved.
+ * reconciled before commit or asynchronous page flush. One active record and a fixed set of
+ * structural snapshots bound listener memory even for a 100M-record load; a non-contiguous revisit
+ * remains correct because the earlier interval has already been published and the later burst
+ * re-seeds from the current record. No document cursor is moved and no full index rebuild is
+ * involved.
  * </p>
  *
  * <h2>Object-key resolution</h2>
@@ -69,6 +71,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     Instant to;
     long fromNodeKey = NO_OBJECT;
     long toNodeKey = NO_OBJECT;
+    boolean fromLexical;
+    boolean toLexical;
+    long parentKey = NO_OBJECT;
     long fromFieldCount;
     long toFieldCount;
     @Nullable
@@ -81,13 +86,13 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private final String validToField;
 
   private final State activeState = new State();
+  private final State structuralMovedState = new State();
   private final State structuralSourceState = new State();
   private final State structuralDestinationState = new State();
   private long activeObjectKey = NO_OBJECT;
   private long structuralNodeKey = NO_OBJECT;
   private long structuralSourceObjectKey = NO_OBJECT;
   private boolean active;
-  private boolean directBoundStructuralChange;
 
   public JsonValidTimeIndexListener(final StorageEngineWriter storageEngineWriter,
       final ValidTimeIntervalIndexWriter indexWriter, final String validFromField, final String validToField) {
@@ -99,9 +104,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   @Override
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    // The interval index is maintained exclusively via the primitive (name+value) event below,
-    // which carries the field name and instant value we need without a snapshot. The ImmutableNode
-    // variant is a no-op (it is only invoked when no primitive listener path applies).
+    // Field edits use the primitive name+value overloads; moves use the structural hooks.
+    // Consuming this snapshot overload too would duplicate maintenance.
   }
 
   /**
@@ -128,19 +132,15 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   private void onPrimitiveChange(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long parentKey, final @Nullable QNm name, final @Nullable Str value) {
-    if (directBoundStructuralChange && nodeKey == structuralNodeKey) {
-      // A direct bound-field MOVE/rename is reconciled once from the before/after snapshots below.
-      // Its primitive DELETE/INSERT pair cannot describe sibling order, and applying it as well
-      // would publish the same record twice.
+    if (structuralNodeKey != NO_OBJECT) {
       return;
     }
 
-    final boolean stringNode = nodeKind == NodeKind.OBJECT_NAMED_STRING || nodeKind == NodeKind.STRING_VALUE;
     final String local = name == null
         ? null
         : name.getLocalName();
-    final boolean isFrom = stringNode && validFromField.equals(local);
-    final boolean isTo = stringNode && validToField.equals(local);
+    final boolean isFrom = validFromField.equals(local);
+    final boolean isTo = validToField.equals(local);
 
     // Whole-object removal is post-order: an unrelated first child can be physically removed before
     // the first valid-time field callback. Seed on the first fused named DELETE of each object while
@@ -222,18 +222,22 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       return;
     }
 
-    final Instant instant = ValidTimeIntervalIndexWriter.parseInstant(value == null
+    final String raw = value == null
         ? null
-        : value.stringValue());
+        : value.stringValue();
+    final Instant instant = ValidTimeIntervalIndexWriter.parseInstant(raw);
+    final boolean lexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(raw);
     if (isFrom) {
       state.fromFieldCount = 1;
       state.from = instant;
+      state.fromLexical = lexical;
       state.fromNodeKey = instant == null
           ? NO_OBJECT
           : nodeKey;
     } else {
       state.toFieldCount = 1;
       state.to = instant;
+      state.toLexical = lexical;
       state.toNodeKey = instant == null
           ? NO_OBJECT
           : nodeKey;
@@ -279,7 +283,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private void seedState(final long objectKey, final long excludedNodeKey, final long fallbackChildKey,
       final State state) {
     readBounds(objectKey, excludedNodeKey, fallbackChildKey, state);
-    state.registered = indexWriter.toInterval(state.from, state.to);
+    state.registered = indexWriter.toInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
+                                  .withExactLexicalBounds(state.fromLexical && state.toLexical)
+                                  .atParent(state.parentKey);
   }
 
   /** Reconcile and retire the one active mutation burst. */
@@ -305,14 +311,34 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   /** Reconcile one reusable record snapshot without retaining any per-record collection. */
   private void reconcileState(final long objectKey, final State state) {
-    final Interval desired = indexWriter.toInterval(state.from, state.to);
+    final Interval mapped = indexWriter.toInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
+                                       .withExactLexicalBounds(state.fromLexical && state.toLexical);
+    final ImmutableNode object = mapped.present()
+        ? loadNode(objectKey)
+        : null;
+    if (mapped.present() && object == null) {
+      final IllegalStateException failure = new IllegalStateException("Valid-time object disappeared: " + objectKey);
+      markRollbackOnly(failure);
+      throw failure;
+    }
+    final Interval desired = mapped.atParent(object == null
+        ? NO_OBJECT
+        : object.getParentKey());
+    if (object instanceof StructNode structure) {
+      try {
+        indexWriter.checkOrder(objectKey, object.getParentKey(), structure.getLeftSiblingKey(),
+            structure.getRightSiblingKey());
+      } catch (final RuntimeException | Error failure) {
+        markRollbackOnly(failure);
+        throw failure;
+      }
+    }
     final Interval current = state.registered;
     if (current == null) {
       throw new IllegalStateException("Valid-time state for object " + objectKey + " has no registered interval");
     }
 
-    final boolean same = current.present() == desired.present()
-        && (!current.present() || current.lo() == desired.lo() && current.hi() == desired.hi());
+    final boolean same = current.equals(desired);
     if (same) {
       return;
     }
@@ -321,11 +347,11 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     try {
       if (current.present()) {
         publicationStarted = true;
-        indexWriter.delete(objectKey, current.lo(), current.hi());
+        indexWriter.delete(objectKey, current);
       }
       if (desired.present()) {
         publicationStarted = true;
-        indexWriter.insert(objectKey, desired.lo(), desired.hi());
+        indexWriter.insert(objectKey, desired);
       }
       state.registered = desired;
     } catch (final RuntimeException | Error failure) {
@@ -361,6 +387,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     state.to = null;
     state.fromNodeKey = NO_OBJECT;
     state.toNodeKey = NO_OBJECT;
+    state.fromLexical = false;
+    state.toLexical = false;
+    state.parentKey = NO_OBJECT;
     state.fromFieldCount = 0;
     state.toFieldCount = 0;
     state.registered = null;
@@ -382,39 +411,35 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     clearStructuralChange();
   }
 
-  /**
-   * Snapshot a directly moved/renamed valid-time field before sibling or parent linkage changes.
-   * Primitive notifications do not carry sibling order, so this one leaf is reconciled at the
-   * structural boundary instead. Moving a container keeps the default primitive path because the
-   * order of the valid-time fields inside each contained object does not change.
-   */
   @Override
   public void beforeStructuralChange(final long movedNodeKey) {
-    if (directBoundStructuralChange) {
+    if (structuralNodeKey != NO_OBJECT) {
       throw new IllegalStateException("Nested valid-time structural change for node " + movedNodeKey);
     }
 
     reconcileActiveObject();
     final ImmutableNode movedNode = loadNode(movedNodeKey);
-    if (!isDirectBoundField(movedNode)) {
-      return;
+    if (movedNode == null) {
+      throw new IllegalStateException("Structurally changed valid-time node " + movedNodeKey + " is unreadable");
     }
-
-    final long sourceObjectKey = resolveContainingObjectKeyFromParent(movedNode.getParentKey());
-    if (sourceObjectKey == NO_OBJECT) {
-      throw new IllegalStateException(
-          "Unable to resolve source object for structurally changed valid-time node " + movedNodeKey);
+    final NodeKind kind = movedNode.getKind();
+    final long parentKey = movedNode.getParentKey();
+    if (kind == NodeKind.OBJECT || kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      seedState(movedNodeKey, NO_OBJECT, NO_OBJECT, structuralMovedState);
     }
-
-    seedState(sourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+    if (kind.isFusedObjectNamed()) {
+      final long sourceObjectKey = resolveContainingObjectKeyFromParent(parentKey);
+      if (sourceObjectKey != NO_OBJECT) {
+        seedState(sourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+        structuralSourceObjectKey = sourceObjectKey;
+      }
+    }
     structuralNodeKey = movedNodeKey;
-    structuralSourceObjectKey = sourceObjectKey;
-    directBoundStructuralChange = true;
   }
 
   @Override
   public void afterStructuralChange(final long movedNodeKey) {
-    if (!directBoundStructuralChange) {
+    if (structuralNodeKey == NO_OBJECT) {
       return;
     }
     if (movedNodeKey != structuralNodeKey) {
@@ -429,28 +454,30 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       if (movedNode == null || !movedNode.hasParent()) {
         throw new IllegalStateException("Structurally changed valid-time node " + movedNodeKey + " is unreadable");
       }
-
-      final long destinationObjectKey = resolveContainingObjectKeyFromParent(movedNode.getParentKey());
-      if (destinationObjectKey == structuralSourceObjectKey) {
-        readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
-        reconcileState(structuralSourceObjectKey, structuralSourceState);
-        return;
+      final long destinationObjectKey = movedNode.getKind().isFusedObjectNamed()
+          ? resolveContainingObjectKeyFromParent(movedNode.getParentKey())
+          : NO_OBJECT;
+      if (structuralMovedState.registered != null) {
+        readBounds(movedNodeKey, NO_OBJECT, NO_OBJECT, structuralMovedState);
       }
-
-      // Compute every post-surgery snapshot before publishing either side. If a read fails, the
-      // transaction is latched rollback-only without leaving a half-applied source/destination pair.
-      readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
-      if (destinationObjectKey != NO_OBJECT) {
+      if (structuralSourceObjectKey != NO_OBJECT) {
+        readBounds(structuralSourceObjectKey, NO_OBJECT, NO_OBJECT, structuralSourceState);
+      }
+      if (destinationObjectKey != NO_OBJECT && destinationObjectKey != structuralSourceObjectKey) {
         seedState(destinationObjectKey, movedNodeKey, movedNodeKey, structuralDestinationState);
         readBounds(destinationObjectKey, NO_OBJECT, NO_OBJECT, structuralDestinationState);
       }
 
-      reconcileState(structuralSourceObjectKey, structuralSourceState);
-      if (destinationObjectKey != NO_OBJECT) {
+      if (structuralMovedState.registered != null) {
+        reconcileState(movedNodeKey, structuralMovedState);
+      }
+      if (structuralSourceObjectKey != NO_OBJECT) {
+        reconcileState(structuralSourceObjectKey, structuralSourceState);
+      }
+      if (destinationObjectKey != NO_OBJECT && destinationObjectKey != structuralSourceObjectKey) {
         reconcileState(destinationObjectKey, structuralDestinationState);
       }
     } catch (final RuntimeException | Error failure) {
-      // The document surgery has completed by this point, even if interval publication has not.
       markRollbackOnly(failure);
       throw failure;
     } finally {
@@ -463,21 +490,12 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     clearStructuralChange();
   }
 
-  private boolean isDirectBoundField(final @Nullable ImmutableNode node) {
-    if (node == null || node.getKind() != NodeKind.OBJECT_NAMED_STRING || !(node instanceof NameNode nameNode)
-        || !node.hasParent()) {
-      return false;
-    }
-    final String fieldName = storageEngineWriter.getName(nameNode.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT);
-    return validFromField.equals(fieldName) || validToField.equals(fieldName);
-  }
-
   private void clearStructuralChange() {
     structuralNodeKey = NO_OBJECT;
     structuralSourceObjectKey = NO_OBJECT;
+    clearState(structuralMovedState);
     clearState(structuralSourceState);
     clearState(structuralDestinationState);
-    directBoundStructuralChange = false;
   }
 
   /**
@@ -526,6 +544,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
     Instant from = null;
     Instant to = null;
+    boolean fromLexical = false;
+    boolean toLexical = false;
     long fromNodeKey = NO_OBJECT;
     long toNodeKey = NO_OBJECT;
     long fromFieldCount = 0;
@@ -546,23 +566,24 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
         throw new IllegalStateException(
             "Valid-time child " + childKey + " of record " + objectKey + " is no longer readable");
       }
-      if (childKey != excludedNodeKey && child.getKind() == NodeKind.OBJECT_NAMED_STRING
-          && child instanceof NameNode nameNode && child instanceof ValueNode valueNode) {
+      if (childKey != excludedNodeKey && child instanceof NameNode nameNode) {
         final String fieldName = storageEngineWriter.getName(nameNode.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT);
         if (validFromField.equals(fieldName)) {
           fromFieldCount++;
           if (from == null) {
-            from = ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue());
+            from = parseBound(child);
             if (from != null) {
               fromNodeKey = childKey;
+              fromLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
             }
           }
         } else if (validToField.equals(fieldName)) {
           toFieldCount++;
           if (to == null) {
-            to = ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue());
+            to = parseBound(child);
             if (to != null) {
               toNodeKey = childKey;
+              toLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
             }
           }
         }
@@ -571,12 +592,21 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
           ? childStruct.getRightSiblingKey()
           : NO_OBJECT;
     }
+    state.fromLexical = fromLexical;
+    state.toLexical = toLexical;
+    state.parentKey = object.getParentKey();
     state.from = from;
     state.to = to;
     state.fromNodeKey = fromNodeKey;
     state.toNodeKey = toNodeKey;
     state.fromFieldCount = fromFieldCount;
     state.toFieldCount = toFieldCount;
+  }
+
+  private static @Nullable Instant parseBound(final ImmutableNode child) {
+    return child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
+        ? ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue())
+        : null;
   }
 
   private @Nullable ImmutableNode loadNode(final long key) {

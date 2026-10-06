@@ -54,8 +54,8 @@ down or a large load dies. These tests capture counters around one operation —
 the engine already maintains — and assert a budget on them; the budget package's README owns the
 exceptions and the rules for adding one. They deliberately assert no wall-clock time: a threshold on
 a shared runner is flaky and cannot say what changed, where a counter is exact on any machine and
-names the path that grew. Each budget was proven by putting the guarded defect back and watching it
-fail.
+names the path that grew. The [budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md)
+owns the inventory and its mutation evidence.
 
 They are the first of two layers, not the whole of performance regression testing. A budget only
 sees a change in the amount of counted work; it is blind to anything that makes the same work

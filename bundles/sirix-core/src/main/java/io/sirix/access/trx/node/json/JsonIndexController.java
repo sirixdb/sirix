@@ -1,7 +1,10 @@
 package io.sirix.access.trx.node.json;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.AbstractIndexController;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -12,7 +15,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
 import io.sirix.index.interval.IntervalDomain;
-import io.sirix.index.interval.RelationalIntervalTree;
+import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.interval.ValidTimeIntervalIndexFactory;
 import io.sirix.index.interval.ValidTimeIntervalIndexWriter;
 import io.sirix.index.interval.json.JsonValidTimeIndexBuilder;
@@ -43,6 +46,53 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class JsonIndexController extends AbstractIndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> {
+
+  private record ValidTimeCohort(long database, long resource, int revision, long array, int length,
+      IndexDef definition) {
+    @Override
+    @SuppressWarnings("ReferenceEquality")
+    public boolean equals(final Object other) {
+      return other instanceof ValidTimeCohort cohort && database == cohort.database && resource == cohort.resource
+          && revision == cohort.revision && array == cohort.array && length == cohort.length
+          && definition == cohort.definition;
+    }
+
+    @Override
+    public int hashCode() {
+      int hash = Long.hashCode(database);
+      hash = 31 * hash + Long.hashCode(resource);
+      hash = 31 * hash + revision;
+      hash = 31 * hash + Long.hashCode(array);
+      hash = 31 * hash + length;
+      return 31 * hash + System.identityHashCode(definition);
+    }
+  }
+
+  private final Cache<ValidTimeCohort, Boolean> validTimeCohorts = Caffeine.newBuilder().maximumSize(256).build();
+
+  public boolean isExactValidTimeArray(final StorageEngineReader reader, final IndexDef definition, final long arrayKey,
+      final int length) {
+    requireNonNull(reader);
+    requireNonNull(definition);
+    if (!definition.isValidTimeIndex() || definition.hasUnsupportedValidTimeFormat() || arrayKey < 0 || length <= 0) {
+      return false;
+    }
+    if (reader instanceof StorageEngineWriter || reader.hasTrxIntentLog()) {
+      return false;
+    }
+    final ValidTimeCohort cohort = new ValidTimeCohort(reader.getDatabaseId(), reader.getResourceId(),
+        reader.getRevisionNumber(), arrayKey, length, definition);
+    return validTimeCohorts.get(cohort, _ -> validateValidTimeArray(reader, definition.getID(), arrayKey, length));
+  }
+
+  private static boolean validateValidTimeArray(final StorageEngineReader reader, final int indexId,
+      final long arrayKey, final int length) {
+    final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId);
+    final HotOrderedStore unverified = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+    return !ValidTimeIntervalIndexFactory.createOrderStore(reader, indexId).hasReferences(arrayKey, 0)
+        && (!unverified.hasReferences(0, 0) || !members.intersects(arrayKey, 0, unverified, 0, 0))
+        && members.cardinality(arrayKey, 0) == length;
+  }
 
   /**
    * Constructor.
@@ -251,6 +301,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   @Override
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.hasUnsupportedValidTimeFormat()) {
+        throw new UnsupportedOperationException("Unsupported VALIDTIME format for index " + indexDef.getID());
+      }
       if (indexDef.isValidTimeIndex()
           && nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
         throw new IllegalStateException(
@@ -369,10 +422,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       return null;
     }
     final IntervalDomain domain = new IntervalDomain();
-    final RelationalIntervalTree tree =
-        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
-    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
-        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    final ValidTimeIntervalIndexWriter indexWriter =
+        ValidTimeIntervalIndexFactory.createIndexWriter(storageEngineWriter, indexDef.getID(), domain,
+            validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     return new JsonValidTimeIndexBuilder(indexWriter, nodeWriteTrx);
   }
 
@@ -385,10 +437,9 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       return null;
     }
     final IntervalDomain domain = new IntervalDomain();
-    final RelationalIntervalTree tree =
-        ValidTimeIntervalIndexFactory.createWriterTree(storageEngineWriter, indexDef.getID(), domain);
-    final ValidTimeIntervalIndexWriter indexWriter = new ValidTimeIntervalIndexWriter(tree, domain,
-        validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
+    final ValidTimeIntervalIndexWriter indexWriter =
+        ValidTimeIntervalIndexFactory.createIndexWriter(storageEngineWriter, indexDef.getID(), domain,
+            validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
     return new JsonValidTimeIndexListener(storageEngineWriter, indexWriter,
         validTimeConfig.getNormalizedValidFromPath(), validTimeConfig.getNormalizedValidToPath());
   }

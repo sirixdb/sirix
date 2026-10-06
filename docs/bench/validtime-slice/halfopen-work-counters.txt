@@ -1,0 +1,194 @@
+Source head: 46da5ab1f7d56a3bafe7aee6a3749528b99c6114
+Five actual100000-row fixtures passed with2GiB heap and live diagnostics.
+valid-time admission rows=100000 first=true mode=0 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=0 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=0 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=0 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=0 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=0 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=1 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=2 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=true mode=3 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=sequence getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=sequence getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=sequence getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=sequence getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=keys intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=keys moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=keys getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=keys getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=keys intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=keys moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=keys getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=keys getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=sequence getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=sequence getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=sequence getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=before-demand intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=before-demand moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=before-demand getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=before-demand getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=sequence intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=sequence moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=sequence getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=sequence getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=keys intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=keys moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=keys getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=keys getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=keys intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=keys moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=keys getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=keys getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-count getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=0 route=query-first getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-count getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=1 route=query-first getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-count getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=2 route=query-first getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-count getValue=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2019-01-01T00:00:00Z mode=3 route=query-first getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-count getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=0 route=query-first getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-count getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=1 route=query-first getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-count getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=2 route=query-first getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-count intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-count moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-count getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-count getValue=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-first intervalRefs=0 postingRefs=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-first moveTo=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-first getFirstChildKey=0
+valid-time empty stab records=100000 point=2021-01-01T00:00:00Z mode=3 route=query-first getValue=0
+valid-time admission rows=100000 first=false mode=0 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=0 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=0 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=0 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=0 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=0 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=0 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=1 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=1 demand=2 coldChunks=51 warmChunks=2 intervalRefs=1 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=2 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=0 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=0 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=1 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
+valid-time admission rows=100000 first=false mode=3 demand=2 coldChunks=51 warmChunks=2 intervalRefs=2 postingRefs=0 probes=2 objectReads=1 timestampReads=0
