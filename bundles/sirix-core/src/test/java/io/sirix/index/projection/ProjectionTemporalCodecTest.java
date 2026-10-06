@@ -99,10 +99,6 @@ final class ProjectionTemporalCodecTest {
       assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8(text + "Z"), 0, 20));
       assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8("__" + text + "Z__"), 2, 20));
       assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8(formatTimestamp(expected)), 0, 19));
-      final byte[] output = new byte[ProjectionTemporalCodec.MAX_TEXT_LENGTH];
-      assertEquals(20, ProjectionTemporalCodec.formatTimestamp(expected, output, 0, true));
-      assertEquals(text + "Z", new String(output, StandardCharsets.UTF_8));
-      assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(output, 0, output.length));
     }
   }
 

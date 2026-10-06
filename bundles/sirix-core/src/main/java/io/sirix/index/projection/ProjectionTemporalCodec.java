@@ -50,7 +50,7 @@ public final class ProjectionTemporalCodec {
   public static final int DATE_TEXT_LENGTH = 10;
 
   /** Longest text any {@code format*} method writes. */
-  public static final int MAX_TEXT_LENGTH = TIMESTAMP_TEXT_LENGTH + 1;
+  public static final int MAX_TEXT_LENGTH = TIMESTAMP_TEXT_LENGTH;
 
   /**
    * Returned by the parsers for text that is not exactly canonical.
@@ -271,25 +271,6 @@ public final class ProjectionTemporalCodec {
     out[off + 16] = ':';
     writeTwoDigits(secondOfDay % SECONDS_PER_MINUTE, out, off + 17);
     return TIMESTAMP_TEXT_LENGTH;
-  }
-
-  /**
-   * Format either accepted timestamp spelling when the caller retains the source's suffix. The epoch
-   * lane alone cannot supply {@code utcSuffix}; projection consumers use the original record for a
-   * suffixed cell.
-   */
-  public static int formatTimestamp(final long epochSeconds, final byte[] out, final int off, final boolean utcSuffix) {
-    final int length = TIMESTAMP_TEXT_LENGTH + (utcSuffix
-        ? 1
-        : 0);
-    if (out == null || off < 0 || off > out.length - length) {
-      throw new IllegalArgumentException("output must hold " + length + " bytes at offset " + off);
-    }
-    formatTimestamp(epochSeconds, out, off);
-    if (utcSuffix) {
-      out[off + TIMESTAMP_TEXT_LENGTH] = 'Z';
-    }
-    return length;
   }
 
   /**

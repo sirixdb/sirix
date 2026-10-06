@@ -25,8 +25,7 @@ zone-less strings and treatment of unparseable bounds. Missing/unparseable bound
 remain open-ended, and a record with no bounds remains invalid.
 
 The projection timestamp codec accepts both 19-byte zone-less text and the same
-text suffixed with `Z`. Both parse to the same epoch second, and its suffix-aware
-formatter can round-trip either spelling when the caller retains that suffix.
+text suffixed with `Z`. Both parse to the same epoch second.
 The persisted epoch lane contains no spelling bit. Extraction therefore marks a
 `Z` cell with the existing unrepresentable flag, so text-sensitive query routes
 fall back to its original record. This preserves emission, comparison, grouping
