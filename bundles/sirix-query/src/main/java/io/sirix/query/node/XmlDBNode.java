@@ -2,7 +2,6 @@ package io.sirix.query.node;
 
 import io.sirix.utils.ToStringHelper;
 import io.sirix.axis.AbstractTemporalAxis;
-import io.sirix.axis.AncestorAxis;
 import io.sirix.axis.AttributeAxis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
@@ -41,6 +40,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixException;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.service.InsertPosition;
@@ -104,7 +104,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final SirixDeweyID deweyID;
 
   /**
-   * Create a new {@link NodeReadOnlyTrx} and move to node key.
+   * Restore the shared transaction cursor to this wrapper's node.
    */
   private void moveRtx() {
     rtx.moveTo(nodeKey);
@@ -130,22 +130,26 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     moveRtx();
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      // Compare node key, revision, and resource to ensure full identity
-      // Same node key in different revisions or resources are NOT the same node
-      return node.nodeKey == this.nodeKey && node.rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && node.rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
-                                                                                  .getResourceConfig()
-                                                                                  .getID();
+      return node.nodeKey == nodeKey && isSameDocument(node);
     }
     return false;
+  }
+
+  /** Query identity and structural relationships require the same database/resource revision. */
+  private boolean isSameDocument(final XmlDBNode node) {
+    final ResourceConfiguration configuration = rtx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration otherConfiguration = node.rtx.getResourceSession().getResourceConfig();
+    return configuration.getDatabaseId() == otherConfiguration.getDatabaseId()
+        && configuration.getID() == otherConfiguration.getID()
+        && rtx.getRevisionNumber() == node.rtx.getRevisionNumber();
   }
 
   @Override
   public boolean isParentOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      return node.getImmutableNode().getParentKey() == rtx.getNodeKey();
+      return node.getImmutableNode().getParentKey() == nodeKey;
     }
     return false;
   }
@@ -153,10 +157,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isChildOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
-        return node.getImmutableNode().getNodeKey() == rtx.getParentKey();
+        return node.nodeKey == rtx.getParentKey();
       }
     }
     return false;
@@ -165,24 +169,21 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDescendantOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isDescendantOf(node.deweyID);
         } else {
-          for (final var axis = new AncestorAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (node.getImmutableNode().getNodeKey() == rtx.getNodeKey()) {
-              retVal = true;
+          while (rtx.moveToParent()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
+              return true;
             }
           }
         }
       }
     }
-    return retVal;
+    return false;
   }
 
   /**
@@ -200,7 +201,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isDescendantOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (isSelfOf(other)) {
         retVal = true;
@@ -214,12 +215,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isAncestorOf(final Node<?> other) {
     moveRtx();
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
         return deweyID.isAncestorOf(node.deweyID);
       } else {
-        return other.isDescendantOf(this);
+        return isAncestorOfNode(node);
       }
     }
     return false;
@@ -229,7 +230,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAncestorOrSelfOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
         retVal = deweyID.isAncestorOf(node.deweyID);
@@ -237,47 +238,54 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (isSelfOf(other)) {
           retVal = true;
         } else {
-          retVal = other.isDescendantOf(this);
+          retVal = isAncestorOfNode(node);
         }
       }
     }
     return retVal;
+  }
+
+  private boolean isAncestorOfNode(final XmlDBNode node) {
+    node.moveRtx();
+    while (node.rtx.moveToParent()) {
+      if (node.rtx.getNodeKey() == nodeKey) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
   public boolean isSiblingOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      try {
-        if (deweyID != null) {
-          return deweyID.isSiblingOf(node.deweyID);
-        }
-        // noinspection ConstantConditions
-        if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
-            && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
-                                                                                                  .getNodeKey()) {
-          retVal = true;
-        }
-      } catch (final DocumentException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
+      if (kind == NodeKind.ATTRIBUTE || kind == NodeKind.NAMESPACE || node.kind == NodeKind.ATTRIBUTE
+          || node.kind == NodeKind.NAMESPACE || nodeKey == node.nodeKey) {
+        return false;
       }
+      if (deweyID != null) {
+        return deweyID.isSiblingOf(node.deweyID);
+      }
+      final long parentKey = rtx.getParentKey();
+      node.moveRtx();
+      return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty() && parentKey == node.rtx.getParentKey();
     }
-    return retVal;
+    return false;
   }
 
   @Override
   public boolean isPrecedingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingSiblingOf(node.deweyID);
         } else {
           while (rtx.hasRightSibling()) {
             rtx.moveToRightSibling();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
               return true;
             }
           }
@@ -289,15 +297,16 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingSiblingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
-      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
+      if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
+          && node.kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingSiblingOf(node.deweyID);
         } else {
           while (rtx.hasLeftSibling()) {
             rtx.moveToLeftSibling();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (rtx.getNodeKey() == node.nodeKey) {
               return true;
             }
           }
@@ -309,15 +318,22 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isPrecedingOf(node.deweyID);
         } else {
+          final long otherNodeKey;
+          if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
+            node.moveRtx();
+            otherNodeKey = node.rtx.getParentKey();
+            moveRtx();
+          } else {
+            otherNodeKey = node.nodeKey;
+          }
           for (final var axis = new FollowingAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (axis.nextLong() == otherNodeKey) {
               return true;
             }
           }
@@ -329,15 +345,28 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingOf(final Node<?> other) {
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
         if (deweyID != null) {
           return deweyID.isFollowingOf(node.deweyID);
         } else {
+          final long otherNodeKey;
+          if (node.kind == NodeKind.ATTRIBUTE || node.kind == NodeKind.NAMESPACE) {
+            node.moveRtx();
+            otherNodeKey = node.rtx.getParentKey();
+            moveRtx();
+            while (rtx.moveToParent()) {
+              if (rtx.getNodeKey() == otherNodeKey) {
+                return true;
+              }
+            }
+            moveRtx();
+          } else {
+            otherNodeKey = node.nodeKey;
+          }
           for (final var axis = new PrecedingAxis(rtx); axis.hasNext();) {
-            axis.nextLong();
-            if (rtx.getNodeKey() == node.getNodeKey()) {
+            if (axis.nextLong() == otherNodeKey) {
               return true;
             }
           }
@@ -351,7 +380,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public boolean isAttributeOf(final Node<?> other) {
     moveRtx();
     boolean retVal = false;
-    if (other instanceof XmlDBNode node) {
+    if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
         // noinspection ConstantConditions
@@ -368,18 +397,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDocumentOf(final Node<?> other) {
     moveRtx();
-    boolean retVal = false;
-    if (getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node) {
-      assert node.getNodeClassID() == this.getNodeClassID();
-      final NodeReadOnlyTrx rtx = node.getTrx();
-      if (rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
-                                                                             .getResourceConfig()
-                                                                             .getID()) {
-        retVal = true;
-      }
-    }
-    return retVal;
+    return getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node && isSameDocument(node);
   }
 
   @Override
@@ -1600,13 +1618,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
           throw new NullPointerException("Node order comparison - internal error");
         }
         if (par1.getNodeKey() == par2.getNodeKey()) {
-          if (p1.getKind() == Kind.ATTRIBUTE && p2.getKind() != Kind.ATTRIBUTE) {
-            return -1; // attributes first
-          }
-          if (p1.getKind() != Kind.ATTRIBUTE && p2.getKind() == Kind.ATTRIBUTE) {
-            return +1; // attributes first
-          }
-          return p1.getSiblingPosition() - p2.getSiblingPosition();
+          final int categoryOrder = nodeCategories(p1.getKind()) - nodeCategories(p2.getKind());
+          return categoryOrder != 0
+              ? categoryOrder
+              : p1.getSiblingPosition() - p2.getSiblingPosition();
         }
         p1 = par1;
         p2 = par2;
@@ -1634,8 +1649,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public int hashCode() {
-    // Must be consistent with equals() which uses isSelfOf()
-    // comparing node key, revision, and resource ID
+    // Omitting database identity only increases collisions; isSameDocument still guards equality.
     return Objects.hash(nodeKey, rtx.getRevisionNumber(), rtx.getResourceSession().getResourceConfig().getID());
   }
 

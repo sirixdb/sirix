@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -486,8 +487,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
-      if (Databases.createJsonDatabase(dbConf)) {
-        throw new DocumentException("Document with name %s exists!", name);
+      if (!Databases.createJsonDatabase(dbConf)) {
+        if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
+          throw new DocumentException("Document with name %s exists!", name);
+        }
+        throw new DocumentException("Could not create document with name %s", name);
       }
 
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
@@ -508,7 +512,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Path path, Object options) {
-    return createCollection(collName, null, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, null, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
@@ -544,12 +552,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path) {
     final var options = new ArrayObject(new QNm[0], new Sequence[0]);
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, optResName, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path, Object options) {
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
+    try (final JsonReader reader = JsonShredder.createFileReader(path)) {
+      return createCollection(collName, optResName, reader, options);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
@@ -657,12 +673,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }, new ArrayObject(new QNm[0], new Sequence[0]), projection);
   }
 
-  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+  private JsonDBCollection createCollection(final String collName, final @Nullable String optionalResourceName,
       final JsonReader reader, final Object options) {
     return createCollection(collName, optionalResourceName, reader, options, null);
   }
 
-  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+  private JsonDBCollection createCollection(final String collName, final @Nullable String optionalResourceName,
       final JsonReader reader, final Object options, final @Nullable ProjectionSpec projection) {
     final InitialJsonLoader loader = reader == null
         ? null
@@ -670,8 +686,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createCollectionWithLoader(collName, optionalResourceName, loader, options, projection);
   }
 
-  private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
-      final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
+  private JsonDBCollection createCollectionWithLoader(final String collName,
+      final @Nullable String optionalResourceName, final @Nullable InitialJsonLoader loader, final Object options,
+      final @Nullable ProjectionSpec projection) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -1040,7 +1057,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public void makeDir(final String path) {
     try {
-      Files.createDirectory(java.nio.file.Paths.get(path));
+      Files.createDirectory(Paths.get(path));
     } catch (final IOException e) {
       throw new DocumentException(e.getCause());
     }

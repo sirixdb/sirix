@@ -198,6 +198,12 @@ xml:store('names', (), <root>
 </root>)
 ```
 
+`xml:load` reads XML documents from URI strings, including a sequence of URIs. For example,
+`xml:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
+documents to an existing collection, or creates it if absent. An empty resource-name argument
+assigns names starting at `resource` followed by the current document count plus one. A failed
+addition reports the import error without replacing the collection or its existing documents.
+
 When creating a collection from a sequence, `xml:store` and `xml:load` import documents
 concurrently and return successfully only after every import has committed and closed its write
 transaction. The query context can then be closed immediately. Import or stream failures reach
@@ -303,6 +309,22 @@ try (var database = Databases.openJsonDatabase(dbPath)) {
     }
 }
 ```
+
+For XML collections, the `sirix-query` module provides
+[`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
+Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
+resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
+`xml:store(..., false())`, or `xml:load(..., false())`. Reopening a collection with different store
+settings affects future additions; existing resources retain their persisted configuration.
+The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
+
+The single-argument `create(name)` overload of the XML store and
+[`BasicJsonDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/json/BasicJsonDBStore.java)
+creates an empty collection. It rejects an existing database without replacing it and reports
+filesystem creation failures separately from duplicates.
+
+JSON imports from a `Path`, through the store or `collection.add(path)`, close the reader they
+open on both success and failure. Callers retain ownership of readers they supply directly.
 
 ### Query Updates
 
