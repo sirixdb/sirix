@@ -296,6 +296,35 @@ final class RuntimeRevisionCASTest {
   }
 
   @Test
+  void replacementSessionsDoNotAccumulateRevisionMemos() {
+    final Instant instant = Instant.parse("2020-01-01T00:00:00Z");
+    final JsonResourceSession first = mock(JsonResourceSession.class);
+    doReturn(1).when(first).getMostRecentRevisionNumber();
+    doReturn(1).when(first).getRevisionNumber(instant);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store)) {
+      assertEquals(1, context.resolveRevision(first, instant));
+      JsonResourceSession last = first;
+      for (int i = 0; i < 300; i++) {
+        final JsonResourceSession replacement = mock(JsonResourceSession.class);
+        doReturn(1).when(replacement).getMostRecentRevisionNumber();
+        doReturn(1).when(replacement).getRevisionNumber(instant);
+        assertEquals(1, context.resolveRevision(replacement, instant));
+        if (last != first) {
+          last.close();
+        }
+        last = replacement;
+      }
+      assertEquals(1, context.resolveRevision(last, instant));
+      verify(last, times(1)).getRevisionNumber(instant);
+      assertEquals(1, context.resolveRevision(first, instant));
+      verify(first, times(2)).getRevisionNumber(instant);
+      last.close();
+      first.close();
+    }
+  }
+
+  @Test
   void concurrentRevisionMissIsResolvedOnceBeforePublicationInvalidation() throws Exception {
     final JsonResourceSession session = mock(JsonResourceSession.class);
     final AtomicInteger head = new AtomicInteger(1);

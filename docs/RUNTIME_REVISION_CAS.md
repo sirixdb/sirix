@@ -9,17 +9,35 @@ Revision arguments retain Brackit's original function conversion and cardinality
 rules, including untyped atomic values and integer range checks.
 
 Literal field equalities in a FLWOR `where` or array filter can select a CAS row
-source, including a document whose root is an array. The full predicate stays in
+source for integer business-key probes between -16,777,215 and 16,777,215,
+including a document whose root is an array. Other probe types and values retain
+generic execution. The full predicate stays in
 place: the other conjuncts still filter the selected objects. At the evaluated
 revision, routing rechecks the index catalogue and falls back to the original
 source if the index is unavailable. Legacy path, name and CAS rewrites also retain
 the revision operand and validate their compiled index definitions at execution.
+
+Numeric CAS construction and maintenance retain numeric values during integer
+conversion. Integral representations such as `1.0` share the integer key `1`;
+fractional values are never truncated into integer postings. Revisioned catalogue
+evidence records whether indexed fields are numeric and whether conversion covers
+every value. Point equality uses the numeric-domain evidence; ranges require
+complete coverage and otherwise retain the original query. Evidence is conservative
+after incompatible writes until the index is rebuilt. Direct scans retain the
+declared index type's representable domain.
+
+Filters that use position or sequence size keep their original source. CAS row
+sources resolve the actual array through the original first-field dereference
+semantics at the requested revision and exclude postings from duplicate arrays.
 
 Multiple matching rows retain array order. Dewey IDs supply document order when
 enabled; otherwise the existing revisioned valid-time array evidence can certify
 that sorted node keys have array order. Without either proof, the original array
 source runs. This conservative fallback matters after inserts and moves. Single
 point matches do not require an ordering proof.
+Without an ordering proof, collection stops at the second distinct matching row
+and evaluates the original source. Revision memoization bounds both sessions and
+instants per session to 256 entries.
 
 The SH1 loader creates the integer CAS path `/[]/id` on contracts and products
 at E0, after automatic valid-time index creation. The half-open valid-time rewrite

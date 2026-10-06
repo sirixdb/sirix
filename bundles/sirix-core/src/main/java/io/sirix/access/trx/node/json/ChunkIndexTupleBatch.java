@@ -3,6 +3,8 @@
  */
 package io.sirix.access.trx.node.json;
 
+import io.sirix.node.NodeKind;
+
 import it.unimi.dsi.fastutil.bytes.ByteArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -50,6 +52,7 @@ final class ChunkIndexTupleBatch {
   // PATH: (pathNodeKey, nodeKey) for ARRAY and every OBJECT_NAMED_* create.
   private final LongArrayList pathPcrs = new LongArrayList(64);
   private final LongArrayList pathNodeKeys = new LongArrayList(64);
+  private final ByteArrayList pathKinds = new ByteArrayList(64);
 
   // OBJECT_NAMED_ARRAY mirror candidates: the OBJECT_KEY-layer entry lives under the PARENT path
   // class of the array-layer one, which only the coordinator's path summary can resolve — so these
@@ -88,10 +91,11 @@ final class ChunkIndexTupleBatch {
   // ==== worker feed ============================================================================
 
   /** An ARRAY or OBJECT_NAMED_* create — the kinds the PATH family indexes. */
-  void onPathEntry(final long pathNodeKey, final long nodeKey) {
-    if (pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey))) {
+  void onPathEntry(final long pathNodeKey, final long nodeKey, final NodeKind kind) {
+    if (casActive || pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey))) {
       pathPcrs.add(pathNodeKey);
       pathNodeKeys.add(nodeKey);
+      pathKinds.add(kind.getId());
     }
   }
 
@@ -182,6 +186,10 @@ final class ChunkIndexTupleBatch {
 
   long pathNodeKeyAt(final int index) {
     return pathNodeKeys.getLong(index);
+  }
+
+  NodeKind pathKindAt(final int index) {
+    return NodeKind.getKind(pathKinds.getByte(index));
   }
 
   int mirrorCandidateCount() {

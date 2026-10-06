@@ -20,7 +20,8 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -57,10 +58,11 @@ final class CASLookupWorkBudgetTest {
   @TempDir
   Path directory;
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   @SuppressWarnings("unchecked")
-  void pointLookupsDoBoundedNodeWorkAndMemoizeRepeatedPublicationTimes() {
-    create();
+  void pointLookupsDoBoundedNodeWorkAndMemoizeRepeatedPublicationTimes(final boolean decimalIds) {
+    create(decimalIds);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build()) {
       final var realCollection = store.lookup("budget");
       final var realDatabase = realCollection.getDatabase();
@@ -112,7 +114,7 @@ final class CASLookupWorkBudgetTest {
     }
   }
 
-  private void create() {
+  private void create(final boolean decimalIds) {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
@@ -128,7 +130,11 @@ final class CASLookupWorkBudgetTest {
             if (i > 0) {
               json.append(',');
             }
-            json.append("{\"id\":").append(i).append('}');
+            json.append("{\"id\":").append(i);
+            if (decimalIds) {
+              json.append(".0");
+            }
+            json.append('}');
           }
           json.append(']');
           writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);

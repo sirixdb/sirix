@@ -26,6 +26,10 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.atomic.Atomic;
+import io.sirix.index.AtomicUtil;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Int64;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -1298,6 +1302,9 @@ public final class ParallelBulkJsonImporter {
       for (final PathIndexBuilder pathIndexBuilder : pathIndexBuilders) {
         pathIndexBuilder.add(pcr, nodeKey);
       }
+      for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
+        casIndexBuilder.observePath(pcr, batch.pathKindAt(i));
+      }
     }
   }
 
@@ -1310,6 +1317,11 @@ public final class ParallelBulkJsonImporter {
     final int mirrorEntries = batch.mirrorCandidateCount();
     for (int i = 0; i < mirrorEntries; i++) {
       final long objectKeyLayerPcr = mirrorObjectKeyLayerPcr(batch.mirrorArrayPcrAt(i));
+      if (objectKeyLayerPcr >= 0) {
+        for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
+          casIndexBuilder.observePath(objectKeyLayerPcr, NodeKind.OBJECT_NAMED_ARRAY);
+        }
+      }
       if (objectKeyLayerPcr < 0) {
         continue;
       }
@@ -1346,7 +1358,7 @@ public final class ParallelBulkJsonImporter {
     int numberOrdinal = 0;
     int integralOrdinal = 0;
     for (int i = 0; i < casEntries; i++) {
-      final Str value;
+      final Atomic value;
       switch (batch.casKindAt(i)) {
         case ChunkIndexTupleBatch.CAS_KIND_STRING -> {
           final int offset = batch.casStringOffsetAt(stringOrdinal);
@@ -1355,15 +1367,15 @@ public final class ParallelBulkJsonImporter {
           value = new Str(new String(batch.casStringArena(), offset, length, StandardCharsets.UTF_8));
         }
         case ChunkIndexTupleBatch.CAS_KIND_NUMBER -> {
-          value = new Str(String.valueOf(batch.casNumberAt(numberOrdinal)));
+          value = AtomicUtil.fromNumber(batch.casNumberAt(numberOrdinal));
           numberOrdinal++;
         }
         case ChunkIndexTupleBatch.CAS_KIND_INT -> {
-          value = new Str(Integer.toString((int) batch.casIntegralNumberAt(integralOrdinal)));
+          value = new Int32((int) batch.casIntegralNumberAt(integralOrdinal));
           integralOrdinal++;
         }
         case ChunkIndexTupleBatch.CAS_KIND_LONG -> {
-          value = new Str(Long.toString(batch.casIntegralNumberAt(integralOrdinal)));
+          value = new Int64(batch.casIntegralNumberAt(integralOrdinal));
           integralOrdinal++;
         }
         case ChunkIndexTupleBatch.CAS_KIND_BOOLEAN_TRUE -> value = STR_TRUE;

@@ -119,7 +119,14 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   public synchronized int resolveRevision(final JsonResourceSession session, final Instant instant) {
     requireNonNull(session);
     requireNonNull(instant);
-    final RevisionMemo memo = revisionMemos.computeIfAbsent(session, unused -> new RevisionMemo());
+    RevisionMemo memo = revisionMemos.get(session);
+    if (memo == null) {
+      if (revisionMemos.size() == 256) {
+        revisionMemos.clear();
+      }
+      memo = new RevisionMemo();
+      revisionMemos.put(session, memo);
+    }
     final int head = session.getMostRecentRevisionNumber();
     if (memo.head != head) {
       memo.revisions.clear();

@@ -54,6 +54,8 @@ public final class IndexDef implements Materializable {
   private static final QNm UNIQUE_ATTRIBUTE = new QNm("unique");
 
   private static final QNm CONTENT_TYPE_ATTRIBUTE = new QNm("keyType");
+  private static final QNm NUMERIC_VALUES_ATTRIBUTE = new QNm("numericValuesOnly");
+  private static final QNm NUMERIC_COVERAGE_ATTRIBUTE = new QNm("completeNumericCoverage");
 
   private static final QNm TYPE_ATTRIBUTE = new QNm("type");
 
@@ -94,6 +96,40 @@ public final class IndexDef implements Materializable {
 
   // for CAS indexes
   private Type contentType;
+  private volatile boolean numericValuesOnly = true;
+  private volatile boolean completeNumericCoverage = true;
+  private boolean numericCoverageDirty;
+
+  public boolean hasNumericValuesOnly() {
+    return numericValuesOnly;
+  }
+
+  public boolean hasCompleteNumericCoverage() {
+    return completeNumericCoverage;
+  }
+
+  public void markNonNumericValue() {
+    if (numericValuesOnly && contentType != null && contentType.isNumeric()) {
+      numericValuesOnly = false;
+      numericCoverageDirty = true;
+    }
+    markIncompleteNumericCoverage();
+  }
+
+  public void markIncompleteNumericCoverage() {
+    if (completeNumericCoverage && contentType != null && contentType.isNumeric()) {
+      completeNumericCoverage = false;
+      numericCoverageDirty = true;
+    }
+  }
+
+  boolean isNumericCoverageDirty() {
+    return numericCoverageDirty;
+  }
+
+  void clearNumericCoverageDirty() {
+    numericCoverageDirty = false;
+  }
 
   // populated when index is built
   private int id;
@@ -282,6 +318,10 @@ public final class IndexDef implements Materializable {
 
     if (contentType != null) {
       tmp.attribute(CONTENT_TYPE_ATTRIBUTE, new Una(contentType.toString()));
+      if (type == IndexType.CAS && contentType.isNumeric()) {
+        tmp.attribute(NUMERIC_VALUES_ATTRIBUTE, new Una(Boolean.toString(numericValuesOnly)));
+        tmp.attribute(NUMERIC_COVERAGE_ATTRIBUTE, new Una(Boolean.toString(completeNumericCoverage)));
+      }
     }
 
     if (unique) {
@@ -479,6 +519,11 @@ public final class IndexDef implements Materializable {
     if (attribute != null) {
       contentType = resolveType(attribute.getValue().stringValue());
     }
+    attribute = root.getAttribute(NUMERIC_VALUES_ATTRIBUTE);
+    numericValuesOnly = attribute != null && Boolean.parseBoolean(attribute.getValue().stringValue());
+    attribute = root.getAttribute(NUMERIC_COVERAGE_ATTRIBUTE);
+    completeNumericCoverage = attribute != null && Boolean.parseBoolean(attribute.getValue().stringValue());
+    numericCoverageDirty = false;
 
     attribute = root.getAttribute(UNIQUE_ATTRIBUTE);
     if (attribute != null) {
