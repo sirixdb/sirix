@@ -37,9 +37,8 @@ final class XmlDBSerializerTest {
         }
         final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
-        final Element envelope = factory.newDocumentBuilder()
-                                        .parse(new ByteArrayInputStream(output.toByteArray()))
-                                        .getDocumentElement();
+        final Element envelope =
+            factory.newDocumentBuilder().parse(new ByteArrayInputStream(output.toByteArray())).getDocumentElement();
         assertEquals("https://sirix.io/rest", envelope.getNamespaceURI());
         assertEquals("sequence", envelope.getLocalName());
         assertEquals(0, envelope.getElementsByTagName("*").getLength());

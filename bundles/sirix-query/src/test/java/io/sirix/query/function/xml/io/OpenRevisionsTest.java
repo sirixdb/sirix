@@ -219,8 +219,8 @@ public final class OpenRevisionsTest {
         doAnswer(endpointResolver).when(observedSession).getRevisionNumber(any(Instant.class));
         doAnswer(endpointResolver).when(observedSession).getRevisionNumber(any(Instant.class), eq(5));
 
-        final String query = "xn:open-revisions('" + database + "','" + resourceName
-            + "', xs:dateTime('" + start + "'), xs:dateTime('" + end + "'))";
+        final String query = "xn:open-revisions('" + database + "','" + resourceName + "', xs:dateTime('" + start
+            + "'), xs:dateTime('" + end + "'))";
         final Sequence nodes = new Query(chain, query).evaluate(context);
         Assert.assertNotNull(nodes);
         try (final Iter iter = nodes.iterate()) {

@@ -147,13 +147,13 @@ public final class DocByPointInTimeTest extends TestCase {
 
     final Path database = XmlTestHelper.PATHS.PATH2.getFile();
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final XmlDBCollection collection = store.create(database.toString(), new DocumentParser("<root/>"), null,
-          Instant.parse("2001-01-01T00:00:00Z"));
+      final XmlDBCollection collection =
+          store.create(database.toString(), new DocumentParser("<root/>"), null, Instant.parse("2001-01-01T00:00:00Z"));
       final XmlResourceSession session = collection.getDatabase().beginResourceSession("resource1");
       try (final XmlNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
         final QueryContext context = SirixQueryContext.createWithNodeStore(store);
-        final String expression = "xn:open('" + database
-            + "','resource1', xs:dateTime('2000-01-01T00:00:00Z')" + option + ")";
+        final String expression =
+            "xn:open('" + database + "','resource1', xs:dateTime('2000-01-01T00:00:00Z')" + option + ")";
         final Query query = new Query(SirixCompileChain.createWithNodeStore(store), expression);
 
         assertNull("revision 0 is not a committed document", query.evaluate(context));

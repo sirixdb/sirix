@@ -21,6 +21,7 @@ final class BoundedRevisionLookupTest {
   private Path directory;
 
   @Test
+  @SuppressWarnings("NullAway") // Deliberately pass null to verify the public argument guard.
   void boundedLookupSelectsLastTieInImmutablePrefixBeforeAndAfterReopen() {
     final Instant firstCommit = Instant.parse("2018-05-01T00:00:00Z");
     Databases.createJsonDatabase(new DatabaseConfiguration(directory));
@@ -29,8 +30,7 @@ final class BoundedRevisionLookupTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .customCommitTimestamps(true)
                                                    .build());
-      try (final var session = database.beginResourceSession("history");
-          final var writer = session.beginNodeTrx()) {
+      try (final var session = database.beginResourceSession("history"); final var writer = session.beginNodeTrx()) {
         for (int revision = 1; revision <= 130; revision++) {
           writer.commit(null, firstCommit.plusMillis((revision - 1) / 2));
         }
