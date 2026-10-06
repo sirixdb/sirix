@@ -421,8 +421,13 @@ The transaction-local importer stages identities and payloads before installing 
 links. It validates the graph, maintains logical names, path summaries and configured indexes,
 and publishes one complete revision. Threshold/time commits cannot expose staging records.
 Failure rolls back the current epoch; previously completed copied revisions remain available.
-The intent log bounds resident staged pages; the detached delta and validation maps scale with
-changed identities, or with the document size for the initial snapshot.
+Import memory includes the detached delta, epoch/validation state and staged page buffers, and
+scales with the imported epoch, or with the document size for the initial snapshot. Compound
+import suppresses intermediate rotation and does not request an async flush, so staged page
+buffers remain retained until commit even under `KEEP_OPEN_ASYNC_FLUSH`; failure rolls back the
+current epoch. The intent log does not enforce a resident-page bound for identity import.
+Work budgets constrain counted traversal and maintenance work; they do not establish a fixed
+memory bound, constant total heap, a streaming manifest or a latency guarantee.
 
 History copy requires a fresh destination document and matching hash, Dewey, child-count,
 path-summary/statistics and node-history configuration. It preserves node keys, allocation

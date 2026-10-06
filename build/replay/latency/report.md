@@ -50,6 +50,14 @@ is retained, with no outlier trimming or optional stopping.
 Current-thread allocated bytes are collected around the same operations. They exclude
 background-thread allocations and are not total heap/RSS measurements.
 
+Identity import memory includes the detached delta, epoch/validation state and staged page
+buffers, and scales with the imported epoch (the whole document for an initial snapshot).
+Compound import suppresses intermediate rotation and does not request an async flush, so
+staged page buffers remain retained until commit even under KEEP_OPEN_ASYNC_FLUSH; failure
+rolls back the current epoch. The intent log does not enforce a resident-page bound here.
+Tested work bounds and these paired latency measurements do not establish a fixed memory
+bound, constant total heap, a streaming manifest or a production latency guarantee.
+
 | Operation | Baseline MiB | Candidate MiB |
 |---|---:|---:|
 | bulkAppendCommit | 35.057 | 37.538 |

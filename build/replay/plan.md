@@ -692,11 +692,15 @@ The captain's explicit resume/keep-working order allows normal work in this even
 window; benchmark admission ends 03:30 Berlin with a five-minute per-fork timeout to
 respect the 03:40 validation cutoff. No benchmark JVM has started.
 
-Memory contract: the transaction intent log bounds resident staged page buffers and
-prevents intermediate publication. The detached typed delta and validator scratch maps
-scale with changed identities (the initial snapshot with the initial document); they
-are not a constant-total-heap or streaming-manifest claim. Unchanged document regions
-are excluded by durable page identity and append/no-op work budgets.
+Memory contract: compound import prevents intermediate publication, suppresses intermediate
+rotation and does not request an async flush. Staged page buffers remain retained until
+commit even under KEEP_OPEN_ASYNC_FLUSH; failure rolls back the current epoch. Those buffers,
+the detached typed delta and epoch/validator state scale with the imported epoch (the initial
+snapshot with the initial document). The intent log does not enforce a resident-page bound
+for identity import. Durable page identity and append/no-op work budgets guard unchanged-region
+traversal and counted work, not fixed memory, constant total heap, a streaming manifest or
+latency guarantees. Carry this memory limitation and the paired-latency uncertainties into
+the PR description.
 
 
 ## Main prerequisite and full-suite checkpoint (2026-10-05 22:55 Berlin)
