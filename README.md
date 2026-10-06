@@ -190,7 +190,7 @@ XML imports from constructed nodes preserve element and attribute namespace URIs
 namespace declarations:
 
 ```xquery
-xml:store('names', (), <root>
+xn:store('names', (), <root>
   <item xmlns='urn:a'>a</item>
   <item xmlns='urn:b'>b</item>
   <p:item xmlns:p='urn:a'>alias</p:item>
