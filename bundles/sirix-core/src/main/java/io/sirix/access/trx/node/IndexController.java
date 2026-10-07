@@ -247,6 +247,12 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
     notifyChange(type, nodeKey, nodeKind, pathNodeKey, name, value);
   }
 
+  default void notifyNumberChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
+      final Number number) {
+    notifyChange(type, nodeKey, nodeKind, parentKey, pathNodeKey, name, value);
+  }
+
   /**
    * Create new indexes.
    *

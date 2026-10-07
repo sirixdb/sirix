@@ -69,6 +69,7 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.immutable.json.ImmutableNumberNode;
 import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
@@ -3573,11 +3574,7 @@ final class JsonNodeTrxImpl extends
     if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
       throw new IllegalArgumentException("primitive numeric notification requires a number node, got " + kind);
     }
-    if (indexController.hasCASIndex()) {
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
-      return;
-    }
-    final Str value = indexController.hasCASIndex() || indexController.hasValidTimeIndex()
+    final Str value = indexController.hasValidTimeIndex()
         ? new Str(intValue
             ? Integer.toString((int) numericValue)
             : Long.toString(numericValue))
@@ -3592,17 +3589,15 @@ final class JsonNodeTrxImpl extends
     }
 
     final NodeKind kind = node.getKind();
-    if (indexController.hasCASIndex() && (kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NAMED_NUMBER)) {
-      indexController.notifyChange(type, node, pathNodeKey);
-      return;
-    }
+    final boolean typedNumber =
+        indexController.hasCASIndex() && (kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NAMED_NUMBER);
     final long nodeKey = node.getNodeKey();
 
     // The valid-time interval index needs BOTH the field name (which valid-time field) AND the
     // string value (the instant), so resolve them whenever a valid-time index is present too — not
     // only under the name/CAS indexes that historically gated each.
     final boolean needName = indexController.hasNameIndex() || indexController.hasValidTimeIndex();
-    final boolean needValue = indexController.hasCASIndex() || indexController.hasValidTimeIndex();
+    final boolean needValue = indexController.hasCASIndex() && !typedNumber || indexController.hasValidTimeIndex();
 
     final QNm name;
     if (needName) {
@@ -3654,7 +3649,17 @@ final class JsonNodeTrxImpl extends
       value = null;
     }
 
-    indexController.notifyChange(type, nodeKey, kind, node.getParentKey(), pathNodeKey, name, value);
+    if (typedNumber) {
+      final Number number = switch (node) {
+        case NumberNode numberNode -> numberNode.getValue();
+        case ImmutableNumberNode numberNode -> numberNode.getValue();
+        case ObjectNamedNumberNode numberNode -> numberNode.getValue();
+        default -> throw new IllegalArgumentException("Unsupported numeric node: " + kind);
+      };
+      indexController.notifyNumberChange(type, nodeKey, kind, node.getParentKey(), pathNodeKey, name, value, number);
+    } else {
+      indexController.notifyChange(type, nodeKey, kind, node.getParentKey(), pathNodeKey, name, value);
+    }
   }
 
   /**

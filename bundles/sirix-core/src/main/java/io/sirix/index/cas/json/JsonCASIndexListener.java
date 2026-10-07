@@ -57,7 +57,8 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
     switch (nodeKind) {
       case OBJECT_NAMED_ARRAY -> indexListenerDelegate.rejectValue(pathNodeKey, true);
       case OBJECT_NAMED_OBJECT, OBJECT_NAMED_NULL, NULL_VALUE -> indexListenerDelegate.rejectValue(pathNodeKey, false);
-      default -> { }
+      default -> {
+      }
     }
     if (value == null) {
       return;
@@ -74,6 +75,13 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
       default -> {
       }
     }
+  }
+
+  @Override
+  public void listenNumber(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
+      final Number number) {
+    indexListenerDelegate.listen(type, nodeKey, pathNodeKey, AtomicUtil.fromNumber(number));
   }
 
   private static Str extractValue(final ImmutableNode node) {
