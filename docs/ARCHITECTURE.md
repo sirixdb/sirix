@@ -906,7 +906,7 @@ Document:                          CAS Index (for /users/[]/age, Type=INT):
 - Value-based filtering (`where price < 100`)
 - Range queries (`where date between ...`)
 - Equality checks on specific paths
-- Can be marked as `unique` for constraint enforcement
+- For `unique` flag semantics, see [Indexes](../README.md#indexes).
 
 **Storage**: PATH, CAS, and NAME secondary indexes have one representation:
 `IndexPage` → `HOTIndirectPage` → `HOTLeafPage`, with sorted key/posting-list entries. The path

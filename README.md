@@ -531,6 +531,9 @@ Sirix XML functions use the `xn:` prefix for `https://sirix.io/xml`, including `
 `http://www.w3.org/XML/1998/namespace` for attributes such as `xml:lang`, `xml:space` and `xml:id`.
 There is no compatibility alias for the former XML function prefix.
 
+Automatic JSON index routing and its fallback rules are documented in
+[Runtime revision routing for CAS lookups](docs/RUNTIME_REVISION_CAS.md).
+
 XML NAME indexes match by namespace URI and local name. Different namespaces have separate
 postings; prefix aliases share a posting. Selective index definitions, exact lookups, and
 include/exclude filters all use this identity. JSON field names remain literal, including colons

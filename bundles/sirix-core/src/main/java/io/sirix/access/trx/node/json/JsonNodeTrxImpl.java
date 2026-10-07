@@ -113,6 +113,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -2594,7 +2595,7 @@ final class JsonNodeTrxImpl extends
           pathSummaryWriter.recordValue(pathNodeKey, stringValue, valueNodeKey);
         } else {
           pathSummaryWriter.recordValue(pathNodeKey,
-              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen), valueNodeKey);
+              Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen), valueNodeKey);
         }
       }
       case NUMBER -> {
@@ -3759,7 +3760,7 @@ final class JsonNodeTrxImpl extends
     if (getKind() != NodeKind.ARRAY) {
       return;
     }
-    final var arrayNode = (io.sirix.node.json.ArrayNode) nodeReadOnlyTrx.getStructuralNode();
+    final var arrayNode = (ArrayNode) nodeReadOnlyTrx.getStructuralNode();
     final long pathNodeKey = arrayNode.getPathNodeKey();
     if (indexController.hasAnyPrimitiveIndex()) {
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE,

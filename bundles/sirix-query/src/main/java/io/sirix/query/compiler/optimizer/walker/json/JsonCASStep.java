@@ -4,7 +4,6 @@ import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.Bits;

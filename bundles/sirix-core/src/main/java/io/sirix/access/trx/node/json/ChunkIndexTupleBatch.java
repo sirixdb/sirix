@@ -23,8 +23,10 @@ import java.util.Arrays;
  * <h2>Filtering split</h2> The worker pre-prunes with UNION filters snapshot at chunk dispatch —
  * the union of every PATH/CAS definition's resolved path classes and of every NAME definition's
  * included dictionary name keys ({@code null} union = a definition indexes everything, collect
- * all). The exact per-definition filter, include/exclude semantics and CAS type conversion run at
- * drain, inside the builders themselves — the one place those semantics already live. The snapshots
+ * all). Path-kind observations bypass this pruning when CAS is active, so non-numeric fields can
+ * invalidate numeric coverage even without a PATH index. The exact per-definition filter,
+ * include/exclude semantics and CAS type conversion run at drain, inside the builders themselves —
+ * the one place those semantics already live. The snapshots
  * are exact for their chunk by the importer's standing argument: a chunk's paths and names are
  * resolved into the summary and the dictionary BEFORE the chunk is dispatched, so a class first
  * occurring in this chunk is in this chunk's snapshot.
@@ -49,7 +51,7 @@ final class ChunkIndexTupleBatch {
   private final boolean casActive;
   private final boolean nameActive;
 
-  // PATH: (pathNodeKey, nodeKey) for ARRAY and every OBJECT_NAMED_* create.
+  // Shared path observations: PATH postings and CAS non-numeric coverage evidence.
   private final LongArrayList pathPcrs = new LongArrayList(64);
   private final LongArrayList pathNodeKeys = new LongArrayList(64);
   private final ByteArrayList pathKinds = new ByteArrayList(64);

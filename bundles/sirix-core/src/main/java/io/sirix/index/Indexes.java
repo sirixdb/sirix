@@ -123,9 +123,10 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Adopt complete successor catalogue membership, including drops, without marking a new mutation.
-   * The predecessor owns persistence of this state. Matching membership leaves the existing
-   * copy-on-write backing array intact.
+   * Adopt successor catalogue membership, including drops, and inherited numeric coverage.
+   * Membership alone is not a new mutation; coverage changes retain their dirty state for
+   * persistence. Matching definitions keep the catalogue instance used by bound listeners, while
+   * copied definitions isolate mutable evidence from the predecessor's catalogue.
    *
    * @param definitions the predecessor's authoritative definitions
    * @throws NullPointerException if {@code definitions} or an added definition is null

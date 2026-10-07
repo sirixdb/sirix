@@ -14,17 +14,23 @@ including a document whose root is an array. Other probe types and values retain
 generic execution. The full predicate stays in
 place: the other conjuncts still filter the selected objects. At the evaluated
 revision, routing rechecks the index catalogue and falls back to the original
-source if the index is unavailable. Legacy path, name and CAS rewrites also retain
-the revision operand and validate their compiled index definitions at execution.
+source if the index is unavailable. Only repeatable revision operands are eligible
+for a rewrite because fallback can evaluate the original source again. Legacy path,
+name and CAS rewrites also retain the revision operand and validate their compiled
+index definitions at execution.
 
 Numeric CAS construction and maintenance retain numeric values during integer
 conversion. Integral representations such as `1.0` share the integer key `1`;
 fractional values are never truncated into integer postings. Revisioned catalogue
 evidence records whether indexed fields are numeric and whether conversion covers
-every value. Point equality uses the numeric-domain evidence; ranges require
-complete coverage and otherwise retain the original query. Evidence is conservative
-after incompatible writes until the index is rebuilt. Direct scans retain the
-declared index type's representable domain.
+every value. Integer point equality uses the numeric-domain evidence; residual-free
+ranges and non-integer numeric indexes require complete coverage and otherwise
+retain the original query. Residual-free numeric routes also fall back when the
+equality probe or either range bound is zero, preserving the interpreter's signed-zero
+comparisons. Evidence is conservative after incompatible writes until the index is
+rebuilt and remains revision-specific across writer reuse, synchronous and asynchronous
+commits, and session close/reopen. Direct scans retain the declared index type's
+representable domain.
 
 Filters that use position or sequence size keep their original source. CAS row
 sources resolve the actual array through the original first-field dereference
@@ -35,9 +41,11 @@ enabled; otherwise the existing revisioned valid-time array evidence can certify
 that sorted node keys have array order. Without either proof, the original array
 source runs. This conservative fallback matters after inserts and moves. Single
 point matches do not require an ordering proof.
-Without an ordering proof, collection stops at the second distinct matching row
-and evaluates the original source. Revision memoization bounds both sessions and
-instants per session to 256 entries.
+Without an ordering proof, collection stops after two inspected postings and
+evaluates the original source. Independently, two postings outside the selected
+array trigger fallback even when ordering is known, bounding candidate work when
+duplicate arrays contribute unrelated postings. Revision memoization bounds both
+sessions and instants per session to 256 entries.
 
 The SH1 loader creates the integer CAS path `/[]/id` on contracts and products
 at E0, after automatic valid-time index creation. The half-open valid-time rewrite
@@ -67,16 +75,26 @@ Gradle flags: `--no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g
   nested tuple-relative projections, public CAS plan metadata, interleaved worker
   cursor navigation, parallel historical queries, and concurrent memo invalidation.
 - `BitemporalBusinessKeyIndexTest`: persisted catalogues keep only the required
-  business-key `id` path and preserve automatic valid-time indexes for all three relations.
-- `CASLookupWorkBudgetTest`: 50 publication-row lookups among 1,000 objects read
-  bounded candidate nodes and resolve only the two distinct instants; publishing
-  another revision invalidates the memo.
+  business-key `id` path on contracts and products, omit `pid` and supplier business-key
+  CAS indexes, and preserve automatic valid-time indexes for all three relations.
+- The [work-budget inventory](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#what-is-here)
+  owns the CAS lookup and multi-match budgets.
+- `CASSourceSemanticsTest`, `CASLegacySignedZeroTest`, and the core numeric CAS
+  tests cover numeric conversion and mutation evidence, signed-zero comparisons,
+  positional focus, and first-field source identity against generic execution.
+- `CASCoverageEpochTest`: all four versioning types preserve coverage through
+  synchronous and asynchronous writer reuse, commit and fresh-session reopen,
+  and compare historical query answers with generic execution.
+- `CASMixedNameMutationTest` and `CASMixedValidTimeMutationTest`: mixed-index
+  insert/update/delete/move histories preserve NAME postings and first-field
+  valid-time semantics after commit and fresh reopen; routed valid-time answers
+  are compared with fallback.
 - Full `:sirix-core:test`: 13,156 tests, 78 skipped, zero failures/errors.
 - Full `:sirix-query:test`: 3,005 tests, 12 skipped, zero failures/errors. Its
   separate generic reader-lifetime fork also passed all 16 tests.
-- All existing work budgets documented in `VERIFICATION.md` passed without
+- All work budgets existing at the author-reported validation passed without
   changing their bounds. `spotlessJavaApply` completed for both modules;
-  `:sirix-core:spotlessCheck :sirix-query:spotlessCheck` passed on the final tree.
+  `:sirix-core:spotlessCheck :sirix-query:spotlessCheck` passed on that pre-review tree.
 - No-mistakes validation and shipping follow the committed implementation handoff.
 
 ## SH1 measurements

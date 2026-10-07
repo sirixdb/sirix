@@ -139,15 +139,16 @@ public final class CASIndexBuilder {
     switch (kind) {
       case ARRAY, OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_OBJECT, NULL_VALUE, OBJECT_NAMED_NULL ->
         rejectValue(pathNodeKey, kind == NodeKind.OBJECT_NAMED_ARRAY);
-      default -> { }
+      default -> {
+      }
     }
   }
 
   /**
    * Primitive entry for feeders that hold no node object — the parallel bulk importer's coordinator
-   * drain. Same path
-   * filter, the same KEEP-the-conversion typing discipline and skip-on-conversion-failure as
-   * {@link #process}, and the same bulk-vs-incremental arm.
+   * drain, retaining numeric representations. Same path filter, the same KEEP-the-conversion typing
+   * discipline and skip-on-conversion-failure as {@link #process}, and the same bulk-vs-incremental
+   * arm.
    */
   public void add(final Atomic strValue, final long pathNodeKey, final long nodeKey) {
     try {
