@@ -436,6 +436,53 @@ final class LetMaterializationTest {
     });
   }
 
+  static Stream<Arguments> partialReductionPaths() {
+    return Stream.of(
+        Arguments.of("return {\"first\":sum($rows,?),\"second\":sum($rows,?)}", false),
+        Arguments.of("return {\"first\":fn:sum($rows,?),\"second\":fn:sum($rows,?)}", false),
+        Arguments.of("return {\"first\":min($rows,?),\"second\":min($rows,?)}", true),
+        Arguments.of("return {\"first\":max($rows,?),\"second\":max($rows,?)}", true),
+        Arguments.of("return {\"first\":sum((0,sum($rows)),?),\"second\":sum((0,sum($rows)),?)}", false),
+        Arguments.of("let $first := sum($rows,?) let $second := sum($rows,?)"
+            + " return {\"first\":$first,\"second\":$second}", false),
+        Arguments.of("return {\"first\":local:partial($rows),\"second\":local:partial($rows)}", false))
+        .flatMap(path -> Stream.of(false, true)
+            .map(enabled -> Arguments.of(path.get()[0], path.get()[1], enabled)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("partialReductionPaths")
+  void returnedPartialReductionsReadTheRevisionAtInvocation(final String body, final boolean collation,
+      final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        final JsonDBCollection collection = store.create("input", "rows", "[1]");
+        final Query query = new Query(chain,
+            "declare function local:partial($input) {sum($input,?)};"
+                + " let $rows := (for $n in jn:doc('input','rows')[] return $n + 0) " + body);
+        final Object functions;
+        try (final Iter output = query.execute(context).iterate()) {
+          functions = assertInstanceOf(Object.class, output.next());
+          assertNull(output.next());
+        }
+        final Function first = assertInstanceOf(Function.class, functions.get(new QNm("first")));
+        final Function second = assertInstanceOf(Function.class, functions.get(new QNm("second")));
+        final Sequence argument = collation
+            ? new Str("http://www.w3.org/2005/xpath-functions/collation/codepoint")
+            : Int32.ZERO;
+        commitNumber(collection, 2);
+        assertEquals("2", first.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument})
+            .toString());
+        commitNumber(collection, 3);
+        assertEquals("3", second.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument})
+            .toString());
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
   static Stream<Arguments> outerTuplePaths() {
     return Stream.of(false, true)
         .flatMap(retained -> Stream.of(false, true).map(enabled -> Arguments.of(retained, enabled)));

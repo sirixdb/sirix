@@ -224,6 +224,10 @@ public final class LetMaterializationStage implements Stage {
           || !(Namespaces.FN_NSURI.equals(name.getNamespaceURI())
               || Namespaces.DEFAULT_FN_NSURI.equals(name.getNamespaceURI())))
         return null;
+      for (int i = 0; i < node.getChildCount(); i++) {
+        if (node.getChild(i).getType() == XQ.ArgumentPlaceHolder)
+          return null;
+      }
       final Function function = sctx.getFunctions().resolve(name, node.getChildCount());
       return function != null && function.isBuiltIn() && !(function instanceof UDF) && !function.isUpdating()
           ? name.getLocalName()
@@ -250,7 +254,7 @@ public final class LetMaterializationStage implements Stage {
     }
 
     private boolean pure(final AST node, final AST source, final Set<AST> visited, final boolean globalDefault) {
-      if (remaining-- <= 0) {
+      if (remaining-- <= 0 || node.getType() == XQ.ArgumentPlaceHolder) {
         return false;
       }
       if (globalDefault && (node.getType() == XQ.ObjectConstructor || node.getType() == XQ.ArrayConstructor

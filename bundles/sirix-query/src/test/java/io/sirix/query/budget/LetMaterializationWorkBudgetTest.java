@@ -11,6 +11,7 @@ import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.compiler.optimizer.Optimizer;
 import io.brackit.query.compiler.translator.Translator;
 import io.brackit.query.jdm.Expr;
+import io.brackit.query.jdm.Function;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.sirix.query.SirixCompileChain;
@@ -157,8 +158,8 @@ final class LetMaterializationWorkBudgetTest {
   @MethodSource("deferredPrefixConsumers")
   void closingAfterTheFirstResultKeepsDeferredLocalSourcesLazy(final String body, final String answer,
       final int reads) {
-    final Capture optimized = runLocalPrefix(body, true, 2);
-    final Capture baseline = runLocalPrefix(body, false, 2);
+    final Capture optimized = runLocalPrefix(body, true, 2, "");
+    final Capture baseline = runLocalPrefix(body, false, 2, "");
     assertEquals(answer, optimized.answer);
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(2L * reads, baseline.reads, "the disabled plan observes only the demanded source items");
@@ -178,12 +179,44 @@ final class LetMaterializationWorkBudgetTest {
         Arguments.of("return (sum($rows),(sum($rows),count($rows)))", "50015000", 10000));
   }
 
+  static Stream<Arguments> partialPrefixConsumers() {
+    return Stream.of(
+        Arguments.of("return [exists($rows),sum($rows,?)][]", "true", 1),
+        Arguments.of("return [exists($rows),min($rows,?)][]", "true", 1),
+        Arguments.of("return [exists($rows),max($rows,?)][]", "true", 1),
+        Arguments.of("return [exists($rows),sum((0,sum($rows)),?)][]", "true", 1),
+        Arguments.of("return (exists($rows),sum($rows,?))", "true", 1),
+        Arguments.of("return (sum($rows,?),sum($rows,?))", "function", 0),
+        Arguments.of("return (sum((0,sum($rows)),?),sum((0,sum($rows)),?))", "function", 0),
+        Arguments.of("return [count(sum($rows,?)),count(sum($rows,?))][]", "1", 0),
+        Arguments.of("return [count(min($rows,?)),count(max($rows,?))][]", "1", 0),
+        Arguments.of("return {\"first\":sum($rows,?),\"second\":sum($rows,?)} instance of object()", "true", 0),
+        Arguments.of("let $partial := sum($rows,?) return (exists($rows),$partial)", "true", 1),
+        Arguments.of("return [exists($rows),local:partial($rows)][]", "true", 1),
+        Arguments.of("return [exists($rows),sum($rows),sum($rows,?)][]", "true", 10001));
+  }
+
+  @ParameterizedTest
+  @MethodSource("partialPrefixConsumers")
+  void partialReductionsNeverForceUndemandedLocalSourceWork(final String body, final String answer,
+      final int reads) {
+    final String declaration = "declare function local:partial($input) {sum($input,?)};";
+    final Capture optimized = runLocalPrefix(body, true, 2, declaration);
+    final Capture baseline = runLocalPrefix(body, false, 2, declaration);
+    assertEquals(answer, optimized.answer);
+    assertEquals(baseline.answer, optimized.answer);
+    assertEquals(2L * reads, baseline.reads, "the disabled plan observes only executed reductions");
+    assertEquals(2L * reads, optimized.reads, "creating a partial function must not traverse its bound argument");
+    assertEquals(0, optimized.markers);
+    assertEquals(0, baseline.markers);
+  }
+
   @ParameterizedTest
   @MethodSource("fullPrefixConsumers")
   void fullDemandBeforeTheFirstResultStillMaterializesLocalSources(final String body, final String answer,
       final int reads) {
-    final Capture optimized = runLocalPrefix(body, true, 2);
-    final Capture baseline = runLocalPrefix(body, false, 2);
+    final Capture optimized = runLocalPrefix(body, true, 2, "");
+    final Capture baseline = runLocalPrefix(body, false, 2, "");
     assertEquals(answer, optimized.answer);
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(2L * reads, baseline.reads, "the disabled plan proves full traversal before the first result");
@@ -217,7 +250,8 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(2, optimized.markers);
   }
 
-  private static Capture runLocalPrefix(final String body, final boolean enabled, final int evaluations) {
+  private static Capture runLocalPrefix(final String body, final boolean enabled, final int evaluations,
+      final String declarations) {
     final String previous = System.getProperty(ENABLED);
     System.setProperty(ENABLED, Boolean.toString(enabled));
     final Capture capture = new Capture();
@@ -248,14 +282,16 @@ final class LetMaterializationWorkBudgetTest {
           };
         }
       };
-      final Query query = new Query(chain, "let $rows := (for $n in 1 to 10000 return $n + 1) " + body);
+      final Query query = new Query(chain, declarations + " let $rows := (for $n in 1 to 10000 return $n + 1) " + body);
       capture.markers = markers(chain.getOptimizedAST());
       capture.reads = 0;
       for (int i = 0; i < evaluations; i++) {
         try (final Iter result = query.execute(context).iterate()) {
           final Item first = result.next();
           assertNotNull(first);
-          capture.answer = first.toString();
+          capture.answer = first instanceof Function
+              ? "function"
+              : first.toString();
         }
       }
       return capture;
