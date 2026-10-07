@@ -238,7 +238,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
           if (!writersByResource.containsKey(resource)) {
             final XmlNodeTrx supplied = suppliedWriters.get(resource);
             final boolean created = supplied == null;
-            final XmlNodeTrx writer = created ? session.beginNodeTrx() : supplied;
+            final XmlNodeTrx writer = created
+                ? session.beginNodeTrx()
+                : supplied;
             writer.beginAtomicOperation();
             writers.add(writer);
             writersByResource.put(resource, writer);

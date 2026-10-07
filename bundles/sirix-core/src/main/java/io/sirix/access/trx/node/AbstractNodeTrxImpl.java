@@ -403,9 +403,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * An XML pending-update list owns this scope through final text normalization. The lock
-   * excludes timed publication. Ending a scope never publishes. Failed lists must mark every
-   * writer rollback-only.
+   * An XML pending-update list owns this scope through final text normalization. The public contract
+   * is defined by {@code XmlNodeTrx.beginAtomicOperation()}; the lock excludes timed publication.
    */
   public final void beginAtomicOperation() {
     if (lock != null) {
@@ -761,8 +760,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * (each running {@link #checkAccessAndCommit()}), and an auto-commit firing between the internal
    * steps would durably persist a structurally inconsistent tree — e.g. a moved subtree already
    * detached from its old position but not yet re-attached (#1062). The counter keeps growing, so the
-   * deferred auto-commit fires on the next top-level mutation once the tree is consistent again.
-   * Guarded by the transaction lock like all mutations; no extra synchronization needed.
+   * deferred auto-commit fires at the next eligible top-level mutation once the tree is consistent
+   * again and any enclosing publication scope has ended. Guarded by the transaction lock like all
+   * mutations; no extra synchronization needed.
    */
   private int compoundOperationDepth;
 

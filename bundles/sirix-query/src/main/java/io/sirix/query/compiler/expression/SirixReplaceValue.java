@@ -145,7 +145,8 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
       final XmlResourceSession resource = reader.getResourceSession();
       final XmlNodeTrx writer;
       final XmlNodeTrx runningWriter = reader instanceof XmlNodeTrx existingWriter
-          ? existingWriter : resource.getNodeTrx().orElse(null);
+          ? existingWriter
+          : resource.getNodeTrx().orElse(null);
       if (runningWriter != null) {
         writer = runningWriter;
       } else {

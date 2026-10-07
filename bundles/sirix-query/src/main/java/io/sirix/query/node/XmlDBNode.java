@@ -114,6 +114,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     deweyID = source.deweyID;
   }
 
+  /** Apply to this private writer target, skipping nodes removed by earlier pending operations. */
   public void applyUpdate(final UpdateOp operation) {
     requireNonNull(operation);
     if (!isWtx) {
@@ -124,6 +125,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
   }
 
+  /**
+   * Create an execution-owned target for the same stored resource without rebinding this node's
+   * reader. A removed target retains its metadata for pending-update conflict checks.
+   *
+   * @param writer execution writer for this node's database and resource
+   * @return a new private writer node, including for a target that no longer exists
+   * @throws IllegalArgumentException if the writer belongs to a different database or resource
+   */
   public XmlDBNode writerView(final XmlNodeTrx writer) {
     requireNonNull(writer);
     final ResourceConfiguration resource = rtx.getResourceSession().getResourceConfig();
@@ -131,7 +140,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (resource.getDatabaseId() != writerResource.getDatabaseId() || resource.getID() != writerResource.getID()) {
       throw new IllegalArgumentException("Writer belongs to a different resource");
     }
-    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this);
+    return writer.moveTo(nodeKey)
+        ? new XmlDBNode(writer, collection)
+        : new XmlDBNode(writer, this);
   }
 
   /** Optional dewey ID. */
@@ -1695,7 +1706,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       moveRtx();
       rtx.moveToParent();
       final long parentKey = rtx.getNodeKey();
-      final int count = category == 1 ? rtx.getNamespaceCount() : rtx.getAttributeCount();
+      final int count = category == 1
+          ? rtx.getNamespaceCount()
+          : rtx.getAttributeCount();
       for (int i = 0; i < count; i++) {
         rtx.moveTo(parentKey);
         if (category == 1) {
