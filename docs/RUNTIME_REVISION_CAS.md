@@ -14,7 +14,8 @@ including a document whose root is an array. Other probe types and values retain
 generic execution. The full predicate stays in
 place: the other conjuncts still filter the selected objects. At the evaluated
 revision, routing rechecks the index catalogue and falls back to the original
-source if the index is unavailable. Only repeatable revision operands are eligible
+source if the index is unavailable or its numeric-domain evidence no longer permits
+the lookup. Only repeatable revision operands are eligible
 for a rewrite because fallback can evaluate the original source again. Legacy path,
 name and CAS rewrites also retain the revision operand and validate their compiled
 index definitions at execution.
@@ -35,6 +36,17 @@ representable domain.
 Filters that use position or sequence size keep their original source. CAS row
 sources resolve the actual array through the original first-field dereference
 semantics at the requested revision and exclude postings from duplicate arrays.
+Legacy CAS equality and range routes fall back to the original expression if a
+matching posting is shadowed by an earlier field with the same name, including at
+ancestor steps. Otherwise they publish each result node once. Direct CAS scans
+continue to expose all indexed postings.
+
+Field renames remove old-path postings and insert new-path postings, including all
+descendants of populated arrays and objects. Path matching uses the path-summary
+reader's invalidated cache, so an in-place rename is recognized even when the path
+node key stays the same. Shared path classes and existing destination classes
+remap only the renamed subtree. The revisioned postings and numeric evidence remain
+available after commit and reopen.
 
 Multiple matching rows retain array order. Dewey IDs supply document order when
 enabled; otherwise the existing revisioned valid-time array evidence can certify
@@ -57,14 +69,14 @@ The full-suite counts and mutation results below are author-reported evidence
 from before the review fixes. The regression coverage descriptions also include
 tests added during review; the outer pipeline owns final validation of the corrected tree.
 
-All Gradle and Java invocations run through the task's two-slot `heavy` limiter,
-which admits a JVM only with at least 6 GiB available. This task uses an initially
-empty private Maven repository at
+The author-reported Gradle and Java invocations used the task's two-slot `heavy`
+limiter, which admits a JVM only with at least 6 GiB available. That validation used
+an initially empty private Maven repository at
 `build/runtime-cas/m2-private`, never `~/.m2`. The resolved Brackit snapshot jar has
 SHA-1 `c9dc857dedcfda2bc92c61a45796db58b58847e1` and a Maven build timestamp of
 2026-10-06 15:22:13 UTC. It matches the [published checksum for snapshot 93](https://central.sonatype.com/repository/maven-snapshots/io/sirix/brackit/1.0-alpha10-SNAPSHOT/brackit-1.0-alpha10-20261006.152144-93.jar.sha1).
 
-Gradle flags: `--no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g
+Author-reported Gradle flags: `--no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g
 -Dmaven.repo.local=<worktree>/build/runtime-cas/m2-private
 -PtestHeapMin=256m -PtestHeapMax=2g`.
 
@@ -89,6 +101,13 @@ Gradle flags: `--no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g
   insert/update/delete/move histories preserve NAME postings and first-field
   valid-time semantics after commit and fresh reopen; routed valid-time answers
   are compared with fallback.
+- `CASLegacyDuplicateFieldTest`, `CASPathRenameTest`, and `CASContainerRenameTest`:
+  first-field publication and scalar, empty-container, and populated-container
+  renames are compared with generic execution at historical revisions and after
+  reopen across all four versioning types. Container cases also check direct CAS
+  scans and sibling NAME, PATH, and VALIDTIME maintenance.
+- `CASScalarBulkImportTest`: CAS-only bulk imports over scalar fields preserve
+  numeric coverage and routed equality answers without extra scalar path observations.
 - Full `:sirix-core:test`: 13,156 tests, 78 skipped, zero failures/errors.
 - Full `:sirix-query:test`: 3,005 tests, 12 skipped, zero failures/errors. Its
   separate generic reader-lifetime fork also passed all 16 tests.

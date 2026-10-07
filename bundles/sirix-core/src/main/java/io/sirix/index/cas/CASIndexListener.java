@@ -100,8 +100,8 @@ public final class CASIndexListener {
     if (!type.isNumeric() || !definition.hasNumericValuesOnly()) {
       return;
     }
-    if (matchesIndexedPath(pathNodeKey)
-        || arrayField && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey())) {
+    if (matchesIndexedPath(pathNodeKey) || (arrayField
+        && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey()))) {
       definition.markNonNumericValue();
     }
   }

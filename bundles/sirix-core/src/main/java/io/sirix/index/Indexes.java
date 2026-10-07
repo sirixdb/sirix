@@ -123,14 +123,15 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Adopt successor catalogue membership, including drops, and inherited numeric coverage.
-   * Membership alone is not a new mutation; coverage changes retain their dirty state for
-   * persistence. Matching definitions keep the catalogue instance used by bound listeners, while
-   * copied definitions isolate mutable evidence from the predecessor's catalogue.
+   * Adopt successor catalogue membership, including drops, and inherited numeric coverage. Membership
+   * alone is not a new mutation; coverage changes retain their dirty state for persistence. Matching
+   * definitions keep the catalogue instance used by bound listeners, while copied definitions isolate
+   * mutable evidence from the predecessor's catalogue.
    *
    * @param definitions the predecessor's authoritative definitions
    * @throws NullPointerException if {@code definitions} or an added definition is null
    */
+  @SuppressWarnings("ReferenceEquality") // Identity determines whether listener-bound evidence needs isolation.
   public void replaceWith(final Set<IndexDef> definitions) {
     requireNonNull(definitions);
     indexes.retainAll(definitions);
@@ -138,7 +139,7 @@ public final class Indexes implements Materializable {
       requireNonNull(definition);
       final IndexDef current = getIndexDef(definition.getID(), definition.getType());
       if (current == null || !current.hasSameDefinition(definition)
-          || current == definition && definition.isCasIndex() && definition.getContentType().isNumeric()) {
+          || (current == definition && definition.isCasIndex() && definition.getContentType().isNumeric())) {
         if (current != null) {
           indexes.remove(current);
         }

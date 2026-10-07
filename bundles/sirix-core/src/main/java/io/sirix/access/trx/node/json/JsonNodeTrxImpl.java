@@ -3167,10 +3167,10 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * Adapt subtree regarding the index-structures for move operations.
+   * Notify indexes for the complete subtree before and after a move or field rename.
    *
    * @param rootNodeKey root of the subtree
-   * @param type the type of change (DELETE from old position or INSERT into new position)
+   * @param type DELETE under the old path/name or INSERT under the new path/name
    */
   private void notifySubtreeIndexChange(final long rootNodeKey, final IndexController.ChangeType type) {
     assert type != null;
@@ -3597,7 +3597,7 @@ final class JsonNodeTrxImpl extends
     // string value (the instant), so resolve them whenever a valid-time index is present too — not
     // only under the name/CAS indexes that historically gated each.
     final boolean needName = indexController.hasNameIndex() || indexController.hasValidTimeIndex();
-    final boolean needValue = indexController.hasCASIndex() && !typedNumber || indexController.hasValidTimeIndex();
+    final boolean needValue = (indexController.hasCASIndex() && !typedNumber) || indexController.hasValidTimeIndex();
 
     final QNm name;
     if (needName) {
@@ -3732,12 +3732,6 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
-   * De-index a plain {@code ARRAY} node on removal — the mirror of the PATH-index INSERT fired for
-   * arrays in {@code insertArrayAs*Child}. Fused {@code OBJECT_NAMED_ARRAY} records are handled by
-   * {@link #removeName()} (they play the object-key role); this covers only the standalone
-   * {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
-   */
-  /**
    * Fire the DELETE notification for kinds that carry neither a name nor a value — plain
    * {@code OBJECT} records and {@code NULL_VALUE} elements. Without it an empty {@code {}} record or
    * a null element vanishes with no index listener ever seeing it: entry-level listeners filter these
@@ -3755,6 +3749,12 @@ final class JsonNodeTrxImpl extends
     }
   }
 
+  /**
+   * De-index a plain {@code ARRAY} node on removal — the mirror of the PATH-index INSERT fired for
+   * arrays in {@code insertArrayAs*Child}. Fused {@code OBJECT_NAMED_ARRAY} records are handled by
+   * {@link #removeName()} (they play the object-key role); this covers only the standalone
+   * {@code ARRAY} kind that neither {@code removeName} nor {@code removeValue} touch.
+   */
   private void removeArrayPathEntry() {
     if (getKind() != NodeKind.ARRAY) {
       return;
@@ -3874,17 +3874,16 @@ final class JsonNodeTrxImpl extends
       final boolean container =
           currentKind == NodeKind.OBJECT_NAMED_OBJECT || currentKind == NodeKind.OBJECT_NAMED_ARRAY;
 
-      // A rename rewrites this node's path class and, for container kinds, its descendants' —
-      // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
-      // (a renamed record-set root exits the set with no per-row notification at all). Bracket
-      // it like a subtree move: listeners snapshot record attribution before, diff after, and
-      // an append-only bulk-load build rejects the surgery up front.
+      // Structural listeners need record-set attribution across path-summary surgery in addition
+      // to primitive posting updates. Bracket it like a subtree move: listeners snapshot record
+      // attribution before, diff after, and an append-only bulk-load build rejects the surgery
+      // up front.
       pendingStructuralChange = nameNode.getNodeKey();
       indexController.notifyBeforeStructuralChange(pendingStructuralChange);
 
-      // De-index under the OLD name/path BEFORE the rename: a rename changes the node's name (and,
-      // for non-shared path classes, its pathNodeKey), so NAME/CAS index entries keyed by the old
-      // name/PCR must be removed and re-inserted under the new ones — otherwise the field stays
+      // De-index under the OLD name/path BEFORE the rename: path identity can change even when
+      // the pathNodeKey is retained, so NAME/CAS index entries under the old identity must be
+      // removed and re-inserted under the new one — otherwise the field stays
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
       final long oldPathNodeKey = nameNode.getPathNodeKey();
@@ -3958,9 +3957,8 @@ final class JsonNodeTrxImpl extends
         }
       }
 
-      // Set path node key. For OBJECT_NAMED_ARRAY the ARRAY layer key is unchanged; for other
-      // kinds adaptPathForChangedNode positioned the path-summary cursor on the (possibly newly
-      // created) target path node.
+      // Array fields anchor their path key at the synthetic ARRAY layer, already adopted above.
+      // Other kinds use the target path node selected by adaptPathForChangedNode.
       if (currentKind != NodeKind.OBJECT_NAMED_ARRAY) {
         nameNode.setPathNodeKey(buildPathSummary
             ? pathSummaryWriter.getNodeKey()

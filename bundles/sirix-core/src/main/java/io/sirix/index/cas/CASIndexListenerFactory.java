@@ -21,9 +21,11 @@ public final class CASIndexListenerFactory {
       throw new IllegalArgumentException("CAS listener requires an IndexType.CAS definition");
     }
     final var pathSummary = requireNonNull(pathSummaryReader);
-    final IndexDef current = requireNonNull(storageEngineWriter.getResourceSession()
-        .getWtxIndexController(storageEngineWriter.getRevisionNumber()).getIndexes()
-        .getIndexDef(indexDef.getID(), IndexType.CAS));
+    final IndexDef current =
+        requireNonNull(storageEngineWriter.getResourceSession()
+                                          .getWtxIndexController(storageEngineWriter.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDef(indexDef.getID(), IndexType.CAS));
     requireNonNull(current.getContentType());
     requireNonNull(current.getPaths());
     final var indexWriter =

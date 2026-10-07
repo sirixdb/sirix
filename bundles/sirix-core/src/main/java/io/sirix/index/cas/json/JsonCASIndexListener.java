@@ -111,9 +111,8 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
             ? STR_TRUE
             : STR_FALSE;
       }
-      // Fused OBJECT_NAMED_* records carry the primitive value inline. The production write path
-      // passes the value precomputed to the two-arg listen overload, but THIS single-arg overload
-      // accepts fused nodes too — without these cases it silently skipped indexing them.
+      // Node-based notifications must extract fused string/boolean values from the named record;
+      // primitive notifications receive those lexical values directly.
       case OBJECT_NAMED_STRING -> {
         if (node instanceof ValueNode valueNode) {
           return new Str(valueNode.getValue());

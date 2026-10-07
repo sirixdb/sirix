@@ -5,8 +5,10 @@ import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import org.jspecify.annotations.Nullable;
 
-public record RevisionData(String databaseName, String resourceName, int revision, AST operand, boolean byInstant) {
+public record RevisionData(String databaseName, String resourceName, int revision, @Nullable AST operand,
+    boolean byInstant) {
   public RevisionData(final String databaseName, final String resourceName, final int revision) {
     this(databaseName, resourceName, revision, null, false);
   }

@@ -31,6 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collector;
+import org.jspecify.annotations.Nullable;
 
 abstract class AbstractJsonPathWalker extends ScopeWalker {
 
@@ -517,7 +518,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
   }
 
-  private Function<AST, AST> returnFunctionCallOrIndexExprNodeIfPresent(
+  private Function<AST, @Nullable AST> returnFunctionCallOrIndexExprNodeIfPresent(
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
     return node -> {
       if (node.getType() == XQ.LetBind) {
@@ -530,7 +531,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     };
   }
 
-  private AST processForBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST node) {
+  private @Nullable AST processForBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST node) {
     final var stepNode = node.getChild(1);
 
     if (stepNode.getType() == XQ.DerefExpr) {
@@ -567,7 +568,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return null;
   }
 
-  private AST processLetBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST astNode) {
+  private @Nullable AST processLetBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST astNode) {
     final AST varNode = astNode.getChild(1);
 
     if (varNode.getType() == XQ.FunctionCall) {

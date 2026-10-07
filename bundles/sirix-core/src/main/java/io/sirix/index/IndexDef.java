@@ -144,8 +144,8 @@ public final class IndexDef implements Materializable {
     }
     final boolean onlyNumbers = predecessor.numericValuesOnly;
     final boolean complete = predecessor.completeNumericCoverage;
-    numericCoverageDirty |= predecessor.numericCoverageDirty || numericValuesOnly != onlyNumbers
-        || completeNumericCoverage != complete;
+    numericCoverageDirty |=
+        predecessor.numericCoverageDirty || numericValuesOnly != onlyNumbers || completeNumericCoverage != complete;
     numericValuesOnly = onlyNumbers;
     completeNumericCoverage = complete;
   }

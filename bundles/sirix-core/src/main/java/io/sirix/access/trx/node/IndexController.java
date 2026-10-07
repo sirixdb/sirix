@@ -161,10 +161,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   static boolean containsIndex(final IndexType type, final ResourceSession<?, ?> resourceSession, final int revision) {
     final Indexes indexes = new Indexes();
 
-    final Path indexesFile =
-        resourceSession.getResourcePath()
-                       .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                       .resolve(revision + ".xml");
+    final Path indexesFile = resourceSession.getResourcePath()
+                                            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                            .resolve(revision + ".xml");
 
     try {
       if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {

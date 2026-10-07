@@ -18,6 +18,7 @@ import io.sirix.query.function.jn.io.DocByPointInTime;
 import io.sirix.query.json.JsonDBStore;
 
 import java.util.ArrayDeque;
+import org.jspecify.annotations.Nullable;
 
 /** Routes literal CAS equalities without consuming the FLWOR/filter residual. */
 public final class JsonCASSourceStep extends Walker {
@@ -92,8 +93,8 @@ public final class JsonCASSourceStep extends Walker {
     // Borrow the store-owned session. Historical availability is checked again at execution.
     final var session = collection.getDatabase().beginResourceSession(resource.stringValue());
     final Type type = Type.INR;
-    final var definition = session.getRtxIndexController(session.getMostRecentRevisionNumber())
-                                  .getIndexes().findCASIndex(path, type);
+    final var definition =
+        session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes().findCASIndex(path, type);
     if (definition.isEmpty() || !definition.get().hasNumericValuesOnly()) {
       return node;
     }
@@ -128,7 +129,7 @@ public final class JsonCASSourceStep extends Walker {
     return false;
   }
 
-  private static AST equality(final AST node, final Object variable) {
+  private static @Nullable AST equality(final AST node, final @Nullable Object variable) {
     if (node.getType() == XQ.AndExpr) {
       for (int i = 0; i < node.getChildCount(); i++) {
         final AST match = equality(node.getChild(i), variable);

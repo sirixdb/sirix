@@ -18,6 +18,7 @@ import io.sirix.exception.SirixRuntimeException;
 import io.sirix.utils.Calc;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import org.jspecify.annotations.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -50,7 +51,7 @@ public final class AtomicUtil {
     }
   }
 
-  public static boolean isExactIntegerProbe(final Atomic value) {
+  public static boolean isExactIntegerProbe(final @Nullable Atomic value) {
     if (value instanceof Int32 number) {
       final int probe = number.intValue();
       return probe >= -16_777_215 && probe <= 16_777_215;
@@ -63,6 +64,7 @@ public final class AtomicUtil {
         && number.cmp(new Int32(-16_777_215)) >= 0 && number.cmp(new Int32(16_777_215)) <= 0;
   }
 
+  @SuppressWarnings("ReferenceEquality") // Conversion identity avoids redundant checks; Type.STR is canonical.
   public static Atomic toIndexType(final Atomic value, final IndexDef definition) {
     requireNonNull(value);
     requireNonNull(definition);
@@ -83,8 +85,12 @@ public final class AtomicUtil {
         return converted;
       }
       return type == Type.STR
-          ? (value instanceof Str ? value : new Str(sourceString(value)))
-          : toType(value instanceof Numeric ? new Str(sourceString(value)) : value, type);
+          ? (value instanceof Str
+              ? value
+              : new Str(sourceString(value)))
+          : toType(value instanceof Numeric
+              ? new Str(sourceString(value))
+              : value, type);
     } catch (final SirixRuntimeException | NumberFormatException e) {
       definition.markIncompleteNumericCoverage();
       throw new SirixRuntimeException(e);

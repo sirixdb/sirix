@@ -41,7 +41,7 @@ The design follows HFT-style high-performance principles: primitive types, minim
 
 - **Brackit Optimizer**: 7-stage pipeline — Simplification → Pipelining → Reordering → JoinRecognition → Unnest → FinalizePipeline → Finalize
 - **Walker Pattern**: AST transformations via `Walker`/`ScopeWalker` base classes with auto-restart on modification
-- **SirixOptimizer**: Extends `TopDownOptimizer`, adds `IndexMatching` stage with `JsonCASStep`, `JsonPathStep`, `JsonObjectKeyNameStep`
+- **SirixOptimizer**: Extends `TopDownOptimizer`; `SirixOptimizer.IndexMatching.rewrite` owns the installed index walkers. Runtime revision and CAS routing are documented in [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
 - **Existing Cost Model**: `SimpleCostModel` in Brackit with tunable JSON-specific weights (`brackit.cost.deref.level=0.2`, `brackit.cost.deref.descendant=5.0`, `brackit.cost.array.access=0.1`)
 - **Statistics Available**:
   - `PathNode.getReferences()` — count of actual nodes per path pattern

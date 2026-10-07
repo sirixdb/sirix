@@ -21,9 +21,11 @@ public final class CASIndexBuilderFactory {
       throw new IllegalArgumentException("CAS builder requires an IndexType.CAS definition");
     }
     final var pathSummary = requireNonNull(pathSummaryReader);
-    final IndexDef current = requireNonNull(storageEngineWriter.getResourceSession()
-        .getWtxIndexController(storageEngineWriter.getRevisionNumber()).getIndexes()
-        .getIndexDef(indexDef.getID(), IndexType.CAS));
+    final IndexDef current =
+        requireNonNull(storageEngineWriter.getResourceSession()
+                                          .getWtxIndexController(storageEngineWriter.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDef(indexDef.getID(), IndexType.CAS));
     requireNonNull(current.getPaths());
     requireNonNull(current.getContentType());
     final var indexWriter =
