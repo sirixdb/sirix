@@ -133,9 +133,17 @@ public final class Indexes implements Materializable {
   public void replaceWith(final Set<IndexDef> definitions) {
     requireNonNull(definitions);
     indexes.retainAll(definitions);
-    if (indexes.size() != definitions.size()) {
-      for (final IndexDef definition : definitions) {
-        indexes.add(requireNonNull(definition));
+    for (final IndexDef definition : definitions) {
+      requireNonNull(definition);
+      final IndexDef current = getIndexDef(definition.getID(), definition.getType());
+      if (current == null || !current.hasSameDefinition(definition)
+          || current == definition && definition.isCasIndex() && definition.getContentType().isNumeric()) {
+        if (current != null) {
+          indexes.remove(current);
+        }
+        indexes.add(definition.copyForCatalogue());
+      } else {
+        current.adoptNumericCoverage(definition);
       }
     }
     dirty = false;

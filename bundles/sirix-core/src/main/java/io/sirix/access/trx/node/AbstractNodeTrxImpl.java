@@ -1083,9 +1083,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       indexController.getIndexes().replaceWith(indexDefs);
     }
     indexController.clearChangeListeners();
-    indexController.createIndexListeners(preserveCurrentDefinitions
-        ? indexDefs
-        : indexController.getIndexes().getIndexDefs(), self());
+    indexController.createIndexListeners(indexController.getIndexes().getIndexDefs(), self());
 
     nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);
   }

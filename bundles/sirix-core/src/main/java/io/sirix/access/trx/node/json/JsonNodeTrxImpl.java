@@ -3573,6 +3573,10 @@ final class JsonNodeTrxImpl extends
     if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NAMED_NUMBER) {
       throw new IllegalArgumentException("primitive numeric notification requires a number node, got " + kind);
     }
+    if (indexController.hasCASIndex()) {
+      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      return;
+    }
     final Str value = indexController.hasCASIndex() || indexController.hasValidTimeIndex()
         ? new Str(intValue
             ? Integer.toString((int) numericValue)
@@ -3588,6 +3592,10 @@ final class JsonNodeTrxImpl extends
     }
 
     final NodeKind kind = node.getKind();
+    if (indexController.hasCASIndex() && (kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NAMED_NUMBER)) {
+      indexController.notifyChange(type, node, pathNodeKey);
+      return;
+    }
     final long nodeKey = node.getNodeKey();
 
     // The valid-time interval index needs BOTH the field name (which valid-time field) AND the
