@@ -109,6 +109,28 @@ import java.time.Instant;
  */
 public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
 
+  /** Suppress publication until the matching end call, including scheduled/count auto commits. */
+  void beginAtomicOperation();
+
+  /** Release a publication scope without committing; calls must be balanced on the same thread. */
+  void endAtomicOperation();
+
+  /** Run one XML compound mutation without publishing intermediate state. */
+  default void runAtomically(final Runnable work) {
+    if (work == null) {
+      throw new NullPointerException("work");
+    }
+    beginAtomicOperation();
+    try {
+      work.run();
+    } catch (final RuntimeException | Error failure) {
+      markRollbackOnly(failure);
+      throw failure;
+    } finally {
+      endAtomicOperation();
+    }
+  }
+
   enum Commit {
     Implicit,
 

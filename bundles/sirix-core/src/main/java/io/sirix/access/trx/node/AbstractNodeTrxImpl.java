@@ -277,8 +277,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.state = State.RUNNING;
 
     if (!afterCommitDelay.isZero()) {
-      commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null), afterCommitDelay.toMillis(),
-          afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
+      commitScheduler.scheduleWithFixedDelay(() -> runLocked(() -> {
+        if (!isClosed() && rollbackOnlyCause == null) {
+          commit("autoCommit", null);
+        }
+      }), afterCommitDelay.toMillis(), afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
   }
 
@@ -399,6 +402,48 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  /**
+   * An XML pending-update list owns this scope through final text normalization. The lock
+   * excludes timed publication; the compound counter suppresses count-based publication and
+   * flushes. Ending a scope never publishes. Failed lists must mark every writer rollback-only.
+   */
+  public final void beginAtomicOperation() {
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertRunning();
+      awaitPendingAsyncCommit();
+      if (publicationScopeDepth == 0) {
+        publicationScopeOwner = Thread.currentThread();
+      }
+      publicationScopeDepth++;
+      beginCompoundOperation();
+    } catch (final RuntimeException | Error failure) {
+      if (lock != null) {
+        lock.unlock();
+      }
+      throw failure;
+    }
+  }
+
+  public final void endAtomicOperation() {
+    if (publicationScopeDepth == 0 || publicationScopeOwner != Thread.currentThread()) {
+      throw new IllegalStateException("Publication scopes must be balanced on the owning thread");
+    }
+    try {
+      endCompoundOperation();
+      if (--publicationScopeDepth == 0) {
+        publicationScopeOwner = null;
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     nodeReadOnlyTrx.assertNotClosed();
@@ -469,6 +514,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void asyncCommitInternal(final String commitMessage) {
     runLocked(() -> {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertNotRollbackOnly();
+      if (publicationScopeDepth != 0) {
+        throw new SirixUsageException("Commit is not allowed during an atomic operation.");
+      }
       final var preCommitRevision = getRevisionNumber();
 
       state = State.COMMITTING;
@@ -606,6 +656,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertNotRollbackOnly();
+      if (publicationScopeDepth != 0) {
+        throw new SirixUsageException("Commit is not allowed during an atomic operation.");
+      }
       final var preCommitRevision = getRevisionNumber();
 
       // Drain the async-commit pipeline first: the synchronous commit below must build on a
@@ -712,6 +767,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Guarded by the transaction lock like all mutations; no extra synchronization needed.
    */
   private int compoundOperationDepth;
+
+  private int publicationScopeDepth;
+
+  private @Nullable Thread publicationScopeOwner;
 
   /** Import epochs must own a clean writer so failure cannot discard unrelated mutations. */
   protected final void requireCleanImportEpoch() {
