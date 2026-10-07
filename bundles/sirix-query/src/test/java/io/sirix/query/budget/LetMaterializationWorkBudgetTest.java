@@ -4,10 +4,20 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.brackit.query.Query;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.compiler.optimizer.Optimizer;
+import io.brackit.query.compiler.translator.Translator;
+import io.brackit.query.jdm.Expr;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.bench.bitemporal.BitemporalQueries;
+import io.sirix.query.compiler.optimizer.SirixOptimizer;
+import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.json.JsonDBCollection;
@@ -15,6 +25,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,6 +35,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
@@ -127,6 +139,59 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(0, optimized.markers);
   }
 
+  static Stream<Arguments> deferredPrefixConsumers() {
+    return Stream.of(Arguments.of("return (exists($rows),sum($rows))", "true", 1),
+        Arguments.of("return (empty($rows),sum($rows))", "false", 1),
+        Arguments.of("return (0,sum($rows),count($rows))", "0", 0),
+        Arguments.of("return ((exists($rows)),(sum($rows),count($rows)))", "true", 1),
+        Arguments.of("return (exists($rows),[sum($rows),count($rows)][])", "true", 1),
+        Arguments.of("return ([exists($rows)][],sum($rows))", "true", 1),
+        Arguments.of("return (0,[sum($rows),count($rows)][])", "0", 0),
+        Arguments.of("return (exists($rows),count((sum($rows),count($rows))))", "true", 1),
+        Arguments.of("return (exists($rows),{\"sum\":sum($rows),\"count\":count($rows)})", "true", 1),
+        Arguments.of("for $outer in 1 to 2 return (exists($rows),sum($rows))", "true", 1),
+        Arguments.of("return (exists($rows),(for $later in 1 return sum($rows)))", "true", 1));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deferredPrefixConsumers")
+  void closingAfterTheFirstResultKeepsDeferredLocalSourcesLazy(final String body, final String answer,
+      final int reads) {
+    final Capture optimized = runLocalPrefix(body, true, 2);
+    final Capture baseline = runLocalPrefix(body, false, 2);
+    assertEquals(answer, optimized.answer);
+    assertEquals(baseline.answer, optimized.answer);
+    assertEquals(2L * reads, baseline.reads, "the disabled plan observes only the demanded source items");
+    assertEquals(2L * reads, optimized.reads, "closing the result must not scan or buffer the 10,000-item source");
+    assertEquals(0, optimized.markers);
+    assertEquals(0, baseline.markers);
+  }
+
+  static Stream<Arguments> fullPrefixConsumers() {
+    return Stream.of(Arguments.of("return (sum($rows),count($rows))", "50015000", 10000),
+        Arguments.of("return (count($rows),exists($rows))", "10000", 10000),
+        Arguments.of("return [exists($rows),sum($rows)][]", "true", 10001),
+        Arguments.of("return [0,sum($rows),count($rows)][]", "0", 20000),
+        Arguments.of("return [(exists($rows),sum($rows))][]", "true", 10001),
+        Arguments.of("return [exists($rows),(sum($rows),count($rows))][]", "true", 20001),
+        Arguments.of("return count((sum($rows),count($rows)))", "2", 20000),
+        Arguments.of("return (sum($rows),(sum($rows),count($rows)))", "50015000", 10000));
+  }
+
+  @ParameterizedTest
+  @MethodSource("fullPrefixConsumers")
+  void fullDemandBeforeTheFirstResultStillMaterializesLocalSources(final String body, final String answer,
+      final int reads) {
+    final Capture optimized = runLocalPrefix(body, true, 2);
+    final Capture baseline = runLocalPrefix(body, false, 2);
+    assertEquals(answer, optimized.answer);
+    assertEquals(baseline.answer, optimized.answer);
+    assertEquals(2L * reads, baseline.reads, "the disabled plan proves full traversal before the first result");
+    assertEquals(20000, optimized.reads, "one full source traversal per query evaluation");
+    assertEquals(1, optimized.markers);
+    assertEquals(0, baseline.markers);
+  }
+
   @Test
   void correlatedBindingMaterializesAgainForEveryOuterTuple() {
     final String query =
@@ -150,6 +215,56 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(20, optimized.reads);
     assertEquals(2, optimized.markers);
+  }
+
+  private static Capture runLocalPrefix(final String body, final boolean enabled, final int evaluations) {
+    final String previous = System.getProperty(ENABLED);
+    System.setProperty(ENABLED, Boolean.toString(enabled));
+    final Capture capture = new Capture();
+    try (final SirixQueryContext context = SirixQueryContext.create()) {
+      final CompileChain chain = new CompileChain() {
+        @Override
+        protected Optimizer getOptimizer(final Map<QNm, Str> options) {
+          return new SirixOptimizer(options, context.getNodeStore(), context.getJsonItemStore());
+        }
+
+        @Override
+        protected Translator getTranslator(final Map<QNm, Str> options) {
+          return new SirixTranslator(options) {
+            @Override
+            protected Expr arithmeticExpr(final AST node) {
+              final Expr actual = super.arithmeticExpr(node);
+              return mock(Expr.class, withSettings().stubOnly().defaultAnswer(invocation -> {
+                final String method = invocation.getMethod().getName();
+                if (method.equals("evaluate") || method.equals("evaluateToItem"))
+                  capture.reads++;
+                try {
+                  return invocation.getMethod().invoke(actual, invocation.getArguments());
+                } catch (final InvocationTargetException exception) {
+                  throw exception.getCause();
+                }
+              }));
+            }
+          };
+        }
+      };
+      final Query query = new Query(chain, "let $rows := (for $n in 1 to 10000 return $n + 1) " + body);
+      capture.markers = markers(chain.getOptimizedAST());
+      capture.reads = 0;
+      for (int i = 0; i < evaluations; i++) {
+        try (final Iter result = query.execute(context).iterate()) {
+          final Item first = result.next();
+          assertNotNull(first);
+          capture.answer = first.toString();
+        }
+      }
+      return capture;
+    } finally {
+      if (previous == null)
+        System.clearProperty(ENABLED);
+      else
+        System.setProperty(ENABLED, previous);
+    }
   }
 
   private Capture run(final String text, final int rows, final boolean enabled, final int evaluations) {

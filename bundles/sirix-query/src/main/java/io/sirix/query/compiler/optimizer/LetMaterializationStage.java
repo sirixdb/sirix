@@ -151,20 +151,35 @@ public final class LetMaterializationStage implements Stage {
       if (end.getType() != XQ.End)
         return NON_SCALAR;
       int consumption = NON_SCALAR;
+      boolean deferred = false;
       AST child = reference;
       for (AST parent = reference.getParent(); parent != null; child = parent, parent = parent.getParent()) {
         if (parent == end)
-          return consumption;
+          return deferred && consumption == FULL_CONSUMPTION
+              ? PARTIAL_CONSUMPTION
+              : consumption;
         final int type = parent.getType();
         if (type == XQ.PipeExpr || type == XQ.End || type == XQ.InlineFuncItem || type == XQ.FunctionDecl)
           return NON_SCALAR;
         if (consumption != NON_SCALAR) {
           final boolean consumes = switch (type) {
-            case XQ.ParenthesizedExpr, XQ.SequenceExpr, XQ.ArrayConstructor, XQ.SequenceField,
-                XQ.FlattenedField, XQ.ObjectConstructor, XQ.KeyValueField -> true;
+            case XQ.ParenthesizedExpr, XQ.SequenceField, XQ.FlattenedField, XQ.KeyValueField -> true;
+            case XQ.SequenceExpr -> {
+              deferred |= parent.getChild(0) != child;
+              yield true;
+            }
+            case XQ.ArrayConstructor, XQ.ObjectConstructor -> {
+              deferred = false;
+              yield true;
+            }
             case XQ.ArrayAccess -> parent.getChild(0) == child && child.getType() == XQ.ArrayConstructor;
             case XQ.DerefExpr -> parent.getChild(0) == child && child.getType() == XQ.ObjectConstructor;
-            case XQ.FunctionCall -> parent.getChild(0) == child && scalarFunction(functionName(parent));
+            case XQ.FunctionCall -> {
+              final boolean full = parent.getChild(0) == child && scalarFunction(functionName(parent));
+              if (full)
+                deferred = false;
+              yield full;
+            }
             default -> false;
           };
           if (!consumes)

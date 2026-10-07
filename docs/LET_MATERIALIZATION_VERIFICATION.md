@@ -24,8 +24,11 @@ inside the candidate source, including join outputs and filter context items, ar
 same source proof. Dependency cycles or exhausted proof budgets decline admission.
 
 Consumer admission requires a terminal return with scalar reductions and at least one unconditional
-full-consuming reduction. Existence-only consumers stay lazy; `exists` remains eligible alongside
-full-consuming reductions. The proof follows known consuming ancestors; positional filters,
+full-consuming reduction before the first caller-visible result, including for pure local sources.
+Later members of a lazy comma sequence do not establish this traversal. Eager constructors and
+full-consuming functions can complete a nested sequence before exposing its result; a full reduction
+in the first result member also establishes demand. Existence-only consumers stay lazy; `exists`
+remains eligible alongside full-consuming reductions. The proof follows known consuming ancestors; positional filters,
 quantified inputs and predicates, skipped branches and partial-consuming calls do not establish
 full consumption. Direct composite returns,
 aliases, deferred bodies and bindings retained across further iteration stay lazy. Global-dependent
@@ -76,6 +79,13 @@ three outer tuples. Skipped quantified inputs and predicates retain constant sou
 cases compare enabled and disabled source reads without assuming that the generic filter skips
 its reduction: the published runtime also fully consumes the reported positional-filter case
 with materialization disabled. Those bindings remain lazy and add no source work.
+Early-close cases use `Query.execute()`, consume one result item and close the iterator. A counting
+decorator on the translated arithmetic expression observes actual pure-local source evaluations:
+an existence prefix performs one evaluation, while eager constructors and first full reductions
+retain one complete traversal per binding. Nested lazy sequences and deferred bodies preserve
+the disabled plan's prefix work across repeated executions of the same compiled query.
+Restoring the previous admission rule made the existence-prefix budget fail at 20,000 source
+evaluations instead of 2 across two executions, proving that the counter detects full buffering.
 `LetMaterializationTest` checks shadowing, single/unused bindings, unproven
 calls, effectful lazy dependencies caller-dependent function parameters, global overrides, external defaults, shadowed functions,
 implicit context arguments and positional `allowing empty` bindings. `MaterializeExprTest`
