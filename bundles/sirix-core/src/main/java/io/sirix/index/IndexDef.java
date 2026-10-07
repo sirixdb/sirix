@@ -131,6 +131,25 @@ public final class IndexDef implements Materializable {
     numericCoverageDirty = false;
   }
 
+  IndexDef copyForCatalogue() {
+    final IndexDef copy = new IndexDef(dbType);
+    copy.init(materialize());
+    copy.numericCoverageDirty = numericCoverageDirty;
+    return copy;
+  }
+
+  void adoptNumericCoverage(final IndexDef predecessor) {
+    if (type != IndexType.CAS || contentType == null || !contentType.isNumeric()) {
+      return;
+    }
+    final boolean onlyNumbers = predecessor.numericValuesOnly;
+    final boolean complete = predecessor.completeNumericCoverage;
+    numericCoverageDirty |= predecessor.numericCoverageDirty || numericValuesOnly != onlyNumbers
+        || completeNumericCoverage != complete;
+    numericValuesOnly = onlyNumbers;
+    completeNumericCoverage = complete;
+  }
+
   // populated when index is built
   private int id;
 

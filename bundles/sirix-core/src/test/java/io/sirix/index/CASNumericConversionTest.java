@@ -47,6 +47,12 @@ final class CASNumericConversionTest {
   }
 
   @Test
+  void maintenanceParsingKeepsNegativeFloatingZero() {
+    assertEquals(Double.doubleToRawLongBits(-0.0d),
+        Double.doubleToRawLongBits(((Numeric) AtomicUtil.fromNumericString("-0.0")).doubleValue()));
+  }
+
+  @Test
   void integerProbeEligibilityExcludesFloatingPromotionAmbiguity() {
     assertTrue(AtomicUtil.isExactIntegerProbe(AtomicUtil.fromNumber(16_777_215)));
     assertFalse(AtomicUtil.isExactIntegerProbe(AtomicUtil.fromNumber(16_777_217L)));

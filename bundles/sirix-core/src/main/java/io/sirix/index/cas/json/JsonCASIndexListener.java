@@ -8,7 +8,6 @@ import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.NodeKind;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.jdm.Type;
 import io.sirix.index.AtomicUtil;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
@@ -60,9 +59,7 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
     }
     switch (nodeKind) {
       case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
-        final Atomic number = indexListenerDelegate.getContentType().instanceOf(Type.INR)
-            ? AtomicUtil.fromNumericString(value.stringValue())
-            : value;
+        final Atomic number = AtomicUtil.fromNumericString(value.stringValue());
         indexListenerDelegate.listen(type, nodeKey, pathNodeKey, number);
       }
       case STRING_VALUE, BOOLEAN_VALUE,

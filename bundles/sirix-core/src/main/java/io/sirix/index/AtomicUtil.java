@@ -41,7 +41,10 @@ public final class AtomicUtil {
 
   public static Atomic fromNumericString(final String value) {
     try {
-      return new Dec(new BigDecimal(requireNonNull(value)));
+      final BigDecimal number = new BigDecimal(requireNonNull(value));
+      return number.signum() == 0 && value.startsWith("-")
+          ? new Dbl(-0.0d)
+          : new Dec(number);
     } catch (final NumberFormatException e) {
       return new Dbl(Double.parseDouble(value));
     }

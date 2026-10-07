@@ -10,6 +10,7 @@ import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Numeric;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
@@ -310,17 +311,22 @@ public final class IndexExpr implements Expr {
     if (!definition.hasNumericValuesOnly()) {
       return false;
     }
+    final Atomic lower = (Atomic) properties.get("atomic");
+    final Atomic upper = (Atomic) properties.get("upperBoundAtomic");
+    if (lower instanceof Numeric number && number.doubleValue() == 0.0d
+        || upper instanceof Numeric upperNumber && upperNumber.doubleValue() == 0.0d) {
+      return false;
+    }
     if (!type.instanceOf(Type.INR)) {
       return definition.hasCompleteNumericCoverage();
     }
-    if (!AtomicUtil.isExactIntegerProbe((Atomic) properties.get("atomic"))) {
+    if (!AtomicUtil.isExactIntegerProbe(lower)) {
       return false;
     }
     final String comparison = (String) properties.get("comparator");
     if ("ValueCompEQ".equals(comparison) || "GeneralCompEQ".equals(comparison)) {
       return true;
     }
-    final Atomic upper = (Atomic) properties.get("upperBoundAtomic");
     return definition.hasCompleteNumericCoverage() && (upper == null || AtomicUtil.isExactIntegerProbe(upper));
   }
 
@@ -370,6 +376,8 @@ public final class IndexExpr implements Expr {
       final Iterator<NodeReferences> references =
           controller.openCASIndex(rtx.getStorageEngineReader(), definition.get(), filter);
       final LongLinkedOpenHashSet keys = new LongLinkedOpenHashSet();
+      int inspected = 0;
+      int rejected = 0;
       while (references.hasNext()) {
         final var postings = references.next().nodeKeyIterator();
         while (postings.hasNext()) {
@@ -378,10 +386,14 @@ public final class IndexExpr implements Expr {
             rtx.moveToParent();
           }
           rtx.moveToParent();
-          if (rtx.getParentKey() != arrayKey) {
-            continue;
+          final boolean selectedArray = rtx.getParentKey() == arrayKey;
+          if (selectedArray) {
+            keys.add(rtx.getNodeKey());
+          } else {
+            rejected++;
           }
-          if (keys.add(rtx.getNodeKey()) && keys.size() == 2 && !deweyIDs
+          inspected++;
+          if (rejected == 2 || inspected == 2 && !deweyIDs
               && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey)) {
             rtx.close();
             return fallback.evaluate(context, tuple);

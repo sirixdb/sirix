@@ -106,10 +106,6 @@ public final class CASIndexListener {
     }
   }
 
-  public Type getContentType() {
-    return type;
-  }
-
   /**
    * {@code value} as the index's content type, or {@code null} when it is not of that type.
    *

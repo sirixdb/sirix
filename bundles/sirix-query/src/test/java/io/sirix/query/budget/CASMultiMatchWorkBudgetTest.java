@@ -23,12 +23,14 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,16 +51,21 @@ final class CASMultiMatchWorkBudgetTest {
   Path directory;
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
+  @MethodSource("sources")
   @SuppressWarnings("unchecked")
-  void unavailableOrderDeclinesAfterTwoDistinctRows(final boolean filter) {
+  void unavailableOrderDeclinesAfterTwoDistinctRows(final boolean filter, final boolean duplicateArray,
+      final boolean deweyIDs) {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .useDeweyIDs(false).storeDiffs(false).build());
+          .useDeweyIDs(deweyIDs).storeDiffs(false).build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
-        final StringBuilder json = new StringBuilder(24_000).append('[');
+        final StringBuilder json = new StringBuilder(24_000);
+        if (duplicateArray) {
+          json.append("{\"rows\":[{\"id\":0}],\"rows\":");
+        }
+        json.append('[');
         for (int i = 0; i < 2_048; i++) {
           if (i > 0) {
             json.append(',');
@@ -66,9 +73,13 @@ final class CASMultiMatchWorkBudgetTest {
           json.append("{\"id\":1}");
         }
         json.append(']');
+        if (duplicateArray) {
+          json.append('}');
+        }
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
+            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse(duplicateArray ? "/rows/[]/id" : "/[]/id",
+                PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit();
       }
     }
@@ -93,11 +104,12 @@ final class CASMultiMatchWorkBudgetTest {
       }).when(session).beginNodeReadOnlyTrx(anyInt());
       try (var context = SirixQueryContext.createWithJsonStore(observedStore);
           var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(observedStore)) {
-        final String text = filter ? "sum(jn:doc('budget','rows')[][?$$.id eq 1].id)"
-            : "sum(for $c in jn:doc('budget','rows')[] where $c.id eq 1 return $c.id)";
+        final String source = "jn:doc('budget','rows')" + (duplicateArray ? ".rows[]" : "[]");
+        final String text = filter ? "sum(" + source + "[?$$.id eq 1].id)"
+            : "sum(for $c in " + source + " where $c.id eq 1 return $c.id)";
         final Query query = new Query(chain, text);
         cursors.clear();
-        assertEquals(2_048, ((Numeric) query.evaluate(context)).intValue());
+        assertEquals(duplicateArray ? 0 : 2_048, ((Numeric) query.evaluate(context)).intValue());
         assertEquals(1, cursors.size());
         final JsonNodeReadOnlyTrx cursor = cursors.getFirst();
         verify(cursor, times(2)).getParentKey();
@@ -106,5 +118,11 @@ final class CASMultiMatchWorkBudgetTest {
         verify(cursor, never()).moveToRightSibling();
       }
     }
+  }
+
+  private static Stream<Arguments> sources() {
+    return Stream.of(Arguments.of(false, false, false), Arguments.of(true, false, false),
+        Arguments.of(false, true, false), Arguments.of(true, true, false),
+        Arguments.of(false, true, true), Arguments.of(true, true, true));
   }
 }
