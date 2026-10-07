@@ -4373,6 +4373,10 @@ the JSON access path of a \code{jn:doc(...)[...]} expression, matches it against
 summary, and rewrites the subtree into an \code{IndexExpr} backed by a PATH or CAS index when
 applicable.
 
+Runtime revision and CAS row-source routing are specified in
+\pp{docs/RUNTIME\_REVISION\_CAS.md}; \code{SirixOptimizer.IndexMatching.rewrite}
+owns the installed walker priority.
+
 A subtle, historically real bug: for \code{.store.book[][?\$\$.price gt 10]}, the rewrite
 fuses the scalar predicate leaf (\code{price}) into the path. The path-summary lookup may
 search for \code{price} as an \code{OBJECT\_NAMED\_OBJECT} and find nothing, even though
@@ -4403,7 +4407,7 @@ each stage rewriting the AST in place, bounded by a \textbf{50\,ms circuit-break
 6 IndexDecompositionStage   index-driven join restructure / intersection joins
 7 CostDrivenRoutingStage    propagate PREFER_INDEX=false → INDEX_GATE_CLOSED to descendants
 8,9 Vectorized{Detection,Routing}   DISABLED — deferred to brackit's vectorised SPI (Ch.8)
-10 IndexMatching        rewrite to real index scans (JsonCASStep / JsonPathStep / JsonObjectKeyNameStep)
+10 IndexMatching        apply index rewrites (SirixOptimizer.IndexMatching.rewrite)
 \end{diagramS}
 
 Stages~1 and 10 bracket the cost-based core: the first normalises the query graph (fusing adjacent

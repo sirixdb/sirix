@@ -398,9 +398,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Applies the index rewrites (valid-time, CAS, path, object-key). Each walker consults the cost
    * gate ({@code INDEX_GATE_CLOSED}, authored by the always-run {@link CostBasedStage}) except
-   * valid-time, which currently matches structurally; either way the decision is made by the
-   * always-run cost stage, so this stage is NOT {@link BudgetSheddable} — it always runs, keeping
-   * index selection independent of the budget.
+   * valid-time and CAS row-source routing, which match structurally. This stage is NOT
+   * {@link BudgetSheddable} — it always runs, keeping index matching independent of the optimizer
+   * budget.
    */
   private static final class IndexMatching implements IndexMatchingStage {
     private final JsonDBStore jsonItemStore;

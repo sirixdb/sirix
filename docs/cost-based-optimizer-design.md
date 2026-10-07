@@ -267,9 +267,9 @@ After:  Join(A, B, C)         -- fused: reorderer can consider all 3! = 6 orderi
 
 ### Rule 3: Select-Access Fusion (`SelectAccessFusionWalker.java`, 211 lines)
 
-**Problem**: A WHERE predicate like `$x.price > 50` is separate from the `$x.price` field access. But for CAS index matching (Stage 10) to work, the predicate information needs to be **on the access node itself**.
+**Problem**: Predicate metadata must be available to cost analysis alongside the field access.
 
-**Solution**: When a filter predicate references a field accessed via a deref chain (e.g., `$x.price`), fuse the predicate operator and value into the access node via properties (`FUSED_OPERATOR`, `FUSED_FIELD_NAME`). Stage 10's `JsonCASStep` reads these to determine if a CAS index can serve the predicate.
+**Solution**: `SelectAccessFusionWalker` annotates the filter and its access child with predicate metadata (`FUSED_OPERATOR`, `FUSED_FIELD_NAME`) for cost analysis. The automatic CAS routing contract is owned by [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
 
 ---
 
@@ -532,7 +532,10 @@ eligible subtrees with index calls or `IndexExpr` nodes.
 **`IndexMatching`** (inner class in `SirixOptimizer.java`) owns walker priority and admission guards;
 its `rewrite` method is the authoritative list. Examples of the index families it matches:
 
-1. **`JsonCASStep`**: Matches CAS (Content And Structure) indexes. These indexes store `(value, path)` pairs in a B+-tree, enabling efficient value-based lookups. Example: A CAS index on `/[]/price` of type `xs:integer` can serve `$x.price > 50`.
+The CAS row-source walker, `JsonCASSourceStep`, precedes the legacy path walkers;
+its admission and fallback rules are documented in [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
+
+1. **`JsonCASStep`**: Matches CAS (Content And Structure) indexes for value-based predicates. Their storage representation is documented in [Secondary indexes](ARCHITECTURE.md#secondary-index-types).
 
 2. **`JsonPathStep`**: Matches PATH indexes. These indexes map paths to node keys, enabling efficient path-based access without scanning the entire document. Example: A PATH index on `/[]/item/name` can serve `$x.item.name` field access.
 
@@ -543,11 +546,12 @@ its `rewrite` method is the authoritative list. Examples of the index families i
 When a walker finds a match, it:
 1. Creates an `IndexExpr` AST node with the index definition, database/resource metadata, and filter parameters
 2. Replaces the original AST subtree with the `IndexExpr` node
-3. At runtime, `IndexExpr` opens the index directly instead of scanning the document
+3. At runtime, `IndexExpr` follows the revision and catalogue checks described in
+   [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md)
 
 ### The Cost Gate Check
 
-Before applying any rewrite, every walker checks:
+Before applying a legacy path-based rewrite, its walker checks:
 ```java
 if (CostProperties.isIndexGateClosed(astNode)) {
     return astNode;  // Skip — cost model says sequential scan is cheaper
@@ -555,6 +559,7 @@ if (CostProperties.isIndexGateClosed(astNode)) {
 ```
 
 This is how Stages 2-7 communicate their cost decisions to Stage 10.
+Valid-time and CAS row-source walkers use structural admission rules instead.
 
 ---
 
@@ -882,6 +887,7 @@ bundles/sirix-query/src/main/java/io/sirix/query/
 │               ├── JoinDecompositionWalker.java   ← Rules 5-6: Annotate index decomposition
 │               ├── CostBasedJoinReorder.java      ← Extract join groups for DPhyp
 │               ├── AbstractJsonPathWalker.java    ← Base class for index matching
+│               ├── JsonCASSourceStep.java         ← CAS row sources (see runtime revision reference)
 │               ├── JsonCASStep.java               ← Match CAS indexes to predicates
 │               ├── JsonPathStep.java              ← Match PATH indexes to field access
 │               └── JsonObjectKeyNameStep.java     ← Match NAME indexes to object keys

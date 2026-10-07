@@ -24,6 +24,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.SearchMode;
 import io.sirix.index.cas.CASFilter;
 import io.sirix.index.cas.CASFilterRange;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Set;
 
@@ -159,7 +161,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   static boolean containsIndex(final IndexType type, final ResourceSession<?, ?> resourceSession, final int revision) {
     final Indexes indexes = new Indexes();
 
-    final java.nio.file.Path indexesFile =
+    final Path indexesFile =
         resourceSession.getResourcePath()
                        .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                        .resolve(revision + ".xml");
@@ -247,6 +249,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
     notifyChange(type, nodeKey, nodeKind, pathNodeKey, name, value);
   }
 
+  /**
+   * Dispatch the numeric event defined by {@link PathNodeKeyChangeListener#listenNumber}.
+   */
   default void notifyNumberChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
       final Number number) {

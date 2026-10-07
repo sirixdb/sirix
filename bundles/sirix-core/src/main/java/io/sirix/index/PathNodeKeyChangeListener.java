@@ -42,6 +42,15 @@ public interface PathNodeKeyChangeListener extends ChangeListener {
     listen(type, nodeKey, nodeKind, pathNodeKey, name, value);
   }
 
+  /**
+   * Numeric notification retaining the source representation for CAS conversion.
+   *
+   * <p>
+   * The default must forward the parent-aware event so sibling indexes still receive their name,
+   * value and ancestry. CAS listeners override this method to consume {@code number} without
+   * replacing the event required by NAME or VALIDTIME listeners.
+   * </p>
+   */
   default void listenNumber(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
       final Number number) {

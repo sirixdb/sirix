@@ -115,7 +115,7 @@ public final class CASIndexListener {
    * arrangement produced.
    * </p>
    *
-   * @param value the node's lexical value
+   * @param value the node's atomic value, retaining its numeric representation when applicable
    * @param nodeKey the node, for the diagnostic only
    * @return the typed value, or {@code null} to skip this node
    */
