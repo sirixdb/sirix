@@ -48,6 +48,8 @@ public final class MaterializeExpr implements Expr {
         return source.evaluate(context, tuple);
     }
     final Sequence evaluated = source.evaluate(context, tuple);
+    if (evaluated != null && evaluated.getClass() == ItemSequence.class)
+      return evaluated;
     final Sequence result = ExprUtil.materialize(evaluated);
     return result instanceof Array array && !(evaluated instanceof Item)
         ? new ItemSequence(array)

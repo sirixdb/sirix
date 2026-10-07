@@ -17,6 +17,8 @@ import io.brackit.query.sequence.LazySequence;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.jspecify.annotations.Nullable;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -31,12 +33,13 @@ final class MaterializeExprTest {
   private final QueryContext context = mock(QueryContext.class);
   private final Tuple tuple = new TupleImpl();
 
-  @Test
-  void sourceIsConsumedAndClosedOnceForEachBindingEvaluation() {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void sourceIsConsumedAndClosedOnceForEachBindingEvaluation(final boolean itemSequenceSubclass) {
     final AtomicInteger opened = new AtomicInteger();
     final AtomicInteger closed = new AtomicInteger();
     final Expr source = mock(Expr.class);
-    when(source.evaluate(context, tuple)).thenReturn(new LazySequence() {
+    final Sequence lazy = new LazySequence() {
       @Override
       public Iter iterate() {
         opened.incrementAndGet();
@@ -56,7 +59,15 @@ final class MaterializeExprTest {
           }
         };
       }
-    });
+    };
+    when(source.evaluate(context, tuple)).thenReturn(itemSequenceSubclass
+        ? new ItemSequence() {
+          @Override
+          public Iter iterate() {
+            return lazy.iterate();
+          }
+        }
+        : lazy);
     final MaterializeExpr expression = new MaterializeExpr(source);
     for (int binding = 0; binding < 2; binding++) {
       final Sequence result = expression.evaluate(context, tuple);
@@ -76,17 +87,78 @@ final class MaterializeExprTest {
     verify(source, times(2)).evaluate(context, tuple);
   }
 
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 10000})
+  void eagerItemSequencesAreReusedForEachBindingEvaluation(final int count) {
+    final Item[] items = new Item[count];
+    for (int i = 0; i < count; i++)
+      items[i] = new Int32(i + 1);
+    final ItemSequence first = new ItemSequence(items);
+    final ItemSequence second = new ItemSequence(items);
+    final Expr source = mock(Expr.class);
+    when(source.evaluate(context, tuple)).thenReturn(first, second);
+    final MaterializeExpr expression = new MaterializeExpr(source);
+    assertSame(first, expression.evaluate(context, tuple));
+    assertSame(second, expression.evaluate(context, tuple));
+    assertEquals(count, first.size().intValue());
+    try (final Iter iterator = first.iterate()) {
+      for (int i = 1; i <= count; i++)
+        assertEquals(new Int32(i), iterator.next());
+      assertNull(iterator.next());
+    }
+    verify(source, times(2)).evaluate(context, tuple);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2})
+  void eagerItemEvaluationKeepsCardinalityChecks(final int count) {
+    final Item[] items = new Item[count];
+    for (int i = 0; i < count; i++)
+      items[i] = Int32.ONE;
+    final Expr source = mock(Expr.class);
+    when(source.evaluate(context, tuple)).thenReturn(new ItemSequence(items));
+    final MaterializeExpr expression = new MaterializeExpr(source);
+    if (count == 0)
+      assertNull(expression.evaluateToItem(context, tuple));
+    else if (count == 1)
+      assertSame(Int32.ONE, expression.evaluateToItem(context, tuple));
+    else
+      assertEquals(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
+          assertThrows(QueryException.class, () -> expression.evaluateToItem(context, tuple)).getCode());
+  }
+
   @Test
   void singletonArrayRemainsOneSequenceItem() {
     final DArray array = new DArray(List.of(Int32.ONE, new Int32(2)));
     final Expr source = mock(Expr.class);
-    when(source.evaluate(context, tuple)).thenReturn(new ItemSequence(array));
+    final ItemSequence buffered = new ItemSequence(array);
+    when(source.evaluate(context, tuple)).thenReturn(buffered);
+    final Sequence result = new MaterializeExpr(source).evaluate(context, tuple);
+    assertSame(buffered, result);
+    assertEquals(Int32.ONE, result.size());
+    try (final Iter iterator = result.iterate()) {
+      assertSame(array, iterator.next());
+      assertNull(iterator.next());
+    }
+  }
+
+  @Test
+  void lazySingletonArrayRemainsOneSequenceItem() {
+    final DArray array = new DArray(List.of(Int32.ONE, new Int32(2)));
+    final Expr source = mock(Expr.class);
+    when(source.evaluate(context, tuple)).thenReturn(new LazySequence() {
+      @Override
+      public Iter iterate() {
+        return new ItemSequence(array).iterate();
+      }
+    });
     final Sequence result = new MaterializeExpr(source).evaluate(context, tuple);
     assertEquals(Int32.ONE, result.size());
     try (final Iter iterator = result.iterate()) {
       assertSame(array, iterator.next());
       assertNull(iterator.next());
     }
+    assertSame(array, new MaterializeExpr(source).evaluateToItem(context, tuple));
   }
 
   @Test
