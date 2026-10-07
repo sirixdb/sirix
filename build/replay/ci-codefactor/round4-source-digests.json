@@ -1,0 +1,4 @@
+{
+  "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java": "6be1537253d79d649cf3852bb9bae80e6013c2f3d225d57c9d49a0d06da5de20",
+  "bundles/sirix-core/src/main/java/io/sirix/service/json/replay/JsonReplayTransitionValidator.java": "1621cbc76898fe8275c87bc6bdaa2f5df6cf85be8ecee1e3b034c378a779a4f7"
+}

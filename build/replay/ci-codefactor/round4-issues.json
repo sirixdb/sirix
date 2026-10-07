@@ -1,0 +1,137 @@
+[
+  {
+    "Key": "6ac5819b100d2e9d8494f807",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 565,
+    "EndLine": 680,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "27"
+    },
+    "PreviewCode": "  private JsonNodeTrx insertSubtreeInternal(final InsertPosition insertionPosition, final Commit commit,\n      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken, final InputValidator inputVa...\n      final ShredderExecutor shredderExecutor) {\n    nodeReadOnlyTrx.assertNotClosed();\n    assert insertionPosition != null;\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f808",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 3401,
+    "EndLine": 3537,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "19"
+    },
+    "PreviewCode": "  @Override\n  public JsonNodeTrx remove() {\n    if (lock != null) {\n      lock.lock();\n    }\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f809",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 4618,
+    "EndLine": 4774,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "39"
+    },
+    "PreviewCode": "  private void importRevisionLocked(final JsonIdentityDelta delta, final JsonNodeReadOnlyTrx source) {\n    requireCleanImportEpoch();\n    final var manifest = delta.manifest();\n    final var sourceConfig = source.getResourceSession().getResourceConfig();\n    final var targetConfig = resourceSession.getResourceConfig();\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f80c",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 460,
+    "EndLine": 525,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "21"
+    },
+    "PreviewCode": "  private void collectIdentityOrderChanges(final JsonIdentityDelta delta, final LongOpenHashSet relocated) {\n    final var directory = structuralOrderDirectory();\n    final Long2ObjectOpenHashMap&lt;SirixDeweyID&gt; anchors = new Long2ObjectOpenHashMap&lt;&gt;();\n    final Long2LongOpenHashMap oldLeft = new Long2LongOpenHashMap();\n    final Long2LongOpenHashMap oldRight = new Long2LongOpenHashMap();\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f811",
+    "FilePath": "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/JsonIdentityProjectionEpochTest.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 77,
+    "EndLine": 236,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "16"
+    },
+    "PreviewCode": "  @ParameterizedTest\n  @MethodSource(&quot;batchConfigurations&quot;)\n  void batchRotationsAndMixedPermutationsKeepOrderedAnchors(final VersioningType versioning, final HashType ha...\n      final boolean dewey, final boolean emptied) {\n    final Path sourcePath = directory.resolve(&quot;source&quot;);\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f812",
+    "FilePath": "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/JsonIdentityValidTimeEpochTest.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 211,
+    "EndLine": 300,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "29"
+    },
+    "PreviewCode": "  private static void assertEvidence(final JsonNodeReadOnlyTrx reader) {\n    final LongOpenHashSet expected = new LongOpenHashSet();\n    final LongOpenHashSet inexact = new LongOpenHashSet();\n    final LongOpenHashSet unorderedParents = new LongOpenHashSet();\n    final Long2ObjectOpenHashMap&lt;LongOpenHashSet&gt; members = new Long2ObjectOpenHashMap&lt;&gt;();\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f80e",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/service/json/replay/JsonReplayTransitionValidator.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 132,
+    "EndLine": 175,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "21"
+    },
+    "PreviewCode": "  @SuppressWarnings(&quot;NullAway&quot;)\n  private void observe(final @Nullable Shape prior, final @Nullable Shape current) {\n    addBoundaries(prior);\n    addBoundaries(current);\n    if (prior != null &amp;&amp; prior.parent() &gt;= 0) {\n"
+  },
+  {
+    "Key": "6ac5819b100d2e9d8494f80f",
+    "FilePath": "bundles/sirix-core/src/main/java/io/sirix/service/json/replay/JsonReplayTransitionValidator.java",
+    "Revision": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 193,
+    "EndLine": 231,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "22"
+    },
+    "PreviewCode": "  private void validateBoundary(final Shape node) {\n    if ((node.key() == 0) != (node.kind() == NodeKind.JSON_DOCUMENT) || (node.key() == 0\n        &amp;&amp; (node.parent() != -1 || node.left() != -1 || node.right() != -1 || node.first() != node.last()))) {\n      throw new IllegalStateException(&quot;Invalid replay document root&quot;);\n    }\n"
+  },
+  {
+    "Key": "6ac592c5100d2e9d84969bbe",
+    "FilePath": "build/replay/latency/io/sirix/replaybench/ReplayLatency.java",
+    "Revision": "df1f5fed6f179e305d5bcc6d2816b7a16dc09290",
+    "Name": "Complex Method",
+    "Category": "Complexity",
+    "StartLine": 41,
+    "EndLine": 130,
+    "Metric": {
+      "Name": "complexity",
+      "Description": "Measure of effort required to understand code",
+      "Value": "21"
+    },
+    "PreviewCode": "  public static void main(final String[] args) throws Exception {\n    if (args.length != 4) throw new IllegalArgumentException(&quot;label directory warmups samples&quot;);\n    final String label = args[0];\n    final Path directory = Path.of(args[1]);\n    final int warmups = Integer.parseInt(args[2]);\n"
+  }
+]

@@ -4,7 +4,7 @@ Started 2026-10-04 on fm/sirix-replay-identity-delta from 71be74062.
 Design authority: /home/johannes/IdeaProjects/firstmate/data/sirix-diff-replay-design-review/report.md,
 recommendation B and its ordered migration/acceptance plan. The report remains read-only.
 
-## Current checkpoint (2026-10-06, after review repairs)
+## Current checkpoint (2026-10-07, after CI repairs)
 
 Production history copy uses identity deltas. The submitted change includes the accepted
 projection batch-order, valid-time scheduling, anonymous-array PATH and boundary-hashing
@@ -23,6 +23,8 @@ behavior-preserving helper extractions and both auxiliary package-layout correct
 It also supplies five retained complexity notes for the outer executor's PR description;
 publication and the next provider report remain owned by that executor. Its local checks
 use the same private validation environment and cutoff described below.
+The follow-up on published head `df1f5fed6` captures its nine remaining provider findings
+and further simplifies the four methods outside the five retained complexity notes.
 
 The [latency report](latency/report.md) describes the measured candidate and retains the
 source/public-diff uncertainty. No new campaign covers the review repairs, and the

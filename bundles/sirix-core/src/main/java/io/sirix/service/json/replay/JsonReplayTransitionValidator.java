@@ -134,6 +134,29 @@ public final class JsonReplayTransitionValidator {
   private void observe(final @Nullable Shape prior, final @Nullable Shape current) {
     addBoundaries(prior);
     addBoundaries(current);
+    observeChildContributions(prior, current);
+    observeParentChanges(prior, current);
+    if (current != null && (prior == null || prior.kind() != current.kind() || prior.first() != current.first()
+        || prior.last() != current.last() || prior.children() != current.children()
+        || prior.descendants() != current.descendants())) {
+      parents.add(current.key());
+    }
+  }
+
+  private void observeParentChanges(final @Nullable Shape prior, final @Nullable Shape current) {
+    if (prior == null || current == null || prior.parent() != current.parent() || prior.left() != current.left()
+        || prior.right() != current.right()) {
+      observePriorParent(prior, current);
+      if (current != null && current.parent() >= 0) {
+        parents.add(current.parent());
+        if (prior != null && prior.parent() != current.parent()) {
+          nonAppendParents.add(current.parent());
+        }
+      }
+    }
+  }
+
+  private void observeChildContributions(final @Nullable Shape prior, final @Nullable Shape current) {
     if (prior != null && prior.parent() >= 0) {
       childChanges.addTo(prior.parent(), -1);
       descendantChanges.addTo(prior.parent(), -Math.addExact(prior.descendants(), 1));
@@ -150,21 +173,6 @@ public final class JsonReplayTransitionValidator {
       if (current.parent() >= 0) {
         parents.add(current.parent());
       }
-    }
-    if (prior == null || current == null || prior.parent() != current.parent() || prior.left() != current.left()
-        || prior.right() != current.right()) {
-      observePriorParent(prior, current);
-      if (current != null && current.parent() >= 0) {
-        parents.add(current.parent());
-        if (prior != null && prior.parent() != current.parent()) {
-          nonAppendParents.add(current.parent());
-        }
-      }
-    }
-    if (current != null && (prior == null || prior.kind() != current.kind() || prior.first() != current.first()
-        || prior.last() != current.last() || prior.children() != current.children()
-        || prior.descendants() != current.descendants())) {
-      parents.add(current.key());
     }
   }
 
@@ -203,28 +211,32 @@ public final class JsonReplayTransitionValidator {
       throw new IllegalStateException("Invalid replay document root");
     }
     if (node.key() != 0) {
-      final Shape parent = require(node.parent());
-      if (!JsonReplayGraphValidator.compatible(parent.kind(), node.kind())) {
-        throw new IllegalStateException("Incompatible replay parent at " + node.key());
-      }
-      if (node.left() == -1
-          ? parent.first() != node.key()
-          : require(node.left()).right() != node.key() || require(node.left()).parent() != node.parent()) {
-        throw new IllegalStateException("Invalid replay left boundary at " + node.key());
-      }
-      if (node.right() == -1
-          ? parent.last() != node.key()
-          : require(node.right()).left() != node.key() || require(node.right()).parent() != node.parent()) {
-        throw new IllegalStateException("Invalid replay right boundary at " + node.key());
-      }
-      if (deweyIDs) {
-        validateDeweyBoundary(node, parent);
-      }
+      validateSiblingBoundaries(node);
     }
     if ((node.first() == -1) != (node.last() == -1)
         || (node.first() >= 0 && (require(node.first()).parent() != node.key() || require(node.first()).left() != -1
             || require(node.last()).parent() != node.key() || require(node.last()).right() != -1))) {
       throw new IllegalStateException("Invalid replay child boundary at " + node.key());
+    }
+  }
+
+  private void validateSiblingBoundaries(final Shape node) {
+    final Shape parent = require(node.parent());
+    if (!JsonReplayGraphValidator.compatible(parent.kind(), node.kind())) {
+      throw new IllegalStateException("Incompatible replay parent at " + node.key());
+    }
+    if (node.left() == -1
+        ? parent.first() != node.key()
+        : require(node.left()).right() != node.key() || require(node.left()).parent() != node.parent()) {
+      throw new IllegalStateException("Invalid replay left boundary at " + node.key());
+    }
+    if (node.right() == -1
+        ? parent.last() != node.key()
+        : require(node.right()).left() != node.key() || require(node.right()).parent() != node.parent()) {
+      throw new IllegalStateException("Invalid replay right boundary at " + node.key());
+    }
+    if (deweyIDs) {
+      validateDeweyBoundary(node, parent);
     }
   }
 

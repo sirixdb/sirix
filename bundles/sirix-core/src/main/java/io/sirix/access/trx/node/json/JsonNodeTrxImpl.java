@@ -579,9 +579,7 @@ final class JsonNodeTrxImpl extends
 
         checkAccessAndCommit();
         final boolean storeDiffs = resourceSession.getResourceConfig().storeDiffs();
-        if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
-          beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
-        }
+        recordBulkInsertionBaseRevision(storeDiffs);
         // Every auto-commit boundary must have valid hashes/counts. A deferred final repair
         // cannot repair already-published intermediate revisions, even when explicitly requested.
         final boolean perInsertHashAdaptation = isAutoCommitting;
@@ -604,17 +602,7 @@ final class JsonNodeTrxImpl extends
 
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
 
-        moveTo(nodeKey);
-
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD -> moveToFirstChild();
-          case AS_LAST_CHILD -> moveToLastChild();
-          case AS_LEFT_SIBLING -> moveToLeftSibling();
-          case AS_RIGHT_SIBLING -> moveToRightSibling();
-          default -> {
-            // May not happen.
-          }
-        }
+        moveToInsertedSubtree(nodeKey, insertionPosition);
 
         if (storeDiffs) {
           collectBulkInsertDiffs(insertionPosition, skipRootJsonToken, nodeKey, siblingBoundary);
@@ -631,19 +619,13 @@ final class JsonNodeTrxImpl extends
         }
 
       } catch (final IOException e) {
-        if (mutationStarted) {
-          markRollbackOnly(e);
-        }
+        markBulkInsertFailure(mutationStarted, e);
         throw new UncheckedIOException(e);
       } catch (final RuntimeException | Error e) {
-        if (mutationStarted) {
-          markRollbackOnly(e);
-        }
+        markBulkInsertFailure(mutationStarted, e);
         throw e;
       } catch (final Exception e) {
-        if (mutationStarted) {
-          markRollbackOnly(e);
-        }
+        markBulkInsertFailure(mutationStarted, e);
         throw new SirixException(e);
       } finally {
         if (mutationStarted) {
@@ -652,6 +634,28 @@ final class JsonNodeTrxImpl extends
       }
     });
     return this;
+  }
+
+  private void recordBulkInsertionBaseRevision(final boolean storeDiffs) {
+    if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
+      beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+    }
+  }
+
+  private void moveToInsertedSubtree(final long nodeKey, final InsertPosition insertionPosition) {
+    moveTo(nodeKey);
+    switch (insertionPosition) {
+      case AS_FIRST_CHILD -> moveToFirstChild();
+      case AS_LAST_CHILD -> moveToLastChild();
+      case AS_LEFT_SIBLING -> moveToLeftSibling();
+      case AS_RIGHT_SIBLING -> moveToRightSibling();
+    }
+  }
+
+  private void markBulkInsertFailure(final boolean mutationStarted, final Throwable cause) {
+    if (mutationStarted) {
+      markRollbackOnly(cause);
+    }
   }
 
   private long insertionBoundary(final InsertPosition insertionPosition) {
@@ -3440,41 +3444,7 @@ final class JsonNodeTrxImpl extends
         // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
-        for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
-          final long currentNodeKey = axis.nextLong();
-          final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
-          if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
-            final long originalKey = staleTuple.getOldNodeKey();
-            updateOperationsUnordered.put(-originalKey,
-                new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
-          }
-
-          // Remove name.
-          removeName();
-
-          // Remove text value.
-          removeValue();
-
-          // De-index plain OBJECT records and NULL_VALUE elements — kinds
-          // that carry neither a name nor a value and would otherwise vanish
-          // without any listener-maintained index (projection) ever seeing
-          // the deletion.
-          removeObjectOrNullEntry();
-
-          // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
-          // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
-          // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
-          // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
-          // leaked the __array__ refcount.
-          removeArrayPathEntry();
-
-          // Then remove node.
-          storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
-
-          if (storeNodeHistory) {
-            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
-          }
-        }
+        removeDescendants();
 
         if (node.getKind().playsObjectKeyRole()) {
           removeName();
@@ -3520,6 +3490,43 @@ final class JsonNodeTrxImpl extends
     } finally {
       if (lock != null) {
         lock.unlock();
+      }
+    }
+  }
+
+  private void removeDescendants() {
+    for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
+      final long currentNodeKey = axis.nextLong();
+      final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
+      if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+        final long originalKey = staleTuple.getOldNodeKey();
+        updateOperationsUnordered.put(-originalKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
+      }
+
+      // Remove name.
+      removeName();
+
+      // Remove text value.
+      removeValue();
+
+      // De-index plain OBJECT records and NULL_VALUE elements — kinds
+      // that carry neither a name nor a value and would otherwise vanish
+      // without any listener-maintained index (projection) ever seeing
+      // the deletion.
+      removeObjectOrNullEntry();
+
+      // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
+      // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
+      // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
+      // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
+      // leaked the __array__ refcount.
+      removeArrayPathEntry();
+
+      // Then remove node.
+      storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
       }
     }
   }

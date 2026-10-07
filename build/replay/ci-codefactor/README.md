@@ -113,3 +113,55 @@ No pipeline control, commits, push, PR edits or other validation phases run here
 - No full core/query suite or new measurement campaign is claimed by this CI repair.
   The hosted provider must analyze the published repaired head; the five known complexity
   notes above are the intended PR-description handoff under the approved small-fix scope.
+
+## Follow-up on published head `df1f5fed6` (2026-10-07)
+
+GitHub status `55753146252` is a real failure on exact head
+`df1f5fed6f179e305d5bcc6d2816b7a16dc09290`: "1 issue fixed. 9 issues found."
+The current report was retrieved with HTTP/1.1 at 01:10Z after HTTP/2 returned 429.
+`round4-issues.json` retains all nine diagnostics. Existing issue IDs retain their
+original detection revision/locations; this does not make the current status stale.
+Both package findings are gone. The five known notes above remain under the approved
+small-fix scope; the other four methods receive further contiguous extractions.
+
+The invariant remains identical operation order, rejection messages, cursor state,
+rollback behavior, allocations and work counters across all original callers:
+
+- `insertSubtreeInternal`: base-revision recording, inserted-root selection and the
+  repeated conditional rollback latch move to small helpers. Gson, Jackson, Brackit Item,
+  LDJSON, all four positions, skipped/retained roots and all commit modes retain the same
+  sequencing. Validation failures before mutation still leave the rollback latch alone;
+  all three exception categories after mutation still set it before propagating the same
+  exception. The exhaustive enum switch drops only its unreachable empty default.
+- `remove`: the unchanged postorder descendant loop moves to `removeDescendants`, still
+  inside the original page guard and lock. Direct removal and compound value replacement
+  retain validation, plain/fused/primitive root and descendant index dispatch, stale diff
+  purging, history writes, hash repair and right/left/parent cursor selection.
+- `observe`: child contributions and link-change parent observation move to separate
+  helpers at their original points. DELETE/PUT creation/update, both move directions,
+  old/new parents, append/general permutations and count settings retain all original
+  map/set operations, reads and allocation sites.
+- `validateBoundary`: parent compatibility and both sibling/Dewey boundaries move to
+  `validateSiblingBoundaries`, still between document-root and child-boundary checks.
+  Root/non-root, first/last/interior siblings, plain/fused kinds and Dewey on/off/missing
+  retain the same rejection order, including missing-left-Dewey rollback/retry.
+
+Each ordinary path and its callers was retraced before verification. All helpers have
+live callers; no alias, replaced parameter, fallback or unreachable branch remains.
+This follow-up adds no tests, assertions, work bounds or production behavior.
+
+Local verification uses `round4-run.sh`, which preserves the captured inline heavy
+limiter, private homes, read-only dependency cache, 2 GiB heaps, `--no-parallel` and
+post-admission deadline guard. Its per-command timeout is configurable (900 seconds
+by default) so checks can finish before 01:40Z. The resolved private Brackit JAR still
+matches published `1.0-alpha10-20261006.152144-93` and the SHA-256 recorded above.
+Final outcomes and source identities are recorded in `round4-summary.json` and
+`round4-source-digests.json`; command logs and JUnit XML remain in this directory.
+Final scoped core/query Spotless checks and Error Prone main/test compilation passed.
+The final core selection passed 1,401 cases, including all 229 core/projection budgets,
+with 11 existing skips and zero failures/errors. Query selection passed 32 cases with
+five existing skips and zero failures/errors; its generic reader-lifetime dependency
+also passed. Source digests remained unchanged through verification. All JVM commands
+finished before 01:40Z; no full suites or benchmark campaign ran in this follow-up.
+Publication, hosted reanalysis, PR-description updates and other phases remain with
+the outer executor. The retained five notes are not claimed resolved or waived by CI.
