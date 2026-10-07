@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.jdm.Kind;
@@ -13,8 +14,10 @@ import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.DeleteOp;
 import io.brackit.query.update.op.ReplaceElementContentOp;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.SirixQueryContext.CommitStrategy;
@@ -119,6 +122,74 @@ final class XmlPendingUpdateRegressionTest {
       assertEquals(rootKey, collection.getDocument(2).getFirstChild().getNodeKey());
       assertEquals("<r keep=\"yes\">new</r>", serialize(collection.getDocument(2)));
       assertEquals(before, serialize(collection.getDocument(1)));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void missingTargetsRemainNoOpsAcrossExplicitBatches(final VersioningType versioning) {
+    final String xml = "<r><a>old</a></r>";
+    for (final boolean deweyIds : new boolean[] {false, true}) {
+      for (final AfterCommitState state : new AfterCommitState[] {AfterCommitState.KEEP_OPEN,
+          AfterCommitState.KEEP_OPEN_ASYNC_COMMIT, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH}) {
+        try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                       .location(directory.resolve("missing-" + state + "-" + deweyIds))
+                                                       .versioningType(versioning)
+                                                       .storageType(StorageType.FILE_CHANNEL)
+                                                       .storeDeweyIds(deweyIds)
+                                                       .build();
+            final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+            final SirixQueryContext first =
+                SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT);
+            final SirixQueryContext second =
+                SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT);
+            final SirixQueryContext third =
+                SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT)) {
+          final XmlDBCollection collection = store.create("data", new DocumentParser(xml));
+          final XmlDBNode original = collection.getDocument(1);
+          final long rootKey = original.getFirstChild().getNodeKey();
+          try (final XmlNodeTrx writer = original.getTrx().getResourceSession().beginNodeTrx(1, state)) {
+            first.setContextItem(original);
+            new Query(chain, "delete node r/a").execute(first);
+            second.setContextItem(original);
+            new Query(chain, "delete node r/a").execute(second);
+            third.setContextItem(original);
+            new Query(chain, "replace value of node r/a with 'ignored'").execute(third);
+            assertEquals(1, original.getTrx().getResourceSession().getMostRecentRevisionNumber());
+            assertEquals(xml, serialize(original));
+            writer.commit();
+          }
+          assertEquals(2, original.getTrx().getResourceSession().getMostRecentRevisionNumber());
+          assertEquals(rootKey, collection.getDocument(2).getFirstChild().getNodeKey());
+          assertEquals("<r/>", serialize(collection.getDocument(2)));
+          assertEquals(xml, serialize(original));
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void missingTargetsStillParticipateInConflictChecks(final VersioningType versioning) {
+    try (final BasicXmlDBStore store = newStore(versioning, "missing-conflict");
+        final SirixQueryContext first =
+            SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT);
+        final SirixQueryContext second =
+            SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT)) {
+      final XmlDBCollection collection = store.create("data", new DocumentParser("<r><a/></r>"));
+      final XmlDBNode original = collection.getDocument(1);
+      final XmlDBNode child = original.getFirstChild().getFirstChild();
+      try (final XmlNodeTrx writer = original.getTrx().getResourceSession().beginNodeTrx()) {
+        first.addPendingUpdate(new DeleteOp(child));
+        first.applyUpdates();
+        second.addPendingUpdate(new ReplaceElementContentOp(child, new Una("first")));
+        second.addPendingUpdate(new ReplaceElementContentOp(child, new Una("second")));
+        assertThrows(QueryException.class, second::applyUpdates);
+        assertThrows(SirixUsageException.class, writer::commit);
+        writer.rollback();
+      }
+      assertEquals(1, original.getTrx().getResourceSession().getMostRecentRevisionNumber());
+      assertEquals("<r><a/></r>", serialize(original));
     }
   }
 

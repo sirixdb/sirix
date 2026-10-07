@@ -21,6 +21,7 @@ import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.brackit.query.QueryExecution;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.update.op.UpdateOp;
 import io.brackit.query.atomic.QNm;
@@ -105,9 +106,18 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         : null;
   }
 
+  private XmlDBNode(final XmlNodeTrx writer, final XmlDBNode source) {
+    collection = source.collection;
+    rtx = writer;
+    isWtx = true;
+    nodeKey = source.nodeKey;
+    kind = source.kind;
+    deweyID = source.deweyID;
+  }
+
   private static final ScopedValue<UpdateView> UPDATE_VIEW = ScopedValue.newInstance();
 
-  private record UpdateView(XmlDBNode source, XmlDBNode target) {}
+  private record UpdateView(XmlDBNode source, XmlDBNode target, @Nullable QueryExecution execution, Thread owner) {}
 
   /**
    * Brackit retains the original target in each operation. Dispatch its calls to a private
@@ -122,7 +132,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     // Earlier replacements/deletions can detach a later target in the same list.
     if (target.rtx.moveTo(nodeKey)) {
-      ScopedValue.where(UPDATE_VIEW, new UpdateView(this, target)).run(operation::apply);
+      ScopedValue.where(UPDATE_VIEW, new UpdateView(this, target, QueryExecution.current(), Thread.currentThread()))
+                 .run(operation::apply);
     }
   }
 
@@ -133,16 +144,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (resource.getDatabaseId() != writerResource.getDatabaseId() || resource.getID() != writerResource.getID()) {
       throw new IllegalArgumentException("Writer belongs to a different resource");
     }
-    if (!writer.moveTo(nodeKey)) {
-      throw new DocumentException("Update target no longer exists: %s", nodeKey);
-    }
-    return new XmlDBNode(writer, collection);
+    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this);
   }
 
   private XmlDBNode updateView() {
     if (UPDATE_VIEW.isBound()) {
       final UpdateView view = UPDATE_VIEW.get();
-      if (view.source == this || nodeKey == view.source.nodeKey && isSameDocument(view.source)) {
+      if (view.owner == Thread.currentThread() && view.execution == QueryExecution.current()
+          && (view.source == this || nodeKey == view.source.nodeKey && isSameDocument(view.source))) {
         return view.target;
       }
     }

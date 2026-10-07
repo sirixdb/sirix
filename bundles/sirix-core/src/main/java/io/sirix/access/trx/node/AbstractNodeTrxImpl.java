@@ -404,8 +404,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /**
    * An XML pending-update list owns this scope through final text normalization. The lock
-   * excludes timed publication; the compound counter suppresses count-based publication and
-   * flushes. Ending a scope never publishes. Failed lists must mark every writer rollback-only.
+   * excludes timed publication. Ending a scope never publishes. Failed lists must mark every
+   * writer rollback-only.
    */
   public final void beginAtomicOperation() {
     if (lock != null) {
@@ -419,7 +419,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         publicationScopeOwner = Thread.currentThread();
       }
       publicationScopeDepth++;
-      beginCompoundOperation();
     } catch (final RuntimeException | Error failure) {
       if (lock != null) {
         lock.unlock();
@@ -433,7 +432,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       throw new IllegalStateException("Publication scopes must be balanced on the owning thread");
     }
     try {
-      endCompoundOperation();
       if (--publicationScopeDepth == 0) {
         publicationScopeOwner = null;
       }
@@ -776,7 +774,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final void requireCleanImportEpoch() {
     nodeReadOnlyTrx.assertNotClosed();
     assertRunning();
-    if (modificationCount != 0 || compoundOperationDepth != 0) {
+    if (modificationCount != 0 || compoundOperationDepth != 0 || publicationScopeDepth != 0) {
       throw new IllegalStateException("Identity import requires a clean transaction epoch");
     }
   }
@@ -970,7 +968,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
-    if (compoundOperationDepth != 0) {
+    if (compoundOperationDepth != 0
+        || publicationScopeDepth != 0 && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
       return false;
     }
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {

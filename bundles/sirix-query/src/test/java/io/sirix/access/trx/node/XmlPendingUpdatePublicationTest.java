@@ -12,6 +12,7 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.node.parser.DocumentParser;
+import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.OpType;
 import io.brackit.query.update.op.ReplaceElementContentOp;
@@ -27,6 +28,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.SirixQueryContext.CommitStrategy;
+import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
@@ -40,6 +42,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -459,6 +462,152 @@ final class XmlPendingUpdatePublicationTest {
         assertEquals("old", retained.getFirstChild().getValue().stringValue());
         assertEquals("uncommitted", collection.getDocument(2).getFirstChild().getValue().stringValue());
       }
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("queryConfigurations")
+  void nestedReadOnlyQueryKeepsCachedSnapshot(final VersioningType versioning, final CommitStrategy strategy) {
+    checkIndependentQuery(versioning, strategy, false);
+  }
+
+  @ParameterizedTest
+  @MethodSource("queryConfigurations")
+  void structuredChildQueryKeepsCachedSnapshot(final VersioningType versioning, final CommitStrategy strategy) {
+    checkIndependentQuery(versioning, strategy, true);
+  }
+
+  private void checkIndependentQuery(final VersioningType versioning, final CommitStrategy strategy,
+      final boolean structuredChild) {
+    for (final boolean owningExecution : new boolean[] {false, true}) {
+      try (final BasicXmlDBStore store = newStore(versioning, "isolated-" + structuredChild + "-" + owningExecution);
+          final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy);
+          final SirixQueryContext readContext = SirixQueryContext.createWithNodeStore(store)) {
+        final XmlDBCollection collection = store.create("data", new DocumentParser("<r xmlns:p='urn:old'>old</r>"));
+        final XmlDBNode cached = collection.getDocument(1);
+        final XmlNodeReadOnlyTrx originalReader = cached.getTrx();
+        final int originalHash = cached.hashCode();
+        final XmlResourceSession session = originalReader.getResourceSession();
+        final AtomicReference<XmlDBNode> retained = new AtomicReference<>();
+        readContext.setContextItem(cached);
+        try (final XmlNodeTrx writer = session.beginNodeTrx(1)) {
+          context.addPendingUpdate(new UpdateOp() {
+            @Override
+            public XmlDBNode getTarget() {
+              return cached;
+            }
+
+            @Override
+            public OpType getType() {
+              return OpType.REPLACE_ELEMENT_CONTENT;
+            }
+
+            @Override
+            public void apply() {
+              final XmlDBNode root = cached.getFirstChild();
+              new ReplaceElementContentOp(root, new Una("uncommitted")).apply();
+              root.getScope().addPrefix("q", "urn:uncommitted");
+              assertSame(writer, cached.getTrx());
+              assertEquals("uncommitted", cached.getValue().stringValue());
+              if (structuredChild) {
+                try (final var scope = StructuredTaskScope.open()) {
+                  final var child = scope.fork(() -> {
+                    assertSame(originalReader, cached.getTrx());
+                    assertEquals("old", cached.getValue().stringValue());
+                    assertEquals("old", new Query(new CompileChain(), "string($$)").execute(readContext).toString());
+                    return (XmlDBNode) new Query(new CompileChain(), "$$").execute(readContext);
+                  });
+                  scope.join();
+                  retained.set(child.get());
+                } catch (final InterruptedException failure) {
+                  Thread.currentThread().interrupt();
+                  throw new IllegalStateException(failure);
+                }
+              } else {
+                assertEquals("old", new Query(new CompileChain(), "string($$)").execute(readContext).toString());
+                retained.set((XmlDBNode) new Query(new CompileChain(), "$$").execute(readContext));
+              }
+              assertSame(writer, cached.getTrx());
+              assertEquals("uncommitted", cached.getValue().stringValue());
+              assertEquals(1, session.getMostRecentRevisionNumber());
+            }
+          });
+          if (owningExecution) {
+            new Query(new CompileChain(), "()").evaluate(context);
+          } else {
+            context.applyUpdates();
+          }
+          assertSame(cached, retained.get());
+          assertSame(originalReader, retained.get().getTrx());
+          assertEquals(originalHash, cached.hashCode());
+          assertEquals("old", retained.get().getValue().stringValue());
+          assertEquals("urn:old", retained.get().getFirstChild().getScope().resolvePrefix("p"));
+          assertEquals(null, retained.get().getFirstChild().getScope().resolvePrefix("q"));
+          if (strategy == CommitStrategy.EXPLICIT) {
+            assertEquals(1, session.getMostRecentRevisionNumber());
+            writer.commit();
+          } else {
+            assertTrue(writer.isClosed());
+          }
+          assertEquals(2, session.getMostRecentRevisionNumber());
+          assertEquals("uncommitted", collection.getDocument(2).getValue().stringValue());
+          assertEquals("old", retained.get().getValue().stringValue());
+          assertSame(originalReader, cached.getTrx());
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("queryConfigurations")
+  void replacementRotatesPrivateLogsWithoutPublishing(final VersioningType versioning, final CommitStrategy strategy) {
+    final String xml = "<r>" + "<a/>".repeat(128) + "</r>";
+    try (final BasicXmlDBStore store = newStore(versioning, "private-rotation");
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy)) {
+      final XmlDBCollection collection = store.create("data", new DocumentParser(xml));
+      final XmlDBNode original = collection.getDocument(1);
+      final XmlDBNode root = original.getFirstChild();
+      final XmlResourceSession session = original.getTrx().getResourceSession();
+      final AtomicInteger commits = new AtomicInteger();
+      try (final XmlNodeTrx writer = session.beginNodeTrx(8, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        writer.addPreCommitHook(unused -> commits.incrementAndGet());
+        new SirixReplaceValue(new Una("done"), root).evaluateToItem(context, new TupleImpl());
+        final UpdateOp replacement = context.getUpdateList().list().getFirst();
+        context.getUpdateList().list().set(0, new UpdateOp() {
+          @Override
+          public XmlDBNode getTarget() {
+            return root;
+          }
+
+          @Override
+          public OpType getType() {
+            return replacement.getType();
+          }
+
+          @Override
+          public void apply() {
+            final int before = writer.getStorageEngineWriter().getLog().getCurrentGeneration();
+            replacement.apply();
+            final int after = writer.getStorageEngineWriter().getLog().getCurrentGeneration();
+            assertTrue(after >= before + 2, "completed child removals must rotate private log generations");
+            assertEquals(0, commits.get());
+            assertEquals(1, session.getMostRecentRevisionNumber());
+            assertThrows(SirixUsageException.class, writer::commit);
+          }
+        });
+        context.applyUpdates();
+        assertEquals(strategy == CommitStrategy.AUTO ? 1 : 0, commits.get());
+        if (strategy == CommitStrategy.EXPLICIT) {
+          writer.commit();
+        } else {
+          assertTrue(writer.isClosed());
+        }
+        assertEquals(1, commits.get());
+      }
+      assertEquals(2, session.getMostRecentRevisionNumber());
+      checkHistory(collection, session, root.getNodeKey());
+      assertEquals("<r>done</r>", serialize(collection.getDocument(2)));
+      assertEquals(xml, serialize(original));
     }
   }
 
