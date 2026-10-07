@@ -13,6 +13,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
@@ -142,79 +143,9 @@ final class CASContainerRenameTest {
       for (int revision = 1; revision <= 4; revision++) {
         final boolean indexed = revision % 2 == 0;
         final String document = "jn:doc('containers','rows'," + revision + ")";
-        final String source = document + selector + "[]";
-        final List<String> queries = List.of("sum(for $c in " + source + " where $c.id eq 1 return $c.value)",
-            "sum(" + source + "[?$$.id eq 1].value)", "sum(" + source + ".item[?$$.id eq 1].value)",
-            "sum(" + source + ".item[?$$.id ge 1 and $$.id le 2].value)");
-        for (final String query : queries) {
-          assertEquals(indexed
-              ? 10
-              : 0, ((Numeric) new Query(generic, query).execute(context)).intValue(), query);
-          assertEquals(indexed
-              ? 10
-              : 0, ((Numeric) new Query(optimized, query).execute(context)).intValue(), query);
-        }
-        final String oldQuery = "sum(for $c in " + document + oldSelector + "[] where $c.id eq 1 return $c.value)";
-        final int oldValue = indexed
-            ? (shared
-                ? 20
-                : 0)
-            : 10;
-        assertEquals(oldValue, ((Numeric) new Query(generic, oldQuery).execute(context)).intValue());
-        assertEquals(oldValue, ((Numeric) new Query(optimized, oldQuery).execute(context)).intValue());
-        assertCount(optimized, context, document, 0, "1", prefix + "/id", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 1, "1", oldPrefix + "/id", indexed
-            ? (shared
-                ? 1
-                : 0)
-            : (shared
-                ? 2
-                : 1));
-        assertCount(optimized, context, document, 2, "1", prefix + "/item/id", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 3, "'one'", prefix + "/label", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 4, "true()", prefix + "/enabled", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 5, "1", prefix + "/samples/[]", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 6, "'one'", prefix + "/samples/[]", indexed
-            ? 1
-            : 0);
-        assertCount(optimized, context, document, 7, "true()", prefix + "/samples/[]", indexed
-            ? 2
-            : 0);
-        try (var reader = session.beginNodeReadOnlyTrx(revision)) {
-          final var controller = session.getRtxIndexController(revision);
-          final IndexDef primary = controller.getIndexes().getIndexDef(0, IndexType.CAS);
-          assertTrue(primary.hasNumericValuesOnly());
-          assertTrue(primary.hasCompleteNumericCoverage());
-          assertEquals(indexed
-              ? FILLERS + 1
-              : 0,
-              count(controller.openPathIndex(reader.getStorageEngineReader(),
-                  controller.getIndexes().getIndexDef(0, IndexType.PATH),
-                  controller.createPathFilter(Set.of(prefix + "/id"), reader))));
-          assertEquals(indexed
-              ? 1
-              : 0,
-              count(controller.openPathIndex(reader.getStorageEngineReader(),
-                  controller.getIndexes().getIndexDef(1, IndexType.PATH),
-                  controller.createPathFilter(Set.of(prefix + "/label"), reader))));
-          assertEquals(shared
-              ? 2
-              : 1,
-              count(controller.openNameIndex(reader.getStorageEngineReader(),
-                  controller.getIndexes()
-                            .getIndexDef(IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID(), IndexType.NAME),
-                  controller.createNameFilter(Set.of("label")))));
-        }
+        assertQueryResults(generic, optimized, context, document, selector, oldSelector, indexed, shared);
+        assertCASPostings(optimized, context, document, prefix, oldPrefix, indexed, shared);
+        assertSecondaryIndexes(session, revision, prefix, indexed, shared);
         final var root = requireNonNull(store.lookup("containers").getDocument("rows", revision));
         JsonDBItem scope = (JsonDBItem) requireNonNull(((Object) root).get(new QNm(indexed
             ? newName
@@ -238,6 +169,92 @@ final class CASContainerRenameTest {
                                    .explain("jn:doc('containers','rows')" + selector + "[].item[?$$.id eq 1]", store,
                                        context.getNodeStore())
                                    .indexType());
+    }
+  }
+
+  private static void assertQueryResults(final CompileChain generic, final SirixCompileChain optimized,
+      final SirixQueryContext context, final String document, final String selector, final String oldSelector,
+      final boolean indexed, final boolean shared) {
+    final String source = document + selector + "[]";
+    final List<String> queries = List.of("sum(for $c in " + source + " where $c.id eq 1 return $c.value)",
+        "sum(" + source + "[?$$.id eq 1].value)", "sum(" + source + ".item[?$$.id eq 1].value)",
+        "sum(" + source + ".item[?$$.id ge 1 and $$.id le 2].value)");
+    for (final String query : queries) {
+      assertEquals(indexed
+          ? 10
+          : 0, ((Numeric) new Query(generic, query).execute(context)).intValue(), query);
+      assertEquals(indexed
+          ? 10
+          : 0, ((Numeric) new Query(optimized, query).execute(context)).intValue(), query);
+    }
+    final String oldQuery = "sum(for $c in " + document + oldSelector + "[] where $c.id eq 1 return $c.value)";
+    final int oldValue = indexed
+        ? (shared
+            ? 20
+            : 0)
+        : 10;
+    assertEquals(oldValue, ((Numeric) new Query(generic, oldQuery).execute(context)).intValue());
+    assertEquals(oldValue, ((Numeric) new Query(optimized, oldQuery).execute(context)).intValue());
+  }
+
+  private static void assertCASPostings(final SirixCompileChain optimized, final SirixQueryContext context,
+      final String document, final String prefix, final String oldPrefix, final boolean indexed, final boolean shared) {
+    assertCount(optimized, context, document, 0, "1", prefix + "/id", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 1, "1", oldPrefix + "/id", indexed
+        ? (shared
+            ? 1
+            : 0)
+        : (shared
+            ? 2
+            : 1));
+    assertCount(optimized, context, document, 2, "1", prefix + "/item/id", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 3, "'one'", prefix + "/label", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 4, "true()", prefix + "/enabled", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 5, "1", prefix + "/samples/[]", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 6, "'one'", prefix + "/samples/[]", indexed
+        ? 1
+        : 0);
+    assertCount(optimized, context, document, 7, "true()", prefix + "/samples/[]", indexed
+        ? 2
+        : 0);
+  }
+
+  private static void assertSecondaryIndexes(final JsonResourceSession session, final int revision, final String prefix,
+      final boolean indexed, final boolean shared) {
+    try (var reader = session.beginNodeReadOnlyTrx(revision)) {
+      final var controller = session.getRtxIndexController(revision);
+      final IndexDef primary = controller.getIndexes().getIndexDef(0, IndexType.CAS);
+      assertTrue(primary.hasNumericValuesOnly());
+      assertTrue(primary.hasCompleteNumericCoverage());
+      assertEquals(indexed
+          ? FILLERS + 1
+          : 0,
+          count(controller.openPathIndex(reader.getStorageEngineReader(),
+              controller.getIndexes().getIndexDef(0, IndexType.PATH),
+              controller.createPathFilter(Set.of(prefix + "/id"), reader))));
+      assertEquals(indexed
+          ? 1
+          : 0,
+          count(controller.openPathIndex(reader.getStorageEngineReader(),
+              controller.getIndexes().getIndexDef(1, IndexType.PATH),
+              controller.createPathFilter(Set.of(prefix + "/label"), reader))));
+      assertEquals(shared
+          ? 2
+          : 1,
+          count(controller.openNameIndex(reader.getStorageEngineReader(),
+              controller.getIndexes()
+                        .getIndexDef(IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON).getID(), IndexType.NAME),
+              controller.createNameFilter(Set.of("label")))));
     }
   }
 

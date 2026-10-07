@@ -6,8 +6,10 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.json.BulkJsonTreeAssembler;
 import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -120,26 +122,32 @@ final class CASMixedNameMutationTest {
               controller.createNameFilter(Set.of("id")))), kind + " revision " + revision);
           assertEquals(Set.of(other), keys(controller.openNameIndex(reader.getStorageEngineReader(), nameDefinition,
               controller.createNameFilter(Set.of("other")))));
-          final IndexDef cas = controller.getIndexes().getIndexDef(0, IndexType.CAS);
-          assertTrue(cas.hasNumericValuesOnly());
-          assertTrue(cas.hasCompleteNumericCoverage());
-          for (int value = 1; value <= 3; value++) {
-            final Set<Long> matches = value == 1 && revision == 1
-                ? Set.of(original)
-                : value == 2 && revision >= 2 && revision <= 4
-                    ? Set.of(original)
-                    : value == 3 && revision >= 3 && revision <= 5
-                        ? Set.of(inserted)
-                        : Set.of();
-            assertEquals(matches,
-                keys(controller.openCASIndex(reader.getStorageEngineReader(), cas,
-                    controller.createCASFilter(Set.of("/[]/id"),
-                        AtomicUtil.toType(AtomicUtil.fromNumber(number(kind, value)), type), SearchMode.EQUAL,
-                        new JsonPCRCollector(reader)))),
-                kind + " revision " + revision + " value " + value);
-          }
+          assertNumericPostings(reader, controller, revision, kind, type, original, inserted);
         }
       }
+    }
+  }
+
+  private static void assertNumericPostings(final JsonNodeReadOnlyTrx reader,
+      final IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> controller, final int revision, final String kind,
+      final Type type, final long original, final long inserted) {
+    final IndexDef cas = controller.getIndexes().getIndexDef(0, IndexType.CAS);
+    assertTrue(cas.hasNumericValuesOnly());
+    assertTrue(cas.hasCompleteNumericCoverage());
+    for (int value = 1; value <= 3; value++) {
+      final Set<Long> matches = value == 1 && revision == 1
+          ? Set.of(original)
+          : value == 2 && revision >= 2 && revision <= 4
+              ? Set.of(original)
+              : value == 3 && revision >= 3 && revision <= 5
+                  ? Set.of(inserted)
+                  : Set.of();
+      assertEquals(matches,
+          keys(controller.openCASIndex(reader.getStorageEngineReader(), cas,
+              controller.createCASFilter(Set.of("/[]/id"),
+                  AtomicUtil.toType(AtomicUtil.fromNumber(number(kind, value)), type), SearchMode.EQUAL,
+                  new JsonPCRCollector(reader)))),
+          kind + " revision " + revision + " value " + value);
     }
   }
 

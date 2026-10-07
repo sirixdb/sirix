@@ -444,31 +444,7 @@ public final class IndexExpr implements Expr {
       if (keys.isEmpty()) {
         return null;
       }
-      final long[] ordered = keys.toLongArray();
-      Arrays.sort(ordered);
-      if (ordered.length > 1) {
-        if (deweyIDs) {
-          final SirixDeweyID[] ids = new SirixDeweyID[ordered.length];
-          final int[] positions = new int[ordered.length];
-          for (int i = 0; i < ordered.length; i++) {
-            rtx.moveTo(ordered[i]);
-            ids[i] = rtx.getDeweyID();
-            positions[i] = i;
-          }
-          IntArrays.quickSort(positions, (left, right) -> ids[left].compareTo(ids[right]));
-          final long[] unsorted = ordered.clone();
-          for (int i = 0; i < ordered.length; i++) {
-            ordered[i] = unsorted[positions[i]];
-          }
-        }
-      }
-      final Item[] items = new Item[ordered.length];
-      final JsonItemFactory factory = JsonItemFactory.INSTANCE;
-      final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
-      for (int i = 0; i < ordered.length; i++) {
-        rtx.moveTo(ordered[i]);
-        items[i] = factory.getSequence(itemTrx, collection);
-      }
+      final Item[] items = materializeCASSourceItems(keys, rtx, collection, deweyIDs);
       retained = true;
       return new ItemSequence(items);
     } finally {
@@ -476,6 +452,34 @@ public final class IndexExpr implements Expr {
         rtx.close();
       }
     }
+  }
+
+  private static Item[] materializeCASSourceItems(final LongLinkedOpenHashSet keys, final JsonNodeReadOnlyTrx rtx,
+      final JsonDBCollection collection, final boolean deweyIDs) {
+    final long[] ordered = keys.toLongArray();
+    Arrays.sort(ordered);
+    if (ordered.length > 1 && deweyIDs) {
+      final SirixDeweyID[] ids = new SirixDeweyID[ordered.length];
+      final int[] positions = new int[ordered.length];
+      for (int i = 0; i < ordered.length; i++) {
+        rtx.moveTo(ordered[i]);
+        ids[i] = rtx.getDeweyID();
+        positions[i] = i;
+      }
+      IntArrays.quickSort(positions, (left, right) -> ids[left].compareTo(ids[right]));
+      final long[] unsorted = ordered.clone();
+      for (int i = 0; i < ordered.length; i++) {
+        ordered[i] = unsorted[positions[i]];
+      }
+    }
+    final Item[] items = new Item[ordered.length];
+    final JsonItemFactory factory = JsonItemFactory.INSTANCE;
+    final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
+    for (int i = 0; i < ordered.length; i++) {
+      rtx.moveTo(ordered[i]);
+      items[i] = factory.getSequence(itemTrx, collection);
+    }
+    return items;
   }
 
   private long resolveSourceArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {

@@ -56,23 +56,18 @@ public final class JsonCASSourceStep extends Walker {
         || source.getChild(1).getType() != XQ.SequenceExpr || source.getChild(1).getChildCount() != 0) {
       return node;
     }
+    return routeSource(node, source, predicate, variable, sourceIndex);
+  }
+
+  private AST routeSource(final AST node, final AST source, final AST predicate, final @Nullable Object variable,
+      final int sourceIndex) {
     final var names = new ArrayDeque<QNm>();
-    AST document = source.getChild(0);
-    while (document.getType() == XQ.DerefExpr && document.getChildCount() == 2
-        && document.getChild(1).getValue() instanceof QNm field) {
-      names.addFirst(field);
-      document = document.getChild(0);
-    }
-    if (document.getType() != XQ.FunctionCall
-        || !(Doc.DOC.equals(document.getValue()) || DocByPointInTime.OPEN.equals(document.getValue()))
-        || document.getChildCount() < 2 || document.getChildCount() > 3
-        || !(document.getChild(0).getValue() instanceof Str database)
-        || !(document.getChild(1).getValue() instanceof Str resource)) {
+    final AST document = sourceDocument(source.getChild(0), names);
+    if (document == null) {
       return node;
     }
-    if (document.getChildCount() == 3 && !RevisionData.isStableOperand(document.getChild(2))) {
-      return node;
-    }
+    final Str database = (Str) document.getChild(0).getValue();
+    final Str resource = (Str) document.getChild(1).getValue();
     final AST equality = equality(predicate, variable);
     if (equality == null) {
       return node;
@@ -114,6 +109,24 @@ public final class JsonCASSourceStep extends Walker {
     index.addChild(source.copyTree());
     node.replaceChild(sourceIndex, index);
     return node;
+  }
+
+  private static @Nullable AST sourceDocument(AST document, final ArrayDeque<QNm> names) {
+    while (document.getType() == XQ.DerefExpr && document.getChildCount() == 2
+        && document.getChild(1).getValue() instanceof QNm field) {
+      names.addFirst(field);
+      document = document.getChild(0);
+    }
+    if (document.getType() != XQ.FunctionCall
+        || !(Doc.DOC.equals(document.getValue()) || DocByPointInTime.OPEN.equals(document.getValue()))
+        || document.getChildCount() < 2 || document.getChildCount() > 3
+        || !(document.getChild(0).getValue() instanceof Str) || !(document.getChild(1).getValue() instanceof Str)) {
+      return null;
+    }
+    if (document.getChildCount() == 3 && !RevisionData.isStableOperand(document.getChild(2))) {
+      return null;
+    }
+    return document;
   }
 
   private static boolean dependsOnSequenceFocus(final AST node) {

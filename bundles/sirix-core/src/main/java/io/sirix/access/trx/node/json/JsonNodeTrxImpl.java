@@ -3599,52 +3599,15 @@ final class JsonNodeTrxImpl extends
     final boolean needName = indexController.hasNameIndex() || indexController.hasValidTimeIndex();
     final boolean needValue = (indexController.hasCASIndex() && !typedNumber) || indexController.hasValidTimeIndex();
 
-    final QNm name;
-    if (needName) {
-      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
-          || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
-          || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-        // Fused OBJECT_NAMED_* plays the field-name role — resolve via the stored nameKey
-        // in the OBJECT_NAMED_OBJECT namespace bucket (the canonical "object field" tag).
-        name = resolveFusedName(node);
-      } else {
-        name = null;
-      }
-    } else {
-      name = null;
-    }
+    final QNm name = needName
+        ? resolveFusedName(node)
+        : null;
 
     final Str value;
     if (needValue) {
       value = valueSupplied
           ? suppliedValue
-          : switch (kind) {
-            case STRING_VALUE -> node instanceof ValueNode valueNode
-                ? new Str(valueNode.getValue())
-                : null;
-            case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
-                ? (boolNode.getValue()
-                    ? STR_TRUE
-                    : STR_FALSE)
-                : null;
-            case NUMBER_VALUE -> node instanceof NumberNode numberNode
-                ? new Str(String.valueOf(numberNode.getValue()))
-                : null;
-            // Fused OBJECT_NAMED_* — value is inline on the fused record.
-            case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
-                ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
-                : null;
-            case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
-                ? (namedBool.getValue()
-                    ? STR_TRUE
-                    : STR_FALSE)
-                : null;
-            case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
-                ? new Str(String.valueOf(namedNum.getValue()))
-                : null;
-            case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> null;
-            default -> null;
-          };
+          : primitiveIndexValue(node, kind);
     } else {
       value = null;
     }
@@ -3660,6 +3623,35 @@ final class JsonNodeTrxImpl extends
     } else {
       indexController.notifyChange(type, nodeKey, kind, node.getParentKey(), pathNodeKey, name, value);
     }
+  }
+
+  private static @Nullable Str primitiveIndexValue(final ImmutableNode node, final NodeKind kind) {
+    return switch (kind) {
+      case STRING_VALUE -> node instanceof ValueNode valueNode
+          ? new Str(valueNode.getValue())
+          : null;
+      case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
+          ? (boolNode.getValue()
+              ? STR_TRUE
+              : STR_FALSE)
+          : null;
+      case NUMBER_VALUE -> node instanceof NumberNode numberNode
+          ? new Str(String.valueOf(numberNode.getValue()))
+          : null;
+      // Fused OBJECT_NAMED_* — value is inline on the fused record.
+      case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
+          ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
+          : null;
+      case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
+          ? (namedBool.getValue()
+              ? STR_TRUE
+              : STR_FALSE)
+          : null;
+      case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
+          ? new Str(String.valueOf(namedNum.getValue()))
+          : null;
+      default -> null;
+    };
   }
 
   /**
