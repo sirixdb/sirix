@@ -159,12 +159,15 @@ public final class LetMaterializationStage implements Stage {
         if (type == XQ.PipeExpr || type == XQ.End || type == XQ.InlineFuncItem || type == XQ.FunctionDecl)
           return NON_SCALAR;
         if (consumption != NON_SCALAR) {
-          if (type == XQ.IfExpr && parent.getChild(0) != child
-              || (type == XQ.AndExpr || type == XQ.OrExpr) && parent.getChild(0) != child
-              || (type == XQ.ArrayAccess || type == XQ.DerefExpr || type == XQ.FilterExpr)
-                  && parent.getChild(0) != child
-              || type == XQ.Predicate
-              || type == XQ.FunctionCall && !scalarFunction(functionName(parent)))
+          final boolean consumes = switch (type) {
+            case XQ.ParenthesizedExpr, XQ.SequenceExpr, XQ.ArrayConstructor, XQ.SequenceField,
+                XQ.FlattenedField, XQ.ObjectConstructor, XQ.KeyValueField -> true;
+            case XQ.ArrayAccess -> parent.getChild(0) == child && child.getType() == XQ.ArrayConstructor;
+            case XQ.DerefExpr -> parent.getChild(0) == child && child.getType() == XQ.ObjectConstructor;
+            case XQ.FunctionCall -> parent.getChild(0) == child && scalarFunction(functionName(parent));
+            default -> false;
+          };
+          if (!consumes)
             consumption = PARTIAL_CONSUMPTION;
           continue;
         }

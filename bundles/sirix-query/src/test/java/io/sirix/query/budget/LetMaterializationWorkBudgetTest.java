@@ -77,6 +77,17 @@ final class LetMaterializationWorkBudgetTest {
         Arguments.of("[exists($rows),exists($rows) or sum($rows) gt 0][]", "true true", 2),
         Arguments.of("[exists($rows),empty($rows) and count($rows) gt 0][]", "true false", 2),
         Arguments.of("[exists($rows),exists($rows),()[sum($rows)]][]", "true true", 2),
+        Arguments.of("[exists($rows),(1,sum($rows))[?false()]][]", "true", 1),
+        Arguments.of("[exists($rows),some $v in () satisfies sum($rows) gt 0][]", "true false", 1),
+        Arguments.of("[exists($rows),every $v in () satisfies count($rows) gt 0][]", "true true", 1),
+        Arguments.of("[exists($rows),some $v in (1,sum($rows)) satisfies $v eq 1][]", "true true", 1),
+        Arguments.of("[exists($rows),every $v in (0,count($rows)) satisfies $v gt 0][]", "true false", 1),
+        Arguments.of("[exists($rows),some $v in (),$w in sum($rows) satisfies true()][]", "true false", 1),
+        Arguments.of("[exists($rows),every $v in (),$w in count($rows) satisfies false()][]", "true true", 1),
+        Arguments.of("[exists($rows),some $v in 1,$w in () satisfies sum($rows) gt 0][]", "true false", 1),
+        Arguments.of("[exists($rows),every $v in 1,$w in () satisfies count($rows) gt 0][]", "true true", 1),
+        Arguments.of("[exists($rows),(1,2,sum($rows)) castable as xs:int][]", "true false", 1),
+        Arguments.of("[exists($rows),(1,sum($rows)) = 1][]", "true true", 1),
         Arguments.of("[exists($rows),exists((1,sum($rows))),exists((1,count($rows)))][]", "true true true", 1));
   }
 
@@ -91,6 +102,28 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(2L * reads, baseline.reads, "the disabled plan observes first-item demand on every evaluation");
     assertTrue(optimized.reads > 0, "the source-read counter must observe item demand");
     assertTrue(optimized.reads <= 2L * reads, "existence checks must not scan or buffer the 10,000-row source");
+    assertEquals(0, optimized.markers);
+  }
+
+  static Stream<Arguments> filteredConsumers() {
+    return Stream.of(Arguments.of("[exists($rows),(1,sum($rows))[?1]][]", "true 1"),
+        Arguments.of("[exists($rows),(1,2,count($rows))[?2]][]", "true 2"),
+        Arguments.of("[exists($rows),(1,sum($rows))[?1][?1]][]", "true 1"),
+        Arguments.of("[exists($rows),sum((1,sum($rows))[?1])][]", "true 1"),
+        Arguments.of("[exists($rows),()[?sum($rows) gt 0]][]", "true"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("filteredConsumers")
+  void filteredConsumersNeverIncreaseGenericSourceWork(final String result, final String answer) {
+    final String query = "let $rows := (for $r in jn:doc('bt','contracts')[] return $r.cost) return " + result;
+    final Capture optimized = run(query, 10000, true, 2);
+    final Capture baseline = run(query, 10000, false, 2);
+    assertEquals(answer, optimized.answer);
+    assertEquals(baseline.answer, optimized.answer);
+    assertTrue(baseline.reads > 0, "the source-read counter must observe item demand");
+    assertTrue(baseline.reads <= 20002, "at most one first-item read and one full reduction per evaluation");
+    assertTrue(optimized.reads <= baseline.reads, "filtering must not cause additional source consumption");
     assertEquals(0, optimized.markers);
   }
 
