@@ -103,6 +103,6 @@ public final class Import extends AbstractFunction {
       doc.getTrx().close();
     }
 
-    return new XmlDBNode(trx, coll).readView();
+    return new XmlDBNode(trx, coll);
   }
 }

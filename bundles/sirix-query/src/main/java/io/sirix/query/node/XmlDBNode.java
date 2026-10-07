@@ -21,18 +21,13 @@ import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.brackit.query.QueryExecution;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.update.op.UpdateOp;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.jdm.DocumentException;
-import io.brackit.query.jdm.Item;
-import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Scope;
-import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.AbstractTemporalNode;
 import io.brackit.query.jdm.node.Node;
@@ -43,8 +38,6 @@ import io.brackit.query.node.parser.NavigationalSubtreeProcessor;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeListener2HandlerAdapter;
 import io.brackit.query.node.parser.NodeSubtreeParser;
-import io.brackit.query.sequence.AbstractSequence;
-import io.brackit.query.sequence.BaseIter;
 import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Axis;
@@ -92,8 +85,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   /** Determines if write-transaction is present. */
   private final boolean isWtx;
 
-  private final boolean snapshot;
-
   /** {@link Scope} of node. */
   private SirixScope scope;
 
@@ -104,13 +95,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @param collection {@link XmlDBCollection} reference
    */
   public XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection) {
-    this(rtx, collection, false);
-  }
-
-  private XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection, final boolean snapshot) {
     this.collection = requireNonNull(collection);
     this.rtx = requireNonNull(rtx);
-    this.snapshot = snapshot;
     isWtx = this.rtx instanceof XmlNodeTrx;
     nodeKey = this.rtx.getNodeKey();
     kind = this.rtx.getKind();
@@ -119,36 +105,22 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         : null;
   }
 
-  private XmlDBNode(final XmlNodeReadOnlyTrx reader, final XmlDBNode source, final boolean snapshot) {
+  private XmlDBNode(final XmlNodeTrx reader, final XmlDBNode source) {
     collection = source.collection;
     rtx = reader;
-    isWtx = reader instanceof XmlNodeTrx;
-    this.snapshot = snapshot;
+    isWtx = true;
     nodeKey = source.nodeKey;
     kind = source.kind;
     deweyID = source.deweyID;
   }
 
-  private static final ScopedValue<UpdateView> UPDATE_VIEW = ScopedValue.newInstance();
-
-  private record UpdateView(XmlDBNode source, XmlDBNode target, @Nullable QueryExecution execution, Thread owner) {}
-
-  /**
-   * Brackit retains the original target in each operation. Dispatch its calls to a private
-   * writer view only in this execution. Never rebind a cached node's reader or cached scope:
-   * independent queries receive snapshot views at input resolution, and their derived nodes
-   * retain snapshot visibility after execution and throughout result consumption.
-   */
-  public void applyUpdate(final UpdateOp operation, final XmlDBNode target) {
+  public void applyUpdate(final UpdateOp operation) {
     requireNonNull(operation);
-    requireNonNull(target);
-    if (operation.getTarget() != this) {
-      throw new IllegalArgumentException("Operation has a different target");
+    if (!isWtx) {
+      throw new IllegalStateException("Update execution requires a writer target");
     }
-    // Earlier replacements/deletions can detach a later target in the same list.
-    if (target.rtx.moveTo(nodeKey)) {
-      ScopedValue.where(UPDATE_VIEW, new UpdateView(this, target, QueryExecution.current(), Thread.currentThread()))
-                 .run(operation::apply);
+    if (rtx.moveTo(nodeKey)) {
+      operation.apply(this);
     }
   }
 
@@ -159,115 +131,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (resource.getDatabaseId() != writerResource.getDatabaseId() || resource.getID() != writerResource.getID()) {
       throw new IllegalArgumentException("Writer belongs to a different resource");
     }
-    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this, false);
-  }
-
-  private static boolean independentRead() {
-    if (!UPDATE_VIEW.isBound()) {
-      return false;
-    }
-    final UpdateView view = UPDATE_VIEW.get();
-    return view.owner != Thread.currentThread() || view.execution != QueryExecution.current();
-  }
-
-  public XmlDBNode readView() {
-    return independentRead() ? snapshotView() : this;
-  }
-
-  private XmlDBNode snapshotView() {
-    return snapshot && (!UPDATE_VIEW.isBound() || UPDATE_VIEW.get().source != this)
-        ? this : new XmlDBNode(rtx, this, true);
-  }
-
-  public static Item readView(final Item item) {
-    return item instanceof XmlDBNode node ? node.readView() : item;
-  }
-
-  public static Sequence readView(final Sequence sequence) {
-    if (sequence instanceof Item item) {
-      return readView(item);
-    }
-    if (sequence == null || !independentRead()) {
-      return sequence;
-    }
-    return new AbstractSequence() {
-      @Override
-      public boolean isRepeatable() {
-        return sequence.isRepeatable();
-      }
-
-      @Override
-      public IntNumeric knownSize() {
-        return sequence.knownSize();
-      }
-
-      @Override
-      public boolean booleanValue() {
-        return sequence.booleanValue();
-      }
-
-      @Override
-      public IntNumeric size() {
-        return sequence.size();
-      }
-
-      @Override
-      public Item get(final IntNumeric position) {
-        final Item item = sequence.get(position);
-        return item instanceof XmlDBNode node ? node.snapshotView() : item;
-      }
-
-      @Override
-      public Iter iterate() {
-        final Iter iterator = sequence.iterate();
-        return new BaseIter() {
-          @Override
-          public Item next() {
-            final Item item = iterator.next();
-            return item instanceof XmlDBNode node ? node.snapshotView() : item;
-          }
-
-          @Override
-          public void close() {
-            iterator.close();
-          }
-        };
-      }
-    };
-  }
-
-  private XmlDBNode readNode(final XmlNodeReadOnlyTrx reader) {
-    return new XmlDBNode(reader, collection, snapshot);
-  }
-
-  private <T extends AbstractTemporalNode<XmlDBNode>> Stream<T> readStream(final Stream<T> stream) {
-    if (!snapshot) {
-      return stream;
-    }
-    return new Stream<>() {
-      @Override
-      @SuppressWarnings("unchecked")
-      public T next() {
-        final T node = stream.next();
-        return node == null ? null : (T) ((XmlDBNode) node).snapshotView();
-      }
-
-      @Override
-      public void close() {
-        stream.close();
-      }
-    };
-  }
-
-  private XmlDBNode updateView() {
-    if (UPDATE_VIEW.isBound()) {
-      final UpdateView view = UPDATE_VIEW.get();
-      if (view.owner == Thread.currentThread() && view.execution == QueryExecution.current()
-          && (view.source == this || !snapshot && nodeKey == view.source.nodeKey && isSameDocument(view.source))) {
-        return view.target;
-      }
-    }
-    return this;
+    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this);
   }
 
   /** Optional dewey ID. */
@@ -293,21 +157,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   public XmlNodeReadOnlyTrx getRtx() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getRtx();
-    }
     moveRtx();
     return rtx;
   }
 
   @Override
   public boolean isSelfOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isSelfOf(otherView);
-    }
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       return node.nodeKey == nodeKey && isSameDocument(node);
@@ -326,11 +181,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isParentOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isParentOf(otherView);
-    }
     moveRtx();
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
@@ -341,11 +191,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isChildOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isChildOf(otherView);
-    }
     moveRtx();
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
@@ -358,11 +203,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isDescendantOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isDescendantOf(otherView);
-    }
     moveRtx();
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
@@ -390,10 +230,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    */
   @Override
   public XmlNodeReadOnlyTrx getTrx() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getTrx();
-    }
     if (!rtx.isClosed()) {
       rtx.moveTo(nodeKey);
     }
@@ -402,11 +238,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isDescendantOrSelfOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isDescendantOrSelfOf(otherView);
-    }
     moveRtx();
     boolean retVal = false;
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
@@ -422,11 +253,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isAncestorOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isAncestorOf(otherView);
-    }
     moveRtx();
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
@@ -441,11 +267,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isAncestorOrSelfOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isAncestorOrSelfOf(otherView);
-    }
     moveRtx();
     boolean retVal = false;
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
@@ -475,11 +296,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isSiblingOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isSiblingOf(otherView);
-    }
     moveRtx();
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
@@ -499,11 +315,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingSiblingOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isPrecedingSiblingOf(otherView);
-    }
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
@@ -526,11 +337,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingSiblingOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isFollowingSiblingOf(otherView);
-    }
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE && node.kind != NodeKind.ATTRIBUTE
@@ -553,11 +359,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPrecedingOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isPrecedingOf(otherView);
-    }
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
@@ -585,11 +386,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFollowingOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isFollowingOf(otherView);
-    }
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       moveRtx();
       if (kind != NodeKind.ATTRIBUTE && kind != NodeKind.NAMESPACE) {
@@ -623,11 +419,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isAttributeOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isAttributeOf(otherView);
-    }
     moveRtx();
     boolean retVal = false;
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
@@ -646,31 +437,18 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isDocumentOf(final Node<?> other) {
-    final XmlDBNode view = updateView();
-    final Node<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isDocumentOf(otherView);
-    }
     moveRtx();
     return getKind() == Kind.DOCUMENT && other instanceof XmlDBNode node && isSameDocument(node);
   }
 
   @Override
   public boolean isDocumentRoot() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.isDocumentRoot();
-    }
     moveRtx();
     return rtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean isRoot() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.isRoot();
-    }
     moveRtx();
     return rtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
   }
@@ -687,10 +465,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Scope getScope() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getScope();
-    }
     if (scope == null && kind == NodeKind.ELEMENT) {
       scope = new SirixScope(this);
     }
@@ -699,10 +473,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Kind getKind() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getKind();
-    }
     if (!rtx.isClosed()) {
       rtx.moveTo(nodeKey);
     }
@@ -721,21 +491,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public QNm getName() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getName();
-    }
     moveRtx();
     return rtx.getName();
   }
 
   @Override
   public void setName(final QNm name) throws DocumentException {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      view.setName(name);
-      return;
-    }
     if (isWtx) {
       moveRtx();
       final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
@@ -762,10 +523,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Atomic getValue() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getValue();
-    }
     moveRtx();
 
     // $CASES-OMITTED$
@@ -809,11 +566,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void setValue(final Atomic value) throws DocumentException {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      view.setValue(value);
-      return;
-    }
     moveRtx();
     if (!rtx.isValueNode()) {
       throw new DocumentException("Node has no value!");
@@ -839,107 +591,70 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getParent() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getParent();
-    }
     if (rtx.moveTo(nodeKey) && rtx.hasParent()) {
       rtx.moveToParent();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     return null;
   }
 
   @Override
   public XmlDBNode getFirstChild() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getFirstChild();
-    }
     if (rtx.moveTo(nodeKey) && rtx.hasFirstChild()) {
       rtx.moveToFirstChild();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     return null;
   }
 
   @Override
   public XmlDBNode getLastChild() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getLastChild();
-    }
     if (rtx.moveTo(nodeKey) && rtx.hasLastChild()) {
       rtx.moveToLastChild();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     return null;
   }
 
   @Override
   public Stream<XmlDBNode> getChildren() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getChildren();
-    }
     moveRtx();
-    return readStream(new SirixNodeStream(new ChildAxis(rtx), collection));
+    return new SirixNodeStream(new ChildAxis(rtx), collection);
   }
 
   // Returns all nodes in the subtree _including_ the subtree root.
   @Override
   public Stream<XmlDBNode> getSubtree() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getSubtree();
-    }
     moveRtx();
-    return readStream(
-        new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)), collection));
+    return new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)), collection);
   }
 
   @Override
   public boolean hasChildren() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.hasChildren();
-    }
     moveRtx();
     return rtx.getChildCount() > 0;
   }
 
   @Override
   public XmlDBNode getNextSibling() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getNextSibling();
-    }
     if (rtx.moveTo(nodeKey) && rtx.hasRightSibling()) {
       rtx.moveToRightSibling();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     return null;
   }
 
   @Override
   public XmlDBNode getPreviousSibling() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getPreviousSibling();
-    }
     if (rtx.moveTo(nodeKey) && rtx.hasLeftSibling()) {
       rtx.moveToLeftSibling();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     return null;
   }
 
   @Override
   public XmlDBNode append(final Kind kind, final QNm name, final Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.append(kind, name, value);
-    }
     if (isWtx) {
       moveRtx();
       final XmlNodeTrx wtx = (XmlNodeTrx) rtx;
@@ -1025,10 +740,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode append(final Node<?> child) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.append(child);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1074,10 +785,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode append(final NodeSubtreeParser parser) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.append(parser);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1113,15 +820,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return readNode(rtx);
+    return new XmlDBNode(rtx, collection);
   }
 
   @Override
   public XmlDBNode prepend(final Kind kind, final QNm name, final Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.prepend(kind, name, value);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1155,10 +858,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode prepend(final Node<?> child) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.prepend(child);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1203,10 +902,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode prepend(final NodeSubtreeParser parser) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.prepend(parser);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1241,10 +936,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertBefore(final Kind kind, final QNm name, final Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertBefore(kind, name, value);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1301,10 +992,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertBefore(final Node<?> node) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertBefore(node);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1343,10 +1030,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertBefore(final NodeSubtreeParser parser) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertBefore(parser);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1382,10 +1065,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertAfter(final Kind kind, final QNm name, final Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertAfter(kind, name, value);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1416,10 +1095,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertAfter(final Node<?> node) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertAfter(node);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1458,10 +1133,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode insertAfter(final NodeSubtreeParser parser) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.insertAfter(parser);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1497,10 +1168,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode setAttribute(final Node<?> attribute) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.setAttribute(attribute);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1531,17 +1198,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element node selected!");
   }
 
   @Override
   public XmlDBNode setAttribute(final QNm name, final Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.setAttribute(name, value);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1570,17 +1233,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element node selected!");
   }
 
   @Override
   public boolean deleteAttribute(final QNm name) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.deleteAttribute(name);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1619,33 +1278,21 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Stream<XmlDBNode> getAttributes() throws DocumentException {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getAttributes();
-    }
     moveRtx();
-    return readStream(new SirixNodeStream(new AttributeAxis(rtx), collection));
+    return new SirixNodeStream(new AttributeAxis(rtx), collection);
   }
 
   @Override
   public XmlDBNode getAttribute(final QNm name) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getAttribute(name);
-    }
     moveRtx();
     if (rtx.isElement() && rtx.moveToAttributeByName(name)) {
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
     throw new DocumentException("No element selected!");
   }
 
   @Override
   public XmlDBNode replaceWith(final Node<?> node) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.replaceWith(node);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1690,10 +1337,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode replaceWith(final NodeSubtreeParser parser) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.replaceWith(parser);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1727,10 +1370,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode replaceWith(final Kind kind, final @Nullable QNm name, final @Nullable Atomic value) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.replaceWith(kind, name, value);
-    }
     if (isWtx) {
       moveRtx();
       try {
@@ -1776,7 +1415,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     // Move to subtree root of new subtree.
     wtx.moveTo(nodeKey);
 
-    return readNode(rtx);
+    return new XmlDBNode(rtx, collection);
   }
 
   private SubtreeBuilder createBuilder(final XmlNodeTrx wtx) {
@@ -1802,20 +1441,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @return node key
    */
   public long getNodeKey() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getNodeKey();
-    }
     moveRtx();
     return nodeKey;
   }
 
   @Override
   public boolean hasAttributes() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.hasAttributes();
-    }
     moveRtx();
     return rtx.getAttributeCount() > 0;
   }
@@ -1826,10 +1457,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @return sibling position
    */
   public int getSiblingPosition() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getSiblingPosition();
-    }
     moveRtx();
     int index = 0;
     while (rtx.hasLeftSibling()) {
@@ -1841,11 +1468,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void delete() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      view.delete();
-      return;
-    }
     final XmlNodeTrx wtx = isWtx
         ? (XmlNodeTrx) rtx
         : getOrCreateWtx();
@@ -1885,11 +1507,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public void parse(final NodeSubtreeHandler handler) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      view.parse(handler);
-      return;
-    }
     requireNonNull(handler);
     moveRtx();
     if (kind != NodeKind.ELEMENT) {
@@ -1958,11 +1575,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   protected int cmpInternal(final AbstractTemporalNode<XmlDBNode> otherNode) {
-    final XmlDBNode view = updateView();
-    final XmlDBNode otherView = ((XmlDBNode) otherNode).updateView();
-    if (view != this || otherView != otherNode) {
-      return view.cmpInternal(otherView);
-    }
     moveRtx();
 
     // Are they the same node?
@@ -2120,10 +1732,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public int hashCode() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.hashCode();
-    }
     // Omitting database identity only increases collisions; isSameDocument still guards equality.
     return Objects.hash(nodeKey, rtx.getRevisionNumber(), rtx.getResourceSession().getResourceConfig().getID());
   }
@@ -2135,10 +1743,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public @Nullable Stream<? extends Node<?>> performStep(final Axis axis, final NodeType test) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.performStep(axis, test);
-    }
     requireNonNull(axis);
     requireNonNull(test);
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> temporalAxis = switch (axis) {
@@ -2155,15 +1759,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     };
     return temporalAxis == null
         ? null
-        : readStream(TemporalSirixNodeStream.create(temporalAxis, rtx, collection, test));
+        : TemporalSirixNodeStream.create(temporalAxis, rtx, collection, test);
   }
 
   @Override
   public XmlDBNode getNext() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getNext();
-    }
     moveRtx();
 
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceSession(), rtx);
@@ -2173,7 +1773,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlDBNode moveTemporalAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return readNode(rtx);
+      return new XmlDBNode(rtx, collection);
     }
 
     return null;
@@ -2181,10 +1781,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getPrevious() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getPrevious();
-    }
     moveRtx();
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new PreviousAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
@@ -2192,10 +1788,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getFirst() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getFirst();
-    }
     moveRtx();
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
@@ -2203,10 +1795,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public XmlDBNode getLast() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getLast();
-    }
     moveRtx();
     final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
@@ -2214,49 +1802,30 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getEarlier(final boolean includeSelf) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getEarlier(includeSelf);
-    }
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return readStream(
-        new TemporalSirixNodeStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection));
+    return new TemporalSirixNodeStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getFuture(final boolean includeSelf) {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getFuture(includeSelf);
-    }
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return readStream(
-        new TemporalSirixNodeStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection));
+    return new TemporalSirixNodeStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getAllTime();
-    }
     moveRtx();
-    return readStream(new TemporalSirixNodeStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection));
+    return new TemporalSirixNodeStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override
   public boolean isNextOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isNextOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2270,11 +1839,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isPreviousOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isPreviousOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2288,11 +1852,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFutureOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isFutureOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2306,11 +1865,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFutureOrSelfOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isFutureOrSelfOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2324,11 +1878,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isEarlierOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isEarlierOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2342,11 +1891,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isEarlierOrSelfOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isEarlierOrSelfOf(otherView);
-    }
     moveRtx();
 
     if (this == other)
@@ -2360,11 +1904,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isLastOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isLastOf(otherView);
-    }
     moveRtx();
 
     if (!(other instanceof XmlDBNode otherNode))
@@ -2377,11 +1916,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public boolean isFirstOf(final TemporalNode<?> other) {
-    final XmlDBNode view = updateView();
-    final TemporalNode<?> otherView = other instanceof XmlDBNode node ? node.updateView() : other;
-    if (view != this || otherView != other) {
-      return view.isFirstOf(otherView);
-    }
     moveRtx();
 
     if (!(other instanceof XmlDBNode otherNode))
@@ -2400,10 +1934,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @throws SirixException if Sirix fails to get the path class record
    */
   public long getPCR() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getPCR();
-    }
     return rtx.getPathNodeKey();
   }
 
@@ -2414,10 +1944,6 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    *         configuration)
    */
   public SirixDeweyID getDeweyID() {
-    final XmlDBNode view = updateView();
-    if (view != this) {
-      return view.getDeweyID();
-    }
     return rtx.getDeweyID();
   }
 }

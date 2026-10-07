@@ -12,6 +12,7 @@ import io.brackit.query.Query;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Kind;
+import io.brackit.query.jdm.StructuredItem;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
@@ -223,7 +224,7 @@ final class XmlAliasIdentityRegressionTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void scopedComparisonsResolveBothOperandsAndRestoreSnapshots(final VersioningType versioning)
+  void privateWriterComparisonsPreserveSnapshotIdentity(final VersioningType versioning)
       throws IOException {
     for (final boolean deweyIds : new boolean[] {false, true}) {
       try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
@@ -248,7 +249,7 @@ final class XmlAliasIdentityRegressionTest {
               final XmlDBNode target = source.writerView(writer);
               final XmlNodeReadOnlyTrx reader = source.getTrx();
               final int snapshotHash = source.hashCode();
-              source.applyUpdate(new UpdateOp() {
+              target.applyUpdate(new UpdateOp() {
                 @Override
                 public XmlDBNode getTarget() {
                   return source;
@@ -261,18 +262,28 @@ final class XmlAliasIdentityRegressionTest {
 
                 @Override
                 public void apply() {
-                  assertSame(writer, source.getTrx());
-                  assertSame(writer, otherAlias.getTrx());
-                  assertEquals(target.hashCode(), source.hashCode());
-                  assertEquals(target.hashCode(), otherAlias.hashCode());
+                  apply(source);
+                }
+
+                @Override
+                public void apply(final StructuredItem executionTarget) {
+                  final XmlDBNode executing = (XmlDBNode) executionTarget;
+                  assertSame(target, executing);
+                  assertSame(writer, executing.getTrx());
+                  assertSame(reader, source.getTrx());
+                  assertEquals(1, otherAlias.getTrx().getRevisionNumber());
+                  assertEquals(snapshotHash, source.hashCode());
+                  assertEquals(snapshotHash, otherAlias.hashCode());
+                  assertFalse(source.isSelfOf(executing));
+                  assertNotEquals(0, source.cmp(executing));
                   for (final XmlDBNode node : live) {
-                    checkRelationships(target, node, source, node);
-                    checkRelationships(node, target, node, source);
-                    checkRelationships(target, node, otherAlias, node);
-                    checkRelationships(node, target, node, otherAlias);
+                    checkRelationships(target, node, executing, node);
+                    checkRelationships(node, target, node, executing);
+                    checkRelationships(source, node, otherAlias, node);
+                    checkRelationships(node, source, node, otherAlias);
                   }
                 }
-              }, target);
+              });
               assertSame(reader, source.getTrx());
               assertEquals(snapshotHash, source.hashCode());
               assertTrue(source.isSelfOf(otherAlias));

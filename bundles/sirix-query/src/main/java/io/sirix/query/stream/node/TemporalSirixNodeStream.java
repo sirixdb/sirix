@@ -125,7 +125,7 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
       final var rtx = axis.next();
       boolean accepted = false;
       try {
-        final XmlDBNode node = new XmlDBNode(rtx, collection).readView();
+        final XmlDBNode node = new XmlDBNode(rtx, collection);
         if (test == null || test.matches(node)) {
           accepted = true;
           return node;

@@ -38,6 +38,7 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.StructuredItem;
 import io.brackit.query.update.ReplaceValue;
 import io.brackit.query.update.op.OpType;
 import io.brackit.query.update.op.UpdateOp;
@@ -133,12 +134,18 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
 
     @Override
     public void apply() {
-      final XmlNodeReadOnlyTrx reader = target.getTrx();
-      final long key = target.getNodeKey();
+      apply(target);
+    }
+
+    @Override
+    public void apply(final StructuredItem executionTarget) {
+      final XmlDBNode node = (XmlDBNode) requireNonNull(executionTarget);
+      final XmlNodeReadOnlyTrx reader = node.getTrx();
+      final long key = node.getNodeKey();
       final XmlResourceSession resource = reader.getResourceSession();
       final XmlNodeTrx writer;
-      final XmlNodeTrx runningWriter = reader instanceof XmlNodeTrx scopedWriter
-          ? scopedWriter : resource.getNodeTrx().orElse(null);
+      final XmlNodeTrx runningWriter = reader instanceof XmlNodeTrx existingWriter
+          ? existingWriter : resource.getNodeTrx().orElse(null);
       if (runningWriter != null) {
         writer = runningWriter;
       } else {

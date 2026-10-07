@@ -33,7 +33,7 @@ public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
     if (nodeKeyIterator != null && nodeKeyIterator.hasNext()) {
       var nodeKey = nodeKeyIterator.next();
       rtx.moveTo(nodeKey);
-      return new XmlDBNode(rtx, collection).readView();
+      return new XmlDBNode(rtx, collection);
     }
     while (iter.hasNext()) {
       final NodeReferences nodeReferences = iter.next();
@@ -41,7 +41,7 @@ public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
       if (nodeKeyIterator.hasNext()) {
         var nodeKey = nodeKeyIterator.next();
         rtx.moveTo(nodeKey);
-        return new XmlDBNode(rtx, collection).readView();
+        return new XmlDBNode(rtx, collection);
       }
     }
     return null;

@@ -252,7 +252,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
         final UpdateOp operation = originals.get(i);
         if (operation.getTarget() instanceof XmlDBNode source) {
           final XmlNodeTrx writer = writersByResource.get(XmlResourceId.of(source.getTrx()));
-          operations.set(i, new XmlNodeUpdate(operation, source, source.writerView(writer)));
+          operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
         }
       }
       queryContextDelegate.applyUpdates();
@@ -334,7 +334,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   /** Private live targets let Brackit normalize the completed writer tree, not a cached revision. */
-  private record XmlNodeUpdate(UpdateOp delegate, XmlDBNode source, XmlDBNode target) implements UpdateOp {
+  private record XmlNodeUpdate(UpdateOp delegate, XmlDBNode target) implements UpdateOp {
     @Override
     public StructuredItem getTarget() {
       return target;
@@ -352,7 +352,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
     @Override
     public void apply() {
-      source.applyUpdate(delegate, target);
+      target.applyUpdate(delegate);
     }
 
     @Override
@@ -383,7 +383,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Sequence resolve(QNm name) throws QueryException {
-    return XmlDBNode.readView(queryContextDelegate.resolve(name));
+    return queryContextDelegate.resolve(name);
   }
 
   @Override
@@ -398,7 +398,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Item getContextItem() {
-    return XmlDBNode.readView(queryContextDelegate.getContextItem());
+    return queryContextDelegate.getContextItem();
   }
 
   @Override
@@ -408,8 +408,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Node<?> getDefaultDocument() {
-    final Node<?> document = queryContextDelegate.getDefaultDocument();
-    return document instanceof XmlDBNode node ? node.readView() : document;
+    return queryContextDelegate.getDefaultDocument();
   }
 
   @Override

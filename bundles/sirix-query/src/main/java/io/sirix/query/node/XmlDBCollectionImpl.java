@@ -152,7 +152,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   }
 
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
-    final XmlDBNode document = instantDocumentDataToXmlDBNodes.computeIfAbsent(
+    return instantDocumentDataToXmlDBNodes.computeIfAbsent(
         new InstantDocumentData(resName, pointInTime), (unused) -> {
       // Borrowed-session ownership is defined by Database.beginResourceSession: close only our trx.
       final XmlResourceSession resource = database.beginResourceSession(resName);
@@ -191,15 +191,13 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
         throw e;
       }
     });
-    return document == null ? null : document.readView();
   }
 
   private XmlDBNode getDocumentInternal(final String resName, final int revision) {
-    final XmlDBNode document = revision == -1
+    return revision == -1
         ? createXmlDBNode(revision, resName)
         : documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
             (unused) -> createXmlDBNode(revision, resName));
-    return document.readView();
   }
 
   @Override
@@ -361,7 +359,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
       final XmlResourceSession resource = database.beginResourceSession(resourceName);
       try {
         final XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
-        documents.add(new XmlDBNode(trx, this).readView());
+        documents.add(new XmlDBNode(trx, this));
       } catch (final SirixException e) {
         resource.close();
         throw new DocumentException(e.getCause());
