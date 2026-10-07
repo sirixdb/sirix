@@ -1,0 +1,1370 @@
+[
+  {
+    "scenario": "append",
+    "metric": "bulkAppendCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 73795,
+        "max": 73795
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 4112,
+        "max": 4112
+      },
+      "bookkeepingOperations": {
+        "min": 16384,
+        "max": 16384
+      }
+    }
+  },
+  {
+    "scenario": "append",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 98316,
+        "max": 98316
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 4096,
+        "max": 4096
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "append",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 98316,
+        "max": 98316
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 4096,
+        "max": 4096
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "append",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 7182,
+        "max": 7182
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 10,
+        "max": 10
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "append",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 87195,
+        "max": 87195
+      },
+      "createdIdentities": {
+        "min": 8193,
+        "max": 8193
+      },
+      "stagedRecords": {
+        "min": 8197,
+        "max": 8197
+      },
+      "ancestorSteps": {
+        "min": 4098,
+        "max": 4098
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 27,
+        "max": 27
+      },
+      "pathSteps": {
+        "min": 19,
+        "max": 19
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "append",
+    "metric": "unchangedPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 6,
+        "max": 6
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "bulkAppendCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 2452,
+        "max": 2452
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 712,
+        "max": 712
+      },
+      "bookkeepingOperations": {
+        "min": 12,
+        "max": 12
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 1338,
+        "max": 1338
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 3,
+        "max": 3
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 1338,
+        "max": 1338
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 3,
+        "max": 3
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 402,
+        "max": 402
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 2,
+        "max": 2
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 4298,
+        "max": 4298
+      },
+      "createdIdentities": {
+        "min": 68,
+        "max": 68
+      },
+      "stagedRecords": {
+        "min": 135,
+        "max": 135
+      },
+      "ancestorSteps": {
+        "min": 68,
+        "max": 68
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 8,
+        "max": 8
+      },
+      "pathSteps": {
+        "min": 964,
+        "max": 964
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "deep",
+    "metric": "unchangedPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 6,
+        "max": 6
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 165,
+        "max": 165
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 6,
+        "max": 6
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 189,
+        "max": 189
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 6,
+        "max": 6
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 48,
+        "max": 48
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 2,
+        "max": 2
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 356,
+        "max": 356
+      },
+      "createdIdentities": {
+        "min": 9,
+        "max": 9
+      },
+      "stagedRecords": {
+        "min": 15,
+        "max": 15
+      },
+      "ancestorSteps": {
+        "min": 4,
+        "max": 4
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 6,
+        "max": 6
+      },
+      "pathSteps": {
+        "min": 34,
+        "max": 34
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "sourceMutationCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 192,
+        "max": 192
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 45,
+        "max": 45
+      },
+      "bookkeepingOperations": {
+        "min": 7,
+        "max": 7
+      }
+    }
+  },
+  {
+    "scenario": "moves",
+    "metric": "unchangedPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 6,
+        "max": 6
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 39,
+        "max": 39
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 1,
+        "max": 1
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 39,
+        "max": 39
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 1,
+        "max": 1
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 22,
+        "max": 22
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 2,
+        "max": 2
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "restorationPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 47,
+        "max": 47
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 11,
+        "max": 11
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 277,
+        "max": 277
+      },
+      "createdIdentities": {
+        "min": 5,
+        "max": 5
+      },
+      "stagedRecords": {
+        "min": 14,
+        "max": 14
+      },
+      "ancestorSteps": {
+        "min": 7,
+        "max": 7
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 12,
+        "max": 12
+      },
+      "pathSteps": {
+        "min": 19,
+        "max": 19
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "restore",
+    "metric": "sourceMutationCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 96,
+        "max": 96
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 17,
+        "max": 17
+      },
+      "bookkeepingOperations": {
+        "min": 6,
+        "max": 6
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "bulkAppendCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 121,
+        "max": 121
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 19,
+        "max": 19
+      },
+      "bookkeepingOperations": {
+        "min": 12,
+        "max": 12
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 123,
+        "max": 123
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 3,
+        "max": 3
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 123,
+        "max": 123
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 3,
+        "max": 3
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 51,
+        "max": 51
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 8,
+        "max": 8
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 407,
+        "max": 407
+      },
+      "createdIdentities": {
+        "min": 20,
+        "max": 20
+      },
+      "stagedRecords": {
+        "min": 24,
+        "max": 24
+      },
+      "ancestorSteps": {
+        "min": 5,
+        "max": 5
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 18,
+        "max": 18
+      },
+      "pathSteps": {
+        "min": 19,
+        "max": 19
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "sparse",
+    "metric": "unchangedPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 6,
+        "max": 6
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "bulkAppendCommit",
+    "counters": {
+      "recordVisits": {
+        "min": 211,
+        "max": 211
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 24,
+        "max": 24
+      },
+      "bookkeepingOperations": {
+        "min": 32,
+        "max": 32
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "publicCompactDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 98484,
+        "max": 98484
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 8,
+        "max": 8
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "publicMaterializedDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 98484,
+        "max": 98484
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 8,
+        "max": 8
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "replayRead",
+    "counters": {
+      "recordVisits": {
+        "min": 2080,
+        "max": 2080
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 6,
+        "max": 6
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "revisionCopy",
+    "counters": {
+      "recordVisits": {
+        "min": 363767,
+        "max": 363767
+      },
+      "createdIdentities": {
+        "min": 32777,
+        "max": 32777
+      },
+      "stagedRecords": {
+        "min": 32781,
+        "max": 32781
+      },
+      "ancestorSteps": {
+        "min": 10,
+        "max": 10
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 47,
+        "max": 47
+      },
+      "pathSteps": {
+        "min": 19,
+        "max": 19
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "unchanged",
+    "metric": "unchangedPublicDiff",
+    "counters": {
+      "recordVisits": {
+        "min": 6,
+        "max": 6
+      },
+      "createdIdentities": {
+        "min": 0,
+        "max": 0
+      },
+      "stagedRecords": {
+        "min": 0,
+        "max": 0
+      },
+      "ancestorSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "sidecarReads": {
+        "min": 0,
+        "max": 0
+      },
+      "fallbackPages": {
+        "min": 0,
+        "max": 0
+      },
+      "pathSteps": {
+        "min": 0,
+        "max": 0
+      },
+      "bookkeepingOperations": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  }
+]

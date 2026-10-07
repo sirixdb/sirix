@@ -734,6 +734,14 @@ public final class NamePage extends AbstractForwardingPage {
     }
   }
 
+  /** Rebuild an explicit JSON name binding in the private identity-import namespace. */
+  public void importJsonName(final int key, final String name, final StorageEngineWriter writer) {
+    if (jsonObjectKeys == null) {
+      jsonObjectKeys = getNames(writer, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+    }
+    jsonObjectKeys.importName(key, name, writer);
+  }
+
   /**
    * Adds {@code delta} occurrences to an EXISTING interned name's count in one record touch — the
    * batched sibling of {@link #setName}'s per-occurrence increment. JSON object keys only for now

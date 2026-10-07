@@ -1,0 +1,303 @@
+WARNING: Using incubator modules: jdk.incubator.vector
+RUN,p00-baseline,pid=2493067,java=25.0.3,identity=false,warmups=1,samples=2
+JVM,p00-baseline,maxHeap=3221225472,arguments=[-XX:ThreadPriorityPolicy=1, -XX:+UnlockExperimentalVMOptions, -XX:+EnableJVMCIProduct, -XX:+EnableJVMCI, -XX:-UnlockExperimentalVMOptions, -ea, -Xms512m, -Xmx3g, --add-opens=java.base/sun.nio.ch=ALL-UNNAMED, --add-opens=java.base/java.nio=ALL-UNNAMED, --add-modules=jdk.incubator.vector, --enable-native-access=ALL-UNNAMED, -XX:+EnableDynamicAgentLoading, -XX:+UnlockDiagnosticVMOptions, -XX:+DebugNonSafepoints, --add-modules=jdk.incubator.vector, -Dfile.encoding=UTF-8, -Djava.io.tmpdir=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/tmp, -Dlogback.configurationFile=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/latency/quiet.xml, -Dsirix.replay.workDiag=true, -Dsirix.hot.mergeDiag=true, -Dsirix.replay.bench.scenarios=append,unchanged,deep,sparse,moves,restore]
+COLUMNS,label,scenario,iteration,metric,nanos,threadAllocatedBytes,recordVisits,createdIdentities,stagedRecords,ancestorSteps,sidecarReads,fallbackPages,pathSteps,bookkeepingOperations
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/2026.0/2447494f7842ca377b4ccdba2089a8da5c1d1b50/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+SAMPLE,p00-baseline,append,0,bulkAppendCommit,152825602,38365472,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,0,publicCompactDiff,84003848,37508528,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,0,publicMaterializedDiff,85248646,37319848,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,0,replayRead,87526231,37201728,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,0,unchangedPublicDiff,1006489,17312,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,0,revisionCopy,334754012,51459280,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,bulkAppendCommit,102397288,38364240,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,publicCompactDiff,63521619,37377608,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,publicMaterializedDiff,54340879,37176024,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,replayRead,53476668,36864568,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,unchangedPublicDiff,818193,17376,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,append,1,revisionCopy,237060108,49917936,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,bulkAppendCommit,7879798,1434424,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,publicCompactDiff,33774798,5834672,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,publicMaterializedDiff,13557048,5705360,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,replayRead,14542940,5717568,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,unchangedPublicDiff,330092,17024,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,0,revisionCopy,176152847,12697424,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,bulkAppendCommit,7667137,1434600,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,publicCompactDiff,33525179,5769416,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,publicMaterializedDiff,13156381,5705296,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,replayRead,10809720,4931016,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,unchangedPublicDiff,294527,16960,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,unchanged,1,revisionCopy,167619050,12697112,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,bulkAppendCommit,7639674,1809448,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,publicCompactDiff,1283091,360208,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,publicMaterializedDiff,1304309,360152,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,replayRead,1528644,370768,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,unchangedPublicDiff,251302,17304,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,0,revisionCopy,18297251,4602224,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,bulkAppendCommit,10665240,1809544,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,publicCompactDiff,947197,360208,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,publicMaterializedDiff,1116232,360152,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,replayRead,868361,370768,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,unchangedPublicDiff,186191,17304,-1,-1,-1,-1,-1,-1,-1,-1
+SAMPLE,p00-baseline,deep,1,revisionCopy,19721256,4602480,-1,-1,-1,-1,-1,-1,-1,-1
+2026-10-06 00:22:44
+Full thread dump Java HotSpot(TM) 64-Bit Server VM (25.0.3+9-LTS-jvmci-b01 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x000071d8a8000c40, length=21, elements={
+0x000072189002d410, 0x0000721890135b60, 0x0000721890136d50, 0x00007218901388d0,
+0x000072189013a1f0, 0x000072189013ba70, 0x000072189013d8d0, 0x000072189013f2c0,
+0x00007218901ac760, 0x00007218901aef60, 0x0000721890447960, 0x0000721890448e70,
+0x0000721890449e30, 0x000072189044b160, 0x000072189044c7f0, 0x000072189044dc10,
+0x000072189057fc80, 0x00007218905c0a40, 0x0000721890597440, 0x00007218905985b0,
+0x0000721890696190
+}
+
+"main" #3 [2493068] prio=5 os_prio=0 cpu=96186.98ms elapsed=96.62s tid=0x000072189002d410 nid=2493068 runnable  [0x000072189784f000]
+   java.lang.Thread.State: RUNNABLE
+	at io.sirix.access.trx.page.NodeStorageEngineWriter.prepareRecordPage(NodeStorageEngineWriter.java:5072)
+	at io.sirix.access.trx.page.NodeStorageEngineWriter.prepareRecordForModification(NodeStorageEngineWriter.java:1240)
+	at io.sirix.access.trx.node.AbstractNodeHashing.addParentHash(AbstractNodeHashing.java:422)
+	at io.sirix.access.trx.node.AbstractNodeTrxImpl.adaptHashesInPostorderTraversal(AbstractNodeTrxImpl.java:378)
+	at io.sirix.access.trx.node.json.JsonNodeTrxImpl.lambda$insertSubtreeInternal$0(JsonNodeTrxImpl.java:615)
+	at io.sirix.access.trx.node.json.JsonNodeTrxImpl$$Lambda/0x0000000038227810.run(Unknown Source)
+	at io.sirix.access.trx.node.AbstractNodeTrxImpl.runLocked(AbstractNodeTrxImpl.java:390)
+	at io.sirix.access.trx.node.json.JsonNodeTrxImpl.insertSubtreeInternal(JsonNodeTrxImpl.java:557)
+	at io.sirix.access.trx.node.json.JsonNodeTrxImpl.insertSubtree(JsonNodeTrxImpl.java:374)
+	at io.sirix.access.trx.node.json.JsonNodeTrxImpl.insertSubtreeAsLastChild(JsonNodeTrxImpl.java:355)
+	at io.sirix.replaybench.ReplayLatency.mutate(ReplayLatency.java:159)
+	at io.sirix.replaybench.ReplayLatency.lambda$main$0(ReplayLatency.java:73)
+	at io.sirix.replaybench.ReplayLatency$$Lambda/0x000000003823add8.run(Unknown Source)
+	at io.sirix.replaybench.ReplayLatency.measure(ReplayLatency.java:141)
+	at io.sirix.replaybench.ReplayLatency.main(ReplayLatency.java:72)
+
+"Reference Handler" #14 [2493079] daemon prio=10 os_prio=0 cpu=0.86ms elapsed=96.61s tid=0x0000721890135b60 nid=2493079 waiting on condition  [0x0000721894dee000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@25.0.3/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@25.0.3/Reference.java:246)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@25.0.3/Reference.java:208)
+
+"Finalizer" #15 [2493080] daemon prio=8 os_prio=0 cpu=0.15ms elapsed=96.61s tid=0x0000721890136d50 nid=2493080 in Object.wait()  [0x00007218945a5000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@25.0.3/Native Method)
+	- waiting on <0x0000000743a00888> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@25.0.3/Object.java:389)
+	at java.lang.Object.wait(java.base@25.0.3/Object.java:351)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@25.0.3/ReferenceQueue.java:137)
+	at java.lang.ref.ReferenceQueue.remove(java.base@25.0.3/ReferenceQueue.java:215)
+	- locked <0x0000000743a00888> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@25.0.3/Finalizer.java:165)
+
+"Signal Dispatcher" #16 [2493081] daemon prio=9 os_prio=0 cpu=0.17ms elapsed=96.61s tid=0x00007218901388d0 nid=2493081 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Service Thread" #17 [2493082] daemon prio=9 os_prio=0 cpu=2.78ms elapsed=96.61s tid=0x000072189013a1f0 nid=2493082 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Monitor Deflation Thread" #18 [2493083] daemon prio=9 os_prio=0 cpu=10.29ms elapsed=96.61s tid=0x000072189013ba70 nid=2493083 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"JVMCI-native CompilerThread0" #19 [2493084] daemon prio=9 os_prio=0 cpu=6673.39ms elapsed=96.61s tid=0x000072189013d8d0 nid=2493084 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"C1 CompilerThread0" #21 [2493085] daemon prio=9 os_prio=0 cpu=1452.27ms elapsed=96.61s tid=0x000072189013f2c0 nid=2493085 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"Notification Thread" #23 [2493088] daemon prio=9 os_prio=0 cpu=0.21ms elapsed=96.57s tid=0x00007218901ac760 nid=2493088 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Common-Cleaner" #24 [2493089] daemon prio=8 os_prio=0 cpu=0.27ms elapsed=96.56s tid=0x00007218901aef60 nid=2493089 in Object.wait()  [0x00007218713fe000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@25.0.3/Native Method)
+	- waiting on <0x0000000743a02128> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@25.0.3/Object.java:389)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@25.0.3/ReferenceQueue.java:123)
+	at java.lang.ref.ReferenceQueue.remove(java.base@25.0.3/ReferenceQueue.java:201)
+	- locked <0x0000000743a02128> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@25.0.3/CleanerImpl.java:146)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+	at jdk.internal.misc.InnocuousThread.run(java.base@25.0.3/InnocuousThread.java:148)
+
+"ClockSweeper-RecordPage-GLOBAL" #36 [2493111] daemon prio=5 os_prio=0 cpu=27.68ms elapsed=96.04s tid=0x0000721890447960 nid=2493111 waiting on condition  [0x00007218709f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"ClockSweeper-FragmentPage-GLOBAL" #37 [2493112] daemon prio=5 os_prio=0 cpu=26.56ms elapsed=96.04s tid=0x0000721890448e70 nid=2493112 waiting on condition  [0x00007218708f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"ClockSweeper-HOTLeafPage-GLOBAL" #38 [2493113] daemon prio=5 os_prio=0 cpu=27.31ms elapsed=96.04s tid=0x0000721890449e30 nid=2493113 waiting on condition  [0x00007218707f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"ClockSweeper-HOTLeafFragment-GLOBAL" #39 [2493114] daemon prio=5 os_prio=0 cpu=27.67ms elapsed=96.04s tid=0x000072189044b160 nid=2493114 waiting on condition  [0x00007218706f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"ClockSweeper-HOTLeafFragmentHeap-GLOBAL" #40 [2493115] daemon prio=5 os_prio=0 cpu=26.83ms elapsed=96.04s tid=0x000072189044c7f0 nid=2493115 waiting on condition  [0x00007218705f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"ClockSweeper-HOTMiniPage-GLOBAL" #41 [2493116] daemon prio=5 os_prio=0 cpu=29.24ms elapsed=96.04s tid=0x000072189044dc10 nid=2493116 waiting on condition  [0x00007218704f5000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleepNanos0(java.base@25.0.3/Native Method)
+	at java.lang.Thread.sleepNanos(java.base@25.0.3/Thread.java:509)
+	at java.lang.Thread.sleep(java.base@25.0.3/Thread.java:540)
+	at io.sirix.cache.ClockSweeper.run(ClockSweeper.java:143)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"Cleaner-0" #43 [2493120] daemon prio=8 os_prio=0 cpu=0.30ms elapsed=95.79s tid=0x000072189057fc80 nid=2493120 in Object.wait()  [0x00007218353fd000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@25.0.3/Native Method)
+	- waiting on <0x0000000743a016f0> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@25.0.3/Object.java:389)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@25.0.3/ReferenceQueue.java:123)
+	at java.lang.ref.ReferenceQueue.remove(java.base@25.0.3/ReferenceQueue.java:201)
+	- locked <0x0000000743a016f0> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@25.0.3/CleanerImpl.java:146)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+	at jdk.internal.misc.InnocuousThread.run(java.base@25.0.3/InnocuousThread.java:148)
+
+"Cleaner-1" #44 [2493121] daemon prio=8 os_prio=0 cpu=0.42ms elapsed=95.75s tid=0x00007218905c0a40 nid=2493121 in Object.wait()  [0x00007218352fd000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@25.0.3/Native Method)
+	- waiting on <0x0000000743a02358> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@25.0.3/Object.java:389)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@25.0.3/ReferenceQueue.java:123)
+	at java.lang.ref.ReferenceQueue.remove(java.base@25.0.3/ReferenceQueue.java:201)
+	- locked <0x0000000743a02358> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@25.0.3/CleanerImpl.java:146)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+	at jdk.internal.misc.InnocuousThread.run(java.base@25.0.3/InnocuousThread.java:148)
+
+"sirix-snapshot-append-1" #45 [2493122] daemon prio=5 os_prio=0 cpu=0.48ms elapsed=95.75s tid=0x0000721890597440 nid=2493122 waiting on condition  [0x00007218351fd000]
+   java.lang.Thread.State: WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@25.0.3/Native Method)
+	- parking to wait for  <0x0000000743a024a8> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.locks.LockSupport.park(java.base@25.0.3/LockSupport.java:369)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionNode.block(java.base@25.0.3/AbstractQueuedSynchronizer.java:520)
+	at java.util.concurrent.ForkJoinPool.unmanagedBlock(java.base@25.0.3/ForkJoinPool.java:4364)
+	at java.util.concurrent.ForkJoinPool.managedBlock(java.base@25.0.3/ForkJoinPool.java:4310)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(java.base@25.0.3/AbstractQueuedSynchronizer.java:1752)
+	at java.util.concurrent.ArrayBlockingQueue.take(java.base@25.0.3/ArrayBlockingQueue.java:421)
+	at java.util.concurrent.ThreadPoolExecutor.getTask(java.base@25.0.3/ThreadPoolExecutor.java:1016)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@25.0.3/ThreadPoolExecutor.java:1076)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@25.0.3/ThreadPoolExecutor.java:614)
+	at io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor.lambda$new$1(NodeStorageEngineWriter.java:3244)
+	at io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor$$Lambda/0x00000000381ce508.run(Unknown Source)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"sirix-snapshot-append-2" #46 [2493123] daemon prio=5 os_prio=0 cpu=0.33ms elapsed=95.75s tid=0x00007218905985b0 nid=2493123 waiting on condition  [0x00007218350fd000]
+   java.lang.Thread.State: WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@25.0.3/Native Method)
+	- parking to wait for  <0x0000000743a024a8> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.locks.LockSupport.park(java.base@25.0.3/LockSupport.java:369)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionNode.block(java.base@25.0.3/AbstractQueuedSynchronizer.java:520)
+	at java.util.concurrent.ForkJoinPool.unmanagedBlock(java.base@25.0.3/ForkJoinPool.java:4364)
+	at java.util.concurrent.ForkJoinPool.managedBlock(java.base@25.0.3/ForkJoinPool.java:4310)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(java.base@25.0.3/AbstractQueuedSynchronizer.java:1752)
+	at java.util.concurrent.ArrayBlockingQueue.take(java.base@25.0.3/ArrayBlockingQueue.java:421)
+	at java.util.concurrent.ThreadPoolExecutor.getTask(java.base@25.0.3/ThreadPoolExecutor.java:1016)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@25.0.3/ThreadPoolExecutor.java:1076)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@25.0.3/ThreadPoolExecutor.java:614)
+	at io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor.lambda$new$1(NodeStorageEngineWriter.java:3244)
+	at io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor$$Lambda/0x00000000381ce508.run(Unknown Source)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"sirix-reader-channel-reaper" #59 [2493134] daemon prio=5 os_prio=0 cpu=15.55ms elapsed=95.54s tid=0x0000721890696190 nid=2493134 waiting on condition  [0x00007218345fd000]
+   java.lang.Thread.State: WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@25.0.3/Native Method)
+	- parking to wait for  <0x0000000743a058e0> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.locks.LockSupport.park(java.base@25.0.3/LockSupport.java:369)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionNode.block(java.base@25.0.3/AbstractQueuedSynchronizer.java:520)
+	at java.util.concurrent.ForkJoinPool.unmanagedBlock(java.base@25.0.3/ForkJoinPool.java:4364)
+	at java.util.concurrent.ForkJoinPool.managedBlock(java.base@25.0.3/ForkJoinPool.java:4310)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(java.base@25.0.3/AbstractQueuedSynchronizer.java:1752)
+	at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(java.base@25.0.3/ScheduledThreadPoolExecutor.java:1154)
+	at java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(java.base@25.0.3/ScheduledThreadPoolExecutor.java:883)
+	at java.util.concurrent.ThreadPoolExecutor.getTask(java.base@25.0.3/ThreadPoolExecutor.java:1016)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@25.0.3/ThreadPoolExecutor.java:1076)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@25.0.3/ThreadPoolExecutor.java:614)
+	at java.lang.Thread.runWith(java.base@25.0.3/Thread.java:1487)
+	at java.lang.Thread.run(java.base@25.0.3/Thread.java:1474)
+
+"G1 Conc#2" os_prio=0 cpu=5.49ms elapsed=94.43s tid=0x00007218640019f0 nid=2493156 runnable
+
+"G1 Conc#1" os_prio=0 cpu=5.94ms elapsed=94.43s tid=0x0000721864000cd0 nid=2493155 runnable
+
+"GC Thread#9" os_prio=0 cpu=21.34ms elapsed=96.08s tid=0x000072185800fc70 nid=2493110 runnable
+
+"GC Thread#8" os_prio=0 cpu=18.25ms elapsed=96.08s tid=0x000072185800eaf0 nid=2493109 runnable
+
+"GC Thread#7" os_prio=0 cpu=16.23ms elapsed=96.08s tid=0x000072185800d970 nid=2493108 runnable
+
+"GC Thread#6" os_prio=0 cpu=18.05ms elapsed=96.08s tid=0x000072185800c7f0 nid=2493107 runnable
+
+"GC Thread#5" os_prio=0 cpu=23.22ms elapsed=96.08s tid=0x000072185800ba70 nid=2493106 runnable
+
+"GC Thread#4" os_prio=0 cpu=16.17ms elapsed=96.08s tid=0x000072185800ad30 nid=2493105 runnable
+
+"GC Thread#3" os_prio=0 cpu=15.78ms elapsed=96.08s tid=0x0000721858009ff0 nid=2493104 runnable
+
+"GC Thread#2" os_prio=0 cpu=15.99ms elapsed=96.08s tid=0x00007218580092b0 nid=2493103 runnable
+
+"GC Thread#1" os_prio=0 cpu=17.83ms elapsed=96.09s tid=0x0000721858008570 nid=2493102 runnable
+
+"VM Thread" os_prio=0 cpu=11.22ms elapsed=96.62s tid=0x0000721890129380 nid=2493078 runnable
+
+"VM Periodic Task Thread" os_prio=0 cpu=0.99ms elapsed=96.62s tid=0x0000721890117970 nid=2493077 waiting on condition
+
+"G1 Service" os_prio=0 cpu=3.72ms elapsed=96.62s tid=0x0000721890109590 nid=2493073 runnable
+
+"G1 Refine#0" os_prio=0 cpu=58.40ms elapsed=96.62s tid=0x00007218901083a0 nid=2493072 runnable
+
+"G1 Conc#0" os_prio=0 cpu=5.02ms elapsed=96.62s tid=0x00007218900a0360 nid=2493071 runnable
+
+"G1 Main Marker" os_prio=0 cpu=0.52ms elapsed=96.63s tid=0x000072189009f190 nid=2493070 runnable
+
+"GC Thread#0" os_prio=0 cpu=13.39ms elapsed=96.63s tid=0x000072189008b8e0 nid=2493069 runnable
+
+JNI global refs: 9, weak refs: 0
+
+Heap
+ garbage-first heap   total reserved 3145728K, committed 524288K, used 388826K [0x0000000740000000, 0x0000000800000000)
+  region size 2048K, 96 young (196608K), 6 survivors (12288K)
+ Metaspace       used 23380K, committed 23808K, reserved 1114112K
+  class space    used 2285K, committed 2496K, reserved 1048576K
+
+# [StorageProfile] dump called: enabled=false byKind.size=0

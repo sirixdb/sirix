@@ -80,7 +80,14 @@ failure table and tells the reader where the work went.
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
+| `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
+| `sirix-core` `JsonStructuralHashingWorkBudgetTest` | cold boundary moves in both directions and exclusive array/object renames, 16/4096 unchanged descendants, all versioning types | hashing captures or prepares unchanged descendants, writes their document pages or grows scratch state; untouched records and canonical hashes must survive the mutation and cold reopening |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
+| `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
+| `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar edits, non-bound insertion/removal or existing non-bound field moves in either direction rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
+| `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend, removal and both directions of same-parent empty-neighbor moves beside 16/4096 retained rows, all four versioning types; moves also cover both Dewey modes and mixed insert/delete/move epochs | boundary changes queue retained row edits, allocate row labels or walk the unchanged row subtree; cold payloads, sorted memberships, labels and key/numeric segment offsets must stay stable; later population of the moved neighbor, indexed reorder and reparenting provide positive controls |
+| | independently varied 16/4096 unlabelled siblings and 16/4096 indexed rows, both directions and Dewey modes | classification walks an unchanged sibling run or probes its order slots; changed boundaries must bound record and slot work without retained-row edits |
+| `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
 | `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
@@ -88,6 +95,45 @@ failure table and tells the reader where the work went.
 The original budgets were checked **by mutation**: the defect it guards was put back, the test was seen
 to fail with the expected counter, and the source was restored. The measured healthy and broken
 figures are in each test's comments.
+
+Projection identity boundary mutation evidence (2026-10-06): restoring the raw left/right-link
+comparison failed all 16 versioning/size/direction cases on queued row edits: 32 for 16 retained
+rows and 8192 for 4096 rows. Emitted label buffers were 160 and 44536 bytes respectively; record
+visits ranged from 922–1115 and 605518–622379. The fixed append/prepend and removal captures used
+zero row edits, zero label bytes and 190–268 record visits across both sizes. The positive indexed
+insertion control queued one row and allocated a 10-byte label. Raw logs and XML for this run live
+under `build/replay/review-boundary-results/` in the active worktree.
+
+Projection same-parent move mutation evidence (2026-10-06): restoring retained-sibling identity
+comparison failed all 32 move configurations, queuing 32 edits for 16 retained rows and 8192
+for 4096 rows. The fixed move/mixed-boundary and existing insertion/removal captures used zero
+row edits, zero emitted label bytes and 190–302 record visits across both widths and Dewey modes,
+with cold payloads and persisted segment offsets unchanged. Later population queued one row
+and a 10-byte label; actual indexed reorders and reparenting produced nonzero row edits and labels.
+Logs and XML live under `build/replay/review-projection-order-results/` in the active worktree.
+Existing bounds are unchanged; this is work evidence, not a new latency or memory guarantee.
+
+Batch scheduling evidence (2026-10-06): the old code failed all 48 populated/previously-emptied
+rotation histories, all eight wide valid-time move cases and 32 large sibling-run cases.
+With independently varied 16/4096 rows and 16/4096 unlabelled siblings, the fixed listener used
+27 document lookups and four order-slot probes in every one of 64 captures, with zero retained
+row edits or emitted label bytes. The old listener grew from 37 to 4117 document lookups and
+19 to 4099 slot probes. These are listener bounds: whole-epoch transition validation still walks
+the sibling chain. Fixed-seed exhaustive four-container permutations also mix membership,
+rename, empty/repopulated containers and retry, checking cold source and target indexes.
+The focused final run passed 590 core and 106 query cases (five query skips); the subsequent
+source-projection check passed all 48 histories. Evidence is under
+`build/replay/review-batch-order-results/`, `review-batch-order-v2-results/`,
+`review-batch-order-v5-results/` and `review-source-projection-final-results/` in the active worktree.
+Prior memory and paired-latency limitations remain; no new timing claim is made.
+
+Valid-time identity mutation evidence (2026-10-06): restoring broad object/parent scheduling
+failed all eight versioning/width cases on the first nested append, inspecting 38 fields at
+width 16 and 8198 at width 4096. The fixed nested/scalar and non-bound insertion/removal edits
+inspected zero fields in all 32 captures. Direct bound updates inspected 38 and 8198 fields,
+proving the counter is connected. This guards listener scans, not total replay work: distinct
+field-path width still affects other epoch record/path-state work. Raw logs and XML live under
+`build/replay/review-valid-time-results/` in the active worktree; no new timing evidence is claimed.
 
 ### The native-image guard, and what it cannot catch
 
@@ -132,6 +178,29 @@ maintains, so a budget quotes the same numbers an investigation would:
   listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
+- `EngineWorkCounters.REPLAY`: cursor/storage record visits (nested delegations count), path-summary cursor
+  steps including writer reinitialization, created document identities, detached staged document records,
+  memoized ancestry hops, attempted presentation sidecar reads, authoritative indirect/leaf resolutions,
+  and pending-diff keyed operations/entry visits. `sirix.replay.workDiag` is static-final and off in
+  production; the core test fork enables it, and captures require that gate to be live. The sidecar
+  zero budget has a positive read control. These totals include lifecycle work during the capture;
+  they do not represent unique records, allocated bytes, or physical disk reads.
+- `EngineWorkCounters.REPLAY_PROJECTION_ROWS` and `REPLAY_PROJECTION_LABEL_BYTES`: old row removals
+  and final row insertions queued by an identity epoch, and bytes allocated for its final row labels.
+  The zero budgets for empty boundary changes have a positive indexed insertion control. These use
+  the same `sirix.replay.workDiag` gate; label bytes count only the emitted label buffers, not total
+  JVM allocations.
+- `EngineWorkCounters.REPLAY_PROJECTION_ORDER_SLOTS`: structural-order slot requests, including
+  absent unlabelled slots, under `sirix.replay.workDiag`. The independent sibling-run fixture
+  bounds these requests and record visits; a changed labelled prefix makes the counter nonzero.
+- `EngineWorkCounters.REPLAY_PROJECTION_RECORD_READS`: document lookups made by the projection
+  maintenance listener, under the same gate. The sibling-run budget captures listener work directly;
+  whole-epoch record diagnostics also include the pre-existing transition validator's sibling-chain
+  traversal, which this scheduling fix does not bound. Existing whole-epoch budgets are unchanged.
+- `EngineWorkCounters.REPLAY_VALID_TIME_BOUND_FIELDS`: direct children inspected by the valid-time
+  listener while reconstructing bounds. It shares the `sirix.replay.workDiag` gate and counts scans
+  of old and final objects. Unrelated identity edits require zero; a direct bound update must scan
+  both versions as a positive control. Full replay record/path counters remain separate diagnostics.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
@@ -164,10 +233,12 @@ maintains, so a budget quotes the same numbers an investigation would:
 **Gated counters.** Counters on a hot path are compiled away behind a `static final` flag, so a test
 cannot switch one on for itself. The module's `test` block provides the property and the capture
 asserts it (`WorkCounter.requireLive()`), because a switched-off counter reads zero and zero
-satisfies every upper bound. Today that is `sirix.hot.mergeDiag`, provided in both
+satisfies every upper bound. For HOT work that is `sirix.hot.mergeDiag`, provided in both
 `bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`. Those test blocks also provide
 `sirix.validTime.scanDiag`; `ValidTimeSliceWorkBudgetTest` requires zero interval/posting references
 for empty answers and counts both kinds on nonempty answers through the same gated seam.
+Identity replay additionally
+uses `sirix.replay.workDiag`, enabled by the core test fork.
 
 **Adding a counter to the engine.** Only when a path a test must guard has none. Keep it off the hot
 path: gate it as `VersioningType` gates its merge counters if it sits on a per-record or per-page
@@ -209,6 +280,27 @@ To see the figures while choosing a bound, print every capture:
 ```bash
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' -Dsirix.workBudget.print=true -i
 ```
+
+Structural boundary hashing mutation evidence (2026-10-06): restoring unconditional subtree
+capture failed all 32 versioning/size/mutation cases. At 16/4096 descendants, the old code
+captured and prepared 19–20/4099–4100 records, read 76–82/16396–16402 records, and grew
+primitive scratch arrays by 576–640/469512 bytes. The large cases wrote five document pages.
+The fixed moves used 16 reads/four preparations and the fixed renames used 12 reads/three
+preparations at both sizes, with one/two written pages, zero scratch growth and no retained
+descendant preparations. All 32 budgets and 48 cold source/copy PATH histories passed;
+the focused final run passed 804 core and 44 query cases (five query skips).
+The budget covers both same-parent move directions and exclusive array/object renames with
+ROLLING hashing, Dewey IDs off and path summaries off. It also compares untouched descendant
+records and validates canonical hashes after cold reopening. Existing bounds are unchanged.
+
+`JsonHashingWorkProbe` decorates the real hash-maintenance storage writer. Its preparations
+and persists are actual document-record operations; written pages count distinct document
+pages receiving those persists, not disk syscalls or bytes. Captured keys and primitive
+backing-array payloads measure live scratch state, excluding JVM object headers. The fresh
+cold writer fixture makes scratch growth observable; boundary work has nonzero floors,
+and unchanged descendant preparations must be zero. These are work bounds, not latency or
+whole-transaction memory guarantees. Mutation and focused verification artifacts live under
+`build/replay/review-array-hashing/` in the active worktree.
 
 ## Changing a budget
 

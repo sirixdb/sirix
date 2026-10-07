@@ -1,0 +1,43 @@
+{
+  "tests": 37,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 5,
+  "classes": [
+    {
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.query.budget.ValidTimeSliceWorkBudgetTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5
+    }
+  ]
+}

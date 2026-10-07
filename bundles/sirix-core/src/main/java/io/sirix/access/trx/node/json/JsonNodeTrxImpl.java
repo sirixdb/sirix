@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.json;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
@@ -97,6 +98,9 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -110,6 +114,16 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
+import java.util.Objects;
+import java.util.function.BiConsumer;
+import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayPaths;
+import io.sirix.service.json.replay.JsonReplayHistory;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
+import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.interval.json.JsonValidTimeIndexListener;
+import io.sirix.service.json.replay.JsonReplayTransitionValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
@@ -555,6 +569,7 @@ final class JsonNodeTrxImpl extends
     assert insertionPosition != null;
 
     runLocked(() -> {
+      boolean mutationStarted = false;
       try {
         assertRunning();
 
@@ -564,55 +579,37 @@ final class JsonNodeTrxImpl extends
 
         checkAccessAndCommit();
         final boolean storeDiffs = resourceSession.getResourceConfig().storeDiffs();
-        if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
-          beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+        recordBulkInsertionBaseRevision(storeDiffs);
+        // Every auto-commit boundary must have valid hashes/counts. A deferred final repair
+        // cannot repair already-published intermediate revisions, even when explicitly requested.
+        final boolean perInsertHashAdaptation = isAutoCommitting;
+        final long oldFrontier = getMaxNodeKey();
+        final JsonHashingMutation bulkHashes = ((JsonNodeHashing) nodeHashing).mutation();
+        final boolean repairForest = !perInsertHashAdaptation && bulkHashes.begin();
+        if (repairForest) {
+          bulkHashes.capturePath(getNodeKey());
+          bulkHashes.capturePath(insertionBoundary(insertionPosition));
         }
+        mutationStarted = true;
         nodeHashing.setBulkInsert(true);
-        // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
-        // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
-        // - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
-        // upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
-        // - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
-        // repair over the imported subtree at the end. Correct for ANY import size; costs a
-        // full subtree walk after the import (opt-in for exactly that reason).
-        final boolean perInsertHashAdaptation =
-            isAutoCommitting && !resourceSession.getResourceConfig().repairBulkInsertHashes;
         if (perInsertHashAdaptation) {
           nodeHashing.setAutoCommit(true);
         }
         final long nodeKey = getNodeKey();
-        final long siblingBoundary = storeDiffs && skipRootJsonToken == SkipRootToken.YES
-            ? switch (insertionPosition) {
-              case AS_FIRST_CHILD -> getFirstChildKey();
-              case AS_LAST_CHILD -> getLastChildKey();
-              case AS_LEFT_SIBLING -> getLeftSiblingKey();
-              case AS_RIGHT_SIBLING -> getRightSiblingKey();
-            }
+        final long siblingBoundary = (storeDiffs || repairForest) && skipRootJsonToken == SkipRootToken.YES
+            ? insertionBoundary(insertionPosition)
             : Fixed.NULL_NODE_KEY.getStandardProperty();
 
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
 
-        moveTo(nodeKey);
-
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD -> moveToFirstChild();
-          case AS_LAST_CHILD -> moveToLastChild();
-          case AS_LEFT_SIBLING -> moveToLeftSibling();
-          case AS_RIGHT_SIBLING -> moveToRightSibling();
-          default -> {
-            // May not happen.
-          }
-        }
+        moveToInsertedSubtree(nodeKey, insertionPosition);
 
         if (storeDiffs) {
           collectBulkInsertDiffs(insertionPosition, skipRootJsonToken, nodeKey, siblingBoundary);
         }
 
-        // Exactly one of the two modes runs (see the mode comment above): per-insert adaptation
-        // during the shred, or one postorder repair at the end (always for non-auto-committing
-        // bulk inserts — single-trx scope, upstream semantics — and opt-in for auto-committing).
-        if (!perInsertHashAdaptation) {
-          adaptHashesInPostorderTraversal();
+        if (repairForest) {
+          repairBulkInsertHashes(bulkHashes, insertionPosition, skipRootJsonToken, oldFrontier, siblingBoundary);
         }
 
         nodeHashing.setBulkInsert(false);
@@ -622,14 +619,71 @@ final class JsonNodeTrxImpl extends
         }
 
       } catch (final IOException e) {
+        markBulkInsertFailure(mutationStarted, e);
         throw new UncheckedIOException(e);
-      } catch (final RuntimeException e) {
+      } catch (final RuntimeException | Error e) {
+        markBulkInsertFailure(mutationStarted, e);
         throw e;
       } catch (final Exception e) {
+        markBulkInsertFailure(mutationStarted, e);
         throw new SirixException(e);
+      } finally {
+        if (mutationStarted) {
+          nodeHashing.setBulkInsert(false);
+        }
       }
     });
     return this;
+  }
+
+  private void recordBulkInsertionBaseRevision(final boolean storeDiffs) {
+    if (storeDiffs && beforeBulkInsertionRevisionNumber < 0) {
+      beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber() - 1;
+    }
+  }
+
+  private void moveToInsertedSubtree(final long nodeKey, final InsertPosition insertionPosition) {
+    moveTo(nodeKey);
+    switch (insertionPosition) {
+      case AS_FIRST_CHILD -> moveToFirstChild();
+      case AS_LAST_CHILD -> moveToLastChild();
+      case AS_LEFT_SIBLING -> moveToLeftSibling();
+      case AS_RIGHT_SIBLING -> moveToRightSibling();
+    }
+  }
+
+  private void markBulkInsertFailure(final boolean mutationStarted, final Throwable cause) {
+    if (mutationStarted) {
+      markRollbackOnly(cause);
+    }
+  }
+
+  private long insertionBoundary(final InsertPosition insertionPosition) {
+    return switch (insertionPosition) {
+      case AS_FIRST_CHILD -> getFirstChildKey();
+      case AS_LAST_CHILD -> getLastChildKey();
+      case AS_LEFT_SIBLING -> getLeftSiblingKey();
+      case AS_RIGHT_SIBLING -> getRightSiblingKey();
+    };
+  }
+
+  private void repairBulkInsertHashes(final JsonHashingMutation bulkHashes, final InsertPosition insertionPosition,
+      final SkipRootToken skipRootJsonToken, final long oldFrontier, final long siblingBoundary) {
+    final long selectedRoot = getNodeKey();
+    final boolean walkLeft =
+        insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+    if (selectedRoot > oldFrontier) {
+      do {
+        bulkHashes.addNewSubtree(getNodeKey());
+        if (skipRootJsonToken != SkipRootToken.YES) {
+          break;
+        }
+      } while ((walkLeft
+          ? moveToLeftSibling()
+          : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+      bulkHashes.finish();
+    }
+    moveTo(selectedRoot);
   }
 
   private SkipRootToken validateSubtreePosition(final InsertPosition insertionPosition,
@@ -2343,13 +2397,31 @@ final class JsonNodeTrxImpl extends
     // Old code did: moveTo(nodeKey) → adaptForInsert(getStructuralNodeView()) → moveTo(nodeKey) → hash.
     // New code: adaptForInsert(keys) → hash(nodeKey) → moveTo(nodeKey).
     // Net: eliminated 1 moveTo (the first one before adaptForInsert).
+    final JsonHashingMutation hashes = beginInsertHashes(parentKey, leftSibKey, rightSibKey);
     adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, false);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (hashes != null) {
+      hashes.addNewLeaf(nodeKey);
+      hashes.finish();
+    }
     // Restore cursor to new node only if hashing did not already do so (HashType.NONE path).
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       moveToJustInsertedNode(nodeKey);
     }
     markFreshlyInsertedCursor(nodeKey);
+  }
+
+  private @Nullable JsonHashingMutation beginInsertHashes(final long parent, final long left, final long right) {
+    if (nodeHashing.isBulkInsert() && !nodeHashing.isAutoCommit()) {
+      return null;
+    }
+    final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+    if (!hashes.begin()) {
+      return null;
+    }
+    hashes.capturePath(parent);
+    hashes.capturePath(left);
+    hashes.capturePath(right);
+    return hashes;
   }
 
   @Override
@@ -2455,9 +2527,13 @@ final class JsonNodeTrxImpl extends
     final boolean notifyPrimitiveIndexes = indexController.hasAnyPrimitiveIndex();
     final boolean resolveParentPathNodeKey =
         useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
+    final JsonHashingMutation hashes = beginInsertHashes(parentKey, leftSibKey, rightSibKey);
     final long parentPathNodeKey =
         adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (hashes != null) {
+      hashes.addNewLeaf(nodeKey);
+      hashes.finish();
+    }
     if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
       moveToJustInsertedNode(nodeKey);
     }
@@ -2823,7 +2899,7 @@ final class JsonNodeTrxImpl extends
         throw new IllegalStateException("Node to move must exist!");
       }
 
-      if (node instanceof StructNode toMove) {
+      if (node instanceof StructNode originalToMove) {
         final NodeKind anchorKind = getKind();
         // play the
         // OBJECT/ARRAY role under fusion, so admit them as valid move anchors.
@@ -2834,8 +2910,15 @@ final class JsonNodeTrxImpl extends
               "Move is not allowed if the anchor node is not an OBJECT, ARRAY, OBJECT_KEY, or JSON_DOCUMENT node!");
         }
 
-        checkMoveAncestors(toMove);
+        checkMoveAncestors(originalToMove);
+        final StorageEngineWriter previousWriter = storageEngineWriter;
         checkAccessAndCommit();
+        // An intermediate commit replaces the writer and invalidates its flyweight records.
+        // Resolve the source again only when that boundary actually rotated the epoch.
+        @SuppressWarnings("ReferenceEquality")
+        final StructNode toMove = previousWriter == storageEngineWriter
+            ? originalToMove
+            : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
 
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
@@ -2843,6 +2926,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
+          final JsonHashingMutation hashes = beginMoveHashes(toMove, nodeAnchor, MovePosition.AS_FIRST_CHILD);
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2864,13 +2948,9 @@ final class JsonNodeTrxImpl extends
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
-
           // Adapt pointers (no text node merging for JSON).
           adaptForMove(toMove, nodeAnchor, MovePosition.AS_FIRST_CHILD);
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
 
           // Re-attribute every path-bearing record, including anonymous and fused arrays.
           if (buildPathSummary && originalParentKey != nodeAnchor.getNodeKey()) {
@@ -2894,6 +2974,9 @@ final class JsonNodeTrxImpl extends
           // Record the move in the persisted update operations (#1074): DELETED at the old
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
+          if (hashes != null) {
+            hashes.finish();
+          }
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
               ? getDeweyID()
@@ -2941,9 +3024,16 @@ final class JsonNodeTrxImpl extends
         throw new IllegalStateException("Node to move must exist: " + fromKey);
       }
 
-      if (node instanceof StructNode toMove) {
-        checkMoveAncestors(toMove);
+      if (node instanceof StructNode originalToMove) {
+        checkMoveAncestors(originalToMove);
+        final StorageEngineWriter previousWriter = storageEngineWriter;
         checkAccessAndCommit();
+        // An intermediate commit replaces the writer and invalidates its flyweight records.
+        // Resolve the source again only when that boundary actually rotated the epoch.
+        @SuppressWarnings("ReferenceEquality")
+        final StructNode toMove = previousWriter == storageEngineWriter
+            ? originalToMove
+            : storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
 
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
@@ -2951,6 +3041,7 @@ final class JsonNodeTrxImpl extends
           pendingStructuralChange = toMove.getNodeKey();
           indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
           structuralSurgeryStarted = true;
+          final JsonHashingMutation hashes = beginMoveHashes(toMove, nodeAnchor, MovePosition.AS_RIGHT_SIBLING);
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2971,13 +3062,9 @@ final class JsonNodeTrxImpl extends
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
-          // Adapt hashes.
-          adaptHashesForMove(toMove);
-
           // Adapt pointers (no text node merging for JSON).
           adaptForMove(toMove, nodeAnchor, MovePosition.AS_RIGHT_SIBLING);
           nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
-          nodeHashing.adaptHashesWithAdd();
 
           // Re-attribute every path-bearing record, including anonymous and fused arrays.
           if (buildPathSummary && originalParentKey != parentKey) {
@@ -3001,6 +3088,9 @@ final class JsonNodeTrxImpl extends
           // Record the move in the persisted update operations (#1074): DELETED at the old
           // position + INSERTED at the new one, so a move-only revision no longer serializes
           // an empty diff.
+          if (hashes != null) {
+            hashes.finish();
+          }
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs()
               ? getDeweyID()
@@ -3082,6 +3172,9 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptSubtreeForMove(final Node node, final IndexController.ChangeType type) {
     assert type != null;
+    if (!indexController.hasAnyPrimitiveIndex()) {
+      return;
+    }
     final long beforeNodeKey = getNodeKey();
     moveTo(node.getNodeKey());
     final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
@@ -3089,7 +3182,9 @@ final class JsonNodeTrxImpl extends
       axis.nextLong();
       final ImmutableNode currentNode = nodeReadOnlyTrx.getNode();
       long pathNodeKey = -1;
-      if (currentNode instanceof ValueNode
+      final NodeKind kind = currentNode.getKind();
+      if ((kind == NodeKind.STRING_VALUE || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.BOOLEAN_VALUE
+          || kind == NodeKind.NULL_VALUE)
           && currentNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         final long nodeKey = currentNode.getNodeKey();
         moveToParent();
@@ -3097,23 +3192,45 @@ final class JsonNodeTrxImpl extends
         moveTo(nodeKey);
       } else if (currentNode instanceof NameNode nameNode) {
         pathNodeKey = nameNode.getPathNodeKey();
+      } else if (kind == NodeKind.ARRAY) {
+        pathNodeKey = getPathNodeKey();
       }
-      if (pathNodeKey != -1 && indexController.hasAnyPrimitiveIndex()) {
+      if (pathNodeKey != -1) {
         notifyPrimitiveIndexChange(type, currentNode, pathNodeKey);
       }
     }
     moveTo(beforeNodeKey);
   }
 
-  /**
-   * Adapt hashes for move operation ("remove" phase).
-   *
-   * @param nodeToMove node which implements {@link StructNode} and is moved
-   */
-  private void adaptHashesForMove(final StructNode nodeToMove) {
-    assert nodeToMove != null;
-    nodeReadOnlyTrx.setCurrentNode((ImmutableJsonNode) nodeToMove);
-    nodeHashing.adaptHashesWithRemove();
+  private @Nullable JsonHashingMutation beginMoveHashes(final StructNode moved, final StructNode anchor,
+      final MovePosition position) {
+    if (nodeHashing.isBulkInsert() && !nodeHashing.isAutoCommit()) {
+      return null;
+    }
+    final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+    if (!hashes.begin()) {
+      return null;
+    }
+    final long movedKey = moved.getNodeKey();
+    final long oldParent = moved.getParentKey();
+    final long left = moved.getLeftSiblingKey();
+    final long right = moved.getRightSiblingKey();
+    final long anchorKey = anchor.getNodeKey();
+    final long newParent = position == MovePosition.AS_FIRST_CHILD
+        ? anchorKey
+        : anchor.getParentKey();
+    final long boundary = position == MovePosition.AS_FIRST_CHILD
+        ? anchor.getFirstChildKey()
+        : anchor.getRightSiblingKey();
+    hashes.capturePath(movedKey);
+    hashes.capturePath(left);
+    hashes.capturePath(right);
+    hashes.capturePath(anchorKey);
+    hashes.capturePath(boundary);
+    if (buildPathSummary && oldParent != newParent) {
+      hashes.capturePathChanges(movedKey);
+    }
+    return hashes;
   }
 
   /**
@@ -3308,24 +3425,14 @@ final class JsonNodeTrxImpl extends
 
       try {
         final StructNode node = nodeReadOnlyTrx.getStructuralNode();
-        if (node.getKind() == NodeKind.JSON_DOCUMENT) {
-          throw new SirixUsageException("Document root can not be removed.");
-        }
-
-        final var parentNodeKind = getParentKind();
-
-        // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
-        // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
-        // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
-        // child parents alongside the legacy kinds.
-        if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-            && parentNodeKind != NodeKind.ARRAY && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
-            && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
-          throw new SirixUsageException(
-              "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
-        }
+        validateRemoval(node);
 
         canRemoveValue = false;
+        final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+        final boolean updateHashes = (!nodeHashing.isBulkInsert() || nodeHashing.isAutoCommit()) && hashes.begin();
+        if (updateHashes) {
+          hashes.captureNeighborhood(node.getNodeKey());
+        }
 
         // iter#32: Legacy `parentNodeKind != OBJECT_KEY` was meant to skip the DELETE
         // diff entry when callers asked to remove the inner value-record of an
@@ -3337,41 +3444,7 @@ final class JsonNodeTrxImpl extends
         // consumers (BasicJsonDiff, jn:diff serializer) lose the entry entirely.
         adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
 
-        for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
-          final long currentNodeKey = axis.nextLong();
-          final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
-          if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
-            final long originalKey = staleTuple.getOldNodeKey();
-            updateOperationsUnordered.put(-originalKey,
-                new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
-          }
-
-          // Remove name.
-          removeName();
-
-          // Remove text value.
-          removeValue();
-
-          // De-index plain OBJECT records and NULL_VALUE elements — kinds
-          // that carry neither a name nor a value and would otherwise vanish
-          // without any listener-maintained index (projection) ever seeing
-          // the deletion.
-          removeObjectOrNullEntry();
-
-          // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
-          // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
-          // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
-          // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
-          // leaked the __array__ refcount.
-          removeArrayPathEntry();
-
-          // Then remove node.
-          storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
-
-          if (storeNodeHistory) {
-            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
-          }
-        }
+        removeDescendants();
 
         if (node.getKind().playsObjectKeyRole()) {
           removeName();
@@ -3391,8 +3464,10 @@ final class JsonNodeTrxImpl extends
         // node.
         final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
         nodeReadOnlyTrx.setCurrentNode(jsonNode);
-        nodeHashing.adaptHashesWithRemove();
         adaptForRemove(node);
+        if (updateHashes) {
+          hashes.finish();
+        }
         nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
         if (storeNodeHistory) {
@@ -3416,6 +3491,57 @@ final class JsonNodeTrxImpl extends
       if (lock != null) {
         lock.unlock();
       }
+    }
+  }
+
+  private void removeDescendants() {
+    for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
+      final long currentNodeKey = axis.nextLong();
+      final DiffTuple staleTuple = updateOperationsUnordered.remove(currentNodeKey);
+      if (staleTuple != null && staleTuple.getDiff() == DiffFactory.DiffType.REPLACEDNEW) {
+        final long originalKey = staleTuple.getOldNodeKey();
+        updateOperationsUnordered.put(-originalKey, new DiffTuple(DiffFactory.DiffType.DELETED, 0, originalKey, null));
+      }
+
+      // Remove name.
+      removeName();
+
+      // Remove text value.
+      removeValue();
+
+      // De-index plain OBJECT records and NULL_VALUE elements — kinds
+      // that carry neither a name nor a value and would otherwise vanish
+      // without any listener-maintained index (projection) ever seeing
+      // the deletion.
+      removeObjectOrNullEntry();
+
+      // De-index plain ARRAY nodes (and decrement their __array__ path-summary refcount):
+      // the insert side fires a PATH-index INSERT for ARRAY nodes (see insertArrayAsFirstChild),
+      // but removeName/removeValue only cover fused + primitive kinds — so a removed ARRAY left
+      // a stale path-index entry (a scan-path-index would still return the deleted nodeKey) and
+      // leaked the __array__ refcount.
+      removeArrayPathEntry();
+
+      // Then remove node.
+      storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
+      }
+    }
+  }
+
+  private void validateRemoval(final StructNode node) {
+    if (node.getKind() == NodeKind.JSON_DOCUMENT) {
+      throw new SirixUsageException("Document root can not be removed.");
+    }
+    final var parentNodeKind = getParentKind();
+    // Fused containers have the same removable-child roles as plain OBJECT/ARRAY parents.
+    if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
+        && parentNodeKind != NodeKind.ARRAY && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
+        && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
+      throw new SirixUsageException(
+          "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
     }
   }
 
@@ -3722,15 +3848,16 @@ final class JsonNodeTrxImpl extends
       }
       checkAccessAndCommit();
 
-      final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
-      final NameNode nameNode = (NameNode) node;
       final QNm renamed = new QNm(key);
       if (renamed.equals(nodeReadOnlyTrx.getName())) {
         // No-op rename: nothing changes, so no listener may observe a structural episode —
         // notifying here would (correctly) reject the call during an append-only bulk load.
         return this;
       }
-      final long oldHash = node.computeHash(bytes);
+      final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
+      final boolean updateHashes = (!nodeHashing.isBulkInsert() || nodeHashing.isAutoCommit()) && hashes.begin();
+      final ImmutableJsonNode node = (ImmutableJsonNode) nodeReadOnlyTrx.getStructuralNode();
+      final NameNode nameNode = (NameNode) node;
 
       // A rename rewrites this node's path class and, for container kinds, its descendants' —
       // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
@@ -3746,10 +3873,39 @@ final class JsonNodeTrxImpl extends
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
       final long oldPathNodeKey = nameNode.getPathNodeKey();
+      final long oldFieldPath = buildPathSummary && currentKind == NodeKind.OBJECT_NAMED_ARRAY
+          ? pathSummaryWriter.lookupArrayPathParentKey(oldPathNodeKey)
+          : -1;
+      final PathNode oldField = oldFieldPath >= 0
+          ? pathSummaryWriter.getPathSummary().getPathNodeForPathNodeKey(oldFieldPath)
+          : null;
+      final boolean remapArrayDescendants = oldField != null && oldField.getReferences() > 1;
+      final boolean containerRename =
+          currentKind == NodeKind.OBJECT_NAMED_ARRAY || currentKind == NodeKind.OBJECT_NAMED_OBJECT;
+      if (updateHashes) {
+        hashes.capturePath(node.getNodeKey());
+        if (remapArrayDescendants) {
+          hashes.capturePathChanges(node.getNodeKey());
+        } else if (buildPathSummary && currentKind == NodeKind.OBJECT_NAMED_OBJECT) {
+          final var summary = pathSummaryWriter.getPathSummary();
+          final PathNode oldPath = summary.getPathNodeForPathNodeKey(oldPathNodeKey);
+          if (oldPath.getReferences() > 1
+              || summary.findChild(oldPath.getParentKey(), renamed, NodeKind.OBJECT_NAMED_OBJECT) >= 0) {
+            hashes.capturePathChanges(node.getNodeKey());
+          }
+        }
+      }
       // The rollback-only latch arms at the first statement a failed rename would need to
       // unwind — the DELETE de-index. Everything above leaves no half-applied state.
       renameStarted = true;
-      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+      if (remapArrayDescendants) {
+        transferPathStatsForMovedSubtree((Node) node, false);
+      }
+      if (containerRename) {
+        adaptSubtreeForMove((Node) node, IndexController.ChangeType.DELETE);
+      } else {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+      }
 
       // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
       final NodeKind nameNamespaceKind = NodeKind.OBJECT_NAMED_OBJECT;
@@ -3798,10 +3954,25 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord((DataRecord) node);
-      nodeHashing.adaptHashedWithUpdate(oldHash);
+      if (remapArrayDescendants) {
+        pathSummaryWriter.adaptPathForMovedSubtree(node.getNodeKey());
+        transferPathStatsForMovedSubtree((Node) node, true);
+      }
+      if (updateHashes) {
+        hashes.finish();
+      }
+      if (buildPathSummary) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          listener.pathSummaryImported(true);
+        }
+      }
 
       // Re-index under the NEW name/path (see the DELETE above).
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      if (containerRename) {
+        adaptSubtreeForMove((Node) node, IndexController.ChangeType.INSERT);
+      } else {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      }
       indexController.notifyAfterStructuralChange(pendingStructuralChange);
       pendingStructuralChange = -1L;
 
@@ -4311,53 +4482,68 @@ final class JsonNodeTrxImpl extends
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     try {
-      serializeUpdateDiffsWithIngestPositions(revisionNumber);
-    } finally {
-      ingestArrayPositions = null;
-      if (!nodeHashing.isBulkInsert()) {
-        beforeBulkInsertionRevisionNumber = -1;
-        suppressUpdateDiffs = false;
-        updateOperationsUnordered.clear();
+      final Runnable publish = serializeUpdateDiffsWithIngestPositions(revisionNumber);
+      if (publish != null) {
+        publish.run();
       }
+    } finally {
+      clearUpdateDiffsAfterAsyncCommit();
     }
   }
 
-  private void serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
+  @Override
+  protected @Nullable Runnable prepareUpdateDiffsForAsyncCommit(final int revisionNumber) {
+    return serializeUpdateDiffsWithIngestPositions(revisionNumber);
+  }
+
+  @Override
+  protected void clearUpdateDiffsAfterAsyncCommit() {
+    ingestArrayPositions = null;
+    if (!nodeHashing.isBulkInsert()) {
+      beforeBulkInsertionRevisionNumber = -1;
+      suppressUpdateDiffs = false;
+      updateOperationsUnordered.clear();
+    }
+  }
+
+  private @Nullable Runnable serializeUpdateDiffsWithIngestPositions(final int revisionNumber) {
     final int oldRevisionNumber = diffStartingRevision(revisionNumber);
-    if (!nodeHashing.isBulkInsert() && !suppressUpdateDiffs && oldRevisionNumber > 0) {
+    if (nodeHashing.isBulkInsert() || suppressUpdateDiffs || oldRevisionNumber <= 0) {
+      return null;
+    }
+    final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
+        oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
+    final var jsonDiff = revisionNumber > resourceSession.getMostRecentRevisionNumber()
+        ? diffSerializer.serializeSidecarFromFrozenEpoch(this, ingestArrayPositions)
+        : ingestArrayPositions == null
+            ? diffSerializer.serializeSidecar()
+            : diffSerializer.serializeSidecar(ingestArrayPositions);
+    final Path diff = resourceSession.getResourceConfig()
+                                     .getResource()
+                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                     .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
+    // Only immutable data crosses the async hardening boundary. Do not retain this writer,
+    // its mutable operation map, ingest hints, cursor or path-summary reader in the action.
+    return () -> publishUpdateDiff(diff, jsonDiff);
+  }
 
-      final var diffSerializer = new JsonDiffSerializer(this.databaseName, (JsonResourceSession) resourceSession,
-          oldRevisionNumber, revisionNumber, updateOperationsUnordered.values());
-      final var jsonDiff = ingestArrayPositions == null
-          ? diffSerializer.serializeSidecar()
-          : diffSerializer.serializeSidecar(ingestArrayPositions);
-
-      // Use the same old revision number for the file name as for the diff content
-      final Path diff = resourceSession.getResourceConfig()
-                                       .getResource()
-                                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                       .resolve("diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
-      // The diff file is written after the storage commit is already durable, so a crash in
-      // between must not leave a torn (half-written) file behind, which readers would otherwise
-      // serve verbatim forever. Write to a temp file in the same directory and atomically move
-      // it into place.
-      final Path diffTmp = diff.resolveSibling(
-          diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
+  private static void publishUpdateDiff(final Path diff, final String jsonDiff) {
+    final Path diffTmp = diff.resolveSibling(
+        diff.getFileName() + ".tmp" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong()));
+    try {
+      Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
       try {
-        Files.writeString(diffTmp, jsonDiff, CREATE_NEW);
-        try {
-          Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
-        } catch (final AtomicMoveNotSupportedException e) {
-          Files.move(diffTmp, diff, REPLACE_EXISTING);
-        }
-      } catch (final IOException e) {
-        try {
-          Files.deleteIfExists(diffTmp);
-        } catch (final IOException removeTmpFileException) {
-          e.addSuppressed(removeTmpFileException);
-        }
-        throw new UncheckedIOException(e);
+        Files.move(diffTmp, diff, ATOMIC_MOVE, REPLACE_EXISTING);
+      } catch (final AtomicMoveNotSupportedException e) {
+        Files.move(diffTmp, diff, REPLACE_EXISTING);
       }
+    } catch (final IOException e) {
+      try {
+        Files.deleteIfExists(diffTmp);
+      } catch (final IOException removeTmpFileException) {
+        e.addSuppressed(removeTmpFileException);
+      }
+      throw new UncheckedIOException(e);
     }
   }
 
@@ -4381,6 +4567,8 @@ final class JsonNodeTrxImpl extends
   public JsonNodeTrx revertTo(final int revision) {
     runLocked(() -> {
       super.revertTo(revision);
+      replaySourceResource = null;
+      replaySourceIdentity = null;
       beforeBulkInsertionRevisionNumber = -1;
       suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
     });
@@ -4411,6 +4599,261 @@ final class JsonNodeTrxImpl extends
   private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
       final StorageEngineWriter storageEngineWriter) {
     storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
+  }
+
+  @Nullable
+  private Path replaySourceResource;
+  @Nullable
+  private UUID replaySourceIdentity;
+  private int replaySourceRevision;
+  private int replayDestinationRevision;
+
+  @Nullable
+  static volatile BiConsumer<String, JsonNodeTrx> replayTestHook;
+
+  private void replayCheckpoint(final String phase) {
+    final var hook = replayTestHook;
+    if (hook != null) {
+      hook.accept(phase, this);
+    }
+  }
+
+  @Override
+  public void importRevision(final JsonIdentityDelta delta, final JsonNodeReadOnlyTrx source) {
+    requireNonNull(delta);
+    requireNonNull(source);
+    runLocked(() -> importRevisionLocked(delta, source));
+  }
+
+  private void importRevisionLocked(final JsonIdentityDelta delta, final JsonNodeReadOnlyTrx source) {
+    requireCleanImportEpoch();
+    final var manifest = delta.manifest();
+    final var sourceConfig = source.getResourceSession().getResourceConfig();
+    final var targetConfig = resourceSession.getResourceConfig();
+    if (source.getStorageEngineReader().hasTrxIntentLog()
+        || source.getRevisionNumber() > source.getResourceSession().getMostRecentRevisionNumber()
+        || !manifest.sourceResource().equals(sourceConfig.getResource().toAbsolutePath().normalize())
+        || !manifest.sourceIdentity().equals(sourceConfig.resourceUuid)
+        || manifest.targetRevision() != source.getRevisionNumber()
+        || manifest.targetFrontier() != source.getMaxNodeKey() || manifest.destinationRevision() != getRevisionNumber()
+        || manifest.deweyIDs() != sourceConfig.areDeweyIDsStored
+        || manifest.deweyIDs() != targetConfig.areDeweyIDsStored || manifest.hashType() != sourceConfig.hashType
+        || manifest.hashType() != targetConfig.hashType || sourceConfig.withPathSummary != targetConfig.withPathSummary
+        || sourceConfig.withPathStatistics != targetConfig.withPathStatistics
+        || sourceConfig.storeChildCount() != targetConfig.storeChildCount()
+        || sourceConfig.storeNodeHistory() != targetConfig.storeNodeHistory()) {
+      throw new IllegalArgumentException("Identity replay source, epoch or resource configuration mismatch");
+    }
+    if (replaySourceResource == null) {
+      if (manifest.baseRevision() != 0 || manifest.baseFrontier() != 0 || getRevisionNumber() != 1
+          || getMaxNodeKey() != 0 || !delta.puts().containsKey(0)) {
+        throw new IllegalArgumentException("Initial identity import requires a fresh destination");
+      }
+    } else if (!replaySourceResource.equals(manifest.sourceResource())
+        || !manifest.sourceIdentity().equals(replaySourceIdentity) || replaySourceRevision != manifest.baseRevision()
+        || manifest.targetRevision() != replaySourceRevision + 1
+        || replayDestinationRevision + 1 != manifest.destinationRevision()
+        || getMaxNodeKey() != manifest.baseFrontier()) {
+      throw new IllegalArgumentException("Identity replay does not name the destination's exact base epoch");
+    }
+    final Set<IndexDef> initialDefinitions = manifest.baseRevision() == 0
+        ? Set.copyOf(indexController.getIndexes().getIndexDefs())
+        : Set.of();
+    beginCompoundOperation();
+    try {
+      checkAccessAndCommit();
+      if (!initialDefinitions.isEmpty()) {
+        // Preflight guarantees a fresh, clean document epoch. The only uncommitted state belongs
+        // to these declarations. Abort their exact load owners and retire their fresh trees;
+        // completed-tree builds must still pass the ordinary virgin-tree guard.
+        rollback();
+      }
+      final boolean indexedTransition =
+          manifest.baseRevision() != 0 && (indexController.hasProjectionIndex() || indexController.hasValidTimeIndex())
+              && (!delta.puts().isEmpty() || !delta.deletes().isEmpty());
+      if (indexedTransition) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          if (listener instanceof final ProjectionIndexChangeListener projection) {
+            projection.beginIdentityImport(delta);
+          } else if (listener instanceof final JsonValidTimeIndexListener validTime) {
+            validTime.beginIdentityImport(delta);
+          }
+        }
+      }
+      final LongSet additionalIndexKeys = replayAdditionalIndexKeys(delta);
+      // Direct record import cannot truthfully emit a public mutation sidecar. Cache miss is safe.
+      suppressUpdateDiffs = true;
+      for (final long key : additionalIndexKeys) {
+        replayNotifyIndex(key, IndexController.ChangeType.DELETE);
+      }
+      for (final long key : delta.deletes()) {
+        replayRemoveDerivedState(key);
+      }
+      for (final long key : delta.puts().keySet()) {
+        if (!replayRemoveDerivedState(key)) {
+          ReplayWorkDiagnostics.identityCreated();
+        }
+      }
+      final var namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+      for (final var record : delta.puts().values()) {
+        final String name = record.name();
+        if (name != null) {
+          namePage.importJsonName(record.nameKey(), name, storageEngineWriter);
+        }
+        ReplayWorkDiagnostics.recordStaged();
+        storageEngineWriter.persistRecord(JsonReplayNodeFactory.stage(record, manifest, hashFunction),
+            IndexType.DOCUMENT, -1);
+      }
+      replayCheckpoint("identities-staged");
+      for (final var record : delta.puts().values()) {
+        final StructNode staged =
+            storageEngineWriter.prepareRecordForModification(record.key(), IndexType.DOCUMENT, -1);
+        JsonReplayNodeFactory.link(staged, record);
+        storageEngineWriter.persistRecord(staged, IndexType.DOCUMENT, -1);
+      }
+      for (final long key : delta.deletes()) {
+        storageEngineWriter.removeRecord(key, IndexType.DOCUMENT, -1);
+      }
+      storageEngineWriter.getActualRevisionRootPage().setMaxNodeKeyInDocumentIndex(manifest.targetFrontier());
+      moveToDocumentRoot();
+      replayCheckpoint("links-installed");
+      JsonReplayTransitionValidator.validate(this, delta);
+      final var importedPaths = JsonReplayPaths.importChanges(source, storageEngineWriter, manifest);
+      JsonReplayHistory.importChanges(source, storageEngineWriter, manifest);
+      if (pathSummaryWriter != null) {
+        pathSummaryWriter.getPathSummary().applyImportedChanges(importedPaths.records(), importedPaths.logicalRoots());
+      }
+      for (final var listener : indexController.getChangeListenerSnapshot()) {
+        listener.pathSummaryImported(importedPaths.namespaceChanged());
+      }
+      for (final long key : delta.puts().keySet()) {
+        replayNotifyIndex(key, IndexController.ChangeType.INSERT);
+      }
+      for (final long key : additionalIndexKeys) {
+        replayNotifyIndex(key, IndexController.ChangeType.INSERT);
+      }
+      if (indexedTransition) {
+        for (final var listener : indexController.getChangeListenerSnapshot()) {
+          if (listener instanceof final ProjectionIndexChangeListener projection) {
+            projection.completeIdentityImport();
+          } else if (listener instanceof final JsonValidTimeIndexListener validTime) {
+            validTime.completeIdentityImport();
+          }
+        }
+      }
+      if (!initialDefinitions.isEmpty()) {
+        ((JsonIndexController) indexController).completeInitialIdentityImport(initialDefinitions, this);
+      }
+      moveToDocumentRoot();
+      replayCheckpoint("derived-state-finalized");
+      replayCheckpoint("before-publish");
+      commit();
+      replaySourceResource = manifest.sourceResource();
+      replaySourceIdentity = manifest.sourceIdentity();
+      replaySourceRevision = manifest.targetRevision();
+      replayDestinationRevision = manifest.destinationRevision();
+    } catch (final RuntimeException | Error failure) {
+      if (resourceSession.getMostRecentRevisionNumber() < manifest.destinationRevision()) {
+        try {
+          rollback();
+          if (!initialDefinitions.isEmpty()) {
+            ((JsonIndexController) indexController).restoreInitialIdentityDeclarations(initialDefinitions, this);
+          }
+        } catch (final RuntimeException | Error cleanupFailure) {
+          @SuppressWarnings("ReferenceEquality")
+          final boolean distinctFailure = cleanupFailure != failure;
+          if (distinctFailure) {
+            try {
+              failure.addSuppressed(cleanupFailure);
+            } catch (final RuntimeException | Error ignored) {
+              // Keep the original import failure even if diagnostic suppression cannot allocate.
+            }
+          }
+        }
+      }
+      throw failure;
+    } finally {
+      endCompoundOperation();
+    }
+  }
+
+  /**
+   * A renamed path class can keep its PCR while changing a filtered index's membership. Such a
+   * descendant need not have a document PUT. Bracket its index entry using the old/final namespace
+   * without rewriting its unchanged identity or its name reference count.
+   */
+  private LongSet replayAdditionalIndexKeys(final JsonIdentityDelta delta) {
+    if (!hasFilteredReplayIndex()) {
+      return LongSets.emptySet();
+    }
+    final LongSet additional = new LongOpenHashSet();
+    final LongSet visited = new LongOpenHashSet();
+    for (final var target : delta.puts().values()) {
+      final long root = target.key();
+      if (!moveTo(root) || visited.contains(root)) {
+        continue;
+      }
+      final String oldName = getKind().playsObjectKeyRole()
+          ? getName().getLocalName()
+          : null;
+      if (getParentKey() == target.parent() && getKind() == target.kind() && Objects.equals(oldName, target.name())) {
+        continue;
+      }
+      for (;;) {
+        final long key = getNodeKey();
+        if (visited.add(key)) {
+          if (!delta.puts().containsKey(key) && !delta.deletes().contains(key)) {
+            additional.add(key);
+          }
+          if (moveToFirstChild()) {
+            continue;
+          }
+        }
+        while (getNodeKey() != root && !hasRightSibling()) {
+          moveToParent();
+        }
+        if (getNodeKey() == root) {
+          break;
+        }
+        moveToRightSibling();
+      }
+    }
+    return additional;
+  }
+
+  private boolean hasFilteredReplayIndex() {
+    for (final IndexDef definition : indexController.getIndexes().getIndexDefs()) {
+      if ((definition.isPathIndex() || definition.isCasIndex()) && !definition.getPaths().isEmpty()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean replayRemoveDerivedState(final long key) {
+    if (!moveTo(key)) {
+      return false;
+    }
+    replayNotifyIndex(key, IndexController.ChangeType.DELETE);
+    if (getKind().playsObjectKeyRole()) {
+      storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage())
+                         .removeName(getNameKey(), getKind(), storageEngineWriter);
+    }
+    return true;
+  }
+
+  private void replayNotifyIndex(final long key, final IndexController.ChangeType type) {
+    if (!indexController.hasAnyPrimitiveIndex() || !moveTo(key)) {
+      return;
+    }
+    final ImmutableNode node = storageEngineWriter.getRecord(key, IndexType.DOCUMENT, -1);
+    long path = getPathNodeKey();
+    if (path < 0 && node.getParentKey() >= 0) {
+      moveTo(node.getParentKey());
+      path = getPathNodeKey();
+      moveTo(key);
+    }
+    notifyPrimitiveIndexChange(type, node, path);
   }
 
   @Override

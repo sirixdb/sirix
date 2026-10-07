@@ -2086,6 +2086,11 @@ PEXT candidate checks do not contribute; a PEXT miss can fall back to counted bi
 `sideReferenceReads()` counts overflow-reference map probes, including misses.
 These are process-wide running totals, captured as differences just like the always-on counters.
 
+**Gated identity replay work counters.** The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
+owns the `sirix.replay.workDiag` counters, their units and guarded maintenance work.
+The retained-order proof is documented at
+[`ProjectionIndexChangeListener.collectIdentityOrderChanges`](../bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java).
+
 **Work-budget tests** assert on these counters and on the `# served:` route counters (§7.3): a load or query may not
 start doing materially more work, where a result check would see nothing. The catalog of counters, the tests, and the
 rules for adding or changing a budget are in `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.

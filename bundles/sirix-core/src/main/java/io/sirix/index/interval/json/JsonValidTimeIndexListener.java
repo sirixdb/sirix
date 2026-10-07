@@ -20,9 +20,14 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
+import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayRecord;
+import io.sirix.utils.ReplayWorkDiagnostics;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Incremental maintainer for a valid-time interval index.
@@ -93,6 +98,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private long structuralNodeKey = NO_OBJECT;
   private long structuralSourceObjectKey = NO_OBJECT;
   private boolean active;
+  private @Nullable Long2ObjectOpenHashMap<Interval> identityIntervals;
 
   public JsonValidTimeIndexListener(final StorageEngineWriter storageEngineWriter,
       final ValidTimeIntervalIndexWriter indexWriter, final String validFromField, final String validToField) {
@@ -100,6 +106,115 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     this.indexWriter = indexWriter;
     this.validFromField = validFromField;
     this.validToField = validToField;
+  }
+
+  /** Capture complete old intervals before a target-state epoch changes any links or values. */
+  public void beginIdentityImport(final JsonIdentityDelta delta) {
+    Objects.requireNonNull(delta);
+    if (identityIntervals != null || structuralNodeKey != NO_OBJECT) {
+      throw new IllegalStateException("Valid-time identity import requires an idle listener");
+    }
+    reconcileActiveObject();
+    final Long2ObjectOpenHashMap<Interval> intervals = new Long2ObjectOpenHashMap<>();
+    for (final long key : delta.deletes()) {
+      captureIdentityNode(key, intervals);
+    }
+    for (final var target : delta.puts().values()) {
+      final ImmutableNode old = loadNode(target.key());
+      final boolean oldObject = isObject(old);
+      final boolean targetObject = target.kind() == NodeKind.OBJECT || target.kind() == NodeKind.OBJECT_NAMED_OBJECT;
+      if (oldObject != targetObject || (targetObject && old != null && old.getParentKey() != target.parent())) {
+        captureIdentityObject(target.key(), intervals);
+      }
+      if (targetObject
+          && (!(old instanceof final StructNode structure) || !oldObject || old.getParentKey() != target.parent()
+              || structure.getLeftSiblingKey() != target.left() || structure.getRightSiblingKey() != target.right())) {
+        indexWriter.checkOrder(target.key(), target.parent(), target.left(), target.right());
+      }
+      captureIdentityBounds(old, target, intervals);
+    }
+    identityIntervals = intervals;
+  }
+
+  private void captureIdentityBounds(final @Nullable ImmutableNode old, final JsonReplayRecord target,
+      final Long2ObjectOpenHashMap<Interval> intervals) {
+    final String oldName = old instanceof final NameNode named
+        ? storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)
+        : null;
+    if ((isBoundName(oldName) || isBoundName(target.name()))
+        && (old == null || old.getKind() != target.kind() || old.getParentKey() != target.parent()
+            || !Objects.equals(oldName, target.name()) || (old.getKind() == NodeKind.OBJECT_NAMED_STRING
+                && old instanceof final ValueNode value && !Objects.equals(value.getValue(), target.stringValue())))) {
+      if (old != null && isBoundName(oldName)) {
+        captureIdentityObject(old.getParentKey(), intervals);
+      }
+      if (isBoundName(target.name())) {
+        captureIdentityObject(target.parent(), intervals);
+      }
+    }
+  }
+
+  /** Reconcile each affected object once against the epoch's completed document topology. */
+  public void completeIdentityImport() {
+    final Long2ObjectOpenHashMap<Interval> intervals = identityIntervals;
+    if (intervals == null) {
+      return;
+    }
+    try {
+      for (final var entry : intervals.long2ObjectEntrySet()) {
+        final long key = entry.getLongKey();
+        clearState(activeState);
+        if (isObject(loadNode(key))) {
+          readBounds(key, NO_OBJECT, NO_OBJECT, activeState);
+        }
+        activeState.registered = entry.getValue();
+        reconcileState(key, activeState);
+      }
+      identityIntervals = null;
+    } catch (final RuntimeException | Error failure) {
+      markRollbackOnly(failure);
+      throw failure;
+    } finally {
+      clearActiveObject();
+    }
+  }
+
+  private void captureIdentityNode(final long key, final Long2ObjectOpenHashMap<Interval> intervals) {
+    final ImmutableNode node = loadNode(key);
+    if (node == null) {
+      return;
+    }
+    final NodeKind kind = node.getKind();
+    final long parent = node.getParentKey();
+    if (isObject(node)) {
+      captureIdentityObject(key, intervals);
+    }
+    if (kind.playsObjectKeyRole() && node instanceof final NameNode named
+        && isBoundName(storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT))) {
+      captureIdentityObject(parent, intervals);
+    }
+  }
+
+  private boolean isBoundName(final @Nullable String name) {
+    return validFromField.equals(name) || validToField.equals(name);
+  }
+
+  private void captureIdentityObject(final long key, final Long2ObjectOpenHashMap<Interval> intervals) {
+    if (key < 0 || intervals.containsKey(key)) {
+      return;
+    }
+    clearState(activeState);
+    if (isObject(loadNode(key))) {
+      readBounds(key, NO_OBJECT, NO_OBJECT, activeState);
+    }
+    intervals.put(key,
+        indexWriter.toInterval(activeState.from, activeState.to, activeState.fromFieldCount, activeState.toFieldCount)
+                   .withExactLexicalBounds(activeState.fromLexical && activeState.toLexical)
+                   .atParent(activeState.parentKey));
+  }
+
+  private static boolean isObject(final @Nullable ImmutableNode node) {
+    return node != null && (node.getKind() == NodeKind.OBJECT || node.getKind() == NodeKind.OBJECT_NAMED_OBJECT);
   }
 
   @Override
@@ -132,7 +247,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   private void onPrimitiveChange(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long parentKey, final @Nullable QNm name, final @Nullable Str value) {
-    if (structuralNodeKey != NO_OBJECT) {
+    if (identityIntervals != null || structuralNodeKey != NO_OBJECT) {
+      // Identity imports and structural changes reconcile completed topology from snapshots.
+      // Primitive callbacks during either operation would publish intermediate index state.
       return;
     }
 
@@ -397,16 +514,22 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   @Override
   public void beforeCommit() {
+    if (identityIntervals != null) {
+      throw new IllegalStateException("Cannot commit an incomplete valid-time identity import");
+    }
     reconcileActiveObject();
   }
 
   @Override
   public void beforePageFlush() {
-    reconcileActiveObject(true);
+    if (identityIntervals == null) {
+      reconcileActiveObject(true);
+    }
   }
 
   @Override
   public void transactionAborted() {
+    identityIntervals = null;
     clearActiveObject();
     clearStructuralChange();
   }
@@ -553,6 +676,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     long childKey = structNode.getFirstChildKey();
     boolean usedFallback = false;
     while (childKey != NO_OBJECT) {
+      ReplayWorkDiagnostics.validTimeBoundFieldVisited();
       final ImmutableNode child = loadNode(childKey);
       if (child == null) {
         // Subtree removal visits descendants in post-order and removes earlier siblings before the

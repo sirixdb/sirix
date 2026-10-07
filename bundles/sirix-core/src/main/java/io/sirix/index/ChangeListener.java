@@ -50,6 +50,18 @@ public interface ChangeListener {
   default void beforePageFlush() {}
 
   /**
+   * The private importer replaced path records; discard resolved path sets, retaining pending edits.
+   */
+  default void pathSummaryImported() {}
+
+  /** Complete an identity epoch, distinguishing path membership changes from statistics updates. */
+  default void pathSummaryImported(final boolean namespaceChanged) {
+    if (namespaceChanged) {
+      pathSummaryImported();
+    }
+  }
+
+  /**
    * The owning write transaction is discarding its current lineage rather than committing it.
    *
    * <p>

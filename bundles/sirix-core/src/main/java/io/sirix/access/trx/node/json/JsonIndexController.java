@@ -271,6 +271,50 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     throw (T) failure;
   }
 
+  /** Build an initial identity snapshot only after its document and path namespace are complete. */
+  void completeInitialIdentityImport(final Set<IndexDef> definitions, final JsonNodeTrx transaction) {
+    if (definitions.isEmpty()) {
+      return;
+    }
+    validateNewIndexDefinitions(definitions, transaction);
+    validateProjectionDefinitions(definitions, transaction);
+    final var projections = new HashSet<IndexDef>();
+    final var otherIndexes = new HashSet<IndexDef>();
+    for (final IndexDef definition : definitions) {
+      (definition.isProjectionIndex()
+          ? projections
+          : otherIndexes).add(definition);
+    }
+    if (!otherIndexes.isEmpty()) {
+      createIndexes(otherIndexes, transaction);
+    }
+    for (final IndexDef definition : projections) {
+      indexes.add(definition);
+      ProjectionIndexBuilder.buildAndPersist(definition, requireProjectionPathSummary(transaction, definition),
+          transaction, transaction.getStorageEngineWriter(), true);
+    }
+    if (!projections.isEmpty()) {
+      createIndexListeners(projections, transaction);
+    }
+  }
+
+  /** Restore the logical declarations of a failed initial import in its new empty writer epoch. */
+  void restoreInitialIdentityDeclarations(final Set<IndexDef> definitions, final JsonNodeTrx transaction) {
+    final var projections = new HashSet<IndexDef>();
+    final var otherIndexes = new HashSet<IndexDef>();
+    for (final IndexDef definition : definitions) {
+      (definition.isProjectionIndex()
+          ? projections
+          : otherIndexes).add(definition);
+    }
+    if (!otherIndexes.isEmpty()) {
+      createIndexes(otherIndexes, transaction);
+    }
+    if (!projections.isEmpty()) {
+      createProjectionIndexesAtLoadStart(projections, transaction);
+    }
+  }
+
   /**
    * Bulk-build a projection index over the transaction's revision: one columnar row per record under
    * the definition's root path, streamed as compact leaves into the projection's HOT sub-tree

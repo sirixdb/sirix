@@ -356,6 +356,11 @@ public final class JsonItemShredder implements Callable<Long> {
   }
 
   private void adaptTrxPosAndStack(final boolean nextTokenIsParent, final long key) {
+    // Only the first root uses the requested sibling position. Subsequent roots follow
+    // that inserted root in input order, as they already do after a container root.
+    if (insert == InsertPosition.AS_LEFT_SIBLING || insert == InsertPosition.AS_RIGHT_SIBLING) {
+      insert = InsertPosition.AS_FIRST_CHILD;
+    }
     parents.popLong();
 
     if (nextTokenIsParent)

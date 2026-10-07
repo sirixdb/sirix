@@ -12,9 +12,9 @@ order, payload, or integrity metadata.
 
 ## Revision stability and lifetime
 
-After the empty/equal-diff fast paths, each `serialize` call opens separate read-only transactions
-for its old and new revisions and creates one cache for each. Those fast paths return without
-opening readers; later stale-tuple or no-op filtering may still leave the emitted array empty.
+After the empty/equal-diff fast paths, normal committed-revision serialization opens separate
+read-only transactions for its old and new revisions and creates one cache for each. Those fast
+paths return without opening readers; later stale-tuple or no-op filtering may still leave the emitted array empty.
 `AbstractResourceSession.createStorageEngineReader(revision)` passes
 that explicit revision to `NodeStorageEngineReader`, whose revision number and revision root are
 final fields and whose epoch ticket protects its reads. Moving a cursor does not mutate a node.
@@ -22,9 +22,14 @@ Later writes create a new revision; the old reader continues to follow its own r
 
 On the synchronous commit path, `AbstractNodeTrxImpl.commitInternal` invokes diff serialization
 after the storage commit and publication of the committed uber page, before re-instantiating the
-writer. On the pipelined path, page serialization and registration of the pending revision root
-precede diff serialization; the successor writer is re-instantiated afterward. The diff therefore
-does not inspect sibling links while a writer is still inserting or removing nodes in that epoch.
+writer. On the pipelined path, the transaction prepares the immutable sidecar text while holding
+the commit lock, before page serialization can retire the frozen epoch's buffers. The serializer
+owns the old committed reader and borrows the frozen writer for the new revision, restoring its
+document/path-summary cursors afterward. Only the immutable path and text cross into background
+publication, which runs after storage hardening and revision publication. Pending tuples and hints
+are retired after successful page writing, so a failed first phase retains retry state. A cache
+preparation/publication failure leaves an observable cache miss. The diff therefore does not
+inspect sibling links while a writer is still inserting or removing nodes in that epoch.
 An insert or removal in a later revision can shift a surviving node's ordinal, which is why the
 old and new caches must never be shared. `positionsAreIsolatedBetweenRevisions` guards that case,
 and that hints offered for the new revision never supply an old-revision deletion position.
@@ -119,8 +124,8 @@ Verified creation paths that leave this default intact include the core builder,
 `CreateResource`/`AbstractCreate`, JSONiq's `ResourceConfigurations.create`, and the REST JSON
 creation/upload handlers. This is source verification, not a count of deployed resources.
 
-The costly resolver is specifically JSON: both commit paths check `storeDiffs()` before invoking
-`serializeUpdateDiffs`. Outside an active bulk insertion, `JsonNodeTrxImpl` writes a sidecar only
+The costly resolver is specifically JSON: both commit paths check `storeDiffs()` before preparing
+or serializing update diffs. Outside an active bulk insertion, `JsonNodeTrxImpl` writes a sidecar only
 when the diff baseline is a committed revision greater than zero and no post-revert guard is
 active. Ordinary commits use the immediately preceding revision. Bulk calls share the committed
 baseline captured before the first pending bulk insertion; revision-producing commits inside

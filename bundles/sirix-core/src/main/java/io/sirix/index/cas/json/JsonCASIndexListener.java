@@ -9,6 +9,8 @@ import io.sirix.node.NodeKind;
 import io.brackit.query.atomic.Str;
 import io.sirix.index.cas.CASIndexListener;
 import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
@@ -24,6 +26,11 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
 
   public JsonCASIndexListener(final CASIndexListener indexListenerDelegate) {
     this.indexListenerDelegate = indexListenerDelegate;
+  }
+
+  @Override
+  public void pathSummaryImported() {
+    indexListenerDelegate.pathSummaryImported();
   }
 
   @Override
@@ -96,13 +103,15 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
         throw new IllegalStateException("Unexpected node type for fused string value: " + node.getClass());
       }
       case OBJECT_NAMED_BOOLEAN -> {
-        if (node instanceof io.sirix.node.json.ObjectNamedBooleanNode fused) {
-          return fused.getValue() ? STR_TRUE : STR_FALSE;
+        if (node instanceof ObjectNamedBooleanNode fused) {
+          return fused.getValue()
+              ? STR_TRUE
+              : STR_FALSE;
         }
         throw new IllegalStateException("Unexpected node type for fused boolean value: " + node.getClass());
       }
       case OBJECT_NAMED_NUMBER -> {
-        if (node instanceof io.sirix.node.json.ObjectNamedNumberNode fused) {
+        if (node instanceof ObjectNamedNumberNode fused) {
           return new Str(String.valueOf(fused.getValue()));
         }
         throw new IllegalStateException("Unexpected node type for fused number value: " + node.getClass());

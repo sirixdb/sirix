@@ -1,0 +1,56 @@
+[
+  {
+    "scenario": "sparse",
+    "metric": "bulkAppendCommit",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 8.773448,
+    "candidate_thread_allocated_median": 1331272.0
+  },
+  {
+    "scenario": "sparse",
+    "metric": "publicCompactDiff",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 1.290243,
+    "candidate_thread_allocated_median": 59008.0
+  },
+  {
+    "scenario": "sparse",
+    "metric": "publicMaterializedDiff",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 1.069099,
+    "candidate_thread_allocated_median": 58952.0
+  },
+  {
+    "scenario": "sparse",
+    "metric": "replayRead",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 0.6709425,
+    "candidate_thread_allocated_median": 28096.0
+  },
+  {
+    "scenario": "sparse",
+    "metric": "revisionCopy",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 20.953437,
+    "candidate_thread_allocated_median": 3913708.0
+  },
+  {
+    "scenario": "sparse",
+    "metric": "unchangedPublicDiff",
+    "status": "baseline_source_does_not_complete",
+    "forks": 6,
+    "samples": 54,
+    "candidate_median_ms": 0.4317325,
+    "candidate_thread_allocated_median": 17200.0
+  }
+]

@@ -1,5 +1,7 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
+import io.sirix.diff.DiagnosticDiffMap;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
@@ -260,7 +262,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
-    this.updateOperationsUnordered = new Long2ObjectOpenHashMap<>();
+    this.updateOperationsUnordered = ReplayWorkDiagnostics.ENABLED
+        ? new DiagnosticDiffMap()
+        : new Long2ObjectOpenHashMap<>();
 
     this.storageEngineWriter = (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
 
@@ -491,6 +495,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         throw e;
       }
 
+      // Freeze presentation data while the committing writer still owns readable pages. Page
+      // serialization retires those buffers. Publish the immutable cache only after hardening.
+      final Runnable publishUpdateDiffs = prepareAsyncUpdateDiffs(preCommitRevision);
       asyncCommitPermit.acquireUninterruptibly();
 
       final StorageEngineWriter committingWriter = storageEngineWriter;
@@ -511,14 +518,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           committingWriter.getActualRevisionRootPage());
       modificationCount = 0L;
 
-      if (resourceSession.getResourceConfig().storeDiffs()) {
-        try {
-          serializeUpdateDiffs(preCommitRevision);
-        } catch (final RuntimeException | Error e) {
-          LOGGER.error("Update-diff serialization failed for pipelined revision {} — the diff file "
-              + "for this revision is missing.", preCommitRevision, e);
-        }
-      }
+      clearUpdateDiffsAfterAsyncCommit();
 
       try {
         reInstantiate(getId(), pendingUberPage.getRevisionNumber(), pendingUberPage);
@@ -526,7 +526,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       } catch (final RuntimeException | Error e) {
         // Successor epoch could not be created — harden inline so the committed data survives,
         // then surface the failure with a truthful terminal state (mirrors commitInternal).
-        hardenAndPublish(committingWriter, pendingUberPage);
+        hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
         asyncCommitPermit.release();
         state = State.COMMITTED;
         throw e;
@@ -535,7 +535,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       try {
         CompletableFuture.runAsync(() -> {
           try {
-            hardenAndPublish(committingWriter, pendingUberPage);
+            hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
           } catch (final Throwable t) {
             asyncCommitFailure = t;
             asyncCommitTerminalFailure = true;
@@ -547,7 +547,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Submission failed (e.g. RejectedExecutionException): harden inline — correctness over
         // pipelining.
         try {
-          hardenAndPublish(committingWriter, pendingUberPage);
+          hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
         } finally {
           asyncCommitPermit.release();
         }
@@ -564,14 +564,44 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Phase 2 + publication: harden the pending revision, make it visible to readers, and close the
    * superseded page transaction (releasing its writer channels).
    */
-  private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage) {
+  private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
+      final @Nullable Runnable publishUpdateDiffs) {
     notifyAsyncCommitTestHook("before-harden");
     committingWriter.hardenCommit(pendingUberPage, true);
     resourceSession.setLastCommittedUberPage(pendingUberPage);
     // Publish-then-clear: there is no window in which the revision resolves through neither path.
     resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
     committingWriter.close();
+    if (publishUpdateDiffs != null) {
+      try {
+        publishUpdateDiffs.run();
+      } catch (final RuntimeException | Error failure) {
+        LOGGER.error("Update-diff cache publication failed for pipelined revision {} — the diff file is missing.",
+            pendingUberPage.getRevisionNumber(), failure);
+      }
+    }
   }
+
+  private @Nullable Runnable prepareAsyncUpdateDiffs(final int revision) {
+    if (!resourceSession.getResourceConfig().storeDiffs()) {
+      return null;
+    }
+    try {
+      return prepareUpdateDiffsForAsyncCommit(revision);
+    } catch (final RuntimeException | Error failure) {
+      LOGGER.error("Update-diff preparation failed for pipelined revision {} — the diff file is missing.", revision,
+          failure);
+      return null;
+    }
+  }
+
+  /** Borrow the frozen epoch now; return a publication action owning only immutable cache data. */
+  protected @Nullable Runnable prepareUpdateDiffsForAsyncCommit(final int revision) {
+    return null;
+  }
+
+  /** Retire per-epoch cache bookkeeping only after phase 1 succeeds, preserving retry on failure. */
+  protected void clearUpdateDiffsAfterAsyncCommit() {}
 
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
@@ -682,6 +712,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Guarded by the transaction lock like all mutations; no extra synchronization needed.
    */
   private int compoundOperationDepth;
+
+  /** Import epochs must own a clean writer so failure cannot discard unrelated mutations. */
+  protected final void requireCleanImportEpoch() {
+    nodeReadOnlyTrx.assertNotClosed();
+    assertRunning();
+    if (modificationCount != 0 || compoundOperationDepth != 0) {
+      throw new IllegalStateException("Identity import requires a clean transaction epoch");
+    }
+  }
 
   /**
    * Mark the start of a compound structural operation. Must be balanced with

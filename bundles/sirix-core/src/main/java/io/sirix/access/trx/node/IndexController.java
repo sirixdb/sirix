@@ -356,7 +356,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
 
   PathFilter createPathFilter(Set<String> paths, R rtx) throws PathException;
 
-  CASFilter createCASFilter(Set<String> paths, Atomic key, SearchMode mode, PCRCollector pcrCollector)
+  CASFilter createCASFilter(Set<String> paths, @Nullable Atomic key, SearchMode mode, PCRCollector pcrCollector)
       throws PathException;
 
   CASFilterRange createCASFilterRange(Set<String> paths, Atomic min, Atomic max, boolean incMin, boolean incMax,

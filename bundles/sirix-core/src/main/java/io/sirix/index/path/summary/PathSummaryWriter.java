@@ -365,8 +365,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // SHARED path class (references > 1): renaming IN PLACE would silently rename every OTHER
     // instance's path class too. SPLIT instead: the renamed instance leaves both layers
     // (decrement), then joins (or creates) the entry for the new name under the same parent.
-    // NOTE: descendant path classes of the renamed instance's array elements remain under their
-    // original (structurally identical) classes — migrating them is the full rebuild machinery.
     final long oldArrayChild = pathSummaryReader.findChild(objectKeyPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
     if (oldArrayChild >= 0) {
       decrementObjectKeyRefByKey(oldArrayChild);

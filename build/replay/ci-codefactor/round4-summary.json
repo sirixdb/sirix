@@ -1,0 +1,56 @@
+{
+  "phase": "ci",
+  "input_head": "df1f5fed6f179e305d5bcc6d2816b7a16dc09290",
+  "code_change_needed": true,
+  "provider_status": {
+    "context": "CodeFactor",
+    "id": 55753146252,
+    "state": "failure",
+    "created_at": "2026-10-07T00:31:02Z",
+    "description": "1 issue fixed. 9 issues found."
+  },
+  "provider_report_issues": 9,
+  "package_findings_remaining": 0,
+  "complex_methods_addressed": [
+    "JsonNodeTrxImpl.insertSubtreeInternal",
+    "JsonNodeTrxImpl.remove",
+    "JsonReplayTransitionValidator.observe",
+    "JsonReplayTransitionValidator.validateBoundary"
+  ],
+  "known_complexity_notes": [
+    "JsonNodeTrxImpl.importRevisionLocked",
+    "ProjectionIndexChangeListener.collectIdentityOrderChanges",
+    "JsonIdentityProjectionEpochTest.batchRotationsAndMixedPermutationsKeepOrderedAnchors",
+    "JsonIdentityValidTimeEpochTest.assertEvidence",
+    "ReplayLatency.main"
+  ],
+  "brackit_snapshot": "1.0-alpha10-20261006.152144-93",
+  "brackit_sha256": "89989d16df36e5dd95eb5bec74329b48999aeef76cc10c9d1ff02c2ac433415e",
+  "full_suites": "not run in this assigned CI repair",
+  "benchmark_campaign": false,
+  "hosted_codefactor_reanalysis": "requires outer executor publication; five authorized known notes remain",
+  "core_exit": 0,
+  "final_scoped_spotless_and_error_prone_compile_exit": 0,
+  "core": {
+    "tests": 1412,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 11,
+    "budget_tests": 229
+  },
+  "query": {
+    "tests": 37,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "query_generic_lifetime": {
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "query_exit": 0,
+  "source_unchanged_after_final_checks": true,
+  "validation_finished_before_cutoff": true
+}

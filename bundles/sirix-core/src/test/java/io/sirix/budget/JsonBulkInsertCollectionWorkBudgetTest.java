@@ -144,10 +144,6 @@ final class JsonBulkInsertCollectionWorkBudgetTest {
     }
     if (!skipped) {
       expected.add(inserted);
-    } else if (position == InsertPosition.AS_LEFT_SIBLING) {
-      for (int index = inserted.size() - 1; index >= 0; index--) {
-        expected.add(inserted.get(index));
-      }
     } else {
       expected.addAll(inserted);
     }

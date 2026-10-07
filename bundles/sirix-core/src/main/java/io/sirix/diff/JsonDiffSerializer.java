@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
@@ -74,8 +75,35 @@ public final class JsonDiffSerializer {
     return serialize(false, true, Objects.requireNonNull(knownNewArrayPositions));
   }
 
+  /**
+   * Serialize a frozen pipelined epoch before it becomes visible to public revision readers. The
+   * caller owns the commit lock and must keep this writer immutable until return. Both its document
+   * and path cursors are borrowed, restored and never closed; no unpublished reader is registered.
+   */
+  public String serializeSidecarFromFrozenEpoch(final JsonNodeTrx frozen,
+      final @Nullable Long2IntMap knownNewArrayPositions) {
+    Objects.requireNonNull(frozen);
+    @SuppressWarnings("ReferenceEquality")
+    final boolean foreignSession = frozen.getResourceSession() != resourceSession;
+    if (foreignSession || frozen.getRevisionNumber() != newRevisionNumber
+        || !frozen.getStorageEngineReader().hasTrxIntentLog()) {
+      throw new IllegalArgumentException("Sidecar writer must own the exact frozen revision");
+    }
+    final long saved = frozen.getNodeKey();
+    try {
+      return serialize(false, true, knownNewArrayPositions, frozen);
+    } finally {
+      frozen.moveTo(saved);
+    }
+  }
+
   private String serialize(final boolean emitFromDiffAlgorithm, final boolean includeIntegrityMetadata,
       final @Nullable Long2IntMap knownNewArrayPositions) {
+    return serialize(emitFromDiffAlgorithm, includeIntegrityMetadata, knownNewArrayPositions, null);
+  }
+
+  private String serialize(final boolean emitFromDiffAlgorithm, final boolean includeIntegrityMetadata,
+      final @Nullable Long2IntMap knownNewArrayPositions, final @Nullable JsonNodeTrx frozen) {
     final var resourceName = resourceSession.getResourceConfig().getName();
 
     final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
@@ -100,7 +128,12 @@ public final class JsonDiffSerializer {
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
     try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
-        final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
+        final var ownedNewRtx = frozen == null
+            ? resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)
+            : null) {
+      final JsonNodeReadOnlyTrx newRtx = frozen == null
+          ? Objects.requireNonNull(ownedNewRtx)
+          : frozen;
       final var oldArrayPositions = new ArrayPositionCache(null);
       final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions);
 
@@ -387,7 +420,7 @@ public final class JsonDiffSerializer {
    * @param revisionNumber the revision number
    * @return the path string, or null if unavailable
    */
-  private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues,
+  private @Nullable String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues,
       ArrayPositionCache arrayPositions) {
     if (!resourceSession.getResourceConfig().withPathSummary) {
       return null;
@@ -441,40 +474,53 @@ public final class JsonDiffSerializer {
       return null;
     }
 
+    if (rtx instanceof final JsonNodeTrx writer) {
+      final PathSummaryReader pathReader = writer.getPathSummary();
+      final long savedPathKey = pathReader.getNodeKey();
+      try {
+        return pathFromSummary(rtx, pathReader, pathNodeKey, cursorOnFusedNamedArray, arrayPositions);
+      } finally {
+        pathReader.moveTo(savedPathKey);
+      }
+    }
     try (final PathSummaryReader pathReader = resourceSession.openPathSummary(revisionNumber)) {
-      long effectivePathNodeKey = pathNodeKey;
-      if (cursorOnFusedNamedArray) {
-        if (pathReader.moveTo(pathNodeKey)) {
-          final var arrayPathNode = pathReader.getPathNode();
-          if (arrayPathNode != null) {
-            final long parentKey = arrayPathNode.getParentKey();
-            if (parentKey >= 0 && parentKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-              effectivePathNodeKey = parentKey;
-            }
+      return pathFromSummary(rtx, pathReader, pathNodeKey, cursorOnFusedNamedArray, arrayPositions);
+    } catch (final IllegalStateException e) {
+      // Resource may have been closed during concurrent operations or cleanup.
+      return null;
+    }
+  }
+
+  private @Nullable String pathFromSummary(final JsonNodeReadOnlyTrx rtx, final PathSummaryReader pathReader,
+      final long pathNodeKey, final boolean cursorOnFusedNamedArray, final ArrayPositionCache arrayPositions) {
+    long effectivePathNodeKey = pathNodeKey;
+    if (cursorOnFusedNamedArray) {
+      if (pathReader.moveTo(pathNodeKey)) {
+        final var arrayPathNode = pathReader.getPathNode();
+        if (arrayPathNode != null) {
+          final long parentKey = arrayPathNode.getParentKey();
+          if (parentKey >= 0 && parentKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            effectivePathNodeKey = parentKey;
           }
         }
       }
-      if (!pathReader.moveTo(effectivePathNodeKey)) {
-        return null;
-      }
-
-      final var pathNode = pathReader.getPathNode();
-      if (pathNode == null) {
-        return null;
-      }
-
-      final Path<QNm> path = pathReader.getPath();
-      if (path == null) {
-        return null;
-      }
-
-      // Resolve array positions like sdb:path() does
-      return resolveArrayPositions(rtx, path, arrayPositions);
-    } catch (final IllegalStateException e) {
-      // Resource may have been closed (e.g., memory-mapped file reader)
-      // This can happen during concurrent operations or cleanup
+    }
+    if (!pathReader.moveTo(effectivePathNodeKey)) {
       return null;
     }
+
+    final var pathNode = pathReader.getPathNode();
+    if (pathNode == null) {
+      return null;
+    }
+
+    final Path<QNm> path = pathReader.getPath();
+    if (path == null) {
+      return null;
+    }
+
+    // Resolve array positions like sdb:path() does
+    return resolveArrayPositions(rtx, path, arrayPositions);
   }
 
   /**

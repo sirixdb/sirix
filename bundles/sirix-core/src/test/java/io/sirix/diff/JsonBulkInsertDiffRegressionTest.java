@@ -15,25 +15,31 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.service.InsertPosition;
+import io.sirix.settings.VersioningType;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static io.sirix.diff.DiffTestHelper.assertJsonCopyStructure;
 import static java.util.Objects.requireNonNull;
@@ -43,10 +49,57 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class JsonBulkInsertDiffRegressionTest {
+  private static final VersioningType REPLAY_VERSIONING =
+      VersioningType.valueOf(System.getProperty("sirix.replay.versioning", "SLIDING_SNAPSHOT"));
+  private static final boolean FORCE_RECOMPUTE = Boolean.getBoolean("sirix.replay.forceRecompute");
+
+  @BeforeAll
+  static void reportReplayConfiguration() {
+    System.out.printf("REPLAY_CONFIGURATION versioning=%s forceRecompute=%s%n", REPLAY_VERSIONING, FORCE_RECOMPUTE);
+  }
+
   @BeforeEach
   @AfterEach
   void cleanUp() {
     JsonTestHelper.deleteEverything();
+  }
+
+  static Stream<Arguments> laterParentConfigurations() {
+    return Stream.of(VersioningType.values())
+                 .flatMap(versioning -> Stream.of(false, true)
+                                              .flatMap(dewey -> Stream.of(false,
+                                                  true).map(recompute -> Arguments.of(versioning, dewey, recompute))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("laterParentConfigurations")
+  void laterCreatedObjectParentPreservesFieldIdentity(final VersioningType versioning, final boolean deweyIDs,
+      final boolean recompute) throws Exception {
+    final var configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .useDeweyIDs(deweyIDs)
+                                                   .build();
+    try (
+        final var database =
+            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), configuration);
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      seed(session, "[0]");
+      try (final var wtx = session.beginNodeTrx()) {
+        assertTrue(wtx.moveTo(1));
+        insertSkipped(wtx, InsertPosition.AS_LAST_CHILD, "[{\"x\":1},{}]");
+        assertTrue(wtx.moveTo(5));
+        wtx.moveSubtreeToFirstChild(4);
+        assertTrue(wtx.moveTo(3));
+        wtx.remove();
+        wtx.commit();
+        assertEquals("[0,{\"x\":1}]", serialize(session, 2));
+      }
+      if (recompute) {
+        Files.delete(diffDirectory(session).resolve("diffFromRev1toRev2.json"));
+      }
+      assertCopiedRevisions(session, deweyIDs);
+    }
   }
 
   @ParameterizedTest
@@ -227,8 +280,7 @@ final class JsonBulkInsertDiffRegressionTest {
             final var destination = copyDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
             final var firstRevision = session.beginNodeReadOnlyTrx(1);
             final var writer = destination.beginNodeTrx()) {
-          new JsonResourceCopy.Builder(writer, firstRevision,
-              InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent().build().call();
+          copyHistory(writer, firstRevision);
           assertEquals(4, destination.getMostRecentRevisionNumber());
           assertEquals("[0]", serialize(destination, 1));
           assertEquals("[0,[1,2]]", serialize(destination, 2));
@@ -1003,10 +1055,35 @@ final class JsonBulkInsertDiffRegressionTest {
     }
   }
 
+  /** Exercise every historical history-copy fixture with presentation caches present or absent. */
+  private static void copyHistory(final JsonNodeTrx writer, final JsonNodeReadOnlyTrx reader) throws Exception {
+    final var savedSidecars = new HashMap<Path, byte[]>();
+    try {
+      if (FORCE_RECOMPUTE) {
+        try (final var sidecars = Files.list(diffDirectory(reader.getResourceSession()))) {
+          for (final Path sidecar : sidecars.filter(Files::isRegularFile).toList()) {
+            savedSidecars.put(sidecar, Files.readAllBytes(sidecar));
+            Files.delete(sidecar);
+          }
+        }
+        try (final var sidecars = Files.list(diffDirectory(reader.getResourceSession()))) {
+          assertFalse(sidecars.anyMatch(Files::isRegularFile), "recompute matrix must not retain a sidecar");
+        }
+      }
+      new JsonResourceCopy.Builder(writer, reader, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
+                                                                                 .build()
+                                                                                 .call();
+    } finally {
+      for (final var sidecar : savedSidecars.entrySet()) {
+        Files.write(sidecar.getKey(), sidecar.getValue());
+      }
+    }
+  }
+
   private static void assertCopiedRevisions(final JsonResourceSession source, final boolean deweyIDs) throws Exception {
     try (
-        final var database =
-            JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(), config(deweyIDs));
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH2.getFile(),
+            config(deweyIDs, source.getResourceConfig().versioningType));
         final var destination = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = source.beginNodeReadOnlyTrx(1);
         final var wtx = destination.beginNodeTrx()) {
@@ -1015,9 +1092,7 @@ final class JsonBulkInsertDiffRegressionTest {
           assertJsonCopyStructure(rtx, wtx);
         }
       });
-      new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).copyAllRevisionsUpToMostRecent()
-                                                                           .build()
-                                                                           .call();
+      copyHistory(wtx, rtx);
       assertFalse(Files.exists(diffDirectory(destination).resolve("diffFromRev0toRev1.json")));
       assertEquals(source.getMostRecentRevisionNumber(), destination.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= source.getMostRecentRevisionNumber(); revision++) {
@@ -1790,6 +1865,7 @@ final class JsonBulkInsertDiffRegressionTest {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration configuration = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                                       .versioningApproach(REPLAY_VERSIONING)
                                                                        .useDeweyIDs(deweyIDs)
                                                                        .storeDiffs(false)
                                                                        .build();
@@ -1933,7 +2009,7 @@ final class JsonBulkInsertDiffRegressionTest {
           assertEquals(Set.of(removed), operationKeys(diff, "delete"));
           assertEquals(Set.of(first, first + 1), operationKeys(diff, "insert"));
           final String expectedContent = position == InsertPosition.AS_LEFT_SIBLING
-              ? "[2,1,99]"
+              ? "[1,2,99]"
               : position == InsertPosition.AS_RIGHT_SIBLING
                   ? "[0,1,2]"
                   : "[1,2]";
@@ -2654,8 +2730,13 @@ final class JsonBulkInsertDiffRegressionTest {
   }
 
   private static ResourceConfiguration config(final boolean deweyIDs) {
+    return config(deweyIDs, REPLAY_VERSIONING);
+  }
+
+  private static ResourceConfiguration config(final boolean deweyIDs, final VersioningType versioning) {
     return ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                 .storageType(StorageType.FILE_CHANNEL)
+                                .versioningApproach(versioning)
                                 .useDeweyIDs(deweyIDs)
                                 .build();
   }

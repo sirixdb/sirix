@@ -748,6 +748,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     // let $nodeKey := sdb:nodekey(jn:doc('json-path1','mydoc.jn')[2])
     // return jn:diff('json-path1','mydoc.jn',5,6,$nodeKey,5000)
     // """.strip(), "");
+    // Structural hashes include sibling links. Revisions 4 and 5 insert this object's
+    // left and right neighbors, so both change its hash while preserving its JSON value.
     test(
         """
             let $node := jn:doc('json-path1','mydoc.jn')[1]
@@ -763,7 +765,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
             ]
             """.strip(),
         """
-            [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3}]
+            [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3},{"node":{"bar":"foobar"},"revision":4},{"node":{"bar":"foobar"},"revision":5}]
             """.strip());
     query("jn:diff('json-path1','mydoc.jn',1,2)");
   }

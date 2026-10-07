@@ -10,6 +10,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -26,6 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Isolated
 final class BasicJsonDiffWorkBudgetTest {
+  private static final VersioningType REPLAY_VERSIONING =
+      VersioningType.valueOf(System.getProperty("sirix.replay.versioning", "SLIDING_SNAPSHOT"));
+
   @BeforeEach
   @AfterEach
   void cleanUp() {
@@ -39,6 +43,7 @@ final class BasicJsonDiffWorkBudgetTest {
       JsonTestHelper.deleteEverything();
       final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                                .versioningApproach(REPLAY_VERSIONING)
                                                                 .hashKind(hashType)
                                                                 .useDeweyIDs(deweyIDs)
                                                                 .build();
@@ -90,6 +95,7 @@ final class BasicJsonDiffWorkBudgetTest {
         JsonTestHelper.deleteEverything();
         final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                                  .versioningApproach(REPLAY_VERSIONING)
                                                                   .hashKind(hashType)
                                                                   .useDeweyIDs(deweyIDs)
                                                                   .build();
@@ -136,6 +142,51 @@ final class BasicJsonDiffWorkBudgetTest {
                      "compact public diff must visit only the two existing array prefixes")
                  .assertExactly(work.readerOpens, 4, "compact public diff opened replay-expansion readers");
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = HashType.class, names = {"ROLLING", "POSTORDER"})
+  void smallEditSkipsUnchangedSibling(final HashType hashType) throws Exception {
+    for (final boolean deweyIDs : new boolean[] {false, true}) {
+      JsonTestHelper.deleteEverything();
+      final ResourceConfiguration config = ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                                .storageType(StorageType.FILE_CHANNEL)
+                                                                .versioningApproach(REPLAY_VERSIONING)
+                                                                .hashKind(hashType)
+                                                                .useDeweyIDs(deweyIDs)
+                                                                .build();
+      try (
+          final var database =
+              JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+          final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var writer = session.beginNodeTrx()) {
+        final StringBuilder json = new StringBuilder("[[");
+        for (int index = 0; index < 256; index++) {
+          if (index != 0) {
+            json.append(',');
+          }
+          json.append(index);
+        }
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append("],0]").toString()),
+            JsonNodeTrx.Commit.NO);
+        writer.commit();
+        assertTrue(writer.moveTo(1));
+        assertTrue(writer.moveToLastChild());
+        writer.setNumberValue(1);
+        writer.commit();
+        final CursorWork work = new CursorWork();
+        work.skippedRoot = 2;
+        final var capture =
+            WorkCapture.of(work.insertedChildMoves, work.childMoves, work.siblingMoves)
+                       .call(() -> new BasicJsonDiff(database.getName()).generateDiff(countingSession(session, work), 1,
+                           2, 0, 0, false));
+        assertEquals(1, JsonParser.parseString(capture.result()).getAsJsonObject().getAsJsonArray("diffs").size());
+        capture.work()
+               .assertZero(work.insertedChildMoves, "small public edit must not descend into unchanged sibling")
+               .assertAtMost(work.childMoves, 6, "only root and changed branch may be descended")
+               .assertAtMost(work.siblingMoves, 6, "unchanged sibling elements must not be walked");
       }
     }
   }

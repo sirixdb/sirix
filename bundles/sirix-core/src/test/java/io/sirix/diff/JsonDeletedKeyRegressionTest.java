@@ -26,7 +26,6 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonResourceCopy;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -146,10 +145,9 @@ final class JsonDeletedKeyRegressionTest {
     }
   }
 
-  @Disabled("R16: later-created object parents require the separate typed identity replay/import redesign")
   @ParameterizedTest
   @MethodSource("replayModes")
-  void laterCreatedObjectParentRequiresReplayRedesign(final VersioningType versioning, final boolean deweyIDs,
+  void laterCreatedObjectParentPreservesPersistentIdentity(final VersioningType versioning, final boolean deweyIDs,
       final boolean removeSidecars) throws Exception {
     try (final var sourceDb = createDatabase("source", versioning, deweyIDs);
         final var source = sourceDb.beginResourceSession(RESOURCE)) {

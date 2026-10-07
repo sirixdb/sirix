@@ -1,5 +1,6 @@
 package io.sirix.index.path.summary;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.utils.ToStringHelper;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
@@ -40,6 +41,8 @@ import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongHash;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
@@ -108,10 +111,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * Lazy SIMD-friendly localName → PathNodes index. Built on first call to
-   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)})
-   * from {@link #qnmMapping}; invalidated by {@link #putQNameMapping} /
-   * {@link #removeQNameMapping}. PathSummary mutations are rare relative to
-   * lookups so the rebuild cost amortises trivially.
+   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)}) from
+   * {@link #qnmMapping}; invalidated by {@link #putQNameMapping} / {@link #removeQNameMapping}.
+   * PathSummary mutations are rare relative to lookups so the rebuild cost amortises trivially.
    */
   private final PathLocalNameIndex localNameIndex = new PathLocalNameIndex();
 
@@ -122,12 +124,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * O(1) child path node lookups: {@code (parentNodeKey, childName, childKind) -> childPathNodeKey}.
-   * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather
-   * than a hash of it.
+   * Open-addressed, allocation-free on the probe, and exact — it stores the whole triple rather than
+   * a hash of it.
    */
-  private final PathSummaryChildIndex childLookupCache;
+  private PathSummaryChildIndex childLookupCache;
 
   private boolean init = true;
+
+  /** Imported ancestor renames must not reuse expressions cached on untouched descendant nodes. */
+  private boolean importedPathExpressions;
 
   /**
    * Private constructor.
@@ -162,7 +167,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
 
       final int maxNrOfNodes =
-          (int) this.storageEngineReader.getPathSummaryPage(this.storageEngineReader.getActualRevisionRootPage()).getMaxNodeKey(0);
+          (int) this.storageEngineReader.getPathSummaryPage(this.storageEngineReader.getActualRevisionRootPage())
+                                        .getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
       pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
@@ -182,8 +188,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
 
           // Populate parent-child lookup cache for O(1) lookups
-          childLookupCache.put(pathNode.getParentKey(), this.getName(), pathNode.getPathKind(),
-                               pathNode.getNodeKey());
+          childLookupCache.put(pathNode.getParentKey(), this.getName(), pathNode.getPathKind(), pathNode.getNodeKey());
 
           nodesLoaded++;
           // assert Objects.equals(this.getName(), pathNode.getName());
@@ -219,11 +224,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Find a child path node by parent key, name, and kind in O(1) time. This is much faster than
    * iterating through all children with ChildAxis.
    *
-   * <p>The answer is exact in both directions: {@link PathSummaryChildIndex} stores the whole
-   * triple in the slot, so a hit is the child that was actually inserted and a miss really means
-   * the parent has no such child. It previously probed a map keyed on a lossy pack of the triple
-   * and returned whatever it found, which merged sibling names whose hashes collided into a single
-   * path node.
+   * <p>
+   * The answer is exact in both directions: {@link PathSummaryChildIndex} stores the whole triple in
+   * the slot, so a hit is the child that was actually inserted and a miss really means the parent has
+   * no such child. It previously probed a map keyed on a lossy pack of the triple and returned
+   * whatever it found, which merged sibling names whose hashes collided into a single path node.
    *
    * @param parentNodeKey the parent path node key
    * @param childName the child name to find
@@ -282,7 +287,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Remove a child from the lookup cache. Called when a path node is deleted.
    *
-   * <p>Removal is exact too, which the lossy key could not manage: it dropped the single entry two
+   * <p>
+   * Removal is exact too, which the lossy key could not manage: it dropped the single entry two
    * colliding sibling names shared, so deleting one orphaned the other and the survivor read as
    * absent.
    *
@@ -456,14 +462,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Find every PathNode whose local name equals {@code localName}, regardless of
-   * namespace URI or path depth. Used by the query-time PathStatistics short-circuit
-   * in {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the
-   * caller passes {@code "age"} and unions the stats across all matching paths.
+   * Find every PathNode whose local name equals {@code localName}, regardless of namespace URI or
+   * path depth. Used by the query-time PathStatistics short-circuit in
+   * {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the caller passes
+   * {@code "age"} and unions the stats across all matching paths.
    *
-   * <p>Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths),
-   * so a linear walk over {@link #qnmMapping} is faster than maintaining a second
-   * index. Returns an empty list if no path matches.
+   * <p>
+   * Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths), so a linear walk
+   * over {@link #qnmMapping} is faster than maintaining a second index. Returns an empty list if no
+   * path matches.
    */
   public List<PathNode> findPathsByLocalName(final String localName) {
     assertNotClosed();
@@ -477,10 +484,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns
-   * {@code true} when at least one path's QNm has the given localName.
-   * Allocates nothing on the hot path; SIMD-scans {@link #qnmMapping}'s dense
-   * localName-key array and stops on the first verified hit.
+   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns {@code true} when at
+   * least one path's QNm has the given localName. Allocates nothing on the hot path; SIMD-scans
+   * {@link #qnmMapping}'s dense localName-key array and stops on the first verified hit.
    */
   public boolean containsLocalName(final String localName) {
     assertNotClosed();
@@ -610,6 +616,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public boolean moveTo(final long nodeKey) {
+    ReplayWorkDiagnostics.pathStep();
     assertNotClosed();
 
     if (!init && nodeKey != 0) {
@@ -677,25 +684,26 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent:
-   * the referenced instance must carry the node key the structural pointer names, and it must
-   * be the instance {@link #pathNodeMapping} currently holds for that key.
+   * Follow a direct in-memory {@link PathNode} reference only when it is provably coherent: the
+   * referenced instance must carry the node key the structural pointer names, and it must be the
+   * instance {@link #pathNodeMapping} currently holds for that key.
    *
-   * <p>The in-memory parent/child/sibling references are wired once, at bulk-load time (see
+   * <p>
+   * The in-memory parent/child/sibling references are wired once, at bulk-load time (see
    * {@code LevelOrderSettingInMemoryInstancesAxis}). {@link PathSummaryWriter} mutations do NOT
    * rewire them — a structural fix-up goes through {@code prepareRecordForModification}, which
-   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by
-   * its old neighbours. Following such a stale twin resurrects removed subtrees: a
-   * {@code PostOrderAxis} walk then computes node keys that no longer resolve
-   * ("Failed to move to nodeKey: N", issue #1099). The identity check against the mapping
-   * degrades those cases to the authoritative {@link #moveTo(long)} path; in read-only readers
-   * the mapping and the reference graph hold the same instances, so the fast path still always
-   * hits there.
+   * replaces the mapping's instance with a fresh copy while the stale twin stays referenced by its
+   * old neighbours. Following such a stale twin resurrects removed subtrees: a {@code PostOrderAxis}
+   * walk then computes node keys that no longer resolve ("Failed to move to nodeKey: N", issue
+   * #1099). The identity check against the mapping degrades those cases to the authoritative
+   * {@link #moveTo(long)} path; in read-only readers the mapping and the reference graph hold the
+   * same instances, so the fast path still always hits there.
    *
-   * <p>During construction ({@code init}) the mapping is still being populated from the very
-   * instances being wired, so the reference is trusted as before.
+   * <p>
+   * During construction ({@code init}) the mapping is still being populated from the very instances
+   * being wired, so the reference is trusted as before.
    *
-   * @param target      the in-memory referenced instance (may be {@code null})
+   * @param target the in-memory referenced instance (may be {@code null})
    * @param expectedKey the node key the structural pointer of the current node names
    * @return {@code true} if the cursor moved to {@code target}
    */
@@ -720,8 +728,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (!node.hasParent()) {
       return false;
     }
-    if (node instanceof PathNode pathNode
-        && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
+    if (node instanceof PathNode pathNode && moveToInMemoryInstance(pathNode.getParent(), pathNode.getParentKey())) {
       return true;
     }
     return moveTo(node.getParentKey());
@@ -910,7 +917,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     }
     final Path<QNm> pathFromNode = node.getPath();
-    if (pathFromNode != null) {
+    if (!importedPathExpressions && pathFromNode != null) {
       return pathFromNode;
     }
     final long nodeKey = getNodeKey();
@@ -937,7 +944,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
     moveTo(nodeKey);
     assert currNode != null;
-    currNode.setPath(path);
+    if (!importedPathExpressions) {
+      currNode.setPath(path);
+    }
     return path;
   }
 
@@ -1221,6 +1230,112 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getPreviousRevisionNumber() {
     throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Install changed cache entries after a private identity import. Null entries remove a path;
+   * logical roots name renamed/reparented/created/deleted path classes, including their descendants.
+   * Existing cached path queries are repaired in place instead of rescanning the whole namespace.
+   */
+  public void applyImportedChanges(final Long2ObjectMap<StructNode> records, final LongSet logicalRoots) {
+    assertNotClosed();
+    requireNonNull(records);
+    requireNonNull(logicalRoots);
+    if (!storageEngineReader.hasTrxIntentLog()) {
+      throw new IllegalStateException("Only a private write transaction may import paths");
+    }
+    if (records.isEmpty()) {
+      return;
+    }
+    final long savedKey = currentNode.getNodeKey();
+    // Remove every old binding before adding any new binding; renamed paths can exchange slots.
+    for (final var keys = records.keySet().iterator(); keys.hasNext();) {
+      final long key = keys.nextLong();
+      final StructNode old = key < pathNodeMapping.length
+          ? pathNodeMapping[(int) key]
+          : null;
+      if (old instanceof final PathNode path) {
+        final QNm oldName = nameOf(path);
+        final Set<PathNode> named = qnmMapping.get(oldName);
+        if (named != null) {
+          named.remove(path);
+          if (named.isEmpty()) {
+            qnmMapping.remove(oldName);
+          }
+        }
+        childLookupCache.remove(path.getParentKey(), oldName, path.getPathKind());
+      }
+    }
+    for (final var entry : records.long2ObjectEntrySet()) {
+      final long key = entry.getLongKey();
+      final StructNode node = entry.getValue();
+      if (node == null) {
+        if (key < pathNodeMapping.length) {
+          pathNodeMapping[(int) key] = null;
+        }
+      } else {
+        putMapping(key, node);
+        if (node instanceof final PathNode path) {
+          final QNm name = nameOf(path);
+          qnmMapping.computeIfAbsent(name, ignored -> new HashSet<>()).add(path);
+          childLookupCache.put(path.getParentKey(), name, path.getPathKind(), key);
+        }
+      }
+    }
+    localNameIndex.invalidate();
+    if (!logicalRoots.isEmpty()) {
+      importedPathExpressions = true;
+      refreshImportedPathMatches(logicalRoots);
+    }
+    if (!moveTo(savedKey)) {
+      moveToDocumentRoot();
+    }
+  }
+
+  private void refreshImportedPathMatches(final LongSet logicalRoots) {
+    if (pathCache.isEmpty()) {
+      return;
+    }
+    final LongSet affected = new LongOpenHashSet();
+    final LongArrayList pending = new LongArrayList(logicalRoots.size());
+    for (final var roots = logicalRoots.iterator(); roots.hasNext();) {
+      pending.add(roots.nextLong());
+    }
+    while (!pending.isEmpty()) {
+      final long key = pending.removeLong(pending.size() - 1);
+      if (!affected.add(key)) {
+        continue;
+      }
+      if (!moveTo(key)) {
+        for (final LongSet matches : pathCache.values()) {
+          matches.remove(key);
+        }
+        continue;
+      }
+      final PathNode node = getPathNode();
+      if (node == null) {
+        throw new IllegalStateException("Imported path class is not a path node: " + key);
+      }
+      final Path<QNm> actual = getPath();
+      for (final var entry : pathCache.entrySet()) {
+        final Path<QNm> pattern = entry.getKey();
+        final LongSet matches = entry.getValue();
+        if (node.getLevel() >= pattern.getLength()
+            && pattern.isAttribute() == (node.getPathKind() == NodeKind.ATTRIBUTE) && pattern.matches(actual)) {
+          matches.add(key);
+        } else {
+          matches.remove(key);
+        }
+      }
+      long child = node.getFirstChildKey();
+      while (child >= 0) {
+        pending.add(child);
+        if (!moveTo(child)) {
+          throw new IllegalStateException("Missing imported path child " + child);
+        }
+        child = getRightSiblingKey();
+      }
+    }
   }
 
   public void clearCache() {

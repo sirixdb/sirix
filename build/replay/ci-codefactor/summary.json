@@ -1,0 +1,31 @@
+{
+  "phase": "ci",
+  "target_commit": "8ad70fa464e5b943ff967603b45f94fcf454f188",
+  "code_change_needed": true,
+  "provider_report_issues": 19,
+  "package_layout_findings_addressed": 2,
+  "reported_complex_methods_simplified": 12,
+  "known_complexity_notes": 5,
+  "final_format_compile_exit": 0,
+  "final_core_exit": 0,
+  "final_query_exit": 0,
+  "core": {
+    "tests": 1372,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 6,
+    "budget_tests": 229
+  },
+  "query": {
+    "tests": 37,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "brackit_snapshot": "1.0-alpha10-20261006.152144-93",
+  "brackit_sha256": "89989d16df36e5dd95eb5bec74329b48999aeef76cc10c9d1ff02c2ac433415e",
+  "source_unchanged_after_final_compile": true,
+  "benchmark_campaign": false,
+  "hosted_codefactor_reanalysis": "outer executor publication required",
+  "full_suites": "not run in this assigned CI repair; subsequent phases remain owned by the outer executor"
+}

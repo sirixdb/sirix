@@ -1,0 +1,83 @@
+ADMITTED,2026-10-05T22:26:52Z
+WARNING: Using incubator modules: jdk.incubator.vector
+RUN,smoke-candidate,pid=2622544,java=25.0.3,identity=true,warmups=1,samples=2
+JVM,smoke-candidate,maxHeap=3221225472,arguments=[-XX:ThreadPriorityPolicy=1, -XX:+UnlockExperimentalVMOptions, -XX:+EnableJVMCIProduct, -XX:+EnableJVMCI, -XX:-UnlockExperimentalVMOptions, -ea, -Xms512m, -Xmx3g, --add-opens=java.base/sun.nio.ch=ALL-UNNAMED, --add-opens=java.base/java.nio=ALL-UNNAMED, --add-modules=jdk.incubator.vector, --enable-native-access=ALL-UNNAMED, -XX:+EnableDynamicAgentLoading, -XX:+UnlockDiagnosticVMOptions, -XX:+DebugNonSafepoints, --add-modules=jdk.incubator.vector, -Dfile.encoding=UTF-8, -Djava.io.tmpdir=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/tmp, -Dlogback.configurationFile=/home/johannes/.treehouse/sirix-cdde48/20/sirix/build/replay/latency/quiet.xml, -Dsirix.replay.workDiag=true, -Dsirix.hot.mergeDiag=true, -Dsirix.replay.bench.scenarios=append,unchanged,deep,sparse,moves,restore]
+COLUMNS,label,scenario,iteration,metric,nanos,threadAllocatedBytes,recordVisits,createdIdentities,stagedRecords,ancestorSteps,sidecarReads,fallbackPages,pathSteps,bookkeepingOperations
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/2026.0/2447494f7842ca377b4ccdba2089a8da5c1d1b50/zero-allocation-hashing-2026.0.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+SAMPLE,smoke-candidate,append,0,bulkAppendCommit,231417421,41152712,73795,0,0,0,0,0,4112,16384
+SAMPLE,smoke-candidate,append,0,publicCompactDiff,146814426,38984496,98316,0,0,0,0,0,4096,0
+SAMPLE,smoke-candidate,append,0,publicMaterializedDiff,102590910,38796816,98316,0,0,0,0,0,4096,0
+SAMPLE,smoke-candidate,append,0,replayRead,22011769,2273672,7182,0,0,0,0,10,0,0
+SAMPLE,smoke-candidate,append,0,unchangedPublicDiff,809706,17456,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,append,0,revisionCopy,165483596,15225912,87195,8193,8197,4098,0,27,19,0
+SAMPLE,smoke-candidate,append,1,bulkAppendCommit,118887797,41150848,73795,0,0,0,0,0,4112,16384
+SAMPLE,smoke-candidate,append,1,publicCompactDiff,67877236,38984392,98316,0,0,0,0,0,4096,0
+SAMPLE,smoke-candidate,append,1,publicMaterializedDiff,62119361,38795960,98316,0,0,0,0,0,4096,0
+SAMPLE,smoke-candidate,append,1,replayRead,9935585,2273712,7182,0,0,0,0,10,0,0
+SAMPLE,smoke-candidate,append,1,unchangedPublicDiff,800917,17456,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,append,1,revisionCopy,114578187,15216776,87195,8193,8197,4098,0,27,19,0
+SAMPLE,smoke-candidate,unchanged,0,bulkAppendCommit,7821007,1447408,211,0,0,0,0,0,24,32
+SAMPLE,smoke-candidate,unchanged,0,publicCompactDiff,36399467,4991464,98484,0,0,0,0,0,8,0
+SAMPLE,smoke-candidate,unchanged,0,publicMaterializedDiff,13886258,4927344,98484,0,0,0,0,0,8,0
+SAMPLE,smoke-candidate,unchanged,0,replayRead,2263120,623512,2080,0,0,0,0,6,0,0
+SAMPLE,smoke-candidate,unchanged,0,unchangedPublicDiff,362607,17360,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,unchanged,0,revisionCopy,181122257,36276960,363767,32777,32781,10,0,47,19,0
+SAMPLE,smoke-candidate,unchanged,1,bulkAppendCommit,6792068,1447200,211,0,0,0,0,0,24,32
+SAMPLE,smoke-candidate,unchanged,1,publicCompactDiff,33572772,4991368,98484,0,0,0,0,0,8,0
+SAMPLE,smoke-candidate,unchanged,1,publicMaterializedDiff,14348968,4927216,98484,0,0,0,0,0,8,0
+SAMPLE,smoke-candidate,unchanged,1,replayRead,2017697,623448,2080,0,0,0,0,6,0,0
+SAMPLE,smoke-candidate,unchanged,1,unchangedPublicDiff,314139,17296,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,unchanged,1,revisionCopy,161846076,35401952,363767,32777,32781,10,0,47,19,0
+SAMPLE,smoke-candidate,deep,0,bulkAppendCommit,7098085,1869320,2452,0,0,0,0,0,712,12
+SAMPLE,smoke-candidate,deep,0,publicCompactDiff,1160116,366640,1338,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,deep,0,publicMaterializedDiff,1000247,366584,1338,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,deep,0,replayRead,476655,62280,402,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,deep,0,unchangedPublicDiff,198884,17720,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,deep,0,revisionCopy,16900914,4440104,4298,68,135,68,0,8,964,0
+SAMPLE,smoke-candidate,deep,1,bulkAppendCommit,7311789,1868824,2452,0,0,0,0,0,712,12
+SAMPLE,smoke-candidate,deep,1,publicCompactDiff,2784631,366640,1338,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,deep,1,publicMaterializedDiff,1600464,366584,1338,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,deep,1,replayRead,941081,62280,402,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,deep,1,unchangedPublicDiff,311348,17720,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,deep,1,revisionCopy,20041524,4435768,4298,68,135,68,0,8,964,0
+SAMPLE,smoke-candidate,sparse,0,bulkAppendCommit,4341189,1331440,121,0,0,0,0,0,19,12
+SAMPLE,smoke-candidate,sparse,0,publicCompactDiff,473474,58024,123,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,sparse,0,publicMaterializedDiff,308370,57968,123,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,sparse,0,replayRead,609412,27576,51,0,0,0,0,8,0,0
+SAMPLE,smoke-candidate,sparse,0,unchangedPublicDiff,369883,17240,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,sparse,0,revisionCopy,12403709,3912880,407,20,24,5,0,18,19,0
+SAMPLE,smoke-candidate,sparse,1,bulkAppendCommit,4131881,1330712,121,0,0,0,0,0,19,12
+SAMPLE,smoke-candidate,sparse,1,publicCompactDiff,374629,58024,123,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,sparse,1,publicMaterializedDiff,301091,57968,123,0,0,0,0,0,3,0
+SAMPLE,smoke-candidate,sparse,1,replayRead,475529,27576,51,0,0,0,0,8,0,0
+SAMPLE,smoke-candidate,sparse,1,unchangedPublicDiff,215974,17240,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,sparse,1,revisionCopy,12151192,3912056,407,20,24,5,0,18,19,0
+SAMPLE,smoke-candidate,moves,0,sourceMutationCommit,4262220,1310936,192,0,0,0,0,0,45,7
+SAMPLE,smoke-candidate,moves,0,publicCompactDiff,493197,76880,165,0,0,0,0,0,6,0
+SAMPLE,smoke-candidate,moves,0,publicMaterializedDiff,489150,100624,189,0,0,0,0,0,6,0
+SAMPLE,smoke-candidate,moves,0,replayRead,240659,21816,48,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,moves,0,unchangedPublicDiff,188248,17696,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,moves,0,revisionCopy,31224538,3876320,356,9,15,4,0,6,34,0
+SAMPLE,smoke-candidate,moves,1,sourceMutationCommit,4579075,1310760,192,0,0,0,0,0,45,7
+SAMPLE,smoke-candidate,moves,1,publicCompactDiff,438595,76880,165,0,0,0,0,0,6,0
+SAMPLE,smoke-candidate,moves,1,publicMaterializedDiff,496904,100624,189,0,0,0,0,0,6,0
+SAMPLE,smoke-candidate,moves,1,replayRead,217691,21816,48,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,moves,1,unchangedPublicDiff,150496,17696,6,0,0,0,0,0,0,0
+SAMPLE,smoke-candidate,moves,1,revisionCopy,11550003,3876552,356,9,15,4,0,6,34,0
+SAMPLE,smoke-candidate,restore,0,sourceMutationCommit,4014830,1304952,96,0,0,0,0,0,17,6
+SAMPLE,smoke-candidate,restore,0,publicCompactDiff,399374,35936,39,0,0,0,0,0,1,0
+SAMPLE,smoke-candidate,restore,0,publicMaterializedDiff,196449,35880,39,0,0,0,0,0,1,0
+SAMPLE,smoke-candidate,restore,0,replayRead,178675,18520,22,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,restore,0,restorationPublicDiff,423537,45344,47,0,0,0,0,0,11,0
+SAMPLE,smoke-candidate,restore,0,revisionCopy,17204200,3934208,277,5,14,7,0,12,19,0
+SAMPLE,smoke-candidate,restore,1,sourceMutationCommit,4145265,1304432,96,0,0,0,0,0,17,6
+SAMPLE,smoke-candidate,restore,1,publicCompactDiff,364159,35936,39,0,0,0,0,0,1,0
+SAMPLE,smoke-candidate,restore,1,publicMaterializedDiff,229040,35880,39,0,0,0,0,0,1,0
+SAMPLE,smoke-candidate,restore,1,replayRead,198319,18520,22,0,0,0,0,2,0,0
+SAMPLE,smoke-candidate,restore,1,restorationPublicDiff,379383,45344,47,0,0,0,0,0,11,0
+SAMPLE,smoke-candidate,restore,1,revisionCopy,11036524,3933896,277,5,14,7,0,12,19,0
+END,smoke-candidate,sink=1209105251
+# [StorageProfile] dump called: enabled=false byKind.size=0

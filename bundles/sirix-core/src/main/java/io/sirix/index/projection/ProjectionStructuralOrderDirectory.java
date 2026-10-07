@@ -7,6 +7,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
+import io.sirix.utils.ReplayWorkDiagnostics;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
@@ -759,7 +760,9 @@ final class ProjectionStructuralOrderDirectory {
       return localLabel;
     }
 
-    private @Nullable SirixDeweyID localLabel(final long nodeKey) {
+    @Nullable
+    SirixDeweyID localLabel(final long nodeKey) {
+      ReplayWorkDiagnostics.projectionOrderSlotRead();
       final byte[] encoded = store.get(slotKey(nodeKey));
       if (encoded == null) {
         return null;

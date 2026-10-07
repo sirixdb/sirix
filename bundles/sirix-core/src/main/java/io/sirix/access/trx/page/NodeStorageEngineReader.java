@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.node.FsstSymbolTableNode;
@@ -534,6 +535,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   @SuppressWarnings("unchecked")
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
+    ReplayWorkDiagnostics.recordVisited();
     requireNonNull(indexType);
     assertNotClosed();
     validateKeyedTrieRoute(this, indexType, index);

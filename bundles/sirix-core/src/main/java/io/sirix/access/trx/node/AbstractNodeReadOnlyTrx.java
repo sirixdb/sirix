@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
@@ -605,6 +606,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public boolean moveTo(final long nodeKey) {
+    ReplayWorkDiagnostics.recordVisited();
     // Any move implicitly exits fused synthetic-child mode and invalidates structural keys decoded
     // at the old position. Keep this prelude shared with the approved write-cursor self-move path
     // so skipping only the physical rebind never skips observable cursor state changes.
