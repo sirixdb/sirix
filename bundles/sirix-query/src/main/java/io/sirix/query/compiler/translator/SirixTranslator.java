@@ -233,10 +233,8 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
-    if (node.getValue() instanceof QNm name && "http://www.w3.org/2001/XMLSchema".equals(name.getNamespaceURI())
-        && "dateTime".equals(name.getLocalName()) && node.getChildCount() == 1
-        && node.getChild(0).getType() != XQ.ArgumentPlaceHolder
-        && ctx.getFunctions().resolve(name, 1) instanceof ConstructorFunction constructor) {
+    final ConstructorFunction constructor = dateTimeConstructor(node);
+    if (constructor != null) {
       return new FunctionExpr(node.getStaticContext(), new StoredDateTimeConstructor(constructor),
           new Expr[] {expr(node.getChild(0), true)});
     }
@@ -293,6 +291,16 @@ public class SirixTranslator extends TopDownTranslator {
       }
     }
     return super.functionCall(node);
+  }
+
+  private @Nullable ConstructorFunction dateTimeConstructor(final AST node) {
+    if (node.getValue() instanceof QNm name && "http://www.w3.org/2001/XMLSchema".equals(name.getNamespaceURI())
+        && "dateTime".equals(name.getLocalName()) && node.getChildCount() == 1
+        && node.getChild(0).getType() != XQ.ArgumentPlaceHolder
+        && ctx.getFunctions().resolve(name, 1) instanceof ConstructorFunction constructor) {
+      return constructor;
+    }
+    return null;
   }
 
   private Expr indexExpr(AST node) {
