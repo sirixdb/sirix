@@ -41,4 +41,10 @@ public interface PathNodeKeyChangeListener extends ChangeListener {
       final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
     listen(type, nodeKey, nodeKind, pathNodeKey, name, value);
   }
+
+  default void listenNumber(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
+      final Number number) {
+    listen(type, nodeKey, nodeKind, parentKey, pathNodeKey, name, value);
+  }
 }

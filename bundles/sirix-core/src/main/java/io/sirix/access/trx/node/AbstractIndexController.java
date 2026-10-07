@@ -264,6 +264,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public void notifyNumberChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
+      final Number number) {
+    final PathNodeKeyChangeListener[] activeListeners = primitiveListenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].listenNumber(type, nodeKey, nodeKind, parentKey, pathNodeKey, name, value, number);
+    }
+  }
+
+  @Override
   public IndexController<R, W> createIndexListeners(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
     requireNonNull(indexDefs);
     requireNonNull(nodeWriteTrx);
