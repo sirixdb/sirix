@@ -24,6 +24,7 @@ import io.sirix.query.compiler.translator.SirixRowMaterializeExpr;
 import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.node.XmlDBStore;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -125,7 +126,7 @@ final class EagerLetMaterializationTest {
     return new CompileChain() {
       @Override
       protected Optimizer getOptimizer(final Map<QNm, Str> options) {
-        return new SirixOptimizer(options, null, store);
+        return new SirixOptimizer(options, mock(XmlDBStore.class), store);
       }
 
       @Override

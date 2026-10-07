@@ -48,6 +48,7 @@ public final class MaterializeExpr implements Expr {
         return source.evaluate(context, tuple);
     }
     final Sequence evaluated = source.evaluate(context, tuple);
+    // Subclasses may override iteration with lazy work; only the exact buffer class is eager.
     if (evaluated != null && evaluated.getClass() == ItemSequence.class)
       return evaluated;
     final Sequence result = ExprUtil.materialize(evaluated);

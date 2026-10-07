@@ -4,10 +4,12 @@ Repeated references to a lazy let-bound FLWOR result previously traversed its so
 reference. SH1 Q3 references `$rows` three times, for minimum, maximum and distinct-price count.
 `LetMaterializationStage` now marks a repeatedly referenced, proven-pure `PipeExpr` initializer
 with `SIRIX_MATERIALIZE_LET`. `SirixTranslator` compiles that marker to `MaterializeExpr`, which
-fully consumes the result while the binding evaluates, using Brackit's `ExprUtil.materialize`.
-The resulting sequence belongs to that binding tuple. The compiled expression retains its
-source expression and immutable purity metadata, so each outer tuple and each later query
-evaluation evaluates a fresh binding.
+evaluates the source once while the binding evaluates. An exact `ItemSequence` result is already
+eager and is reused directly, including a covered-row projection buffer; other results go through
+Brackit's `ExprUtil.materialize`. Subclasses of `ItemSequence` still take that path because they
+may override iteration with lazy work. The resulting sequence belongs to that binding tuple.
+The compiled expression retains its source expression and immutable purity metadata, so each
+outer tuple and each later query evaluation evaluates a fresh binding.
 
 There is no cross-evaluation memo, deferred replay or invalidation. Buffering retains all result
 items until that binding is no longer referenced. Empty and singleton results use Brackit's
@@ -111,8 +113,11 @@ evaluations instead of 2 across two executions, proving that the counter detects
 calls, effectful lazy dependencies, caller-dependent function parameters, global overrides, external defaults, shadowed functions,
 implicit context arguments and positional `allowing empty` bindings. `MaterializeExprTest`
 checks repeated binding evaluations, repeated result consumption, cursor closure, failure recovery,
-and rejection of updating expressions. Custom-provider reads retain their original per-reference
-execution; the stock-provider Q3 budget still requires exactly one scan per binding.
+rejection of updating expressions, eager-buffer identity, singleton-array cardinality and lazy
+`ItemSequence` subclass consumption. `EagerLetMaterializationTest` observes the executable
+covered-row serving route and requires the binding to reuse its exact buffer, with unchanged
+output and a fresh buffer on each query evaluation. Custom-provider reads retain their original
+per-reference execution; the stock-provider Q3 budget still requires exactly one scan per binding.
 `IndexedLetMaterializationTest` verifies executable PATH and NAME index selection, latest-revision
 reads after commits between streamed results, eager indexed positives and dependency/provider guards.
 Partial-function regressions invoke two returned reductions after separate commits and require
@@ -126,12 +131,12 @@ instead of the required two.
 
 ## SH1 Q3 measurement
 
-Measured on 2026-10-06 in this isolated worktree, using a private copy of the SH1 t100k
+Measured on 2026-10-06 for the initial implementation, using a private copy of the SH1 t100k
 `t100k-hot-44fc2f4afe01-nodiffs` database. Both variants use the normative `BitemporalQueries`
 Q3 and the same production compile chain/runtime; only the materialization stage is toggled.
 Each variant has five warmups and nine measured executions, with alternating order. Compilation
 and canonicalization are outside the measured interval; complete query serialization is inside it.
-Every execution, including warmups, is canonicalized and byte-compared to the independent SH1
+All 28 executions, including warmups, are canonicalized and byte-compared to the independent SH1
 oracle (`60121\t60321\t3\n`). No wall-clock threshold is asserted in the automated tests.
 
 | Variant | Warm median | Q3 source scans per binding |
@@ -139,10 +144,10 @@ oracle (`60121\t60321\t3\n`). No wall-clock threshold is asserted in the automat
 | Materialization disabled | 228.799 ms | 3 |
 | Materialization enabled | 74.553 ms | 1 |
 
-The measured reduction is **3.07x**. These are contemporary A/B figures with the already-landed
-cheap-first predicate ordering and current dependencies, rather than a comparison against the
-older profiling report's 1,318 ms baseline. Timings on this shared laptop are evidence, not a CI
-latency guarantee.
+The measured reduction is **3.07x**. These historical A/B figures include the cheap-first predicate
+ordering and dependencies used on that measured head; they were not remeasured after the rebase
+or subsequent guard and eager-buffer fixes. They do not compare against the older profiling
+report's 1,318 ms baseline. Timings on this shared laptop are evidence, not a CI latency guarantee.
 
 The [probe source](../bundles/sirix-query/bench/bitemporal/evidence/let-materialization-2026-10-06/Q3Probe.java.txt)
 and [samples](../bundles/sirix-query/bench/bitemporal/evidence/let-materialization-2026-10-06/q3-samples.tsv)
@@ -151,7 +156,8 @@ are retained with the benchmark evidence. The oracle TSV SHA-256 is
 Source metadata, regression XML and logs are under `build/let-materialize/`. The verification plan there records the initially empty private Maven
 repository, `build/let-materialize/m2-private`, used for every Gradle command. Published Brackit
 snapshot `1.0-alpha10-20261006.152144-93` was resolved, avoiding the stale local `~/.m2` snapshot.
-All Gradle and benchmark JVMs run under the prescribed memory/lock limiter. Query test forks use
+For that measurement and initial validation, all Gradle and benchmark JVMs ran under the prescribed
+memory/lock limiter. Query test forks used
 `-PtestHeapMin=256m -PtestHeapMax=2g`.
 
 ## Initial suite validation (2026-10-06)
