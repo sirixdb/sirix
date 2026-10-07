@@ -52,7 +52,7 @@ public final class SelectItem extends AbstractFunction {
 
     if (rtx.moveTo(nodeKey)) {
       if (rtx instanceof XmlNodeReadOnlyTrx) {
-        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
+        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection()).readView();
       } else if (rtx instanceof JsonNodeReadOnlyTrx) {
         final JsonDBItem jsonItem = (JsonDBItem) item;
         return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());

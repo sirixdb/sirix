@@ -216,9 +216,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   /** Hold every XML writer through operation application and final text normalization. */
   private List<XmlNodeTrx> applyXmlUpdates(final List<UpdateOp> operations) {
-    final List<XmlNodeTrx> writers = new ArrayList<>(operations.size());
-    final Map<XmlResourceId, XmlNodeTrx> suppliedWriters = HashMap.newHashMap(operations.size());
-    final Map<XmlResourceId, XmlNodeTrx> writersByResource = HashMap.newHashMap(operations.size());
+    final List<XmlNodeTrx> writers = new ArrayList<>(1);
+    final Map<XmlResourceId, XmlNodeTrx> suppliedWriters = HashMap.newHashMap(1);
+    final Map<XmlResourceId, XmlNodeTrx> writersByResource = HashMap.newHashMap(1);
     final List<UpdateOp> originals = new ArrayList<>(operations);
     try {
       for (final UpdateOp operation : originals) {
@@ -383,7 +383,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Sequence resolve(QNm name) throws QueryException {
-    return queryContextDelegate.resolve(name);
+    return XmlDBNode.readView(queryContextDelegate.resolve(name));
   }
 
   @Override
@@ -398,7 +398,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Item getContextItem() {
-    return queryContextDelegate.getContextItem();
+    return XmlDBNode.readView(queryContextDelegate.getContextItem());
   }
 
   @Override
@@ -408,7 +408,8 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public Node<?> getDefaultDocument() {
-    return queryContextDelegate.getDefaultDocument();
+    final Node<?> document = queryContextDelegate.getDefaultDocument();
+    return document instanceof XmlDBNode node ? node.readView() : document;
   }
 
   @Override

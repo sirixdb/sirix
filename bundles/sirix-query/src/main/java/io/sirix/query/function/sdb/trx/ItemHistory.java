@@ -94,7 +94,7 @@ public final class ItemHistory extends AbstractFunction {
         }
       }
 
-      return new ItemSequence(sequences.toArray(new Item[0]));
+      return XmlDBNode.readView(new ItemSequence(sequences.toArray(new Item[0])));
     } else {
       // Fast path: use RECORD_TO_REVISIONS index for the revision list,
       // then open all transactions concurrently using virtual threads.
@@ -143,7 +143,7 @@ public final class ItemHistory extends AbstractFunction {
         }
       }
 
-      return new ItemSequence(sequences.toArray(new Item[0]));
+      return XmlDBNode.readView(new ItemSequence(sequences.toArray(new Item[0])));
     }
   }
 }

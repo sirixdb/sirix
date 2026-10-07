@@ -23,12 +23,16 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.brackit.query.QueryExecution;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.update.op.UpdateOp;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Kind;
 import io.brackit.query.jdm.Scope;
+import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.AbstractTemporalNode;
 import io.brackit.query.jdm.node.Node;
@@ -39,6 +43,8 @@ import io.brackit.query.node.parser.NavigationalSubtreeProcessor;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeListener2HandlerAdapter;
 import io.brackit.query.node.parser.NodeSubtreeParser;
+import io.brackit.query.sequence.AbstractSequence;
+import io.brackit.query.sequence.BaseIter;
 import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Axis;
@@ -86,6 +92,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   /** Determines if write-transaction is present. */
   private final boolean isWtx;
 
+  private final boolean snapshot;
+
   /** {@link Scope} of node. */
   private SirixScope scope;
 
@@ -96,8 +104,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * @param collection {@link XmlDBCollection} reference
    */
   public XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection) {
+    this(rtx, collection, false);
+  }
+
+  private XmlDBNode(final XmlNodeReadOnlyTrx rtx, final XmlDBCollection collection, final boolean snapshot) {
     this.collection = requireNonNull(collection);
     this.rtx = requireNonNull(rtx);
+    this.snapshot = snapshot;
     isWtx = this.rtx instanceof XmlNodeTrx;
     nodeKey = this.rtx.getNodeKey();
     kind = this.rtx.getKind();
@@ -106,10 +119,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         : null;
   }
 
-  private XmlDBNode(final XmlNodeTrx writer, final XmlDBNode source) {
+  private XmlDBNode(final XmlNodeReadOnlyTrx reader, final XmlDBNode source, final boolean snapshot) {
     collection = source.collection;
-    rtx = writer;
-    isWtx = true;
+    rtx = reader;
+    isWtx = reader instanceof XmlNodeTrx;
+    this.snapshot = snapshot;
     nodeKey = source.nodeKey;
     kind = source.kind;
     deweyID = source.deweyID;
@@ -122,7 +136,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   /**
    * Brackit retains the original target in each operation. Dispatch its calls to a private
    * writer view only in this execution. Never rebind a cached node's reader or cached scope:
-   * concurrent and subsequent readers must continue to see their original revision.
+   * independent queries receive snapshot views at input resolution, and their derived nodes
+   * retain snapshot visibility after execution and throughout result consumption.
    */
   public void applyUpdate(final UpdateOp operation, final XmlDBNode target) {
     requireNonNull(operation);
@@ -144,14 +159,111 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (resource.getDatabaseId() != writerResource.getDatabaseId() || resource.getID() != writerResource.getID()) {
       throw new IllegalArgumentException("Writer belongs to a different resource");
     }
-    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this);
+    return writer.moveTo(nodeKey) ? new XmlDBNode(writer, collection) : new XmlDBNode(writer, this, false);
+  }
+
+  private static boolean independentRead() {
+    if (!UPDATE_VIEW.isBound()) {
+      return false;
+    }
+    final UpdateView view = UPDATE_VIEW.get();
+    return view.owner != Thread.currentThread() || view.execution != QueryExecution.current();
+  }
+
+  public XmlDBNode readView() {
+    return independentRead() ? snapshotView() : this;
+  }
+
+  private XmlDBNode snapshotView() {
+    return snapshot && (!UPDATE_VIEW.isBound() || UPDATE_VIEW.get().source != this)
+        ? this : new XmlDBNode(rtx, this, true);
+  }
+
+  public static Item readView(final Item item) {
+    return item instanceof XmlDBNode node ? node.readView() : item;
+  }
+
+  public static Sequence readView(final Sequence sequence) {
+    if (sequence instanceof Item item) {
+      return readView(item);
+    }
+    if (sequence == null || !independentRead()) {
+      return sequence;
+    }
+    return new AbstractSequence() {
+      @Override
+      public boolean isRepeatable() {
+        return sequence.isRepeatable();
+      }
+
+      @Override
+      public IntNumeric knownSize() {
+        return sequence.knownSize();
+      }
+
+      @Override
+      public boolean booleanValue() {
+        return sequence.booleanValue();
+      }
+
+      @Override
+      public IntNumeric size() {
+        return sequence.size();
+      }
+
+      @Override
+      public Item get(final IntNumeric position) {
+        final Item item = sequence.get(position);
+        return item instanceof XmlDBNode node ? node.snapshotView() : item;
+      }
+
+      @Override
+      public Iter iterate() {
+        final Iter iterator = sequence.iterate();
+        return new BaseIter() {
+          @Override
+          public Item next() {
+            final Item item = iterator.next();
+            return item instanceof XmlDBNode node ? node.snapshotView() : item;
+          }
+
+          @Override
+          public void close() {
+            iterator.close();
+          }
+        };
+      }
+    };
+  }
+
+  private XmlDBNode readNode(final XmlNodeReadOnlyTrx reader) {
+    return new XmlDBNode(reader, collection, snapshot);
+  }
+
+  private <T extends AbstractTemporalNode<XmlDBNode>> Stream<T> readStream(final Stream<T> stream) {
+    if (!snapshot) {
+      return stream;
+    }
+    return new Stream<>() {
+      @Override
+      @SuppressWarnings("unchecked")
+      public T next() {
+        final T node = stream.next();
+        return node == null ? null : (T) ((XmlDBNode) node).snapshotView();
+      }
+
+      @Override
+      public void close() {
+        stream.close();
+      }
+    };
   }
 
   private XmlDBNode updateView() {
     if (UPDATE_VIEW.isBound()) {
       final UpdateView view = UPDATE_VIEW.get();
       if (view.owner == Thread.currentThread() && view.execution == QueryExecution.current()
-          && (view.source == this || nodeKey == view.source.nodeKey && isSameDocument(view.source))) {
+          && (view.source == this || !snapshot && nodeKey == view.source.nodeKey && isSameDocument(view.source))) {
         return view.target;
       }
     }
@@ -733,7 +845,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     if (rtx.moveTo(nodeKey) && rtx.hasParent()) {
       rtx.moveToParent();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     return null;
   }
@@ -746,7 +858,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     if (rtx.moveTo(nodeKey) && rtx.hasFirstChild()) {
       rtx.moveToFirstChild();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     return null;
   }
@@ -759,7 +871,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     if (rtx.moveTo(nodeKey) && rtx.hasLastChild()) {
       rtx.moveToLastChild();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     return null;
   }
@@ -771,7 +883,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return view.getChildren();
     }
     moveRtx();
-    return new SirixNodeStream(new ChildAxis(rtx), collection);
+    return readStream(new SirixNodeStream(new ChildAxis(rtx), collection));
   }
 
   // Returns all nodes in the subtree _including_ the subtree root.
@@ -782,7 +894,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return view.getSubtree();
     }
     moveRtx();
-    return new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)), collection);
+    return readStream(
+        new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES)), collection));
   }
 
   @Override
@@ -803,7 +916,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     if (rtx.moveTo(nodeKey) && rtx.hasRightSibling()) {
       rtx.moveToRightSibling();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     return null;
   }
@@ -816,7 +929,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     if (rtx.moveTo(nodeKey) && rtx.hasLeftSibling()) {
       rtx.moveToLeftSibling();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     return null;
   }
@@ -1000,7 +1113,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new XmlDBNode(rtx, collection);
+    return readNode(rtx);
   }
 
   @Override
@@ -1418,7 +1531,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     throw new DocumentException("No element node selected!");
   }
@@ -1457,7 +1570,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       } catch (final SirixException e) {
         throw new DocumentException(e);
       }
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     throw new DocumentException("No element node selected!");
   }
@@ -1511,7 +1624,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return view.getAttributes();
     }
     moveRtx();
-    return new SirixNodeStream(new AttributeAxis(rtx), collection);
+    return readStream(new SirixNodeStream(new AttributeAxis(rtx), collection));
   }
 
   @Override
@@ -1522,7 +1635,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
     moveRtx();
     if (rtx.isElement() && rtx.moveToAttributeByName(name)) {
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
     throw new DocumentException("No element selected!");
   }
@@ -1663,7 +1776,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     // Move to subtree root of new subtree.
     wtx.moveTo(nodeKey);
 
-    return new XmlDBNode(rtx, collection);
+    return readNode(rtx);
   }
 
   private SubtreeBuilder createBuilder(final XmlNodeTrx wtx) {
@@ -2042,7 +2155,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     };
     return temporalAxis == null
         ? null
-        : TemporalSirixNodeStream.create(temporalAxis, rtx, collection, test);
+        : readStream(TemporalSirixNodeStream.create(temporalAxis, rtx, collection, test));
   }
 
   @Override
@@ -2060,7 +2173,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private XmlDBNode moveTemporalAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis) {
     if (axis.hasNext()) {
       final var rtx = axis.next();
-      return new XmlDBNode(rtx, collection);
+      return readNode(rtx);
     }
 
     return null;
@@ -2109,7 +2222,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return readStream(
+        new TemporalSirixNodeStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection));
   }
 
   @Override
@@ -2122,7 +2236,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return readStream(
+        new TemporalSirixNodeStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection));
   }
 
   @Override
@@ -2132,7 +2247,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return view.getAllTime();
     }
     moveRtx();
-    return new TemporalSirixNodeStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
+    return readStream(new TemporalSirixNodeStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection));
   }
 
   @Override

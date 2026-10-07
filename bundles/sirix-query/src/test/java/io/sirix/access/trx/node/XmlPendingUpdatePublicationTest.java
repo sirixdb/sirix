@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import static io.brackit.query.jdm.Axis.ALL_TIME;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -9,14 +10,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Kind;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.node.AbstractTemporalNode;
+import io.brackit.query.jdm.type.DocumentType;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.operator.TupleImpl;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.OpType;
 import io.brackit.query.update.op.ReplaceElementContentOp;
 import io.brackit.query.update.op.UpdateOp;
+import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.Axis;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -33,8 +43,11 @@ import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.settings.VersioningType;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -537,7 +550,7 @@ final class XmlPendingUpdatePublicationTest {
           } else {
             context.applyUpdates();
           }
-          assertSame(cached, retained.get());
+          assertEquals(cached, retained.get());
           assertSame(originalReader, retained.get().getTrx());
           assertEquals(originalHash, cached.hashCode());
           assertEquals("old", retained.get().getValue().stringValue());
@@ -553,6 +566,212 @@ final class XmlPendingUpdatePublicationTest {
           assertEquals("uncommitted", collection.getDocument(2).getValue().stringValue());
           assertEquals("old", retained.get().getValue().stringValue());
           assertSame(originalReader, cached.getTrx());
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("queryConfigurations")
+  void independentNodeResultsRetainSnapshotsDuringApplication(final VersioningType versioning,
+      final CommitStrategy strategy) {
+    for (final boolean owningExecution : new boolean[] {false, true}) {
+      for (final boolean deweyIds : new boolean[] {false, true}) {
+        for (final boolean documentTarget : new boolean[] {false, true}) {
+          checkNodeResults(versioning, strategy, owningExecution, deweyIds, documentTarget);
+        }
+      }
+    }
+  }
+
+  private void checkNodeResults(final VersioningType versioning, final CommitStrategy strategy,
+      final boolean owningExecution, final boolean deweyIds, final boolean documentTarget) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                   .location(directory.resolve("results-" + owningExecution + "-"
+                                                       + deweyIds + "-" + documentTarget))
+                                                   .versioningType(versioning)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .storeDeweyIds(deweyIds)
+                                                   .storeNodeHistory(deweyIds)
+                                                   .build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy);
+        final SirixQueryContext readContext = SirixQueryContext.createWithNodeStore(store)) {
+      final XmlDBCollection collection = store.create("data",
+          new DocumentParser("<r xmlns:p='urn:old' a='old'>old<tail/></r>"));
+      final String aliasName = store.getLocation().resolve(".").resolve("data").toString();
+      final XmlDBCollection alias = store.lookup(aliasName);
+      final XmlDBNode cached = collection.getDocument(1);
+      final XmlDBNode aliased = alias.getDocument(1);
+      final XmlDBNode originalRoot = cached.getFirstChild();
+      final XmlDBNode target = documentTarget ? cached : originalRoot;
+      final XmlNodeReadOnlyTrx originalReader = cached.getTrx();
+      final XmlResourceSession session = originalReader.getResourceSession();
+      final String resource = collection.getDatabase().listResources().getFirst().getFileName().toString();
+      final String pointInTime = originalReader.getRevisionTimestamp().plusSeconds(1).toString();
+      final String expected = serialize(cached);
+      final int documentHash = cached.hashCode();
+      final int rootHash = originalRoot.hashCode();
+      readContext.bind(new QNm("one"), aliased);
+      readContext.bind(new QNm("many"), new ItemSequence(cached, aliased));
+      readContext.setDefaultDocument(aliased);
+      readContext.setDefaultNodeCollection(alias);
+      try (final XmlNodeTrx writer = session.beginNodeTrx(1)) {
+        context.addPendingUpdate(new UpdateOp() {
+          @Override
+          public XmlDBNode getTarget() {
+            return target;
+          }
+
+          @Override
+          public OpType getType() {
+            return OpType.REPLACE_ELEMENT_CONTENT;
+          }
+
+          @Override
+          public void apply() {
+            final XmlDBNode root = documentTarget ? cached.getFirstChild() : target;
+            new ReplaceElementContentOp(root, new Una("uncommitted")).apply();
+            root.setAttribute(new QNm("a"), new Una("uncommitted"));
+            root.getScope().addPrefix("q", "urn:uncommitted");
+            for (final XmlDBNode input : new XmlDBNode[] {cached, aliased}) {
+              readContext.setContextItem(input);
+              for (final String text : new String[] {"$$", "r", "r/@a/parent::r", "r/@a/ancestor::r",
+                  "r/ancestor-or-self::r", "r/descendant-or-self::r", "r/tail/preceding-sibling::text()/parent::r",
+                  "r/text()/following-sibling::tail/parent::r", "r/tail/preceding::text()/parent::r",
+                  "r/text()/following::tail/parent::r", "sdb:select-item($$, " + originalRoot.getNodeKey() + ")",
+                  "sdb:select-parent(r/@a)", "sdb:item-history($$)", "declare variable $one external; $one", "doc('')",
+                  "collection()", "xn:doc('" + aliasName + "','" + resource + "',1)",
+                  "xn:open('" + aliasName + "','" + resource + "',xs:dateTime('" + pointInTime + "'))"}) {
+                final Query query = new Query(chain, text);
+                checkSerializers(query, readContext, expected, text);
+                final XmlDBNode executed = (XmlDBNode) query.execute(readContext).get(new Int64(1));
+                final XmlDBNode evaluated = (XmlDBNode) query.evaluate(readContext).get(new Int64(1));
+                checkSnapshotNode(executed, documentHash, rootHash);
+                checkSnapshotNode(evaluated, documentHash, rootHash);
+                assertTrue(executed.isSelfOf(evaluated));
+                assertEquals(0, executed.cmp(evaluated));
+                assertEquals(executed.hashCode(), evaluated.hashCode());
+                if (text.equals("$$")) {
+                  checkSnapshotNavigation(executed);
+                }
+              }
+              final Query query = new Query(chain, "declare variable $many external; $many");
+              for (final Sequence sequence : new Sequence[] {query.execute(readContext), query.evaluate(readContext)}) {
+                checkSnapshotNode((XmlDBNode) sequence.get(new Int64(1)), documentHash, rootHash);
+                checkSnapshotNode((XmlDBNode) sequence.get(new Int64(2)), documentHash, rootHash);
+                try (final Iter iterator = sequence.iterate()) {
+                  checkSnapshotNode((XmlDBNode) iterator.next(), documentHash, rootHash);
+                  checkSnapshotNode((XmlDBNode) iterator.next(), documentHash, rootHash);
+                  assertEquals(null, iterator.next());
+                }
+              }
+            }
+            readContext.setContextItem(cached);
+            final XmlDBNode privateSnapshot = (XmlDBNode) new Query(chain, "$$").execute(readContext);
+            readContext.setContextItem(privateSnapshot);
+            privateSnapshot.applyUpdate(new UpdateOp() {
+              @Override
+              public XmlDBNode getTarget() {
+                return privateSnapshot;
+              }
+
+              @Override
+              public OpType getType() {
+                return OpType.REPLACE_ELEMENT_CONTENT;
+              }
+
+              @Override
+              public void apply() {
+                assertSame(writer, privateSnapshot.getTrx());
+                checkSerializers(new Query(chain, "$$"), readContext, expected, "snapshot update target");
+                checkSnapshotNode((XmlDBNode) new Query(chain, "$$").execute(readContext), documentHash, rootHash);
+                assertSame(writer, privateSnapshot.getTrx());
+              }
+            }, privateSnapshot.writerView(writer));
+            assertSame(writer, target.getTrx());
+            assertEquals("uncommitted", target.getValue().stringValue());
+            assertEquals(1, session.getMostRecentRevisionNumber());
+          }
+        });
+        if (owningExecution) {
+          new Query(chain, "()").evaluate(context);
+        } else {
+          context.applyUpdates();
+        }
+        assertSame(originalReader, cached.getTrx());
+        assertEquals(documentHash, cached.hashCode());
+        assertEquals(expected, serialize(cached));
+        assertEquals(expected, serialize(aliased));
+        if (strategy == CommitStrategy.EXPLICIT) {
+          writer.commit();
+        }
+        assertEquals(2, session.getMostRecentRevisionNumber());
+        assertEquals("uncommitted", collection.getDocument(2).getValue().stringValue());
+        assertEquals(expected, serialize(cached));
+      }
+    }
+  }
+
+  private static void checkSerializers(final Query query, final SirixQueryContext context, final String expected,
+      final String queryText) {
+    final StringWriter writerOutput = new StringWriter();
+    query.serialize(context, new PrintWriter(writerOutput));
+    assertEquals(expected, writerOutput.toString(), queryText);
+    final ByteArrayOutputStream streamOutput = new ByteArrayOutputStream();
+    query.serialize(context, new PrintStream(streamOutput, false, StandardCharsets.UTF_8));
+    assertEquals(expected, streamOutput.toString(StandardCharsets.UTF_8), queryText);
+    final StringWriter serializerOutput = new StringWriter();
+    query.serialize(context, new StringSerializer(new PrintWriter(serializerOutput)));
+    assertEquals(expected, serializerOutput.toString(), queryText);
+  }
+
+  private static void checkSnapshotNode(final XmlDBNode node, final int documentHash, final int rootHash) {
+    assertEquals(1, node.getTrx().getRevisionNumber());
+    assertEquals("old", node.getValue().stringValue());
+    final XmlDBNode root = node.getKind() == Kind.DOCUMENT ? node.getFirstChild() : node;
+    assertEquals(node.getKind() == Kind.DOCUMENT ? documentHash : rootHash, node.hashCode());
+    assertEquals("old", root.getAttribute(new QNm("a")).getValue().stringValue());
+    assertEquals("urn:old", root.getScope().resolvePrefix("p"));
+    assertEquals(null, root.getScope().resolvePrefix("q"));
+    final XmlDBNode document = root.getParent();
+    assertEquals("old", document.getValue().stringValue());
+    assertEquals(documentHash, document.hashCode());
+  }
+
+  private static void checkSnapshotNavigation(final XmlDBNode document) {
+    final XmlDBNode root = document.getFirstChild();
+    assertEquals("old", root.getFirstChild().getNextSibling().getPreviousSibling().getValue().stringValue());
+    assertEquals("old", root.getLastChild().getPreviousSibling().getParent().getValue().stringValue());
+    try (final Stream<XmlDBNode> children = root.getChildren();
+        final Stream<XmlDBNode> attributes = root.getAttributes();
+        final Stream<XmlDBNode> subtree = document.getSubtree()) {
+      assertEquals("old", children.next().getParent().getValue().stringValue());
+      assertEquals("old", attributes.next().getParent().getValue().stringValue());
+      final XmlDBNode subtreeDocument = subtree.next();
+      assertEquals("old", subtreeDocument.getValue().stringValue());
+      assertTrue(subtreeDocument.isSelfOf(document));
+    }
+    for (final XmlDBNode temporal : new XmlDBNode[] {document.getFirst(), document.getLast()}) {
+      assertEquals("old", temporal.getValue().stringValue());
+      assertTrue(temporal.isSelfOf(document));
+      if (temporal.getTrx() != document.getTrx()) {
+        temporal.getTrx().close();
+      }
+    }
+    assertEquals(null, document.getNext());
+    assertEquals(null, document.getPrevious());
+    try (final Stream<AbstractTemporalNode<XmlDBNode>> earlier = document.getEarlier(true);
+        final Stream<AbstractTemporalNode<XmlDBNode>> future = document.getFuture(true);
+        final Stream<AbstractTemporalNode<XmlDBNode>> allTime = document.getAllTime();
+        final var step = document.performStep(ALL_TIME, new DocumentType())) {
+      for (final XmlDBNode temporal : new XmlDBNode[] {(XmlDBNode) earlier.next(), (XmlDBNode) future.next(),
+          (XmlDBNode) allTime.next(),
+          (XmlDBNode) step.next()}) {
+        assertEquals("old", temporal.getValue().stringValue());
+        assertTrue(temporal.isSelfOf(document));
+        if (temporal.getTrx() != document.getTrx()) {
+          temporal.getTrx().close();
         }
       }
     }

@@ -43,7 +43,7 @@ public final class SelectParent extends AbstractFunction {
 
     if (rtx instanceof XmlNodeReadOnlyTrx) {
       if (((XmlNodeReadOnlyTrx) rtx).moveToParent()) {
-        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
+        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection()).readView();
       }
     } else if (rtx instanceof JsonNodeReadOnlyTrx) {
       if (((JsonNodeReadOnlyTrx) rtx).moveToParent()) {
