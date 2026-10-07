@@ -75,6 +75,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `EmptyAttributeAxisWorkBudgetTest` | cold named-attribute queries | an empty attribute axis loads descendant name records, or a local-name miss loads namespace name/count records; matching queries verify that the counters observe dictionary reads |
 | `sirix-query` `LetMaterializationWorkBudgetTest` | repeatedly referenced pure let-bound FLWOR results, including SH1 Q3 | a source scans more than once per binding evaluation; repeated compiled-query evaluations or outer tuples incorrectly reuse a prior result; the disabled-stage baseline proves the item-read counter observes all references |
+| `sirix-query` `ProviderPurityWorkBudgetTest` | shared provider admission in guarded row predicates | each row reclassifies unrelated registered collections; registry classification work must remain zero during query evaluation, with 0 or 1,000 unrelated collections |
 | `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
@@ -206,6 +207,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
   `docs/SEGMENT_PROJECTION_INDEXES.md`.
+- `BasicJsonDBStore.getCollectionClassificationCount()` (`sirix-query`): provider type checks,
+  gated by `sirix.json.registryDiag`. Registration establishes a nonzero floor; guarded query
+  evaluation must add none, independent of registry size.
 - Probes, for work the engine exposes through a test seam instead of a counter. They live in the
   package that owns the seam and restore whatever they displace: `SortedViewReadProbe` (summary
   reads against data-leaf reads, the only way to tell a sorted view's two walks apart) and
@@ -240,6 +244,8 @@ satisfies every upper bound. For HOT work that is `sirix.hot.mergeDiag`, provide
 for empty answers and counts both kinds on nonempty answers through the same gated seam.
 Identity replay additionally
 uses `sirix.replay.workDiag`, enabled by the core test fork.
+The query test block also provides `sirix.json.registryDiag`; its classification getter fails
+if the gate is off, so a zero-work assertion cannot pass on a disabled counter.
 
 **Adding a counter to the engine.** Only when a path a test must guard has none. Keep it off the hot
 path: gate it as `VersioningType` gates its merge counters if it sits on a per-record or per-page

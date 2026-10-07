@@ -16,6 +16,37 @@ import static org.mockito.Mockito.withSettings;
 
 final class ConjunctInputsTest {
   @Test
+  void currentDefaultProviderControlsBothGuardedEvaluationMethods(@TempDir final Path directory) {
+    final AtomicInteger calls = new AtomicInteger();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      final JsonDBCollection stock = store.create("data", "rows", "{}");
+      final JsonDBCollection custom = mock(JsonDBCollection.class,
+          withSettings().stubOnly().defaultAnswer(invocation -> {
+            calls.incrementAndGet();
+            throw new AssertionError("Admission must not invoke the default provider");
+          }));
+      final QNm[] names = new QNm[0];
+      final GuardedConjunctExpr guarded =
+          new GuardedConjunctExpr(Int32.ONE, Int32.ZERO, new ConjunctInputs(names, names, names, null, true));
+      final GuardedConjunctExpr local =
+          new GuardedConjunctExpr(Int32.ONE, Int32.ZERO, new ConjunctInputs(names, names, names, null, false));
+      context.setDefaultJsonCollection(stock);
+      assertEquals(Int32.ONE, guarded.evaluate(context, null));
+      assertEquals(Int32.ONE, guarded.evaluateToItem(context, null));
+      context.setDefaultJsonCollection(custom);
+      assertEquals(Int32.ZERO, guarded.evaluate(context, null));
+      assertEquals(Int32.ZERO, guarded.evaluateToItem(context, null));
+      assertEquals(Int32.ONE, local.evaluate(context, null));
+      assertEquals(Int32.ONE, local.evaluateToItem(context, null));
+      assertEquals(0, calls.get());
+      context.setDefaultJsonCollection(null);
+      assertEquals(Int32.ONE, guarded.evaluate(context, null));
+      assertEquals(Int32.ONE, guarded.evaluateToItem(context, null));
+    }
+  }
+
+  @Test
   void currentRegistrationsControlBothGuardedEvaluationMethods(@TempDir final Path directory) {
     final AtomicInteger calls = new AtomicInteger();
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();

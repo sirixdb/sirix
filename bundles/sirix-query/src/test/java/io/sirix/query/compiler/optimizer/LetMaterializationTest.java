@@ -634,22 +634,7 @@ final class LetMaterializationTest {
         final JsonDBCollection actual = store.create("input", "rows", "{\"value\":0}");
         final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
         object.replace(new QNm("value"), increasing(iterations));
-        final JsonDBObject counted = mock(JsonDBObject.class, withSettings().stubOnly().defaultAnswer(invocation -> {
-          final String method = invocation.getMethod().getName();
-          if (method.equals("iterate"))
-            return new ItemSequence((Item) invocation.getMock()).iterate();
-          if (method.equals("evaluate") || method.equals("evaluateToItem"))
-            return invocation.getMock();
-          if (method.equals("get"))
-            fields.incrementAndGet();
-          else if (method.equals("values") || method.equals("names") || method.equals("len") || method.equals("length"))
-            inspections.incrementAndGet();
-          try {
-            return invocation.getMethod().invoke(object, invocation.getArguments());
-          } catch (final InvocationTargetException exception) {
-            throw exception.getCause();
-          }
-        }));
+        final JsonDBObject counted = countedObject(object, fields, inspections);
         final JsonDBCollection custom = mock(JsonDBCollection.class,
             withSettings().stubOnly().defaultAnswer(invocation -> {
               if (invocation.getMethod().getName().equals("getDocument")) {
@@ -695,6 +680,71 @@ final class LetMaterializationTest {
     });
   }
 
+  static Stream<Arguments> defaultCollectionPaths() {
+    return Stream.of("jn:collection()", "jn:collection('')", "jn:collection(substring('x',2))",
+        "jn:collection($name)")
+        .flatMap(call -> Stream.of(false, true)
+            .flatMap(enabled -> Stream.of(false, true)
+                .map(afterCompilation -> Arguments.of(call, enabled, afterCompilation))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("defaultCollectionPaths")
+  void defaultCollectionsRetainChangingFieldsPerReference(final String call, final boolean enabled,
+      final boolean afterCompilation, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      final AtomicInteger documents = new AtomicInteger();
+      final AtomicInteger fields = new AtomicInteger();
+      final AtomicInteger inspections = new AtomicInteger();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+        final JsonDBCollection actual = store.create("input", "rows", "{\"value\":0}");
+        final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
+        object.replace(new QNm("value"), increasing(iterations));
+        final JsonDBObject counted = countedObject(object, fields, inspections);
+        final JsonDBCollection custom = mock(JsonDBCollection.class,
+            withSettings().stubOnly().defaultAnswer(invocation -> {
+              if (invocation.getMethod().getName().equals("iterate")) {
+                documents.incrementAndGet();
+                return new ItemSequence(counted).iterate();
+              }
+              inspections.incrementAndGet();
+              try {
+                return invocation.getMethod().invoke(actual, invocation.getArguments());
+              } catch (final InvocationTargetException exception) {
+                throw exception.getCause();
+              }
+            }));
+        try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+            final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+          if (!afterCompilation)
+            context.setDefaultJsonCollection(custom);
+          final Query query = new Query(chain,
+              "declare variable $name := ''; let $rows := (for $n in 1 to 2 for $o in " + call
+                  + " return $o.value) return {\"first\":sum($rows),\"second\":sum($rows)}");
+          assertEquals(enabled ? 1 : 0, markers(chain.getOptimizedAST()));
+          if (afterCompilation)
+            context.setDefaultJsonCollection(custom);
+          for (int evaluation = 0; evaluation < 2; evaluation++) {
+            iterations.set(0);
+            documents.set(0);
+            fields.set(0);
+            inspections.set(0);
+            final StringWriter output = new StringWriter();
+            try (final PrintWriter writer = new PrintWriter(output)) {
+              query.serialize(context, writer);
+            }
+            assertEquals("{\"first\":3,\"second\":7}", output.toString().trim());
+            assertEquals(4, iterations.get());
+            assertEquals(4, documents.get(), "admission must not iterate the default collection");
+            assertEquals(4, fields.get(), "admission must not read default-provider fields");
+            assertEquals(0, inspections.get(), "admission must inspect provider metadata only");
+          }
+        }
+      }
+    });
+  }
+
   @Test
   void singleReferenceAndUnusedBindingStayLazy() {
     assertPlanAndAnswer("let $rows := (for $n in 1 to 3 return $n) return count($rows)", 0, "3");
@@ -729,6 +779,26 @@ final class LetMaterializationTest {
       }
       assertEquals(expected, output.toString().trim());
     }
+  }
+
+  private static JsonDBObject countedObject(final JsonDBObject object, final AtomicInteger fields,
+      final AtomicInteger inspections) {
+    return mock(JsonDBObject.class, withSettings().stubOnly().defaultAnswer(invocation -> {
+      final String method = invocation.getMethod().getName();
+      if (method.equals("iterate"))
+        return new ItemSequence((Item) invocation.getMock()).iterate();
+      if (method.equals("evaluate") || method.equals("evaluateToItem"))
+        return invocation.getMock();
+      if (method.equals("get"))
+        fields.incrementAndGet();
+      else if (method.equals("values") || method.equals("names") || method.equals("len") || method.equals("length"))
+        inspections.incrementAndGet();
+      try {
+        return invocation.getMethod().invoke(object, invocation.getArguments());
+      } catch (final InvocationTargetException exception) {
+        throw exception.getCause();
+      }
+    }));
   }
 
   private static Sequence increasing(final AtomicInteger iterations) {

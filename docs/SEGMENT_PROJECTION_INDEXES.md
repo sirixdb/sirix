@@ -2064,6 +2064,10 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 Valid-time interval/posting references emitted, posting lookups, and compressed posting chunks read
 are gated by `sirix.validTime.scanDiag` in `HotOrderedStore` and cataloged with their requirements in the
 [work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
+`sirix.json.registryDiag` gates `BasicJsonDBStore.getCollectionClassificationCount()`, a per-store
+total of provider type checks. Registry writes classify providers; guarded row evaluation must
+perform zero registry classifications, including with unrelated collections registered. The query
+test JVM enables the gate, and the getter rejects a disabled gate.
 
 **Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one
 positional read: `FileChannelReader.runCount()` (coalesced runs), `runSpanBytes()` (bytes their span reads covered, gaps

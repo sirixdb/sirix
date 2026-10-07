@@ -4,6 +4,9 @@ import com.google.gson.stream.JsonReader;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -12,16 +15,27 @@ import org.junit.jupiter.api.Test;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class BasicJsonDBStoreTest {
 
@@ -155,5 +169,148 @@ class BasicJsonDBStoreTest {
     final var stringWriter = new StringWriter();
     new StringSerializer(new PrintWriter(stringWriter)).serialize(collection.getDocument(resourceName));
     return stringWriter.toString();
+  }
+
+  @Test
+  void classificationTracksMultipleRegistrationsAndClosedDatabaseCleanup() {
+    store = builder.build();
+    final JsonDBCollection first = store.create("first", "rows", "{}");
+    final JsonDBCollection second = store.create("second", "rows", "{}");
+    final JsonDBCollection custom = mock(JsonDBCollection.class);
+    when(custom.getName()).thenReturn("first");
+    assertTrue(store.hasOnlyStockCollections());
+    store.addDatabase(custom, first.getDatabase());
+    store.addDatabase(custom, second.getDatabase());
+    assertFalse(store.hasOnlyStockCollections());
+    store.addDatabase(first, first.getDatabase());
+    assertFalse(store.hasOnlyStockCollections());
+    store.removeDatabase(first.getDatabase());
+    assertFalse(store.hasOnlyStockCollections());
+    first.getDatabase().close();
+    second.getDatabase().close();
+    store.create("third", "rows", "{}");
+    assertTrue(store.hasOnlyStockCollections());
+    final JsonDBCollection reopened = store.lookup("first");
+    assertTrue(store.hasOnlyStockCollections());
+    store.addDatabase(custom, reopened.getDatabase());
+    assertFalse(store.hasOnlyStockCollections());
+    store.create("first", "rows", "{\"value\":1}");
+    assertTrue(store.hasOnlyStockCollections());
+    final JsonDBCollection replacement = store.lookup("first");
+    store.addDatabase(custom, replacement.getDatabase());
+    store.drop("first");
+    assertTrue(store.hasOnlyStockCollections());
+    final JsonDBCollection third = store.lookup("third");
+    store.addDatabase(custom, third.getDatabase());
+    assertFalse(store.hasOnlyStockCollections());
+    store.close();
+    assertTrue(store.hasOnlyStockCollections());
+  }
+
+  @Test
+  void concurrentRegistryMutationsRetainExactClassificationAfterPublication() throws Exception {
+    store = builder.build();
+    final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("concurrent"), () -> {});
+    final JsonDBCollection stock = new JsonDBCollectionImpl("concurrent", database, store);
+    final JsonDBCollection custom = mock(JsonDBCollection.class);
+    when(custom.getName()).thenReturn("concurrent");
+    final CountDownLatch start = new CountDownLatch(1);
+    try (final ExecutorService executor = Executors.newFixedThreadPool(4)) {
+      final List<Future<?>> mutations = new ArrayList<>(4);
+      for (int worker = 0; worker < 4; worker++) {
+        mutations.add(executor.submit(() -> {
+          start.await();
+          for (int iteration = 0; iteration < 128; iteration++) {
+            store.addDatabase(custom, database);
+            store.addDatabase(stock, database);
+            store.addDatabase(custom, database);
+            store.removeDatabase(database);
+          }
+          return null;
+        }));
+      }
+      start.countDown();
+      for (final Future<?> mutation : mutations) {
+        mutation.get();
+      }
+    }
+    assertTrue(store.hasOnlyStockCollections());
+    store.addDatabase(custom, database);
+    assertFalse(store.hasOnlyStockCollections());
+    store.addDatabase(stock, database);
+    assertTrue(store.hasOnlyStockCollections());
+  }
+
+  @Test
+  void unprovenClassificationIsPublishedBeforeTheCollection() throws Exception {
+    store = builder.build();
+    final CountDownLatch inserting = new CountDownLatch(1);
+    final CountDownLatch publish = new CountDownLatch(1);
+    final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("pending"), () -> {
+      inserting.countDown();
+      try {
+        publish.await();
+      } catch (final InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(exception);
+      }
+    });
+    final JsonDBCollection custom = mock(JsonDBCollection.class);
+    when(custom.getName()).thenReturn("pending");
+    try (final ExecutorService executor = Executors.newSingleThreadExecutor()) {
+      final Future<?> registration = executor.submit(() -> store.addDatabase(custom, database));
+      try {
+        inserting.await();
+        assertFalse(store.hasOnlyStockCollections());
+      } finally {
+        publish.countDown();
+      }
+      registration.get();
+    }
+    assertFalse(store.hasOnlyStockCollections());
+    store.removeDatabase(database);
+    assertTrue(store.hasOnlyStockCollections());
+    database.close();
+  }
+
+  @Test
+  void failedPublicationRestoresClassification() {
+    store = builder.build();
+    final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("failed"), () -> {
+      throw new IllegalStateException("Failed map insertion");
+    });
+    final JsonDBCollection custom = mock(JsonDBCollection.class);
+    when(custom.getName()).thenReturn("failed");
+    assertThrows(IllegalStateException.class, () -> store.addDatabase(custom, database));
+    assertTrue(store.hasOnlyStockCollections());
+    store.addDatabase(custom, database);
+    assertFalse(store.hasOnlyStockCollections());
+    store.removeDatabase(database);
+    assertTrue(store.hasOnlyStockCollections());
+    database.close();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Database<JsonResourceSession> testDatabase(final Path path, final Runnable inserting) {
+    final DatabaseConfiguration configuration = new DatabaseConfiguration(path);
+    final AtomicInteger hashes = new AtomicInteger();
+    final AtomicBoolean open = new AtomicBoolean(true);
+    return (Database<JsonResourceSession>) Proxy.newProxyInstance(Database.class.getClassLoader(),
+        new Class<?>[] {Database.class}, (proxy, method, arguments) -> switch (method.getName()) {
+          case "getDatabaseConfig" -> configuration;
+          case "isOpen" -> open.get();
+          case "close" -> {
+            open.set(false);
+            yield null;
+          }
+          case "hashCode" -> {
+            if (hashes.incrementAndGet() == 2)
+              inserting.run();
+            yield System.identityHashCode(proxy);
+          }
+          case "equals" -> proxy == arguments[0];
+          case "toString" -> path.toString();
+          default -> throw new AssertionError(method.getName());
+        });
   }
 }

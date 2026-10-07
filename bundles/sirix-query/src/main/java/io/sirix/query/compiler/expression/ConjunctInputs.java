@@ -7,7 +7,9 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.Bits;
 import io.brackit.query.compiler.translator.Binding;
 import io.brackit.query.compiler.translator.VariableTable;
+import io.brackit.query.jdm.json.JsonCollection;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollectionImpl;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -60,9 +62,14 @@ public final class ConjunctInputs {
   }
 
   boolean admit(final QueryContext context, final Tuple tuple) {
-    if (nativeStore && (!(context.getJsonItemStore() instanceof BasicJsonDBStore store)
-        || !store.hasOnlyStockCollections())) {
-      return false;
+    if (nativeStore) {
+      if (!(context.getJsonItemStore() instanceof BasicJsonDBStore store) || !store.hasOnlyStockCollections()) {
+        return false;
+      }
+      final JsonCollection<?> defaultCollection = context.getDefaultJsonCollection();
+      if (defaultCollection != null && !(defaultCollection instanceof JsonDBCollectionImpl)) {
+        return false;
+      }
     }
     for (int i = 0; i < names.length; i++) {
       if (!repeatable(value(context, tuple, i), i)) {
