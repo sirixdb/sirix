@@ -24,11 +24,13 @@ inside the candidate source, including join outputs and filter context items, ar
 same source proof. Dependency cycles or exhausted proof budgets decline admission.
 
 Consumer admission requires a terminal return with scalar reductions. Direct composite returns,
-aliases, deferred bodies and bindings retained across further iteration stay lazy. One first-item
-prefix may precede direct scalar reductions when none of the later references navigates fields or
-members; repeated prefixes and prefixes combined with projections are excluded. Global-dependent
-bindings additionally require an eager scalar result or result-object construction, so all dependent
-uses finish before a result reaches the caller. Q3's aggregate object satisfies this boundary.
+aliases, deferred bodies and bindings retained across further iteration stay lazy. Global-dependent
+bindings and all stored reads, including transitive producers, require an eager scalar result or
+constructed result object or array, so every dependent use finishes before a result reaches the
+caller. Latest-revision reads can change after a commit even with the stock provider. Q3's aggregate
+object satisfies this consumption boundary. Unboxing an eagerly constructed array preserves scalar
+result sequences; the work-budget fixtures use this form with their original read bounds, and
+`exists` exercises partial source consumption before the remaining reductions complete.
 The same purity proof and input guards cover result fields evaluated before those reductions.
 Singleton array results remain wrapped as one sequence item, preserving their cardinality.
 

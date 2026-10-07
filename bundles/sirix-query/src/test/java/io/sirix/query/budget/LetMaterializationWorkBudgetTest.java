@@ -54,9 +54,10 @@ final class LetMaterializationWorkBudgetTest {
   @ValueSource(ints = {0, 1, 10000})
   void emptySingletonLargeAndPartiallyConsumedResultsMatchGenericPlan(final int rows) {
     final String query = "let $rows := (for $r in jn:doc('bt','contracts')[] return $r.cost)"
-        + " return (subsequence($rows,1,1),count($rows),sum($rows))";
+        + " return [exists($rows),count($rows),sum($rows)][]";
     final Capture optimized = run(query, rows, true, 2);
     final Capture baseline = run(query, rows, false, 2);
+    assertEquals((rows > 0 ? "true " : "false ") + rows + " " + (long) rows * (rows + 1) / 2, optimized.answer);
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(2 * rows, optimized.reads);
     assertEquals(1, optimized.markers);
@@ -66,7 +67,7 @@ final class LetMaterializationWorkBudgetTest {
   void correlatedBindingMaterializesAgainForEveryOuterTuple() {
     final String query =
         "for $n in 1 to 3" + " let $rows := (for $r in jn:doc('bt','contracts')[] where $r.cost le $n return $r.cost)"
-            + " return (count($rows),sum($rows))";
+            + " return [count($rows),sum($rows)][]";
     final Capture optimized = run(query, 10, true, 2);
     final Capture baseline = run(query, 10, false, 2);
     assertEquals("1 1 2 3 3 6", optimized.answer);
@@ -78,7 +79,7 @@ final class LetMaterializationWorkBudgetTest {
   void nestedBindingsMatchGenericPlan() {
     final String query =
         "let $rows := (for $r in jn:doc('bt','contracts')[]" + " let $inner := (for $n in 1 to 2 return $r.cost * $n)"
-            + " return (sum($inner),count($inner))) return (sum($rows),count($rows))";
+            + " return [sum($inner),count($inner)][]) return [sum($rows),count($rows)][]";
     final Capture optimized = run(query, 10, true, 2);
     final Capture baseline = run(query, 10, false, 2);
     assertEquals("185 20", optimized.answer);

@@ -16,7 +16,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
@@ -32,6 +35,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
 
@@ -330,6 +334,92 @@ final class LetMaterializationTest {
     });
   }
 
+  static Stream<Arguments> revisionReadPaths() {
+    return Stream.of("doc", "latest", "optional", "option", "temporal", "collection", "pinned", "future")
+        .flatMap(read -> (read.equals("doc")
+            ? Stream.of("direct", "nested-for", "inner-let", "outer-let")
+            : Stream.of("direct"))
+            .flatMap(producer -> (read.equals("future")
+                ? Stream.of("zero")
+                : Stream.of("zero", "sum", "value"))
+                .flatMap(prefix -> Stream.of(false, true)
+                    .map(enabled -> Arguments.of(read, producer, prefix, enabled)))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("revisionReadPaths")
+  void storedReadsRespectCommitsBetweenResultItems(final String read, final String producer, final String prefix,
+      final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final String open = switch (read) {
+        case "doc" -> "jn:doc('input','rows')";
+        case "latest" -> "jn:doc('input','rows',-1)";
+        case "optional" -> "jn:doc('input','rows',())";
+        case "option" -> "jn:doc('input','rows',(),true())";
+        case "temporal" -> "jn:open('input','rows',xs:dateTime('2100-01-01T00:00:00Z'))";
+        case "collection" -> "jn:collection('input')";
+        case "pinned" -> "jn:doc('input','rows',1)";
+        case "future" -> "jn:doc('input','rows',2)";
+        default -> throw new IllegalArgumentException(read);
+      };
+      final String scan = "for $n in " + open + "[] return $n";
+      final String binding = switch (producer) {
+        case "direct" -> "let $rows := (" + scan + ")";
+        case "nested-for" -> "let $rows := (for $source in (" + scan + ") return $source)";
+        case "inner-let" -> "let $rows := (let $source := (" + scan + ") for $n in $source return $n)";
+        case "outer-let" -> "let $source := (" + scan + ") let $rows := (for $n in $source return $n)";
+        default -> throw new IllegalArgumentException(producer);
+      };
+      final String result = switch (prefix) {
+        case "zero" -> "(0,sum($rows),sum($rows))";
+        case "sum" -> "(sum($rows),sum($rows))";
+        case "value" -> "(subsequence($rows,1,1),sum($rows),sum($rows))";
+        default -> throw new IllegalArgumentException(prefix);
+      };
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        final JsonDBCollection collection = store.create("input", "rows", "[1]");
+        final Query query = new Query(chain, binding + " return " + result);
+        try (final Iter output = query.execute(context).iterate()) {
+          assertEquals(prefix.equals("zero") ? "0" : "1", output.next().toString());
+          commitNumber(collection, 2);
+          final String expected = read.equals("pinned") ? "1" : "2";
+          assertEquals(expected, output.next().toString());
+          if (!prefix.equals("sum"))
+            assertEquals(expected, output.next().toString());
+          assertNull(output.next());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void eagerStoredReadBindingsOpenEachTuplesCurrentRevision(final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        final JsonDBCollection collection = store.create("input", "rows", "[1]");
+        final Query query = new Query(chain, "for $outer in 1 to 2"
+            + " let $rows := (for $n in jn:doc('input','rows')[] return $n)"
+            + " return {\"sum\":sum($rows),\"count\":count($rows)}");
+        try (final Iter output = query.execute(context).iterate()) {
+          final Object first = assertInstanceOf(Object.class, output.next());
+          assertEquals(Int32.ONE, first.get(new QNm("sum")));
+          commitNumber(collection, 2);
+          final Object second = assertInstanceOf(Object.class, output.next());
+          assertEquals(new Int32(2), second.get(new QNm("sum")));
+          assertEquals(Int32.ONE, second.get(new QNm("count")));
+          assertNull(output.next());
+        }
+        assertEquals(enabled ? 1 : 0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
   static Stream<Arguments> outerTuplePaths() {
     return Stream.of(false, true)
         .flatMap(retained -> Stream.of(false, true).map(enabled -> Arguments.of(retained, enabled)));
@@ -509,7 +599,7 @@ final class LetMaterializationTest {
       try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(custom);
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(custom)) {
         final Query query = new Query(chain,
-            "let $rows := (for $n in jn:doc('input','rows')[] return $n)" + " return (count($rows),sum($rows))");
+            "let $rows := (for $n in jn:doc('input','rows')[] return $n)" + " return [count($rows),sum($rows)][]");
         assertEquals(1, markers(chain.getOptimizedAST()));
         lookups.set(0);
         final StringWriter output = new StringWriter();
@@ -593,6 +683,19 @@ final class LetMaterializationTest {
       else
         System.setProperty(property, previous);
     }
+  }
+
+  private static void commitNumber(final JsonDBCollection collection, final int value) {
+    final JsonResourceSession resource = collection.getDatabase().beginResourceSession("rows");
+    final int previousRevision = resource.getMostRecentRevisionNumber();
+    try (final JsonNodeTrx writer = resource.beginNodeTrx()) {
+      writer.moveToDocumentRoot();
+      assertTrue(writer.moveToFirstChild());
+      assertTrue(writer.moveToFirstChild());
+      writer.setNumberValue(value);
+      writer.commit();
+    }
+    assertEquals(previousRevision + 1, resource.getMostRecentRevisionNumber());
   }
 
   private static int markers(final AST node) {
