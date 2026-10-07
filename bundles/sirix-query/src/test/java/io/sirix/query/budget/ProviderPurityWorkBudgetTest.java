@@ -45,8 +45,8 @@ final class ProviderPurityWorkBudgetTest {
         final Database<JsonResourceSession> database = unusedDatabase(directory.resolve(name));
         actual.addDatabase(new JsonDBCollectionImpl(name, database, actual), database);
       }
-      final BasicJsonDBStore counted = mock(BasicJsonDBStore.class,
-          withSettings().stubOnly().defaultAnswer(invocation -> {
+      final BasicJsonDBStore counted =
+          mock(BasicJsonDBStore.class, withSettings().stubOnly().defaultAnswer(invocation -> {
             if (invocation.getMethod().getName().equals("close"))
               return null;
             if (invocation.getMethod().getName().equals("hasOnlyStockCollections"))

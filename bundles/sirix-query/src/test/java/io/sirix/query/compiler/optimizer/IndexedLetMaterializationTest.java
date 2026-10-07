@@ -19,6 +19,7 @@ import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.sdb.SDBFun;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.node.XmlDBStore;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.Map;
@@ -43,8 +44,8 @@ final class IndexedLetMaterializationTest {
 
   static Stream<Arguments> indexedResults() {
     return Stream.of(IndexType.PATH, IndexType.NAME)
-        .flatMap(type -> Stream.of(false, true)
-            .flatMap(eager -> Stream.of(false, true).map(enabled -> Arguments.of(type, eager, enabled))));
+                 .flatMap(type -> Stream.of(false,
+                     true).flatMap(eager -> Stream.of(false, true).map(enabled -> Arguments.of(type, eager, enabled))));
   }
 
   @ParameterizedTest
@@ -63,17 +64,21 @@ final class IndexedLetMaterializationTest {
         try (final Iter output = query.execute(context).iterate()) {
           assertEquals("1", output.next().toString());
           commitValue(collection, type, 2);
-          assertEquals(eager ? "1" : "2", output.next().toString());
+          assertEquals(eager
+              ? "1"
+              : "2", output.next().toString());
           assertNull(output.next());
         }
-        assertEquals(eager && enabled ? 1 : 2, reads.get(), "actual executions of the intended physical index");
+        assertEquals(eager && enabled
+            ? 1
+            : 2, reads.get(), "actual executions of the intended physical index");
       }
     });
   }
 
   static Stream<Arguments> dependencyPaths() {
     return Stream.of("global", "transitive-global", "captured", "transitive-captured")
-        .flatMap(path -> Stream.of(false, true).map(enabled -> Arguments.of(path, enabled)));
+                 .flatMap(path -> Stream.of(false, true).map(enabled -> Arguments.of(path, enabled)));
   }
 
   @ParameterizedTest
@@ -87,11 +92,9 @@ final class IndexedLetMaterializationTest {
         final String producer = "(for $n in " + source(IndexType.PATH) + " return $n.v + 0)";
         final String prefix = switch (path) {
           case "global" -> "declare variable $source := " + producer + ";";
-          case "transitive-global" -> "declare variable $base := " + producer
-              + "; declare variable $source := $base;";
+          case "transitive-global" -> "declare variable $base := " + producer + "; declare variable $source := $base;";
           case "captured" -> "let $source := " + producer;
-          case "transitive-captured" -> "let $base := " + producer
-              + " let $source := (for $n in $base return $n + 0)";
+          case "transitive-captured" -> "let $base := " + producer + " let $source := (for $n in $base return $n + 0)";
           default -> throw new IllegalArgumentException(path);
         };
         final Query query = new Query(indexedChain(store, IndexType.PATH, reads),
@@ -116,8 +119,7 @@ final class IndexedLetMaterializationTest {
         final JsonDBCollection collection = indexedCollection(store, context, IndexType.PATH);
         final AtomicInteger reads = new AtomicInteger();
         final Query query = new Query(indexedChain(store, IndexType.PATH, reads),
-            "let $rows := (for $n in " + source(IndexType.PATH)
-                + " return $n.v + 0) return [sum($rows),sum($rows)][]");
+            "let $rows := (for $n in " + source(IndexType.PATH) + " return $n.v + 0) return [sum($rows),sum($rows)][]");
         store.addDatabase(mock(JsonDBCollection.class, withSettings().stubOnly().defaultAnswer(invocation -> {
           if (invocation.getMethod().getName().equals("getDocument"))
             throw new AssertionError("The index provider guard must not inspect documents");
@@ -162,7 +164,9 @@ final class IndexedLetMaterializationTest {
   }
 
   private static String source(final IndexType type) {
-    return type == IndexType.NAME ? "jn:doc('input','rows').root.item" : "jn:doc('input','rows').root.items[]";
+    return type == IndexType.NAME
+        ? "jn:doc('input','rows').root.item"
+        : "jn:doc('input','rows').root.items[]";
   }
 
   private static CompileChain indexedChain(final BasicJsonDBStore store, final IndexType type,
@@ -170,7 +174,7 @@ final class IndexedLetMaterializationTest {
     return new CompileChain() {
       @Override
       protected Optimizer getOptimizer(final Map<QNm, Str> options) {
-        return new SirixOptimizer(options, null, store);
+        return new SirixOptimizer(options, mock(XmlDBStore.class), store);
       }
 
       @Override
@@ -202,7 +206,9 @@ final class IndexedLetMaterializationTest {
     final JsonResourceSession resource = collection.getDatabase().beginResourceSession("rows");
     try (final JsonNodeTrx writer = resource.beginNodeTrx()) {
       writer.moveToDocumentRoot();
-      final int depth = type == IndexType.NAME ? 4 : 5;
+      final int depth = type == IndexType.NAME
+          ? 4
+          : 5;
       for (int i = 0; i < depth; i++)
         assertTrue(writer.moveToFirstChild());
       assertTrue(writer.isNumberValue());

@@ -29,12 +29,14 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,7 +64,7 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(600, baseline.reads, "disabled rule proves the scan counter observes all three references");
     assertEquals(1, optimized.markers, "the executable Q3 plan marks the rows binding");
     assertEquals(0, baseline.markers);
-    assertEquals(1, materializedPipes(JsonParser.parseString(optimized.planDump)),
+    assertEquals(1, materializedPipes(JsonParser.parseString(requireNonNull(optimized.planDump))),
         "the generated JSON plan dump must expose the materialized Q3 pipeline");
   }
 
@@ -73,7 +75,9 @@ final class LetMaterializationWorkBudgetTest {
         + " return [exists($rows),count($rows),sum($rows)][]";
     final Capture optimized = run(query, rows, true, 2);
     final Capture baseline = run(query, rows, false, 2);
-    assertEquals((rows > 0 ? "true " : "false ") + rows + " " + (long) rows * (rows + 1) / 2, optimized.answer);
+    assertEquals((rows > 0
+        ? "true "
+        : "false ") + rows + " " + (long) rows * (rows + 1) / 2, optimized.answer);
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(2 * rows, optimized.reads);
     assertEquals(1, optimized.markers);
@@ -180,8 +184,7 @@ final class LetMaterializationWorkBudgetTest {
   }
 
   static Stream<Arguments> partialPrefixConsumers() {
-    return Stream.of(
-        Arguments.of("return [exists($rows),sum($rows,?)][]", "true", 1),
+    return Stream.of(Arguments.of("return [exists($rows),sum($rows,?)][]", "true", 1),
         Arguments.of("return [exists($rows),min($rows,?)][]", "true", 1),
         Arguments.of("return [exists($rows),max($rows,?)][]", "true", 1),
         Arguments.of("return [exists($rows),sum((0,sum($rows)),?)][]", "true", 1),
@@ -198,8 +201,7 @@ final class LetMaterializationWorkBudgetTest {
 
   @ParameterizedTest
   @MethodSource("partialPrefixConsumers")
-  void partialReductionsNeverForceUndemandedLocalSourceWork(final String body, final String answer,
-      final int reads) {
+  void partialReductionsNeverForceUndemandedLocalSourceWork(final String body, final String answer, final int reads) {
     final String declaration = "declare function local:partial($input) {sum($input,?)};";
     final Capture optimized = runLocalPrefix(body, true, 2, declaration);
     final Capture baseline = runLocalPrefix(body, false, 2, declaration);
@@ -398,7 +400,9 @@ final class LetMaterializationWorkBudgetTest {
   private static final class Capture {
     long reads;
     int markers;
+    @Nullable
     String answer;
+    @Nullable
     String planDump;
   }
 }

@@ -37,12 +37,14 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.json.JsonDBStore;
+import io.sirix.query.node.XmlDBStore;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -83,8 +85,8 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> parameterPaths() {
     return Stream.of("direct", "let-alias", "for-alias")
-        .flatMap(shape -> Stream.of(Arguments.of(shape, false, false), Arguments.of(shape, true, false),
-            Arguments.of(shape, true, true)));
+                 .flatMap(shape -> Stream.of(Arguments.of(shape, false, false), Arguments.of(shape, true, false),
+                     Arguments.of(shape, true, true)));
   }
 
   @ParameterizedTest
@@ -98,10 +100,10 @@ final class LetMaterializationTest {
         : increasing(iterations);
     final String body = switch (shape) {
       case "direct" -> "let $rows := (for $n in $c return $n) return (sum($rows),sum($rows))";
-      case "let-alias" -> "let $alias := $c let $rows := (for $n in $alias return $n)"
-          + " return (sum($rows),sum($rows))";
-      case "for-alias" -> "for $alias in $c let $rows := (for $n in 1 to 2 return $alias.value)"
-          + " return (sum($rows),sum($rows))";
+      case "let-alias" ->
+        "let $alias := $c let $rows := (for $n in $alias return $n)" + " return (sum($rows),sum($rows))";
+      case "for-alias" ->
+        "for $alias in $c let $rows := (for $n in 1 to 2 return $alias.value)" + " return (sum($rows),sum($rows))";
       default -> throw new IllegalArgumentException(shape);
     };
     final String text = "declare variable $c := 0; declare variable $input external; " + (inline
@@ -129,23 +131,25 @@ final class LetMaterializationTest {
 
   @Test
   void localBindingStillShadowsAFunctionParameterAndGlobal() {
-    assertPlanAndAnswer("declare variable $c := 0; declare function local:f($c) {"
-        + "let $c := 2 let $rows := (for $n in 1 to 2 return $c)"
-        + " return (sum($rows),sum($rows))}; local:f(9)", 1, "4 4");
+    assertPlanAndAnswer(
+        "declare variable $c := 0; declare function local:f($c) {"
+            + "let $c := 2 let $rows := (for $n in 1 to 2 return $c)" + " return (sum($rows),sum($rows))}; local:f(9)",
+        1, "4 4");
   }
 
   @Test
   void parameterReferencesDoNotEagerlyEvaluateAnUnusedOuterLet() {
-    assertPlanAndAnswer("let $c := (for $n in 1 to 2 return $n div 0)"
-        + " let $f := function($c) {($c,$c)} return $f(1)", 0, "1 1");
+    assertPlanAndAnswer(
+        "let $c := (for $n in 1 to 2 return $n div 0)" + " let $f := function($c) {($c,$c)} return $f(1)", 0, "1 1");
   }
 
   static Stream<Arguments> capturedPaths() {
     return Stream.of("let", "for", "let-alias", "for-alias", "global", "global-alias", "global-field")
-        .flatMap(scope -> Stream.of(false, true)
-            .flatMap(array -> (array
-                ? Stream.of(false)
-                : Stream.of(false, true)).map(stored -> Arguments.of(scope, array, stored))));
+                 .flatMap(scope -> Stream.of(false, true)
+                                         .flatMap(array -> (array
+                                             ? Stream.of(false)
+                                             : Stream.of(false, true)).map(
+                                                 stored -> Arguments.of(scope, array, stored))));
   }
 
   @ParameterizedTest
@@ -169,17 +173,20 @@ final class LetMaterializationTest {
         : scope.equals("global-field")
             ? "$alias"
             : "$a" + field;
-    final String rows = "(let $rows := (for $n in 1 to 2 return " + dependency
-        + ") return (sum($rows),sum($rows)))";
+    final String rows = "(let $rows := (for $n in 1 to 2 return " + dependency + ") return (sum($rows),sum($rows)))";
     final String text = switch (scope) {
-      case "let", "for" -> scope + " $a " + (scope.equals("let") ? ":= " : "in ") + source
-          + " return ($a," + rows + ")";
-      case "let-alias", "for-alias" -> (scope.startsWith("let") ? "let $a := " : "for $a in ") + source
-          + " let $alias := $a return ($a," + rows + ")";
+      case "let", "for" -> scope + " $a " + (scope.equals("let")
+          ? ":= "
+          : "in ") + source + " return ($a," + rows + ")";
+      case "let-alias", "for-alias" -> (scope.startsWith("let")
+          ? "let $a := "
+          : "for $a in ") + source + " let $alias := $a return ($a," + rows + ")";
       case "global" -> "declare variable $a := " + source + "; ($a," + rows + ")";
-      case "global-alias", "global-field" -> "declare variable $a := " + source
-          + "; declare variable $alias := $a" + (scope.equals("global-field") ? field : "")
-          + "; ($a," + rows + ")";
+      case "global-alias",
+          "global-field" ->
+        "declare variable $a := " + source + "; declare variable $alias := $a" + (scope.equals("global-field")
+            ? field
+            : "") + "; ($a," + rows + ")";
       default -> throw new IllegalArgumentException(scope);
     };
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
@@ -205,10 +212,13 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> escapedResultPaths() {
     return Stream.of("object", "array", "stored")
-        .flatMap(producer -> Stream.of("direct", "alias", "object-field", "function", "prefix", "repeated-prefix")
-            .flatMap(consumer -> Stream.of(1, 2)
-                .flatMap(rows -> Stream.of(false, true)
-                    .map(enabled -> Arguments.of(producer, consumer, rows, enabled)))));
+                 .flatMap(
+                     producer -> Stream.of("direct", "alias", "object-field", "function", "prefix", "repeated-prefix")
+                                       .flatMap(consumer -> Stream.of(1, 2)
+                                                                  .flatMap(rows -> Stream.of(false, true)
+                                                                                         .map(enabled -> Arguments.of(
+                                                                                             producer, consumer, rows,
+                                                                                             enabled)))));
   }
 
   @ParameterizedTest
@@ -223,7 +233,9 @@ final class LetMaterializationTest {
         case "stored" -> "jn:doc('input','rows')";
         default -> throw new IllegalArgumentException(producer);
       };
-      final String sum = "sum($rows" + (array ? "[0]" : ".value") + ")";
+      final String sum = "sum($rows" + (array
+          ? "[0]"
+          : ".value") + ")";
       final String result = switch (consumer) {
         case "direct" -> "return ($rows," + sum + "," + sum + ")";
         case "alias" -> "let $alias := $rows return ($alias," + sum + "," + sum + ")";
@@ -238,8 +250,8 @@ final class LetMaterializationTest {
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         if (producer.equals("stored"))
           store.create("input", "rows", "{\"value\":0}");
-        final Query query = new Query(chain, "let $rows := (for $n in 1 to " + rows + " return " + source
-            + ") " + result);
+        final Query query =
+            new Query(chain, "let $rows := (for $n in 1 to " + rows + " return " + source + ") " + result);
         try (final Iter output = query.execute(context).iterate()) {
           final Item first = output.next();
           final Item escaped = consumer.equals("object-field")
@@ -279,9 +291,10 @@ final class LetMaterializationTest {
     withMaterialization(enabled, () -> {
       try (final SirixCompileChain chain = SirixCompileChain.create();
           final SirixQueryContext context = SirixQueryContext.create()) {
-        final Query query = new Query(chain, "let $rows := (let $a := {\"value\":0} for $n in 1 to 2"
-            + " return if ($n eq 1) then $a else {\"value\":$a.value})"
-            + " return (subsequence($rows,1,2),count($rows),count($rows))");
+        final Query query = new Query(chain,
+            "let $rows := (let $a := {\"value\":0} for $n in 1 to 2"
+                + " return if ($n eq 1) then $a else {\"value\":$a.value})"
+                + " return (subsequence($rows,1,2),count($rows),count($rows))");
         try (final Iter output = query.execute(context).iterate()) {
           assertInstanceOf(Object.class, output.next()).replace(new QNm("value"), Int32.ONE);
           assertEquals(Int32.ONE, assertInstanceOf(Object.class, output.next()).get(new QNm("value")));
@@ -296,31 +309,48 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> globalUsePaths() {
     return Stream.of(false, true)
-        .flatMap(alias -> Stream.of(false, true)
-            .flatMap(prefix -> Stream.of(false, true).map(enabled -> Arguments.of(alias, prefix, enabled))));
+                 .flatMap(
+                     alias -> Stream.of(false, true)
+                                    .flatMap(prefix -> Stream.of(false, true)
+                                                             .map(enabled -> Arguments.of(alias, prefix, enabled))));
   }
 
   @ParameterizedTest
   @MethodSource("globalUsePaths")
-  void globalsAreReadAgainAfterCallerInterleaving(final boolean alias, final boolean prefix,
-      final boolean enabled) {
+  void globalsAreReadAgainAfterCallerInterleaving(final boolean alias, final boolean prefix, final boolean enabled) {
     withMaterialization(enabled, () -> {
       final AtomicInteger iterations = new AtomicInteger();
       final String text = "declare variable $c := 0; " + (alias
           ? "declare variable $d := (for $n in 1 to 3 return if ($n le 2) then $c else ()); "
-          : "") + "let $rows := (for $n in 1 to 2 return " + (alias ? "$d" : "$c")
-          + ") return (" + (prefix ? "0," : "") + "sum($rows),sum($rows))";
+          : "") + "let $rows := (for $n in 1 to 2 return "
+          + (alias
+              ? "$d"
+              : "$c")
+          + ") return (" + (prefix
+              ? "0,"
+              : "")
+          + "sum($rows),sum($rows))";
       try (final SirixCompileChain chain = SirixCompileChain.create();
           final SirixQueryContext context = SirixQueryContext.create()) {
         final Query query = new Query(chain, text);
         try (final Iter output = query.execute(context).iterate()) {
           assertEquals("0", output.next().toString());
           context.bind(new QNm("c"), increasing(iterations));
-          assertEquals(alias ? "10" : "3", output.next().toString());
+          assertEquals(alias
+              ? "10"
+              : "3", output.next().toString());
           if (prefix)
-            assertEquals(alias ? "26" : "7", output.next().toString());
+            assertEquals(alias
+                ? "26"
+                : "7", output.next().toString());
           assertNull(output.next());
-          assertEquals((alias ? 4 : 2) * (prefix ? 2 : 1), iterations.get());
+          assertEquals((alias
+              ? 4
+              : 2)
+              * (prefix
+                  ? 2
+                  : 1),
+              iterations.get());
         }
         assertEquals(0, markers(chain.getOptimizedAST()));
       }
@@ -334,8 +364,7 @@ final class LetMaterializationTest {
       final AtomicInteger iterations = new AtomicInteger();
       try (final SirixCompileChain chain = SirixCompileChain.create();
           final SirixQueryContext context = SirixQueryContext.create()) {
-        final Query query = new Query(chain, "declare variable $c := 0;"
-            + " let $rows := (for $n in 1 to 2 return $c)"
+        final Query query = new Query(chain, "declare variable $c := 0;" + " let $rows := (for $n in 1 to 2 return $c)"
             + " let $f := function() {(sum($rows),sum($rows))} return (0,$f())");
         try (final Iter output = query.execute(context).iterate()) {
           assertEquals("0", output.next().toString());
@@ -352,14 +381,14 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> revisionReadPaths() {
     return Stream.of("doc", "latest", "optional", "option", "temporal", "collection", "pinned", "future")
-        .flatMap(read -> (read.equals("doc")
-            ? Stream.of("direct", "nested-for", "inner-let", "outer-let")
-            : Stream.of("direct"))
-            .flatMap(producer -> (read.equals("future")
-                ? Stream.of("zero")
-                : Stream.of("zero", "sum", "value"))
-                .flatMap(prefix -> Stream.of(false, true)
-                    .map(enabled -> Arguments.of(read, producer, prefix, enabled)))));
+                 .flatMap(read -> (read.equals("doc")
+                     ? Stream.of("direct", "nested-for", "inner-let", "outer-let")
+                     : Stream.of("direct")).flatMap(
+                         producer -> (read.equals("future")
+                             ? Stream.of("zero")
+                             : Stream.of("zero", "sum", "value")).flatMap(
+                                 prefix -> Stream.of(false, true)
+                                                 .map(enabled -> Arguments.of(read, producer, prefix, enabled)))));
   }
 
   @ParameterizedTest
@@ -398,9 +427,13 @@ final class LetMaterializationTest {
         final JsonDBCollection collection = store.create("input", "rows", "[1]");
         final Query query = new Query(chain, binding + " return " + result);
         try (final Iter output = query.execute(context).iterate()) {
-          assertEquals(prefix.equals("zero") ? "0" : "1", output.next().toString());
+          assertEquals(prefix.equals("zero")
+              ? "0"
+              : "1", output.next().toString());
           commitNumber(collection, 2);
-          final String expected = read.equals("pinned") ? "1" : "2";
+          final String expected = read.equals("pinned")
+              ? "1"
+              : "2";
           assertEquals(expected, output.next().toString());
           if (!prefix.equals("sum"))
             assertEquals(expected, output.next().toString());
@@ -419,9 +452,9 @@ final class LetMaterializationTest {
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         final JsonDBCollection collection = store.create("input", "rows", "[1]");
-        final Query query = new Query(chain, "for $outer in 1 to 2"
-            + " let $rows := (for $n in jn:doc('input','rows')[] return $n)"
-            + " return {\"sum\":sum($rows),\"count\":count($rows)}");
+        final Query query =
+            new Query(chain, "for $outer in 1 to 2" + " let $rows := (for $n in jn:doc('input','rows')[] return $n)"
+                + " return {\"sum\":sum($rows),\"count\":count($rows)}");
         try (final Iter output = query.execute(context).iterate()) {
           final Object first = assertInstanceOf(Object.class, output.next());
           assertEquals(Int32.ONE, first.get(new QNm("sum")));
@@ -431,23 +464,25 @@ final class LetMaterializationTest {
           assertEquals(Int32.ONE, second.get(new QNm("count")));
           assertNull(output.next());
         }
-        assertEquals(enabled ? 1 : 0, markers(chain.getOptimizedAST()));
+        assertEquals(enabled
+            ? 1
+            : 0, markers(chain.getOptimizedAST()));
       }
     });
   }
 
   static Stream<Arguments> partialReductionPaths() {
-    return Stream.of(
-        Arguments.of("return {\"first\":sum($rows,?),\"second\":sum($rows,?)}", false),
+    return Stream.of(Arguments.of("return {\"first\":sum($rows,?),\"second\":sum($rows,?)}", false),
         Arguments.of("return {\"first\":fn:sum($rows,?),\"second\":fn:sum($rows,?)}", false),
         Arguments.of("return {\"first\":min($rows,?),\"second\":min($rows,?)}", true),
         Arguments.of("return {\"first\":max($rows,?),\"second\":max($rows,?)}", true),
         Arguments.of("return {\"first\":sum((0,sum($rows)),?),\"second\":sum((0,sum($rows)),?)}", false),
-        Arguments.of("let $first := sum($rows,?) let $second := sum($rows,?)"
-            + " return {\"first\":$first,\"second\":$second}", false),
+        Arguments.of(
+            "let $first := sum($rows,?) let $second := sum($rows,?)" + " return {\"first\":$first,\"second\":$second}",
+            false),
         Arguments.of("return {\"first\":local:partial($rows),\"second\":local:partial($rows)}", false))
-        .flatMap(path -> Stream.of(false, true)
-            .map(enabled -> Arguments.of(path.get()[0], path.get()[1], enabled)));
+                 .flatMap(path -> Stream.of(false, true)
+                                        .map(enabled -> Arguments.of(path.get()[0], path.get()[1], enabled)));
   }
 
   @ParameterizedTest
@@ -459,9 +494,8 @@ final class LetMaterializationTest {
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         final JsonDBCollection collection = store.create("input", "rows", "[1]");
-        final Query query = new Query(chain,
-            "declare function local:partial($input) {sum($input,?)};"
-                + " let $rows := (for $n in jn:doc('input','rows')[] return $n + 0) " + body);
+        final Query query = new Query(chain, "declare function local:partial($input) {sum($input,?)};"
+            + " let $rows := (for $n in jn:doc('input','rows')[] return $n + 0) " + body);
         final Object functions;
         try (final Iter output = query.execute(context).iterate()) {
           functions = assertInstanceOf(Object.class, output.next());
@@ -473,11 +507,11 @@ final class LetMaterializationTest {
             ? new Str("http://www.w3.org/2005/xpath-functions/collation/codepoint")
             : Int32.ZERO;
         commitNumber(collection, 2);
-        assertEquals("2", first.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument})
-            .toString());
+        assertEquals("2",
+            first.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument}).toString());
         commitNumber(collection, 3);
-        assertEquals("3", second.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument})
-            .toString());
+        assertEquals("3",
+            second.execute(query.getModule().getStaticContext(), context, new Sequence[] {argument}).toString());
         assertEquals(0, markers(chain.getOptimizedAST()));
       }
     });
@@ -485,7 +519,7 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> outerTuplePaths() {
     return Stream.of(false, true)
-        .flatMap(retained -> Stream.of(false, true).map(enabled -> Arguments.of(retained, enabled)));
+                 .flatMap(retained -> Stream.of(false, true).map(enabled -> Arguments.of(retained, enabled)));
   }
 
   @ParameterizedTest
@@ -495,8 +529,9 @@ final class LetMaterializationTest {
       final AtomicInteger iterations = new AtomicInteger();
       final String binding = "let $rows := (for $n in 1 to 2 return $c) ";
       final String outer = "for $outer in 1 to 2 ";
-      final String text = "declare variable $c := 0; " + (retained ? binding + outer : outer + binding)
-          + "return {\"total\":sum($rows),\"count\":count($rows)}";
+      final String text = "declare variable $c := 0; " + (retained
+          ? binding + outer
+          : outer + binding) + "return {\"total\":sum($rows),\"count\":count($rows)}";
       try (final SirixCompileChain chain = SirixCompileChain.create();
           final SirixQueryContext context = SirixQueryContext.create()) {
         final Query query = new Query(chain, text);
@@ -510,7 +545,9 @@ final class LetMaterializationTest {
           assertEquals(4, iterations.get());
           assertNull(output.next());
         }
-        assertEquals(enabled && !retained ? 1 : 0, markers(chain.getOptimizedAST()));
+        assertEquals(enabled && !retained
+            ? 1
+            : 0, markers(chain.getOptimizedAST()));
       }
     });
   }
@@ -518,8 +555,8 @@ final class LetMaterializationTest {
   @ParameterizedTest
   @ValueSource(ints = {1, 2})
   void nonEscapingArrayResultsRetainTheirSequenceCardinality(final int rows) {
-    assertPlanAndAnswer("let $rows := (for $n in 1 to " + rows
-        + " return [1,2]) return (count($rows),sum($rows[0]))", 1, rows + " " + rows);
+    assertPlanAndAnswer("let $rows := (for $n in 1 to " + rows + " return [1,2]) return (count($rows),sum($rows[0]))",
+        1, rows + " " + rows);
   }
 
   @ParameterizedTest
@@ -529,9 +566,10 @@ final class LetMaterializationTest {
       final AtomicInteger iterations = new AtomicInteger();
       try (final SirixCompileChain chain = SirixCompileChain.create();
           final SirixQueryContext context = SirixQueryContext.create()) {
-        final Query query = new Query(chain, "declare variable $c := 0; let $a := {\"value\":0}"
-            + " return ($a,(let $rows := (for $n in 1 to 2 return $c)"
-            + " return {\"effect\":$a.value,\"total\":sum($rows),\"count\":count($rows)}))");
+        final Query query = new Query(chain,
+            "declare variable $c := 0; let $a := {\"value\":0}"
+                + " return ($a,(let $rows := (for $n in 1 to 2 return $c)"
+                + " return {\"effect\":$a.value,\"total\":sum($rows),\"count\":count($rows)}))");
         try (final Iter output = query.execute(context).iterate()) {
           final Object first = assertInstanceOf(Object.class, output.next());
           first.replace(new QNm("value"), new LazySequence() {
@@ -600,8 +638,7 @@ final class LetMaterializationTest {
     try (final SirixCompileChain chain = SirixCompileChain.create();
         final SirixQueryContext context = SirixQueryContext.create()) {
       final Query query = new Query(chain, "declare variable $input := 1 to 2;"
-          + "let $rows := (for $n in $input return $n)"
-          + " return {\"first\":count($rows),\"second\":count($rows)}");
+          + "let $rows := (for $n in $input return $n)" + " return {\"first\":count($rows),\"second\":count($rows)}");
       assertEquals(1, markers(chain.getOptimizedAST()), "the default initializer is statically pure");
       context.bind(new QNm("input"), new LazySequence() {
         @Override
@@ -611,7 +648,7 @@ final class LetMaterializationTest {
             private int next = 1;
 
             @Override
-            public Item next() {
+            public @Nullable Item next() {
               return next <= 2
                   ? new Int32(next++)
                   : null;
@@ -642,27 +679,27 @@ final class LetMaterializationTest {
   static Stream<Arguments> registeredFunctionPaths() {
     final String source = "(for $n in 1 to 2 return fn:abs($n))";
     final String sums = " return {\"first\":sum($rows),\"second\":sum($rows)}";
-    return Stream.of(
-        Arguments.of("let $rows := " + source + " return (sum($rows),sum($rows))", "3 7", 4),
-        Arguments.of("declare variable $source := " + source
-            + "; let $rows := (for $n in $source return $n)" + sums, "{\"first\":3,\"second\":7}", 4),
-        Arguments.of("declare variable $source := " + source
-            + "; declare variable $alias := $source; let $rows := (for $n in $alias return $n)" + sums,
+    return Stream.of(Arguments.of("let $rows := " + source + " return (sum($rows),sum($rows))", "3 7", 4),
+        Arguments.of("declare variable $source := " + source + "; let $rows := (for $n in $source return $n)" + sums,
+            "{\"first\":3,\"second\":7}", 4),
+        Arguments.of(
+            "declare variable $source := " + source
+                + "; declare variable $alias := $source; let $rows := (for $n in $alias return $n)" + sums,
             "{\"first\":3,\"second\":7}", 4),
         Arguments.of("let $source := " + source + " let $rows := (for $n in $source return $n)" + sums,
             "{\"first\":3,\"second\":7}", 4),
-        Arguments.of("let $source := " + source
-            + " let $alias := $source let $rows := (for $n in $alias return $n)" + sums,
+        Arguments.of(
+            "let $source := " + source + " let $alias := $source let $rows := (for $n in $alias return $n)" + sums,
             "{\"first\":3,\"second\":7}", 4),
         Arguments.of("let $source := fn:abs(0) let $rows := (for $n in 1 to 2 return $source)" + sums,
             "{\"first\":2,\"second\":2}", 1),
         Arguments.of("for $source in " + source + " let $rows := (for $n in 1 to 2 return $source)"
             + " return [sum($rows),sum($rows)][]", "2 2 4 4", 2),
-        Arguments.of("for $source in " + source
-            + " let $alias := $source let $rows := (for $n in 1 to 2 return $alias)"
+        Arguments.of("for $source in " + source + " let $alias := $source let $rows := (for $n in 1 to 2 return $alias)"
             + " return [sum($rows),sum($rows)][]", "2 2 4 4", 2))
-        .flatMap(arguments -> Stream.of(false, true)
-            .map(enabled -> Arguments.of(arguments.get()[0], arguments.get()[1], arguments.get()[2], enabled)));
+                 .flatMap(arguments -> Stream.of(false, true)
+                                             .map(enabled -> Arguments.of(arguments.get()[0], arguments.get()[1],
+                                                 arguments.get()[2], enabled)));
   }
 
   @ParameterizedTest
@@ -672,7 +709,8 @@ final class LetMaterializationTest {
     withMaterialization(enabled, () -> {
       final AtomicInteger calls = new AtomicInteger();
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
-        final CompileChain chain = withRegisteredFunction(successiveAbs(calls, context -> {}), store);
+        final CompileChain chain = withRegisteredFunction(successiveAbs(calls, context -> {
+        }), store);
         final Query query = new Query(chain, text);
         for (int evaluation = 0; evaluation < 2; evaluation++) {
           calls.set(0);
@@ -698,11 +736,10 @@ final class LetMaterializationTest {
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         final JsonDBCollection collection = store.create("input", "rows", "[1,2]");
-        final CompileChain chain = withRegisteredFunction(
-            successiveAbs(calls, ignored -> commitNumber(collection, 5)), store);
-        final Query query = new Query(chain,
-            "let $rows := (for $n in jn:doc('input','rows')[] return $n)"
-                + " return {\"first\":sum($rows),\"effect\":fn:abs(0),\"second\":sum($rows)}");
+        final CompileChain chain =
+            withRegisteredFunction(successiveAbs(calls, ignored -> commitNumber(collection, 5)), store);
+        final Query query = new Query(chain, "let $rows := (for $n in jn:doc('input','rows')[] return $n)"
+            + " return {\"first\":sum($rows),\"effect\":fn:abs(0),\"second\":sum($rows)}");
         for (int evaluation = 0; evaluation < 2; evaluation++) {
           commitNumber(collection, 1);
           calls.set(0);
@@ -720,8 +757,8 @@ final class LetMaterializationTest {
 
   @Test
   void genuineBuiltInArithmeticStillProvesInitializerPurity() {
-    assertPlanAndAnswer("let $rows := (for $n in -2 to -1 return fn:abs($n))"
-        + " return [sum($rows),sum($rows)][]", 1, "3 3");
+    assertPlanAndAnswer("let $rows := (for $n in -2 to -1 return fn:abs($n))" + " return [sum($rows),sum($rows)][]", 1,
+        "3 3");
   }
 
   @Test
@@ -762,9 +799,10 @@ final class LetMaterializationTest {
 
   static Stream<Arguments> registeredCollectionPaths() {
     return Stream.of(false, true)
-        .flatMap(enabled -> Stream.of(false, true)
-            .flatMap(afterCompilation -> Stream.of(false, true)
-                .map(revision -> Arguments.of(enabled, afterCompilation, revision))));
+                 .flatMap(
+                     enabled -> Stream.of(false, true)
+                                      .flatMap(afterCompilation -> Stream.of(false,
+                                          true).map(revision -> Arguments.of(enabled, afterCompilation, revision))));
   }
 
   @ParameterizedTest
@@ -781,8 +819,8 @@ final class LetMaterializationTest {
         final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
         object.replace(new QNm("value"), increasing(iterations));
         final JsonDBObject counted = countedObject(object, fields, inspections);
-        final JsonDBCollection custom = mock(JsonDBCollection.class,
-            withSettings().stubOnly().defaultAnswer(invocation -> {
+        final JsonDBCollection custom =
+            mock(JsonDBCollection.class, withSettings().stubOnly().defaultAnswer(invocation -> {
               if (invocation.getMethod().getName().equals("getDocument")) {
                 documents.incrementAndGet();
                 return counted;
@@ -797,10 +835,9 @@ final class LetMaterializationTest {
           store.addDatabase(custom, actual.getDatabase());
         try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
             final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-          final Query query = new Query(chain,
-              "let $rows := (for $n in 1 to 2 return jn:doc('input','rows'" + (revision
-                  ? ",1"
-                  : "") + ").value) return {\"first\":sum($rows),\"second\":sum($rows)}");
+          final Query query = new Query(chain, "let $rows := (for $n in 1 to 2 return jn:doc('input','rows'" + (revision
+              ? ",1"
+              : "") + ").value) return {\"first\":sum($rows),\"second\":sum($rows)}");
           assertEquals(enabled
               ? 1
               : 0, markers(chain.getOptimizedAST()));
@@ -827,11 +864,11 @@ final class LetMaterializationTest {
   }
 
   static Stream<Arguments> defaultCollectionPaths() {
-    return Stream.of("jn:collection()", "jn:collection('')", "jn:collection(substring('x',2))",
-        "jn:collection($name)")
-        .flatMap(call -> Stream.of(false, true)
-            .flatMap(enabled -> Stream.of(false, true)
-                .map(afterCompilation -> Arguments.of(call, enabled, afterCompilation))));
+    return Stream.of("jn:collection()", "jn:collection('')", "jn:collection(substring('x',2))", "jn:collection($name)")
+                 .flatMap(
+                     call -> Stream.of(false, true)
+                                   .flatMap(enabled -> Stream.of(false,
+                                       true).map(afterCompilation -> Arguments.of(call, enabled, afterCompilation))));
   }
 
   @ParameterizedTest
@@ -848,8 +885,8 @@ final class LetMaterializationTest {
         final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
         object.replace(new QNm("value"), increasing(iterations));
         final JsonDBObject counted = countedObject(object, fields, inspections);
-        final JsonDBCollection custom = mock(JsonDBCollection.class,
-            withSettings().stubOnly().defaultAnswer(invocation -> {
+        final JsonDBCollection custom =
+            mock(JsonDBCollection.class, withSettings().stubOnly().defaultAnswer(invocation -> {
               if (invocation.getMethod().getName().equals("iterate")) {
                 documents.incrementAndGet();
                 return new ItemSequence(counted).iterate();
@@ -865,10 +902,11 @@ final class LetMaterializationTest {
             final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
           if (!afterCompilation)
             context.setDefaultJsonCollection(custom);
-          final Query query = new Query(chain,
-              "declare variable $name := ''; let $rows := (for $n in 1 to 2 for $o in " + call
-                  + " return $o.value) return {\"first\":sum($rows),\"second\":sum($rows)}");
-          assertEquals(enabled ? 1 : 0, markers(chain.getOptimizedAST()));
+          final Query query = new Query(chain, "declare variable $name := ''; let $rows := (for $n in 1 to 2 for $o in "
+              + call + " return $o.value) return {\"first\":sum($rows),\"second\":sum($rows)}");
+          assertEquals(enabled
+              ? 1
+              : 0, markers(chain.getOptimizedAST()));
           if (afterCompilation)
             context.setDefaultJsonCollection(custom);
           for (int evaluation = 0; evaluation < 2; evaluation++) {
@@ -956,7 +994,7 @@ final class LetMaterializationTest {
           private boolean emitted;
 
           @Override
-          public Item next() {
+          public @Nullable Item next() {
             if (emitted)
               return null;
             emitted = true;
@@ -975,7 +1013,8 @@ final class LetMaterializationTest {
     final Function builtin = new Functions().resolve(name, 1);
     return new AbstractFunction(name, builtin.getSignature(), false) {
       @Override
-      public Sequence execute(final StaticContext staticContext, final QueryContext context, final Sequence[] arguments) {
+      public Sequence execute(final StaticContext staticContext, final QueryContext context,
+          final Sequence[] arguments) {
         effect.accept(context);
         return new Int32(calls.incrementAndGet());
       }
@@ -987,10 +1026,10 @@ final class LetMaterializationTest {
     return new CompileChain() {
       @Override
       protected Optimizer getOptimizer(final Map<QNm, Str> options) {
-        return new SirixOptimizer(options, null, store) {
+        return new SirixOptimizer(options, mock(XmlDBStore.class), store) {
           @Override
           public AST optimize(final StaticContext context, final AST ast) {
-            if (context.getFunctions().resolve(function.getName(), 1) != function)
+            if (!function.equals(context.getFunctions().resolve(function.getName(), 1)))
               context.getFunctions().declare(function);
             return super.optimize(context, ast);
           }

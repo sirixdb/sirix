@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -330,23 +331,23 @@ final class OpaqueConjunctTest {
 
   static Stream<Arguments> registeredProviderPaths() {
     return Stream.of(false, true)
-        .flatMap(cheap -> Stream.of(false, true)
-            .flatMap(afterCompilation -> Stream.of(false, true)
-                .map(row -> Arguments.of(cheap, afterCompilation, row))));
+                 .flatMap(cheap -> Stream.of(false, true)
+                                         .flatMap(afterCompilation -> Stream.of(false,
+                                             true).map(row -> Arguments.of(cheap, afterCompilation, row))));
   }
 
   @ParameterizedTest
   @MethodSource("registeredProviderPaths")
-  void aRegisteredCollectionKeepsItsChangingFieldsInOriginalOrder(final boolean cheap,
-      final boolean afterCompilation, final boolean row) {
+  void aRegisteredCollectionKeepsItsChangingFieldsInOriginalOrder(final boolean cheap, final boolean afterCompilation,
+      final boolean row) {
     withSwitch(cheap, () -> {
       final Reads reads = new Reads();
       try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
         final JsonDBCollection actual = store.create("data", "rows", "{\"value\":0}");
         final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
         object.replace(new QNm("value"), increasing(reads));
-        final JsonDBCollection custom = mock(JsonDBCollection.class,
-            withSettings().stubOnly().defaultAnswer(invocation -> {
+        final JsonDBCollection custom =
+            mock(JsonDBCollection.class, withSettings().stubOnly().defaultAnswer(invocation -> {
               if (invocation.getMethod().getName().equals("getDocument"))
                 return object;
               try {
@@ -460,7 +461,7 @@ final class OpaqueConjunctTest {
           private boolean emitted;
 
           @Override
-          public Item next() {
+          public @Nullable Item next() {
             if (emitted) {
               return null;
             }

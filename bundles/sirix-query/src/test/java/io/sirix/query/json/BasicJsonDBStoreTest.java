@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 
 import java.io.PrintWriter;
 import java.io.StringReader;
@@ -19,6 +20,7 @@ import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.ArrayList;
@@ -41,7 +43,7 @@ class BasicJsonDBStoreTest {
 
   private BasicJsonDBStore.Builder builder;
   private Path jsonTestDir;
-  private BasicJsonDBStore store;
+  private @Nullable BasicJsonDBStore store;
 
   @BeforeEach
   void setUp() throws Exception {
@@ -66,7 +68,8 @@ class BasicJsonDBStoreTest {
     String collName = "testCollection";
     String optResName = "testResource";
     String json = "{\"key\":\"value\"}";
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     store.create(collName, optResName, json);
     JsonDBCollection collection = store.lookup(collName);
     JsonDBItem testResource = collection.getDocument("testResource");
@@ -81,13 +84,15 @@ class BasicJsonDBStoreTest {
   void shouldSetCorrectNumberOfNodesBeforeAutoCommit() {
     int expectedNodes = 500;
     builder.numberOfNodesBeforeAutoCommit(expectedNodes);
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     assertEquals(expectedNodes, store.options().numberOfNodesBeforeAutoCommit());
   }
 
   @Test
   void defaultStoreResourcesSupportLoadTimeProjectionsWithoutDeweyIds() {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final ProjectionSpec projection = new ProjectionSpec("/[]", List.of("/[]/value"), List.of("long"));
     final JsonDBCollection collection =
         store.create("defaultProjection", "resource", new JsonReader(new StringReader("[{\"value\":1}]")), projection);
@@ -107,7 +112,8 @@ class BasicJsonDBStoreTest {
 
   @Test
   void genericResourcesKeepTheOptInDeweyDefault() {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final JsonDBCollection collection = store.create("defaultGeneric", "resource", "[1]");
 
     try (final var session = collection.getDatabase().beginResourceSession("resource")) {
@@ -138,7 +144,8 @@ class BasicJsonDBStoreTest {
   @Test
   @DisplayName("create(Set) shards each reader into its own resource1..N with correct content")
   void createWithMultipleReadersShardsIntoResources() {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final Set<JsonReader> readers = new LinkedHashSet<>();
     readers.add(new JsonReader(new StringReader("[1,2,3]")));
     readers.add(new JsonReader(new StringReader("{\"k\":\"v\"}")));
@@ -153,7 +160,8 @@ class BasicJsonDBStoreTest {
   @Test
   @DisplayName("createFromPaths shards each path into its own resource1..N with correct content")
   void createFromPathsShardsIntoResources() throws Exception {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final Path first = Files.writeString(jsonTestDir.resolve("first.json"), "[1,2,3]");
     final Path second = Files.writeString(jsonTestDir.resolve("second.json"), "{\"k\":\"v\"}");
 
@@ -173,7 +181,8 @@ class BasicJsonDBStoreTest {
 
   @Test
   void classificationTracksMultipleRegistrationsAndClosedDatabaseCleanup() {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final JsonDBCollection first = store.create("first", "rows", "{}");
     final JsonDBCollection second = store.create("second", "rows", "{}");
     final JsonDBCollection custom = mock(JsonDBCollection.class);
@@ -209,8 +218,10 @@ class BasicJsonDBStoreTest {
 
   @Test
   void concurrentRegistryMutationsRetainExactClassificationAfterPublication() throws Exception {
-    store = builder.build();
-    final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("concurrent"), () -> {});
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
+    final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("concurrent"), () -> {
+    });
     final JsonDBCollection stock = new JsonDBCollectionImpl("concurrent", database, store);
     final JsonDBCollection custom = mock(JsonDBCollection.class);
     when(custom.getName()).thenReturn("concurrent");
@@ -243,7 +254,8 @@ class BasicJsonDBStoreTest {
 
   @Test
   void unprovenClassificationIsPublishedBeforeTheCollection() throws Exception {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final CountDownLatch inserting = new CountDownLatch(1);
     final CountDownLatch publish = new CountDownLatch(1);
     final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("pending"), () -> {
@@ -275,7 +287,8 @@ class BasicJsonDBStoreTest {
 
   @Test
   void failedPublicationRestoresClassification() {
-    store = builder.build();
+    final BasicJsonDBStore store = builder.build();
+    this.store = store;
     final Database<JsonResourceSession> database = testDatabase(jsonTestDir.resolve("failed"), () -> {
       throw new IllegalStateException("Failed map insertion");
     });
@@ -295,22 +308,26 @@ class BasicJsonDBStoreTest {
     final DatabaseConfiguration configuration = new DatabaseConfiguration(path);
     final AtomicInteger hashes = new AtomicInteger();
     final AtomicBoolean open = new AtomicBoolean(true);
-    return (Database<JsonResourceSession>) Proxy.newProxyInstance(Database.class.getClassLoader(),
-        new Class<?>[] {Database.class}, (proxy, method, arguments) -> switch (method.getName()) {
-          case "getDatabaseConfig" -> configuration;
-          case "isOpen" -> open.get();
-          case "close" -> {
-            open.set(false);
-            yield null;
-          }
-          case "hashCode" -> {
-            if (hashes.incrementAndGet() == 2)
-              inserting.run();
-            yield System.identityHashCode(proxy);
-          }
-          case "equals" -> proxy == arguments[0];
-          case "toString" -> path.toString();
-          default -> throw new AssertionError(method.getName());
-        });
+    final IdentityHashMap<Object, Boolean> identity = new IdentityHashMap<>(1);
+    final Database<JsonResourceSession> database =
+        (Database<JsonResourceSession>) Proxy.newProxyInstance(Database.class.getClassLoader(),
+            new Class<?>[] {Database.class}, (proxy, method, arguments) -> switch (method.getName()) {
+              case "getDatabaseConfig" -> configuration;
+              case "isOpen" -> open.get();
+              case "close" -> {
+                open.set(false);
+                yield null;
+              }
+              case "hashCode" -> {
+                if (hashes.incrementAndGet() == 2)
+                  inserting.run();
+                yield System.identityHashCode(proxy);
+              }
+              case "equals" -> identity.containsKey(arguments[0]);
+              case "toString" -> path.toString();
+              default -> throw new AssertionError(method.getName());
+            });
+    identity.put(database, Boolean.TRUE);
+    return database;
   }
 }
