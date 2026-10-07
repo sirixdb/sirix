@@ -97,7 +97,9 @@ public final class IndexExpr implements Expr {
     resourceName = requiredProperty("resourceName", String.class);
     revision = requiredProperty("revision", Integer.class);
     // noinspection unchecked
-    indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) requiredProperty("indexDefs", Map.class);
+    indexDefsToPaths = properties.containsKey("casSourcePath")
+        ? Map.of()
+        : (Map<IndexDef, List<Path<QNm>>>) requiredProperty("indexDefs", Map.class);
   }
 
   private <T> T requiredProperty(final String name, final Class<T> type) {
