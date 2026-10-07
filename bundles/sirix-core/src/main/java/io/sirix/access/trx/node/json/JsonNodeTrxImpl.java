@@ -2518,8 +2518,8 @@ final class JsonNodeTrxImpl extends
         if (stringOff == 0 && stringLen == stringValue.length) {
           pathSummaryWriter.recordValue(pathNodeKey, stringValue, valueNodeKey);
         } else {
-          pathSummaryWriter.recordValue(pathNodeKey,
-              Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen), valueNodeKey);
+          pathSummaryWriter.recordValue(pathNodeKey, Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen),
+              valueNodeKey);
         }
       }
       case NUMBER -> {
@@ -2864,7 +2864,7 @@ final class JsonNodeTrxImpl extends
           // record keeps existing) — listeners needing complete attribution
           // can reject before the surgery starts.
           // Adapt index-structures (before move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+          notifySubtreeIndexChange(movedNodeKey, IndexController.ChangeType.DELETE);
 
           // Adapt hashes.
           adaptHashesForMove(toMove);
@@ -2880,7 +2880,7 @@ final class JsonNodeTrxImpl extends
           }
 
           // Adapt index-structures (after move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+          notifySubtreeIndexChange(movedNodeKey, IndexController.ChangeType.INSERT);
 
           // Re-attach the subtree's value observations under the paths it now has. Must run after
           // the path summary adaptation above, since that is what gives the records their new
@@ -2971,7 +2971,7 @@ final class JsonNodeTrxImpl extends
           // record keeps existing) — listeners needing complete attribution
           // can reject before the surgery starts.
           // Adapt index-structures (before move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+          notifySubtreeIndexChange(movedNodeKey, IndexController.ChangeType.DELETE);
 
           // Adapt hashes.
           adaptHashesForMove(toMove);
@@ -2987,7 +2987,7 @@ final class JsonNodeTrxImpl extends
           }
 
           // Adapt index-structures (after move).
-          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+          notifySubtreeIndexChange(movedNodeKey, IndexController.ChangeType.INSERT);
 
           // Re-attach the subtree's value observations under the paths it now has. Must run after
           // the path summary adaptation above, since that is what gives the records their new
@@ -3079,28 +3079,34 @@ final class JsonNodeTrxImpl extends
   /**
    * Adapt subtree regarding the index-structures for move operations.
    *
-   * @param node node which is moved
+   * @param rootNodeKey root of the subtree
    * @param type the type of change (DELETE from old position or INSERT into new position)
    */
-  private void adaptSubtreeForMove(final Node node, final IndexController.ChangeType type) {
+  private void notifySubtreeIndexChange(final long rootNodeKey, final IndexController.ChangeType type) {
     assert type != null;
+    if (!indexController.hasAnyPrimitiveIndex()) {
+      return;
+    }
     final long beforeNodeKey = getNodeKey();
-    moveTo(node.getNodeKey());
+    moveTo(rootNodeKey);
     final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
     while (axis.hasNext()) {
       axis.nextLong();
-      final ImmutableNode currentNode = nodeReadOnlyTrx.getNode();
+      final ImmutableNode currentNode = (ImmutableNode) nodeReadOnlyTrx.getStructuralNode();
       long pathNodeKey = -1;
-      if (currentNode instanceof ValueNode
+      if (currentNode instanceof NameNode nameNode) {
+        pathNodeKey = nameNode.getPathNodeKey();
+      } else if (currentNode instanceof ArrayNode arrayNode) {
+        pathNodeKey = arrayNode.getPathNodeKey();
+      } else if ((currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.NUMBER_VALUE
+          || currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.NULL_VALUE)
           && currentNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         final long nodeKey = currentNode.getNodeKey();
         moveToParent();
         pathNodeKey = getPathNodeKey();
         moveTo(nodeKey);
-      } else if (currentNode instanceof NameNode nameNode) {
-        pathNodeKey = nameNode.getPathNodeKey();
       }
-      if (pathNodeKey != -1 && indexController.hasAnyPrimitiveIndex()) {
+      if (pathNodeKey != -1) {
         notifyPrimitiveIndexChange(type, currentNode, pathNodeKey);
       }
     }
@@ -3745,6 +3751,8 @@ final class JsonNodeTrxImpl extends
         return this;
       }
       final long oldHash = node.computeHash(bytes);
+      final boolean container =
+          currentKind == NodeKind.OBJECT_NAMED_OBJECT || currentKind == NodeKind.OBJECT_NAMED_ARRAY;
 
       // A rename rewrites this node's path class and, for container kinds, its descendants' —
       // wholesale class surgery the per-node DELETE/INSERT bracketing below cannot re-attribute
@@ -3759,11 +3767,13 @@ final class JsonNodeTrxImpl extends
       // name/PCR must be removed and re-inserted under the new ones — otherwise the field stays
       // findable only under its old name and its CAS value is keyed by the stale path. Mirrors the
       // DELETE/INSERT bracketing of setStringValueFused.
-      final long oldPathNodeKey = nameNode.getPathNodeKey();
       // The rollback-only latch arms at the first statement a failed rename would need to
       // unwind — the DELETE de-index. Everything above leaves no half-applied state.
       renameStarted = true;
-      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, oldPathNodeKey);
+      if (container) {
+        transferPathStatsForMovedSubtree((Node) node, false);
+      }
+      notifySubtreeIndexChange(nameNode.getNodeKey(), IndexController.ChangeType.DELETE);
 
       // Fused NamePage entries live in the OBJECT_KEY namespace, so remove+create always uses OBJECT_KEY.
       final NodeKind nameNamespaceKind = NodeKind.OBJECT_NAMED_OBJECT;
@@ -3776,6 +3786,10 @@ final class JsonNodeTrxImpl extends
       nameNode.setLocalNameKey(newNameKey);
       nameNode.setName(renamed);
       nameNode.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
+      if (container) {
+        nodeReadOnlyTrx.setCurrentNode(node);
+        persistUpdatedRecord((DataRecord) node);
+      }
 
       // Adapt path summary.
       if (buildPathSummary) {
@@ -3815,7 +3829,10 @@ final class JsonNodeTrxImpl extends
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Re-index under the NEW name/path (see the DELETE above).
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, nameNode.getPathNodeKey());
+      notifySubtreeIndexChange(nameNode.getNodeKey(), IndexController.ChangeType.INSERT);
+      if (container) {
+        transferPathStatsForMovedSubtree((Node) node, true);
+      }
       indexController.notifyAfterStructuralChange(pendingStructuralChange);
       pendingStructuralChange = -1L;
 
