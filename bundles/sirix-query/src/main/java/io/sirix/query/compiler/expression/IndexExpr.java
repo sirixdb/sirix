@@ -3,6 +3,7 @@ package io.sirix.query.compiler.expression;
 import io.sirix.query.compiler.optimizer.walker.json.Paths;
 import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -243,46 +244,55 @@ public final class IndexExpr implements Expr {
             sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           }
         });
-        case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
-          final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
-          @SuppressWarnings("unchecked")
-          final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
-          final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
-          final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
-          nodeKeysOfIndex.forEach(nodeKey -> {
-            // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
-            // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
-            rtx.moveTo(nodeKey);
-            // iter#32 fusion: the legacy CAS index emitted entries on the primitive VALUE node
-            // (STRING_VALUE etc.) whose parent was OBJECT_KEY. Under fusion the indexed entry
-            // is on the fused OBJECT_NAMED_* record itself — which already plays the OBJECT_KEY
-            // role. The first moveToParent below is the legacy "VALUE → OBJECT_KEY" step; for
-            // a fused record it would skip one level too high, so emit a synthetic stay-put.
-            final boolean indexedOnFusedPrimitive = rtx.getKind().isFusedObjectNamed();
-            if (!indexedOnFusedPrimitive) {
-              rtx.moveToParent();
-            }
-            for (int i = 1; i < predicateLevel; i++) {
-              rtx.moveToParent();
+        case CAS -> {
+          final LongOpenHashSet publishedKeys = new LongOpenHashSet();
+          for (final IndexDef indexDef : indexDefsToPaths.keySet()) {
+            final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
+            @SuppressWarnings("unchecked")
+            final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
+            final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
+            final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
+            for (final long nodeKey : nodeKeysOfIndex) {
+              // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
+              // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
+              rtx.moveTo(nodeKey);
+              if (!hasFirstFieldIdentity(rtx)) {
+                rtx.close();
+                return fallback.evaluate(ctx, tuple);
+              }
+              // iter#32 fusion: the legacy CAS index emitted entries on the primitive VALUE node
+              // (STRING_VALUE etc.) whose parent was OBJECT_KEY. Under fusion the indexed entry
+              // is on the fused OBJECT_NAMED_* record itself — which already plays the OBJECT_KEY
+              // role. The first moveToParent below is the legacy "VALUE → OBJECT_KEY" step; for
+              // a fused record it would skip one level too high, so emit a synthetic stay-put.
+              final boolean indexedOnFusedPrimitive = rtx.getKind().isFusedObjectNamed();
+              if (!indexedOnFusedPrimitive) {
+                rtx.moveToParent();
+              }
+              for (int i = 1; i < predicateLevel; i++) {
+                rtx.moveToParent();
 
-              // Bare OBJECT only — the fused OBJECT_NAMED_OBJECT already collapses the
-              // OBJECT_KEY+OBJECT pair, so the extra hop is illegal under fusion.
-              if (rtx.getKind() == NodeKind.OBJECT && i + 1 < predicateLevel) {
-                rtx.moveToParent();
+                // Bare OBJECT only — the fused OBJECT_NAMED_OBJECT already collapses the
+                // OBJECT_KEY+OBJECT pair, so the extra hop is illegal under fusion.
+                if (rtx.getKind() == NodeKind.OBJECT && i + 1 < predicateLevel) {
+                  rtx.moveToParent();
+                }
+              }
+              if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
+                // the legacy "skip OBJECT_KEY layer to its containing OBJECT"
+                // hop becomes a no-op when the predicate target is itself a fused
+                // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
+                // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
+                if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
+                  rtx.moveToParent();
+                }
+              }
+              if (publishedKeys.add(rtx.getNodeKey())) {
+                sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
               }
             }
-            if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
-              // the legacy "skip OBJECT_KEY layer to its containing OBJECT"
-              // hop becomes a no-op when the predicate target is itself a fused
-              // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
-              // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
-              if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
-                rtx.moveToParent();
-              }
-            }
-            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
-          });
-        });
+          }
+        }
         default -> throw new QueryException(JNFun.ERR_INVALID_INDEX_TYPE, "Index type not known: " + indexType);
       }
 
@@ -301,6 +311,25 @@ public final class IndexExpr implements Expr {
       }
       throw e;
     }
+  }
+
+  private static boolean hasFirstFieldIdentity(final JsonNodeReadOnlyTrx rtx) {
+    final long indexedKey = rtx.getNodeKey();
+    do {
+      final long ancestorKey = rtx.getNodeKey();
+      if (rtx.isObjectKey()) {
+        final int nameKey = rtx.getNameKey();
+        while (rtx.moveToLeftSibling()) {
+          if (rtx.isObjectKey() && rtx.getNameKey() == nameKey) {
+            rtx.moveTo(indexedKey);
+            return false;
+          }
+        }
+        rtx.moveTo(ancestorKey);
+      }
+    } while (rtx.moveToParent());
+    rtx.moveTo(indexedKey);
+    return true;
   }
 
   private boolean supportsNumericQuery(final IndexDef definition) {
@@ -444,7 +473,9 @@ public final class IndexExpr implements Expr {
     }
     final QNm[] fields = (QNm[]) properties.get("casSourceFields");
     if (fields.length == 0) {
-      return rtx.isArray() ? rtx.getNodeKey() : -1;
+      return rtx.isArray()
+          ? rtx.getNodeKey()
+          : -1;
     }
     Sequence item = JsonItemFactory.INSTANCE.getSequence(rtx, collection);
     for (final QNm field : fields) {
@@ -453,7 +484,9 @@ public final class IndexExpr implements Expr {
       }
       item = object.get(field);
     }
-    return item instanceof JsonDBArray array ? array.getNodeKey() : -1;
+    return item instanceof JsonDBArray array
+        ? array.getNodeKey()
+        : -1;
   }
 
   private static boolean hasOrderedArrayEvidence(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,

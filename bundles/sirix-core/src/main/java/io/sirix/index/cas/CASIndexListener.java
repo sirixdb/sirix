@@ -13,12 +13,11 @@ import io.brackit.query.atomic.Atomic;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Set;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -31,18 +30,16 @@ public final class CASIndexListener {
 
   private final HOTIndexWriter<CASValue> indexWriter;
   private final PathSummaryReader pathSummaryReader;
-  private final Set<Path<QNm>> paths;
+  private final List<Path<QNm>> paths;
   private final Type type;
   private final IndexDef definition;
-  private @Nullable LongSet resolvedPCRs;
-  private long maxKnownPCR = -1L;
 
   public CASIndexListener(final PathSummaryReader pathSummaryReader, final HOTIndexWriter<CASValue> indexWriter,
       final IndexDef definition) {
     this.pathSummaryReader = requireNonNull(pathSummaryReader);
     this.indexWriter = requireNonNull(indexWriter);
     this.definition = requireNonNull(definition);
-    this.paths = requireNonNull(definition.getPaths());
+    this.paths = List.copyOf(requireNonNull(definition.getPaths()));
     this.type = requireNonNull(definition.getContentType());
   }
 
@@ -88,26 +85,24 @@ public final class CASIndexListener {
     }
   }
 
-  /** Resolve configured paths once, refreshing only when a newly minted PCR can change the answer. */
   private boolean matchesIndexedPath(final long pathNodeKey) {
     if (paths.isEmpty()) {
       return true;
     }
-    LongSet pcrs = resolvedPCRs;
-    if (pcrs == null || pathNodeKey > maxKnownPCR) {
-      pcrs = pathSummaryReader.getPCRsForPaths(paths);
-      resolvedPCRs = pcrs;
-      maxKnownPCR = Math.max(pathNodeKey, pathSummaryReader.getMaxNodeKey());
+    for (int i = 0, length = paths.size(); i < length; i++) {
+      if (pathSummaryReader.getPCRsForPath(paths.get(i)).contains(pathNodeKey)) {
+        return true;
+      }
     }
-    return pcrs.contains(pathNodeKey);
+    return false;
   }
 
   public void rejectValue(final long pathNodeKey, final boolean arrayField) {
     if (!type.isNumeric() || !definition.hasNumericValuesOnly()) {
       return;
     }
-    if (matchesIndexedPath(pathNodeKey) || arrayField
-        && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey())) {
+    if (matchesIndexedPath(pathNodeKey)
+        || arrayField && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey())) {
       definition.markNonNumericValue();
     }
   }

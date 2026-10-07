@@ -1317,11 +1317,6 @@ public final class ParallelBulkJsonImporter {
     final int mirrorEntries = batch.mirrorCandidateCount();
     for (int i = 0; i < mirrorEntries; i++) {
       final long objectKeyLayerPcr = mirrorObjectKeyLayerPcr(batch.mirrorArrayPcrAt(i));
-      if (objectKeyLayerPcr >= 0) {
-        for (final CASIndexBuilder casIndexBuilder : casIndexBuilders) {
-          casIndexBuilder.observePath(objectKeyLayerPcr, NodeKind.OBJECT_NAMED_ARRAY);
-        }
-      }
       if (objectKeyLayerPcr < 0) {
         continue;
       }

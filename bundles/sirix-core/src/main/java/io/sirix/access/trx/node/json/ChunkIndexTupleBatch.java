@@ -26,10 +26,10 @@ import java.util.Arrays;
  * all). Path-kind observations bypass this pruning when CAS is active, so non-numeric fields can
  * invalidate numeric coverage even without a PATH index. The exact per-definition filter,
  * include/exclude semantics and CAS type conversion run at drain, inside the builders themselves —
- * the one place those semantics already live. The snapshots
- * are exact for their chunk by the importer's standing argument: a chunk's paths and names are
- * resolved into the summary and the dictionary BEFORE the chunk is dispatched, so a class first
- * occurring in this chunk is in this chunk's snapshot.
+ * the one place those semantics already live. The snapshots are exact for their chunk by the
+ * importer's standing argument: a chunk's paths and names are resolved into the summary and the
+ * dictionary BEFORE the chunk is dispatched, so a class first occurring in this chunk is in this
+ * chunk's snapshot.
  *
  * <h2>Memory discipline</h2> Primitive parallel lists grown amortized, one UTF-8 arena for CAS
  * string values, {@code Number} references reused from the parser's own boxes — no per-record
@@ -94,7 +94,11 @@ final class ChunkIndexTupleBatch {
 
   /** An ARRAY or OBJECT_NAMED_* create — the kinds the PATH family indexes. */
   void onPathEntry(final long pathNodeKey, final long nodeKey, final NodeKind kind) {
-    if (casActive || pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey))) {
+    final boolean coverageObservation = casActive && switch (kind) {
+      case ARRAY, OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_OBJECT, NULL_VALUE, OBJECT_NAMED_NULL -> true;
+      default -> false;
+    };
+    if (coverageObservation || pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey))) {
       pathPcrs.add(pathNodeKey);
       pathNodeKeys.add(nodeKey);
       pathKinds.add(kind.getId());
