@@ -261,7 +261,7 @@ public final class LetMaterializationStage implements Stage {
       if (node.getType() == XQ.FunctionCall && node.getValue() instanceof QNm name) {
         final Function function = sctx.getFunctions().resolve(name, node.getChildCount());
         // A user declaration can shadow a JSON read function's otherwise admitted QName.
-        if (function == null || function instanceof UDF || function.isUpdating()
+        if (function == null || !function.isBuiltIn() || function instanceof UDF || function.isUpdating()
             || node.getChildCount() == 0 && function.getSignature().defaultCtxItemType() != null) {
           return false;
         }

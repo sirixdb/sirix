@@ -1,22 +1,36 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.Query;
+import io.brackit.query.QueryContext;
 import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.CompileChain;
+import io.brackit.query.compiler.optimizer.Optimizer;
+import io.brackit.query.compiler.translator.Translator;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.Function;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
+import io.brackit.query.module.Functions;
+import io.brackit.query.module.Namespaces;
+import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+import java.util.Map;
+import java.util.function.Consumer;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.compiler.translator.SirixTranslator;
+import io.sirix.query.function.jn.JNFun;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -578,6 +592,91 @@ final class LetMaterializationTest {
         0, "3 3");
   }
 
+  static Stream<Arguments> registeredFunctionPaths() {
+    final String source = "(for $n in 1 to 2 return fn:abs($n))";
+    final String sums = " return {\"first\":sum($rows),\"second\":sum($rows)}";
+    return Stream.of(
+        Arguments.of("let $rows := " + source + " return (sum($rows),sum($rows))", "3 7", 4),
+        Arguments.of("declare variable $source := " + source
+            + "; let $rows := (for $n in $source return $n)" + sums, "{\"first\":3,\"second\":7}", 4),
+        Arguments.of("declare variable $source := " + source
+            + "; declare variable $alias := $source; let $rows := (for $n in $alias return $n)" + sums,
+            "{\"first\":3,\"second\":7}", 4),
+        Arguments.of("let $source := " + source + " let $rows := (for $n in $source return $n)" + sums,
+            "{\"first\":3,\"second\":7}", 4),
+        Arguments.of("let $source := " + source
+            + " let $alias := $source let $rows := (for $n in $alias return $n)" + sums,
+            "{\"first\":3,\"second\":7}", 4),
+        Arguments.of("let $source := fn:abs(0) let $rows := (for $n in 1 to 2 return $source)" + sums,
+            "{\"first\":2,\"second\":2}", 1),
+        Arguments.of("for $source in " + source + " let $rows := (for $n in 1 to 2 return $source)"
+            + " return [sum($rows),sum($rows)][]", "2 2 4 4", 2),
+        Arguments.of("for $source in " + source
+            + " let $alias := $source let $rows := (for $n in 1 to 2 return $alias)"
+            + " return [sum($rows),sum($rows)][]", "2 2 4 4", 2))
+        .flatMap(arguments -> Stream.of(false, true)
+            .map(enabled -> Arguments.of(arguments.get()[0], arguments.get()[1], arguments.get()[2], enabled)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("registeredFunctionPaths")
+  void registeredFunctionsDoNotProveInitializerOrDependencyPurity(final String text, final String expected,
+      final int executions, final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger calls = new AtomicInteger();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+        final CompileChain chain = withRegisteredFunction(successiveAbs(calls, context -> {}), store);
+        final Query query = new Query(chain, text);
+        for (int evaluation = 0; evaluation < 2; evaluation++) {
+          calls.set(0);
+          try (final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+            final StringWriter output = new StringWriter();
+            try (final PrintWriter writer = new PrintWriter(output)) {
+              query.serialize(context, writer);
+            }
+            assertEquals(expected, output.toString().trim());
+            assertEquals(executions, calls.get(), "custom calls retain their generic evaluation lifetime");
+          }
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void registeredResultFieldFunctionsDoNotProveEagerResultPurity(final boolean enabled, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger calls = new AtomicInteger();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+        final JsonDBCollection collection = store.create("input", "rows", "[1,2]");
+        final CompileChain chain = withRegisteredFunction(
+            successiveAbs(calls, ignored -> commitNumber(collection, 5)), store);
+        final Query query = new Query(chain,
+            "let $rows := (for $n in jn:doc('input','rows')[] return $n)"
+                + " return {\"first\":sum($rows),\"effect\":fn:abs(0),\"second\":sum($rows)}");
+        for (int evaluation = 0; evaluation < 2; evaluation++) {
+          commitNumber(collection, 1);
+          calls.set(0);
+          final StringWriter output = new StringWriter();
+          try (final PrintWriter writer = new PrintWriter(output)) {
+            query.serialize(context, writer);
+          }
+          assertEquals("{\"first\":3,\"effect\":1,\"second\":7}", output.toString().trim());
+          assertEquals(1, calls.get());
+        }
+        assertEquals(0, markers(chain.getOptimizedAST()));
+      }
+    });
+  }
+
+  @Test
+  void genuineBuiltInArithmeticStillProvesInitializerPurity() {
+    assertPlanAndAnswer("let $rows := (for $n in -2 to -1 return fn:abs($n))"
+        + " return [sum($rows),sum($rows)][]", 1, "3 3");
+  }
+
   @Test
   void implicitContextArgumentsHaveNoPurityProof() {
     assertPlanAndAnswer("declare context item := 'value';"
@@ -820,6 +919,40 @@ final class LetMaterializationTest {
           @Override
           public void close() {}
         };
+      }
+    };
+  }
+
+  private static Function successiveAbs(final AtomicInteger calls, final Consumer<QueryContext> effect) {
+    final QNm name = new QNm(Namespaces.FN_NSURI, Namespaces.FN_PREFIX, "abs");
+    final Function builtin = new Functions().resolve(name, 1);
+    return new AbstractFunction(name, builtin.getSignature(), false) {
+      @Override
+      public Sequence execute(final StaticContext staticContext, final QueryContext context, final Sequence[] arguments) {
+        effect.accept(context);
+        return new Int32(calls.incrementAndGet());
+      }
+    };
+  }
+
+  private static CompileChain withRegisteredFunction(final Function function, final JsonDBStore store) {
+    JNFun.register();
+    return new CompileChain() {
+      @Override
+      protected Optimizer getOptimizer(final Map<QNm, Str> options) {
+        return new SirixOptimizer(options, null, store) {
+          @Override
+          public AST optimize(final StaticContext context, final AST ast) {
+            if (context.getFunctions().resolve(function.getName(), 1) != function)
+              context.getFunctions().declare(function);
+            return super.optimize(context, ast);
+          }
+        };
+      }
+
+      @Override
+      protected Translator getTranslator(final Map<QNm, Str> options) {
+        return new SirixTranslator(options);
       }
     };
   }
