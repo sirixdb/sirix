@@ -90,7 +90,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private static final boolean REGISTRY_DIAGNOSTICS = Boolean.getBoolean("sirix.json.registryDiag");
   private final AtomicInteger nonStockCollections = new AtomicInteger();
-  private final AtomicLong collectionClassifications = REGISTRY_DIAGNOSTICS ? new AtomicLong() : null;
+  // Non-null exactly when REGISTRY_DIAGNOSTICS is enabled; both counter users check that gate.
+  private final @Nullable AtomicLong collectionClassifications = REGISTRY_DIAGNOSTICS
+      ? new AtomicLong()
+      : null;
 
   private record CollectionPath(String name, Path path) {
   }
@@ -441,6 +444,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return nonStockCollections.get() == 0;
   }
 
+  @SuppressWarnings("NullAway")
   public long getCollectionClassificationCount() {
     if (!REGISTRY_DIAGNOSTICS) {
       throw new IllegalStateException("Collection classification diagnostics require sirix.json.registryDiag");
@@ -448,6 +452,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return collectionClassifications.get();
   }
 
+  @SuppressWarnings("NullAway")
   private boolean stockCollection(final JsonDBCollection collection) {
     if (REGISTRY_DIAGNOSTICS) {
       collectionClassifications.incrementAndGet();

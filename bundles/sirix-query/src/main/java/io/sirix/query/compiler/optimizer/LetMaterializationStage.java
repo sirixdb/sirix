@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Final-stage admission for repeatedly referenced, proven-pure lazy let initializers. Only the
@@ -52,20 +53,22 @@ public final class LetMaterializationStage implements Stage {
     return false;
   }
 
+  /** Binding and consumer proofs require AST identity, even for structurally equivalent subtrees. */
+  @SuppressWarnings("ReferenceEquality")
   private static final class Admission extends ScopeWalker {
     private static final int MAX_PROOF_WORK = 1024;
     private static final int NON_SCALAR = 0;
     private static final int PARTIAL_CONSUMPTION = 1;
     private static final int FULL_CONSUMPTION = 2;
     private final List<AST> candidates = new ArrayList<>();
-    private final Map<AST, Integer> references = new IdentityHashMap<>();
+    private final IdentityHashMap<AST, Integer> references = new IdentityHashMap<>();
     private final Set<AST> nonScalarConsumers = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<AST> fullConsumers = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<QNm, AST> declarations = new HashMap<>();
     private final Set<QNm> defaults = new LinkedHashSet<>();
     private final Set<QNm> captured = new LinkedHashSet<>();
-    private AST candidateBinding;
-    private AST candidateSource;
+    private @Nullable AST candidateBinding;
+    private @Nullable AST candidateSource;
     private int remaining;
     private boolean nativeStore;
 
@@ -198,9 +201,7 @@ public final class LetMaterializationStage implements Stage {
           consumption = FULL_CONSUMPTION;
         } else if (name.equals("exists")) {
           consumption = PARTIAL_CONSUMPTION;
-        } else if ((name.equals("data") || name.equals("distinct-values")) && parent.getChildCount() == 1) {
-          continue;
-        } else {
+        } else if (!((name.equals("data") || name.equals("distinct-values")) && parent.getChildCount() == 1)) {
           return NON_SCALAR;
         }
       }
@@ -212,14 +213,14 @@ public final class LetMaterializationStage implements Stage {
       while (result.getType() == XQ.ParenthesizedExpr && result.getChildCount() == 1)
         result = result.getChild(0);
       final boolean constructedArray = result.getType() == XQ.ArrayConstructor
-          || result.getType() == XQ.ArrayAccess && result.getChild(0).getType() == XQ.ArrayConstructor;
+          || (result.getType() == XQ.ArrayAccess && result.getChild(0).getType() == XQ.ArrayConstructor);
       if (result.getType() != XQ.ObjectConstructor && !constructedArray && !scalarFunction(functionName(result)))
         return false;
       candidateSource = result;
       return pureSource(result, new HashSet<>(), false);
     }
 
-    private String functionName(final AST node) {
+    private @Nullable String functionName(final AST node) {
       if (node.getType() != XQ.FunctionCall || !(node.getValue() instanceof QNm name)
           || !(Namespaces.FN_NSURI.equals(name.getNamespaceURI())
               || Namespaces.DEFAULT_FN_NSURI.equals(name.getNamespaceURI())))
@@ -234,7 +235,7 @@ public final class LetMaterializationStage implements Stage {
           : null;
     }
 
-    private static boolean scalarFunction(final String name) {
+    private static boolean scalarFunction(final @Nullable String name) {
       return name != null && switch (name) {
         case "count", "sum", "avg", "min", "max" -> true;
         default -> false;
@@ -266,7 +267,7 @@ public final class LetMaterializationStage implements Stage {
         final Function function = sctx.getFunctions().resolve(name, node.getChildCount());
         // A user declaration can shadow a JSON read function's otherwise admitted QName.
         if (function == null || !function.isBuiltIn() || function instanceof UDF || function.isUpdating()
-            || node.getChildCount() == 0 && function.getSignature().defaultCtxItemType() != null) {
+            || (node.getChildCount() == 0 && function.getSignature().defaultCtxItemType() != null)) {
           return false;
         }
       }

@@ -158,10 +158,9 @@ public final class CheapFirstConjunctStage implements Stage {
   }
 
   static boolean storedReadCall(final AST node) {
-    return node.getType() == XQExt.IndexExpr
-        || node.getType() == XQ.FunctionCall && node.getValue() instanceof QNm name
-        && JSONFun.JSON_NSURI.equals(name.getNamespaceURI())
-        && (READ_FUNCTIONS.contains(name.getLocalName()) || INDEX_SCAN_FUNCTIONS.contains(name.getLocalName()));
+    return node.getType() == XQExt.IndexExpr || (node.getType() == XQ.FunctionCall
+        && node.getValue() instanceof QNm name && JSONFun.JSON_NSURI.equals(name.getNamespaceURI())
+        && (READ_FUNCTIONS.contains(name.getLocalName()) || INDEX_SCAN_FUNCTIONS.contains(name.getLocalName())));
   }
 
   /** Classifies initializer sources, including the optimizer's read-only index scans. */
@@ -177,9 +176,10 @@ public final class CheapFirstConjunctStage implements Stage {
       if (!admitIndexRewrites || !(node.getProperty("databaseName") instanceof String)
           || !(node.getProperty("resourceName") instanceof String) || !(node.getProperty("revision") instanceof Integer)
           || !(node.getProperty("indexType") instanceof IndexType indexType)
-          || indexType != IndexType.PATH && indexType != IndexType.NAME && indexType != IndexType.CAS
-          || indexType == IndexType.CAS && (!(node.getProperty("atomic") instanceof Atomic)
-              || node.getProperty("upperBoundAtomic") != null && !(node.getProperty("upperBoundAtomic") instanceof Atomic))) {
+          || (indexType != IndexType.PATH && indexType != IndexType.NAME && indexType != IndexType.CAS)
+          || (indexType == IndexType.CAS
+              && (!(node.getProperty("atomic") instanceof Atomic) || (node.getProperty("upperBoundAtomic") != null
+                  && !(node.getProperty("upperBoundAtomic") instanceof Atomic))))) {
         return -1;
       }
       own = 20;

@@ -8,6 +8,7 @@ import io.brackit.query.compiler.optimizer.walker.topdown.ScopeWalker;
 import io.brackit.query.module.StaticContext;
 import java.util.HashSet;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 abstract class BindingDependencies extends ScopeWalker {
   // One term shares this budget across recursive source proofs: duplicated alias inputs must not
@@ -84,8 +85,8 @@ abstract class BindingDependencies extends ScopeWalker {
     return binding.getType() == XQ.Count || withinCandidate(binding, candidate);
   }
 
-  private boolean collectUnresolved(final QNm name, final AST candidate, final Set<QNm> inputs,
-      final Set<QNm> captured, final Set<QNm> defaults, final Set<AST> visited) {
+  private boolean collectUnresolved(final QNm name, final AST candidate, final Set<QNm> inputs, final Set<QNm> captured,
+      final Set<QNm> defaults, final Set<AST> visited) {
     if (inputs != null) {
       inputs.add(name);
     }
@@ -145,7 +146,9 @@ abstract class BindingDependencies extends ScopeWalker {
         && collect(source, candidate, inputs, captured, defaults, visited);
   }
 
-  static boolean parameter(final AST node, final QNm name, final AST binding) {
+  /** Uses binding identity to stop before an enclosing same-named parameter. */
+  @SuppressWarnings("ReferenceEquality")
+  static boolean parameter(final AST node, final QNm name, final @Nullable AST binding) {
     for (AST parent = node.getParent(); parent != null; parent = parent.getParent()) {
       if (parent == binding) {
         return false;

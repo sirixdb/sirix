@@ -12,6 +12,7 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollectionImpl;
 import java.util.Arrays;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /** Checks scalar inputs without traversing containers or resolving unbound defaults. */
 public final class ConjunctInputs {
@@ -21,8 +22,8 @@ public final class ConjunctInputs {
   private final int[] positions;
   private final boolean nativeStore;
 
-  public ConjunctInputs(final QNm[] inputs, final QNm[] captured, final QNm[] defaultNames, final VariableTable table,
-      final boolean nativeStore) {
+  public ConjunctInputs(final QNm[] inputs, final QNm[] captured, final QNm[] defaultNames,
+      final @Nullable VariableTable table, final boolean nativeStore) {
     this.nativeStore = nativeStore;
     Objects.requireNonNull(inputs);
     Objects.requireNonNull(captured);

@@ -23,8 +23,16 @@ invoked on individual bodies, which do not contain those declarations. Engine-pr
 inside the candidate source, including join outputs and filter context items, are covered by the
 same source proof. Dependency cycles or exhausted proof budgets decline admission.
 
+Physical PATH, NAME and CAS `IndexExpr` plans count as stored reads even when childless.
+Their database, resource, revision and index-type properties must be concrete; CAS bounds
+must be atomic values. Unproven physical inputs decline admission. These plans use the same
+provider and result-lifetime guards as document calls, including through global and captured
+producer dependencies.
+
 Consumer admission requires a terminal return with scalar reductions and at least one unconditional
 full-consuming reduction before the first caller-visible result, including for pure local sources.
+Calls containing argument placeholders, such as `sum($rows, ?)`, create partial functions;
+they do not establish consumption and are excluded by the purity proof as well.
 Later members of a lazy comma sequence do not establish this traversal. Eager constructors and
 full-consuming functions can complete a nested sequence before exposing its result; a full reduction
 in the first result member also establishes demand. Existence-only consumers stay lazy; `exists`
@@ -41,14 +49,17 @@ result sequences; the work-budget fixtures use this form with their original rea
 The same purity proof and input guards cover result fields evaluated before those reductions.
 Singleton array results remain wrapped as one sequence item, preserving their cardinality.
 
-Updates, unknown calls, user functions without a purity proof, function parameters, external
+Updates, unknown calls, non-built-in functions, function parameters, external
 variables, unresolved context items and clock/timezone calls are conservatively excluded.
+The purity proof resolves functions through the same static-context registry as translation;
+a registered Java function that shadows a built-in name is also excluded.
 Named and inline function parameters are distinguished from same-named globals before lookup,
 including dependencies reached through aliases. Captured outer let and for values are checked
 at each binding using the existing scalar-input guard: only empty or atomic values permit
 materialization. Opaque sequences, objects and arrays retain evaluation per reference without
-inspecting their fields. Global-default proofs exclude constructors and stored composite reads,
-including those reached through aliases, because their values may have escaped to a consumer.
+inspecting their fields. Global-default proofs exclude constructors and stored reads,
+including those reached through aliases: constructed values may have escaped to a consumer,
+while stored reads can observe later revisions.
 Caller bindings can override even non-external global declarations in Brackit. Immutable metadata
 records the global defaults used by each proof; the materializing expression checks for overrides
 once when that binding evaluates and leaves an overridden source lazy. External declarations,
@@ -59,8 +70,14 @@ JSON is materialized only with the stock `BasicJsonDBStore`; a custom provider k
 per-reference behavior because its document and field reads have no purity proof. The shared
 runtime guard also requires stock implementations for every currently registered collection:
 `addDatabase` can install a decorator inside a stock store, including after compilation. The
-guard checks implementation types without opening documents or inspecting fields. Replacement,
-removal and drop are reflected by reading the current registry, without retaining a trust flag.
+guard also rejects a non-stock default JSON collection supplied by the query context, including
+one installed after compilation or selected by `jn:collection()` or an empty name. It checks
+provider metadata without opening documents or inspecting fields. Registry mutations maintain
+a non-stock collection count, so the stock per-row guard is constant-time and allocation-free.
+Registration increments that count before publishing an unproven provider; replacement,
+removal, closed-database cleanup and drop decrement it after removing that provider. This
+conservative publication order prevents admission while an unproven provider is visible;
+the count is registry metadata, not a saved let sequence or cross-evaluation cache.
 
 Single-reference bindings remain lazy. Admission currently targets lazy FLWOR (`PipeExpr`)
 initializers; it does not add materialization to scalar lets or module-global declarations.
@@ -69,7 +86,7 @@ optimizer controls, use a fresh compile chain for A/B comparisons to avoid an al
 
 ## Behavioral and work evidence
 
-The regression tests were added and executed before implementation. In two evaluations of the
+The initial Q3 regression tests were added and executed before implementation. In two evaluations of the
 same compiled Q3 over 100 stored rows, the baseline read **600** source-array items, and the
 fixed executable plan reads **200**: exactly one 100-row scan per evaluation. The budget test
 also executes the disabled-stage baseline and requires its 600 reads, proving the counting seam
@@ -91,11 +108,19 @@ the disabled plan's prefix work across repeated executions of the same compiled 
 Restoring the previous admission rule made the existence-prefix budget fail at 20,000 source
 evaluations instead of 2 across two executions, proving that the counter detects full buffering.
 `LetMaterializationTest` checks shadowing, single/unused bindings, unproven
-calls, effectful lazy dependencies caller-dependent function parameters, global overrides, external defaults, shadowed functions,
+calls, effectful lazy dependencies, caller-dependent function parameters, global overrides, external defaults, shadowed functions,
 implicit context arguments and positional `allowing empty` bindings. `MaterializeExprTest`
 checks repeated binding evaluations, repeated result consumption, cursor closure, failure recovery,
 and rejection of updating expressions. Custom-provider reads retain their original per-reference
-execution; the stock-provider Q3 budget still requires exactly one scan per binding. The initial targeted run passed **18 tests**. After the additional purity cases, the final targeted
+execution; the stock-provider Q3 budget still requires exactly one scan per binding.
+`IndexedLetMaterializationTest` verifies executable PATH and NAME index selection, latest-revision
+reads after commits between streamed results, eager indexed positives and dependency/provider guards.
+Partial-function regressions invoke two returned reductions after separate commits and require
+the generic values 2 then 3. Default-provider and registered-function regressions preserve
+per-reference values 3 then 7. The
+[budget inventory](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#what-is-here)
+owns the provider-classification work bounds checked by `ProviderPurityWorkBudgetTest`.
+The initial targeted run passed **18 tests**. After the initial additional purity cases, that targeted
 run passed **27 tests**, including a custom-provider regression that first failed with one lookup
 instead of the required two.
 
@@ -129,10 +154,11 @@ snapshot `1.0-alpha10-20261006.152144-93` was resolved, avoiding the stale local
 All Gradle and benchmark JVMs run under the prescribed memory/lock limiter. Query test forks use
 `-PtestHeapMin=256m -PtestHeapMax=2g`.
 
-## Suite validation
+## Initial suite validation (2026-10-06)
 
-The full sirix-core suite reports **13,156 tests**, 78 skipped, with zero failures or errors.
-The fresh full sirix-query suite on the final unchanged implementation reports **3,018 tests**,
+For the initial implementation, the full sirix-core suite reports **13,156 tests**, 78 skipped,
+with zero failures or errors.
+The fresh full sirix-query suite for that implementation reports **3,018 tests**,
 12 skipped, with zero failures or errors. Both use 2 GiB test forks. The final targeted regression
 run and the final query run also pass `:sirix-query:spotlessCheck`.
 
