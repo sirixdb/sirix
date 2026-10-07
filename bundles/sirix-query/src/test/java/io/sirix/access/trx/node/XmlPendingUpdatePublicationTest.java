@@ -196,20 +196,36 @@ final class XmlPendingUpdatePublicationTest {
       final long textKey = original.getFirstChild().getFirstChild().getNodeKey();
       try (final XmlNodeTrx writer = session.beginNodeTrx(1)) {
         writer.moveTo(textKey);
-        assertThrows(IllegalStateException.class, () -> writer.runAtomically(() -> {
-          writer.setValue("failed");
-          throw new IllegalStateException("injected batch failure");
-        }));
+        assertThrows(IllegalStateException.class, () -> {
+          writer.beginAtomicOperation();
+          try {
+            writer.setValue("failed");
+            throw new IllegalStateException("injected batch failure");
+          } catch (final RuntimeException | Error failure) {
+            writer.markRollbackOnly(failure);
+            throw failure;
+          } finally {
+            writer.endAtomicOperation();
+          }
+        });
         assertThrows(SirixUsageException.class, writer::commit);
         assertEquals(1, session.getMostRecentRevisionNumber());
         writer.rollback();
         writer.moveTo(textKey);
-        writer.runAtomically(() -> {
+        writer.beginAtomicOperation();
+        try {
           writer.setValue("first");
-          writer.runAtomically(() -> writer.setValue("second"));
+          writer.beginAtomicOperation();
+          try {
+            writer.setValue("second");
+          } finally {
+            writer.endAtomicOperation();
+          }
           assertThrows(SirixUsageException.class, writer::commit);
           assertEquals(1, session.getMostRecentRevisionNumber());
-        });
+        } finally {
+          writer.endAtomicOperation();
+        }
         writer.setValue("third");
         assertEquals(2, session.getMostRecentRevisionNumber());
         writer.commit();
