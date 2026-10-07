@@ -45,8 +45,7 @@ public final class CASIndexListener {
 
   /** Invalidate path filtering after an identity-import namespace replacement. */
   public void pathSummaryImported() {
-    resolvedPCRs = null;
-    maxKnownPCR = -1L;
+    pathSummaryReader.clearCache();
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey,

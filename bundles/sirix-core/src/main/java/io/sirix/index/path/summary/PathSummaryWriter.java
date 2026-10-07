@@ -349,9 +349,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
     final long parentKey = existing.getParentKey();
     final NodeKind pathKind = existing.getPathKind();
-    final int level = existing.getLevel();
-
-    if (existing.getReferences() <= 1) {
+    final long destination = pathSummaryReader.findChild(parentKey, newName, pathKind);
+    if (existing.getReferences() <= 1 && destination < 0) {
       // EXCLUSIVE path class: rename in place, and refresh the (parent, name, kind) child-lookup
       // cache — without the refresh, findChild for the OLD name kept resolving to this renamed
       // entry, so a later insert of a field with the old name incremented the WRONG path class.
@@ -362,28 +361,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return pathSummaryReader.findChild(objectKeyPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
     }
 
-    // SHARED path class (references > 1): renaming IN PLACE would silently rename every OTHER
-    // instance's path class too. SPLIT instead: the renamed instance leaves both layers
-    // (decrement), then joins (or creates) the entry for the new name under the same parent.
-    final long oldArrayChild = pathSummaryReader.findChild(objectKeyPathNodeKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
-    if (oldArrayChild >= 0) {
-      decrementObjectKeyRefByKey(oldArrayChild);
-    }
-    decrementObjectKeyRefByKey(objectKeyPathNodeKey);
-
-    pathSummaryReader.moveTo(parentKey);
-    long newObjectKeyEntry = pathSummaryReader.findChild(parentKey, newName, pathKind);
-    if (newObjectKeyEntry >= 0) {
-      final PathNode newEntry =
-          storageEngineWriter.prepareRecordForModification(newObjectKeyEntry, IndexType.PATH_SUMMARY, 0);
-      newEntry.incrementReferenceCount();
-      persistPathSummaryRecord(newEntry);
-      pathSummaryReader.putMapping(newEntry.getNodeKey(), newEntry);
-    } else {
-      insertPathAsFirstChild(newName, pathKind, level);
-      newObjectKeyEntry = pathSummaryReader.getNodeKey();
-    }
-    return getArrayChildPathNodeKey(newObjectKeyEntry);
+    adaptPathForMovedSubtree(nodeRtx.getNodeKey());
+    return nodeRtx.getPathNodeKey();
   }
 
   /**
@@ -695,7 +674,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     final long oldFieldPath = kind == NodeKind.OBJECT_NAMED_ARRAY
         ? getParentPathNodeKey(oldPath)
         : oldPath;
-    if (getParentPathNodeKey(oldFieldPath) == parentPath) {
+    pathSummaryReader.moveTo(oldFieldPath);
+    if (getParentPathNodeKey(oldFieldPath) == parentPath && name.equals(pathSummaryReader.getName())) {
       // Sibling reordering and moving between instances of the same path change no path classes.
       return;
     }
@@ -740,6 +720,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     movePathSummary();
 
     final long oldPathNodeKey = pathSummaryReader.getNodeKey();
+    if (node.getKind() == NodeKind.OBJECT_NAMED_OBJECT && (pathSummaryReader.getReferences() > 1
+        || pathSummaryReader.findChild(pathSummaryReader.getParentKey(), name, NodeKind.OBJECT_NAMED_OBJECT) >= 0)) {
+      adaptPathForMovedSubtree(node.getNodeKey());
+      return;
+    }
 
     // An exclusively referenced path class can be renamed in place if no destination class exists.
     // Fused OBJECT_NAMED_* records are represented as OBJECT_KEY entries in the path summary, so
