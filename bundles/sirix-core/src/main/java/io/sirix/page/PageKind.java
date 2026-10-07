@@ -5866,25 +5866,48 @@ public enum PageKind {
         return;
       }
 
-      final int encodedFullCount = hotLeaf.isCompleteDump()
-          ? hotLeaf.getEntryCount() | 0x80000000
-          : hotLeaf.getEntryCount();
-      sink.writeInt(encodedFullCount);
-      sink.writeInt(hotLeaf.getUsedSlotsSize());
-
-      // Write slot offsets
-      int entryCount = hotLeaf.getEntryCount();
-      for (int i = 0; i < entryCount; i++) {
-        sink.writeInt(hotLeaf.getSlotOffset(i));
-      }
-
-      // Copy the exact live prefix straight into the sink. The warm pinned-spill path writes into a
-      // pooled MemorySegment-backed BytesOut, so materialising this payload as a byte[] would create
-      // one full-page allocation per spill. writeSegment copies synchronously and transfers no
-      // ownership: the HOT leaf remains the sole owner of its slot memory.
-      final MemorySegment slots = hotLeaf.slots();
+      final int entryCount = hotLeaf.getEntryCount();
       final int usedSize = hotLeaf.getUsedSlotsSize();
-      sink.writeSegment(slots, 0L, usedSize);
+      final MemorySegment slots = hotLeaf.slots();
+      int liveSize = 0;
+      for (int i = 0; i < entryCount; i++) {
+        final int offset = hotLeaf.getSlotOffset(i);
+        final int size = hotLeaf.getSlotSize(i);
+        if (offset < 0 || size <= 0 || offset > usedSize - size) {
+          throw new IllegalStateException("Invalid full HOT-leaf slot " + i + ": offset=" + offset + ", size=" + size
+              + ", usedSlotBytes=" + usedSize);
+        }
+        liveSize = Math.addExact(liveSize, size);
+      }
+      if (liveSize > usedSize || usedSize > slots.byteSize()) {
+        throw new IllegalStateException("Invalid full HOT-leaf payload: live=" + liveSize + ", used=" + usedSize
+            + ", capacity=" + slots.byteSize());
+      }
+      final int encodedFullCount = hotLeaf.isCompleteDump()
+          ? entryCount | 0x80000000
+          : entryCount;
+      sink.writeInt(encodedFullCount);
+      sink.writeInt(liveSize);
+
+      if (liveSize == usedSize) {
+        // Already dense: preserve the physical order and copy in one bulk write.
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeInt(hotLeaf.getSlotOffset(i));
+        }
+        sink.writeSegment(slots, 0L, usedSize);
+      } else {
+        // Growing/shrinking replacements and deletes leave retired records below the high-water
+        // mark. Pack only the serialized image; the source's offsets, dirty bits and native ownership
+        // must remain unchanged. Direct segment ranges need neither scratch nor per-slot arrays.
+        int packedOffset = 0;
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeInt(packedOffset);
+          packedOffset += hotLeaf.getSlotSize(i);
+        }
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeSegment(slots, hotLeaf.getSlotOffset(i), hotLeaf.getSlotSize(i));
+        }
+      }
       if (hasSegmentRefs) {
         serializeSegmentRefs(sink, hotLeaf);
       }
