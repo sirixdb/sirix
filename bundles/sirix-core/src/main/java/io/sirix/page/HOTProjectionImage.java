@@ -22,8 +22,8 @@ import java.util.Objects;
 
 /**
  * A bounded immutable complete image. Its envelope and ordered side trailer are validated once;
- * fixed-width slot bounds are validated once; other lookups validate the slot headers they visit.
- * No native page, mutable reference, input array or borrowed frame escapes. A directory may retain
+ * lookups validate the slot headers they visit until cached routing is prepared once for reuse. No
+ * native page, mutable reference, input array or borrowed frame escapes. A directory may retain
  * this routing under its own cache byte charge.
  */
 public final class HOTProjectionImage {
@@ -39,7 +39,9 @@ public final class HOTProjectionImage {
   private final int used;
   private final int references;
   private final int referencesStart;
-  private final long @Nullable [] wordSlots;
+  private static final long[] NO_WORD_SLOTS = new long[0];
+  private static final VarHandle WORD_SLOTS = wordSlotsHandle();
+  private volatile long @Nullable [] wordSlots;
 
   private HOTProjectionImage(final byte[] bytes, final int start) {
     this.bytes = bytes;
@@ -87,7 +89,6 @@ public final class HOTProjectionImage {
         }
         previous = composite;
       }
-      wordSlots = indexWordSlots();
     } catch (final IndexOutOfBoundsException e) {
       throw new IllegalStateException("Truncated projection leaf image", e);
     }
@@ -139,20 +140,21 @@ public final class HOTProjectionImage {
         || !Arrays.equals(bytes, prefixStart, prefixStart + prefixLength, key, 0, prefixLength)) {
       return null;
     }
-    if (wordSlots != null && key.length == Long.BYTES) {
+    final long[] indexed = wordSlots;
+    if (indexed != null && indexed.length != 0 && key.length == Long.BYTES) {
       final long encoded = Long.reverseBytes((long) LONGS.get(key, 0));
       int low = 0;
       int high = count - 1;
       while (low <= high) {
         final int middle = (low + high) >>> 1;
         final int at = middle << 1;
-        final int comparison = Long.compareUnsigned(wordSlots[at], encoded);
+        final int comparison = Long.compareUnsigned(indexed[at], encoded);
         if (comparison < 0) {
           low = middle + 1;
         } else if (comparison > 0) {
           high = middle - 1;
         } else {
-          final long range = wordSlots[at + 1];
+          final long range = indexed[at + 1];
           final int start = (int) (range >>> Integer.SIZE);
           final int length = (int) range;
           return new HOTLeafEntry(Arrays.copyOfRange(bytes, start, start + length), sideReference(sideReferenceKey));
@@ -190,6 +192,27 @@ public final class HOTProjectionImage {
       }
     }
     return null;
+  }
+
+  /**
+   * Prepare derived routing before cache publication, never for an unretained cold image. The array
+   * is fully built before publication, and contenders derive identical bounds from immutable bytes.
+   */
+  public void prepareForCache() {
+    if (wordSlots == null) {
+      final long[] prepared = indexWordSlots();
+      WORD_SLOTS.compareAndSet(this, null, prepared == null
+          ? NO_WORD_SLOTS
+          : prepared);
+    }
+  }
+
+  private static VarHandle wordSlotsHandle() {
+    try {
+      return MethodHandles.lookup().findVarHandle(HOTProjectionImage.class, "wordSlots", long[].class);
+    } catch (final ReflectiveOperationException failure) {
+      throw new ExceptionInInitializerError(failure);
+    }
   }
 
   /**
@@ -268,8 +291,9 @@ public final class HOTProjectionImage {
   }
 
   public long retainedSizeBytes() {
-    return 72 + ((16L + bytes.length + 7) & ~7L) + (wordSlots == null
+    final long[] indexed = wordSlots;
+    return 72 + ((16L + bytes.length + 7) & ~7L) + (indexed == null || indexed.length == 0
         ? 0
-        : 16L + (long) wordSlots.length * Long.BYTES);
+        : 16L + (long) indexed.length * Long.BYTES);
   }
 }

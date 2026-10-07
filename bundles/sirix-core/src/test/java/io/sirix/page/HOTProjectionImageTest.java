@@ -4,6 +4,11 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
+import io.sirix.cache.ProjectionBlobCache;
+import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.PathKeySerializer;
@@ -24,6 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
@@ -193,6 +201,16 @@ final class HOTProjectionImageTest {
     }
     System.arraycopy(dense, slots + used, relocated, slots + at, dense.length - slots - used);
     final HOTProjectionImage image = open(relocated);
+    final long coldBytes = 72 + ((16L + relocated.length + 7) & ~7L);
+    assertEquals(coldBytes, image.retainedSizeBytes(), "cold images must not expand every word slot");
+    for (int row = 0; row < keys.length; row++) {
+      assertArrayEquals(value(row), image.select(wordKey(keys[row]), row - 6).value());
+    }
+    assertEquals(coldBytes, image.retainedSizeBytes(), "uncached selection must retain no word directory");
+    image.prepareForCache();
+    final long preparedBytes = image.retainedSizeBytes();
+    image.prepareForCache();
+    assertEquals(preparedBytes, image.retainedSizeBytes(), "repeated preparation publishes no extra retained array");
     assertEquals(72 + ((16L + relocated.length + 7) & ~7L) + 16L + keys.length * 2L * Long.BYTES,
         image.retainedSizeBytes(), "charge the entire primitive directory in addition to the owned image");
     Arrays.fill(relocated, (byte) 0);
@@ -226,9 +244,42 @@ final class HOTProjectionImageTest {
     final int suffix = changed.getShort(slots + offset) & 0xffff;
     changed.putShort(slots + offset + Short.BYTES + suffix, (short) (used + 1));
     final HOTProjectionImage image = open(wire);
+    image.prepareForCache();
     assertThrows(IllegalStateException.class, () -> image.select(wordKey(1), -6));
     assertEquals(72 + ((16L + wire.length + 7) & ~7L), image.retainedSizeBytes(),
         "a malformed word slot must decline the prevalidated directory");
+  }
+
+  @Test
+  void routingPublicationChargesPreparedDirectoryAndRejectsAnOversizedCombinedEntry() throws IOException {
+    final byte[] wire = wordWire(new long[] {1, 2, 3, 4, 5, 6});
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    when(reader.getRevisionNumber()).thenReturn(1);
+    for (final int budget : new int[] {4096, 1024}) {
+      final ProjectionBlobCache cache = new ProjectionBlobCache(budget);
+      final long empty = cache.getCurrentWeightBytes();
+      final HOTProjectionImage image = open(wire);
+      final long cold = image.retainedSizeBytes();
+      final ReadScope scope = new ReadScope();
+      final PageReference reference = reference(wire);
+      scope.rememberImage(reader, reference, image, cache.generation());
+      final ImageSnapshot routing = scope.snapshotImage();
+      assertNotNull(routing);
+      final Key key = new Key(0, 0, reference.getKey(), reference.getHashAsLong(), 1, 0);
+      final boolean admitted = cache.put(key, new byte[] {7}, routing, cache.generation());
+      assertEquals(cold + 16 + 6 * 2 * Long.BYTES, image.retainedSizeBytes(),
+          "preparation must finish before the combined admission weight is computed");
+      if (budget == 4096) {
+        assertTrue(admitted);
+        assertEquals(empty + 192 + 8 + routing.retainedSizeBytes(), cache.getCurrentWeightBytes());
+        assertArrayEquals(new byte[] {7}, cache.get(key));
+      } else {
+        assertFalse(admitted, "the root fits before preparation but exceeds this set's byte budget afterward");
+        assertEquals(empty, cache.getCurrentWeightBytes());
+        assertNull(cache.get(key));
+      }
+      scope.finish(false);
+    }
   }
 
   private static byte[] wordWire(final long[] keys) throws IOException {

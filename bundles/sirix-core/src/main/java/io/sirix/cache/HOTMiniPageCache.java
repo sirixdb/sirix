@@ -278,6 +278,11 @@ public final class HOTMiniPageCache {
         generation = scope.imageGeneration;
       }
 
+      /** Build reusable routing before its cache weight is computed and published. */
+      public void prepareForCache() {
+        image.prepareForCache();
+      }
+
       /** Charged in full to each directory that retains it, even if two views share the image. */
       public long retainedSizeBytes() {
         return 80 + image.retainedSizeBytes();
@@ -324,7 +329,10 @@ public final class HOTMiniPageCache {
       image = null;
     }
 
-    /** Heap ownership is one image (at most 64 KiB plus headers), independent of cache admission. */
+    /**
+     * Heap ownership is one bounded image plus its byte-accounted derived routing, independent of cache
+     * admission.
+     */
     public long retainedImageBytes() {
       return image == null
           ? 0

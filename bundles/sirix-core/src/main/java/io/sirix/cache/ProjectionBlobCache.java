@@ -169,6 +169,9 @@ public final class ProjectionBlobCache {
     if (!canCache(verified.length)) {
       return false;
     }
+    if (routing != null) {
+      routing.prepareForCache();
+    }
     final long weight = weight(verified.length) + (routing == null
         ? 0
         : routing.retainedSizeBytes());
@@ -178,6 +181,10 @@ public final class ProjectionBlobCache {
   /** A view owns its immutable bytes and descriptors before it can be published. */
   public boolean putView(final Key key, final ProjectionSortedReadView view, final long expectedGeneration) {
     Objects.requireNonNull(key);
+    if (!canCache(view)) {
+      return false;
+    }
+    view.prepareForCache();
     if (!canCache(view)) {
       return false;
     }

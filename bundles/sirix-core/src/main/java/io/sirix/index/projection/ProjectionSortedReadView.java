@@ -61,6 +61,13 @@ public final class ProjectionSortedReadView {
     return leaf.encodedSize();
   }
 
+  /** Prepare optional physical routing before its complete cache charge is published. */
+  public void prepareForCache() {
+    if (routing != null) {
+      routing.prepareForCache();
+    }
+  }
+
   /** Conservative object headers, references, aligned arrays and descriptor metadata. */
   public long retainedSizeBytes() {
     return 40 + leaf.retainedSizeBytes() + (directory == null
