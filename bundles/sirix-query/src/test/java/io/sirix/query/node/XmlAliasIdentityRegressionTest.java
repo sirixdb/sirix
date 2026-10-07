@@ -141,16 +141,15 @@ final class XmlAliasIdentityRegressionTest {
       final boolean deweyIds, final int suppliedWriter) throws IOException {
     checkUpdate(versioning, strategy, deweyIds, suppliedWriter, true, "rename-delete", "<r><a/></r>",
         "(rename node $a/r/a as 'z', delete node $b/r/a)", "<r/>");
-    checkUpdate(versioning, strategy, deweyIds, suppliedWriter, true, "content",
-        "<r><a>old</a><b>before</b></r>",
+    checkUpdate(versioning, strategy, deweyIds, suppliedWriter, true, "content", "<r><a>old</a><b>before</b></r>",
         "(replace value of node $a/r/a with 'first', replace value of node $b/r/b with 'second')",
         "<r><a>first</a><b>second</b></r>");
   }
 
   @ParameterizedTest
   @MethodSource("updateConfigurations")
-  void sameNameAttributeReplacementUsesTheExecutionView(final VersioningType versioning,
-      final CommitStrategy strategy, final boolean deweyIds, final int suppliedWriter) throws IOException {
+  void sameNameAttributeReplacementUsesTheExecutionView(final VersioningType versioning, final CommitStrategy strategy,
+      final boolean deweyIds, final int suppliedWriter) throws IOException {
     for (final boolean alias : new boolean[] {false, true}) {
       checkUpdate(versioning, strategy, deweyIds, suppliedWriter, alias, "attribute", "<r a='old' keep='yes'/>",
           "(replace node $a/r/@a with attribute a {'new'}, insert node <c/> into $b/r)",
@@ -162,11 +161,12 @@ final class XmlAliasIdentityRegressionTest {
       final int suppliedWriter, final boolean useAlias, final String name, final String xml, final String update,
       final String expected) throws IOException {
     final String configuration = name + "-" + strategy + "-" + deweyIds + "-" + suppliedWriter + "-" + useAlias;
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                    .location(directory.resolve(configuration))
-                                                    .versioningType(versioning)
-                                                    .storeDeweyIds(deweyIds)
-                                                    .build();
+    try (
+        final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                     .location(directory.resolve(configuration))
+                                                     .versioningType(versioning)
+                                                     .storeDeweyIds(deweyIds)
+                                                     .build();
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy)) {
       final XmlDBCollection collection = store.create("data", new DocumentParser(xml));
@@ -174,7 +174,9 @@ final class XmlAliasIdentityRegressionTest {
       Files.createSymbolicLink(link, store.getLocation().resolve("data"));
       try (final XmlDBCollection alias = store.lookup(link.toString())) {
         final XmlDBNode original = collection.getDocument(1);
-        final XmlDBNode other = useAlias ? alias.getDocument(1) : original;
+        final XmlDBNode other = useAlias
+            ? alias.getDocument(1)
+            : original;
         final XmlResourceSession firstSession = original.getTrx().getResourceSession();
         final XmlResourceSession secondSession = other.getTrx().getResourceSession();
         if (useAlias) {
@@ -182,8 +184,11 @@ final class XmlAliasIdentityRegressionTest {
         }
         final String before = serialize(original);
         final AtomicInteger commits = new AtomicInteger();
-        try (final XmlNodeTrx supplied = suppliedWriter == 0 ? null
-            : (suppliedWriter == 1 ? firstSession : secondSession).beginNodeTrx(1)) {
+        try (final XmlNodeTrx supplied = suppliedWriter == 0
+            ? null
+            : (suppliedWriter == 1
+                ? firstSession
+                : secondSession).beginNodeTrx(1)) {
           if (supplied != null) {
             supplied.addPreCommitHook(unused -> commits.incrementAndGet());
           }
@@ -195,12 +200,14 @@ final class XmlAliasIdentityRegressionTest {
           if (strategy == CommitStrategy.EXPLICIT) {
             assertEquals(1, firstSession.getMostRecentRevisionNumber());
             assertEquals(0, commits.get());
-            try (final XmlNodeTrx writer = firstSession.getNodeTrx().orElseGet(
-                () -> secondSession.getNodeTrx().orElseThrow())) {
+            try (final XmlNodeTrx writer =
+                firstSession.getNodeTrx().orElseGet(() -> secondSession.getNodeTrx().orElseThrow())) {
               if (supplied != null) {
                 assertSame(supplied, writer);
                 if (useAlias) {
-                  assertTrue((suppliedWriter == 1 ? secondSession : firstSession).getNodeTrx().isEmpty());
+                  assertTrue((suppliedWriter == 1
+                      ? secondSession
+                      : firstSession).getNodeTrx().isEmpty());
                 }
               }
               writer.commit();
@@ -224,14 +231,13 @@ final class XmlAliasIdentityRegressionTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void privateWriterComparisonsPreserveSnapshotIdentity(final VersioningType versioning)
-      throws IOException {
+  void privateWriterComparisonsPreserveSnapshotIdentity(final VersioningType versioning) throws IOException {
     for (final boolean deweyIds : new boolean[] {false, true}) {
       try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                      .location(directory.resolve("scoped-" + deweyIds))
-                                                      .versioningType(versioning)
-                                                      .storeDeweyIds(deweyIds)
-                                                      .build()) {
+                                                        .location(directory.resolve("scoped-" + deweyIds))
+                                                        .versioningType(versioning)
+                                                        .storeDeweyIds(deweyIds)
+                                                        .build()) {
         final XmlDBCollection collection = store.create("data", new DocumentParser(XML));
         final Path link = store.getLocation().resolve("linked");
         Files.createSymbolicLink(link, store.getLocation().resolve("data"));

@@ -132,12 +132,14 @@ final class XmlPendingUpdateRegressionTest {
     for (final boolean deweyIds : new boolean[] {false, true}) {
       for (final AfterCommitState state : new AfterCommitState[] {AfterCommitState.KEEP_OPEN,
           AfterCommitState.KEEP_OPEN_ASYNC_COMMIT, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH}) {
-        try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                       .location(directory.resolve("missing-" + state + "-" + deweyIds))
-                                                       .versioningType(versioning)
-                                                       .storageType(StorageType.FILE_CHANNEL)
-                                                       .storeDeweyIds(deweyIds)
-                                                       .build();
+        try (
+            final BasicXmlDBStore store =
+                BasicXmlDBStore.newBuilder()
+                               .location(directory.resolve("missing-" + state + "-" + deweyIds))
+                               .versioningType(versioning)
+                               .storageType(StorageType.FILE_CHANNEL)
+                               .storeDeweyIds(deweyIds)
+                               .build();
             final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
             final SirixQueryContext first =
                 SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT);

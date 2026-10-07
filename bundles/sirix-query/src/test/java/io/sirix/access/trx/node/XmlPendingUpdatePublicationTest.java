@@ -419,8 +419,8 @@ final class XmlPendingUpdatePublicationTest {
   @EnumSource(VersioningType.class)
   void concurrentQueryKeepsCachedSnapshotWhileUpdateIsPaused(final VersioningType versioning) throws Exception {
     try (final BasicXmlDBStore store = newStore(versioning, "concurrent");
-        final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store,
-            CommitStrategy.EXPLICIT);
+        final SirixQueryContext context =
+            SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT);
         final SirixQueryContext readContext = SirixQueryContext.createWithNodeStore(store);
         final ExecutorService executor = Executors.newSingleThreadExecutor()) {
       final XmlDBCollection collection = store.create("data", new DocumentParser("<r xmlns:p='urn:old'>old</r>"));
@@ -605,26 +605,30 @@ final class XmlPendingUpdatePublicationTest {
 
   private void checkNodeResults(final VersioningType versioning, final CommitStrategy strategy,
       final boolean owningExecution, final boolean deweyIds, final boolean documentTarget) {
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-                                                   .location(directory.resolve("results-" + owningExecution + "-"
-                                                       + deweyIds + "-" + documentTarget))
-                                                   .versioningType(versioning)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .storeDeweyIds(deweyIds)
-                                                   .storeNodeHistory(deweyIds)
-                                                   .build();
+    try (
+        final BasicXmlDBStore store =
+            BasicXmlDBStore.newBuilder()
+                           .location(
+                               directory.resolve("results-" + owningExecution + "-" + deweyIds + "-" + documentTarget))
+                           .versioningType(versioning)
+                           .storageType(StorageType.FILE_CHANNEL)
+                           .storeDeweyIds(deweyIds)
+                           .storeNodeHistory(deweyIds)
+                           .build();
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy);
         final SirixQueryContext readContext = SirixQueryContext.createWithNodeStore(store);
         final ExecutorService executor = Executors.newSingleThreadExecutor()) {
-      final XmlDBCollection collection = store.create("data",
-          new DocumentParser("<r xmlns:p='urn:old' a='old'>old<tail/></r>"));
+      final XmlDBCollection collection =
+          store.create("data", new DocumentParser("<r xmlns:p='urn:old' a='old'>old<tail/></r>"));
       final String aliasName = store.getLocation().resolve(".").resolve("data").toString();
       final XmlDBCollection alias = store.lookup(aliasName);
       final XmlDBNode cached = collection.getDocument(1);
       final XmlDBNode aliased = alias.getDocument(1);
       final XmlDBNode originalRoot = cached.getFirstChild();
-      final XmlDBNode target = documentTarget ? cached : originalRoot;
+      final XmlDBNode target = documentTarget
+          ? cached
+          : originalRoot;
       final XmlNodeReadOnlyTrx originalReader = cached.getTrx();
       final XmlResourceSession session = originalReader.getResourceSession();
       final String resource = collection.getDatabase().listResources().getFirst().getFileName().toString();
@@ -659,7 +663,9 @@ final class XmlPendingUpdatePublicationTest {
           @Override
           public void apply(final StructuredItem executionTarget) {
             final XmlDBNode live = (XmlDBNode) executionTarget;
-            final XmlDBNode root = documentTarget ? live.getFirstChild() : live;
+            final XmlDBNode root = documentTarget
+                ? live.getFirstChild()
+                : live;
             new ReplaceElementContentOp(root, new Una("uncommitted")).apply();
             root.setAttribute(new QNm("a"), new Una("uncommitted"));
             root.getScope().addPrefix("q", "urn:uncommitted");
@@ -671,8 +677,8 @@ final class XmlPendingUpdatePublicationTest {
                     "r/ancestor-or-self::r", "r/descendant-or-self::r", "r/tail/preceding-sibling::text()/parent::r",
                     "r/text()/following-sibling::tail/parent::r", "r/tail/preceding::text()/parent::r",
                     "r/text()/following::tail/parent::r", "sdb:select-item($$, " + originalRoot.getNodeKey() + ")",
-                    "sdb:select-parent(r/@a)", "sdb:item-history($$)", "declare variable $one external; $one", "doc('')",
-                    "collection()", "xn:doc('" + aliasName + "','" + resource + "',1)",
+                    "sdb:select-parent(r/@a)", "sdb:item-history($$)", "declare variable $one external; $one",
+                    "doc('')", "collection()", "xn:doc('" + aliasName + "','" + resource + "',1)",
                     "xn:open('" + aliasName + "','" + resource + "',xs:dateTime('" + pointInTime + "'))"}) {
                   final Query query = new Query(chain, text);
                   checkSerializers(query, reader, expected, text);
@@ -703,8 +709,8 @@ final class XmlPendingUpdatePublicationTest {
             final XmlDBNode privateSnapshot = (XmlDBNode) new Query(chain, "$$").execute(readContext);
             readContext.setContextItem(privateSnapshot);
             final XmlDBNode privateTarget = privateSnapshot.writerView(writer);
-            new ReplaceElementContentOp(privateSnapshot.getFirstChild(), new Una("uncommitted"))
-                .apply(privateTarget.getFirstChild());
+            new ReplaceElementContentOp(privateSnapshot.getFirstChild(), new Una("uncommitted")).apply(
+                privateTarget.getFirstChild());
             assertSame(writer, privateTarget.getTrx());
             assertSame(originalReader, privateSnapshot.getTrx());
             checkSerializers(new Query(chain, "$$"), readContext, expected, "snapshot update target");
@@ -739,7 +745,9 @@ final class XmlPendingUpdatePublicationTest {
   private static void checkExecutorResults(final Query query, final QueryContext context,
       final ExecutorService executor, final String expected, final int documentHash, final int rootHash) {
     for (final boolean evaluate : new boolean[] {false, true}) {
-      final Future<Sequence> result = executor.submit(() -> evaluate ? query.evaluate(context) : query.execute(context));
+      final Future<Sequence> result = executor.submit(() -> evaluate
+          ? query.evaluate(context)
+          : query.execute(context));
       try {
         final XmlDBNode node = (XmlDBNode) result.get(10, TimeUnit.SECONDS).get(new Int64(1));
         checkSnapshotNode(node, documentHash, rootHash);
@@ -770,8 +778,12 @@ final class XmlPendingUpdatePublicationTest {
   private static void checkSnapshotNode(final XmlDBNode node, final int documentHash, final int rootHash) {
     assertEquals(1, node.getTrx().getRevisionNumber());
     assertEquals("old", node.getValue().stringValue());
-    final XmlDBNode root = node.getKind() == Kind.DOCUMENT ? node.getFirstChild() : node;
-    assertEquals(node.getKind() == Kind.DOCUMENT ? documentHash : rootHash, node.hashCode());
+    final XmlDBNode root = node.getKind() == Kind.DOCUMENT
+        ? node.getFirstChild()
+        : node;
+    assertEquals(node.getKind() == Kind.DOCUMENT
+        ? documentHash
+        : rootHash, node.hashCode());
     assertEquals("old", root.getAttribute(new QNm("a")).getValue().stringValue());
     assertEquals("urn:old", root.getScope().resolvePrefix("p"));
     assertEquals(null, root.getScope().resolvePrefix("q"));
@@ -807,8 +819,7 @@ final class XmlPendingUpdatePublicationTest {
         final Stream<AbstractTemporalNode<XmlDBNode>> allTime = document.getAllTime();
         final var step = document.performStep(ALL_TIME, new DocumentType())) {
       for (final XmlDBNode temporal : new XmlDBNode[] {(XmlDBNode) earlier.next(), (XmlDBNode) future.next(),
-          (XmlDBNode) allTime.next(),
-          (XmlDBNode) step.next()}) {
+          (XmlDBNode) allTime.next(), (XmlDBNode) step.next()}) {
         assertEquals("old", temporal.getValue().stringValue());
         assertTrue(temporal.isSelfOf(document));
         if (temporal.getTrx() != document.getTrx()) {
@@ -861,7 +872,9 @@ final class XmlPendingUpdatePublicationTest {
           }
         });
         context.applyUpdates();
-        assertEquals(strategy == CommitStrategy.AUTO ? 1 : 0, commits.get());
+        assertEquals(strategy == CommitStrategy.AUTO
+            ? 1
+            : 0, commits.get());
         if (strategy == CommitStrategy.EXPLICIT) {
           writer.commit();
         } else {

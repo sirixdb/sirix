@@ -238,7 +238,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
           if (!writersByResource.containsKey(resource)) {
             final XmlNodeTrx supplied = suppliedWriters.get(resource);
             final boolean created = supplied == null;
-            final XmlNodeTrx writer = created
+            final XmlNodeTrx writer = supplied == null
                 ? session.beginNodeTrx()
                 : supplied;
             writer.beginAtomicOperation();
@@ -253,7 +253,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       for (int i = 0; i < originals.size(); i++) {
         final UpdateOp operation = originals.get(i);
         if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeTrx writer = writersByResource.get(XmlResourceId.of(source.getTrx()));
+          final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
           operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
         }
       }

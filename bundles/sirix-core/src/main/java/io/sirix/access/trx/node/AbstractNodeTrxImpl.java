@@ -426,6 +426,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  @SuppressWarnings("ReferenceEquality") // Scope ownership requires the exact thread instance.
   public final void endAtomicOperation() {
     if (publicationScopeDepth == 0 || publicationScopeOwner != Thread.currentThread()) {
       throw new IllegalStateException("Publication scopes must be balanced on the owning thread");
@@ -969,7 +970,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
     if (compoundOperationDepth != 0
-        || publicationScopeDepth != 0 && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        || (publicationScopeDepth != 0 && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
       return false;
     }
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {

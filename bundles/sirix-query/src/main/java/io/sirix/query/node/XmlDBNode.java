@@ -86,7 +86,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final boolean isWtx;
 
   /** {@link Scope} of node. */
-  private SirixScope scope;
+  private @Nullable SirixScope scope;
 
   /**
    * Constructor.
@@ -475,7 +475,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Scope getScope() {
+  public @Nullable Scope getScope() {
     if (scope == null && kind == NodeKind.ELEMENT) {
       scope = new SirixScope(this);
     }
