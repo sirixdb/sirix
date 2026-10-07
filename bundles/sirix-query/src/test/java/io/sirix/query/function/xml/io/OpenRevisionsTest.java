@@ -177,7 +177,7 @@ public final class OpenRevisionsTest {
         : XmlTestHelper.RESOURCE;
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final XmlDBCollection collection = timestampTies
-          ? store.create(database.toString(), new DocumentParser("<root/>"), null, start.minusMillis(3))
+          ? store.create(database.toString(), new DocumentParser("<root/>"), "", start.minusMillis(3))
           : store.lookup(database.toString());
       final var session = collection.getDatabase().beginResourceSession(resourceName);
       if (timestampTies) {
