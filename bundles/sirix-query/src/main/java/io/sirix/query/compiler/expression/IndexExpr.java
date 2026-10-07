@@ -81,22 +81,31 @@ public final class IndexExpr implements Expr {
 
   private final Map<String, Object> properties;
 
-  private final Expr revisionOperand;
-  private final Expr fallback;
+  private final @Nullable Expr revisionOperand;
+  private final @Nullable Expr fallback;
 
   public IndexExpr(final Map<String, Object> properties) {
     this(properties, null, null);
   }
 
-  public IndexExpr(final Map<String, Object> properties, final Expr revisionOperand, final Expr fallback) {
+  public IndexExpr(final Map<String, Object> properties, final @Nullable Expr revisionOperand,
+      final @Nullable Expr fallback) {
     this.revisionOperand = revisionOperand;
     this.fallback = fallback;
     this.properties = requireNonNull(properties);
-    databaseName = requireNonNull((String) properties.get("databaseName"));
-    resourceName = requireNonNull((String) properties.get("resourceName"));
-    revision = (Integer) properties.get("revision");
+    databaseName = requiredProperty("databaseName", String.class);
+    resourceName = requiredProperty("resourceName", String.class);
+    revision = requiredProperty("revision", Integer.class);
     // noinspection unchecked
-    indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) properties.get("indexDefs");
+    indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) requiredProperty("indexDefs", Map.class);
+  }
+
+  private <T> T requiredProperty(final String name, final Class<T> type) {
+    final Object value = properties.get(name);
+    if (value == null) {
+      throw new IllegalStateException("Missing required index property: " + name);
+    }
+    return type.cast(value);
   }
 
   @Override
@@ -123,16 +132,16 @@ public final class IndexExpr implements Expr {
         final IndexDef actual = indexController.getIndexes().getIndexDef(expected.getID(), expected.getType());
         if (actual == null || !actual.hasSameDefinition(expected) || !supportsNumericQuery(actual)) {
           rtx.close();
-          return fallback.evaluate(ctx, tuple);
+          return requireNonNull(fallback).evaluate(ctx, tuple);
         }
       }
       var nodeKeys = new ArrayList<Long>();
 
-      final var indexType = (IndexType) properties.get("indexType");
+      final var indexType = requiredProperty("indexType", IndexType.class);
       final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
       @SuppressWarnings("unchecked")
       final var pathSegmentNamesToArrayIndexes =
-          (Deque<QueryPathSegment>) properties.get("pathSegmentNamesToArrayIndexes");
+          (Deque<QueryPathSegment>) requiredProperty("pathSegmentNamesToArrayIndexes", Deque.class);
 
       for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
         final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
@@ -146,8 +155,8 @@ public final class IndexExpr implements Expr {
                 nodeKeys, false);
           }
           case CAS -> {
-            final var atomic = (Atomic) properties.get("atomic");
-            final var comparisonType = (String) properties.get("comparator");
+            final var atomic = requiredProperty("atomic", Atomic.class);
+            final var comparisonType = requiredProperty("comparator", String.class);
             final Atomic atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
             final String comparisonUpperBound = (String) properties.get("upperBoundComparator");
             final SearchMode searchMode = getSearchMode(comparisonType);
@@ -250,16 +259,16 @@ public final class IndexExpr implements Expr {
           for (final IndexDef indexDef : indexDefsToPaths.keySet()) {
             final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
             @SuppressWarnings("unchecked")
-            final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
-            final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
-            final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
+            final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) requiredProperty("predicateLevel", Map.class);
+            final var predicateLevel = requireNonNull(indexDefToPredicateLevel.get(indexDef));
+            final var nodeKeysOfIndex = requireNonNull(indexTypeToNodeKeys.get(indexDef));
             for (final long nodeKey : nodeKeysOfIndex) {
               // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
               // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
               rtx.moveTo(nodeKey);
               if (!hasFirstFieldIdentity(rtx)) {
                 rtx.close();
-                return fallback.evaluate(ctx, tuple);
+                return requireNonNull(fallback).evaluate(ctx, tuple);
               }
               // iter#32 fusion: the legacy CAS index emitted entries on the primitive VALUE node
               // (STRING_VALUE etc.) whose parent was OBJECT_KEY. Under fusion the indexed entry
@@ -385,12 +394,12 @@ public final class IndexExpr implements Expr {
   @SuppressWarnings("unchecked")
   private @Nullable Sequence evaluateCASSource(final QueryContext context, final Tuple tuple,
       final JsonDBCollection collection, final JsonResourceSession session, final int revisionNumber) {
-    final Path<QNm> path = (Path<QNm>) properties.get("casSourcePath");
-    final Type type = (Type) properties.get("casSourceType");
+    final Path<QNm> path = (Path<QNm>) requiredProperty("casSourcePath", Path.class);
+    final Type type = requiredProperty("casSourceType", Type.class);
     final var controller = session.getRtxIndexController(revisionNumber);
     final var definition = controller.getIndexes().findCASIndex(path, type);
     if (definition.isEmpty() || !definition.get().hasNumericValuesOnly()) {
-      return fallback.evaluate(context, tuple);
+      return requireNonNull(fallback).evaluate(context, tuple);
     }
     final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revisionNumber);
     boolean retained = false;
@@ -398,10 +407,10 @@ public final class IndexExpr implements Expr {
       final long arrayKey = resolveSourceArray(rtx, collection);
       if (arrayKey < 0) {
         rtx.close();
-        return fallback.evaluate(context, tuple);
+        return requireNonNull(fallback).evaluate(context, tuple);
       }
       final boolean deweyIDs = session.getResourceConfig().areDeweyIDsStored;
-      final Atomic value = (Atomic) properties.get("atomic");
+      final Atomic value = requiredProperty("atomic", Atomic.class);
       final CASFilter filter = new CASFilter(Set.of(path), value, SearchMode.EQUAL, new JsonPCRCollector(rtx));
       final Iterator<NodeReferences> references =
           controller.openCASIndex(rtx.getStorageEngineReader(), definition.get(), filter);
@@ -426,7 +435,7 @@ public final class IndexExpr implements Expr {
           if (rejected == 2 || (inspected == 2 && !deweyIDs
               && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey))) {
             rtx.close();
-            return fallback.evaluate(context, tuple);
+            return requireNonNull(fallback).evaluate(context, tuple);
           }
         }
       }
@@ -472,7 +481,7 @@ public final class IndexExpr implements Expr {
     if (!rtx.moveToFirstChild()) {
       return -1;
     }
-    final QNm[] fields = (QNm[]) properties.get("casSourceFields");
+    final QNm[] fields = requiredProperty("casSourceFields", QNm[].class);
     if (fields.length == 0) {
       return rtx.isArray()
           ? rtx.getNodeKey()

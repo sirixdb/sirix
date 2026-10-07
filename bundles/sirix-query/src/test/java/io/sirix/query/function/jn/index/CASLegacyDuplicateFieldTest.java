@@ -85,7 +85,7 @@ final class CASLegacyDuplicateFieldTest {
         for (int i = 0; i < predicates.size(); i++) {
           final String rows = document + "[].item[?" + predicates.get(i) + "]";
           final String count = "count(" + rows + ")";
-          assertTrue(QueryPlan.explain(rows, store, null).usesIndex(), predicates.get(i));
+          assertTrue(QueryPlan.explain(rows, store, context.getNodeStore()).usesIndex(), predicates.get(i));
           assertEquals(expected.get(revision - 1).get(i).intValue(),
               ((Numeric) new Query(generic, count).execute(context)).intValue(), count);
           assertEquals(expected.get(revision - 1).get(i).intValue(),

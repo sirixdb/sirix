@@ -58,8 +58,11 @@ final class CASMultiMatchWorkBudgetTest {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .useDeweyIDs(deweyIDs).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("rows")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .useDeweyIDs(deweyIDs)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(24_000);
         if (duplicateArray) {
@@ -77,9 +80,10 @@ final class CASMultiMatchWorkBudgetTest {
           json.append('}');
         }
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse(duplicateArray ? "/rows/[]/id" : "/[]/id",
-                PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse(duplicateArray
+                   ? "/rows/[]/id"
+                   : "/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit();
       }
     }
@@ -104,12 +108,17 @@ final class CASMultiMatchWorkBudgetTest {
       }).when(session).beginNodeReadOnlyTrx(anyInt());
       try (var context = SirixQueryContext.createWithJsonStore(observedStore);
           var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(observedStore)) {
-        final String source = "jn:doc('budget','rows')" + (duplicateArray ? ".rows[]" : "[]");
-        final String text = filter ? "sum(" + source + "[?$$.id eq 1].id)"
+        final String source = "jn:doc('budget','rows')" + (duplicateArray
+            ? ".rows[]"
+            : "[]");
+        final String text = filter
+            ? "sum(" + source + "[?$$.id eq 1].id)"
             : "sum(for $c in " + source + " where $c.id eq 1 return $c.id)";
         final Query query = new Query(chain, text);
         cursors.clear();
-        assertEquals(duplicateArray ? 0 : 2_048, ((Numeric) query.evaluate(context)).intValue());
+        assertEquals(duplicateArray
+            ? 0
+            : 2_048, ((Numeric) query.evaluate(context)).intValue());
         assertEquals(1, cursors.size());
         final JsonNodeReadOnlyTrx cursor = cursors.getFirst();
         verify(cursor, times(2)).getParentKey();
@@ -122,7 +131,7 @@ final class CASMultiMatchWorkBudgetTest {
 
   private static Stream<Arguments> sources() {
     return Stream.of(Arguments.of(false, false, false), Arguments.of(true, false, false),
-        Arguments.of(false, true, false), Arguments.of(true, true, false),
-        Arguments.of(false, true, true), Arguments.of(true, true, true));
+        Arguments.of(false, true, false), Arguments.of(true, true, false), Arguments.of(false, true, true),
+        Arguments.of(true, true, true));
   }
 }

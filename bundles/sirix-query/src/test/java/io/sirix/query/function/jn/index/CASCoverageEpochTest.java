@@ -51,8 +51,12 @@ final class CASCoverageEpochTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     int fractionalRevision;
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .versioningApproach(versioning).hashKind(HashType.NONE).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("rows")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .hashKind(HashType.NONE)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder("[{\"item\":{\"id\":1,\"value\":10}}");
         for (int i = 0; i < 2_048; i++) {
@@ -60,9 +64,9 @@ final class CASCoverageEpochTest {
         }
         json.append(']');
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/item/id", PathParser.Type.JSON)), 0,
-                IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INR,
+                   Set.of(parse("/[]/item/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit();
         if (!asynchronous) {
           moveToFirstId(writer);
@@ -105,11 +109,13 @@ final class CASCoverageEpochTest {
       final IndexDef initial = session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS);
       assertTrue(initial.hasNumericValuesOnly());
       assertTrue(initial.hasCompleteNumericCoverage());
-      final IndexDef fractional = session.getRtxIndexController(fractionalRevision).getIndexes().getIndexDef(0, IndexType.CAS);
+      final IndexDef fractional =
+          session.getRtxIndexController(fractionalRevision).getIndexes().getIndexDef(0, IndexType.CAS);
       assertTrue(fractional.hasNumericValuesOnly());
       assertFalse(fractional.hasCompleteNumericCoverage());
       final IndexDef latest = session.getRtxIndexController(session.getMostRecentRevisionNumber())
-          .getIndexes().getIndexDef(0, IndexType.CAS);
+                                     .getIndexes()
+                                     .getIndexDef(0, IndexType.CAS);
       assertFalse(latest.hasNumericValuesOnly());
       assertFalse(latest.hasCompleteNumericCoverage());
     }
@@ -119,7 +125,9 @@ final class CASCoverageEpochTest {
       final CompileChain generic = new CompileChain();
       for (final int revision : List.of(1, fractionalRevision)) {
         final String text = "jn:doc('coverage','rows'," + revision + ")[].item[?$$.id gt 1].value";
-        final List<Double> expected = revision == 1 ? List.of() : List.of(10d);
+        final List<Double> expected = revision == 1
+            ? List.of()
+            : List.of(10d);
         assertEquals(expected, values(new Query(generic, text).execute(context)));
         assertEquals(expected, values(new Query(chain, text).execute(context)));
       }
@@ -142,7 +150,8 @@ final class CASCoverageEpochTest {
   }
 
   private static Stream<Arguments> epochs() {
-    return Arrays.stream(VersioningType.values()).flatMap(type -> Stream.of(Arguments.of(type, false), Arguments.of(type, true)));
+    return Arrays.stream(VersioningType.values())
+                 .flatMap(type -> Stream.of(Arguments.of(type, false), Arguments.of(type, true)));
   }
 
   private static List<Double> values(final Sequence sequence) {

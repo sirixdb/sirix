@@ -38,15 +38,17 @@ final class BitemporalBusinessKeyIndexTest {
                                                    .storeDiffs(false)
                                                    .build());
       try (var session = database.beginResourceSession(resource); var writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "[{\"id\":1,\"pid\":2,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]"),
+        writer.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                "[{\"id\":1,\"pid\":2,\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2025-01-01T00:00:00Z\"}]"),
             JsonNodeTrx.Commit.NO);
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, BitemporalSchema.DATABASE);
         BitemporalSirixLoadMain.createBusinessKeyIndex(session, writer, resource);
         writer.commit();
       }
     }
-    try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession(resource)) {
+    try (var database = Databases.openJsonDatabase(databasePath);
+        var session = database.beginResourceSession(resource)) {
       final var indexes = session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes();
       assertEquals(1, indexes.getNrOfIndexDefsWithType(IndexType.VALIDTIME));
       final var idPath = parse("/[]/id", PathParser.Type.JSON);
