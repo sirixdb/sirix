@@ -226,7 +226,7 @@ The ordering is deliberate:
 - **Logical rewrites first** (Stage 1): Simplify the query before analyzing costs, so the cost model sees a cleaner structure.
 - **Cost analysis before join reordering** (Stages 2-3): The join reorderer needs cardinality estimates to compare join orders. Those estimates come from Stage 2.
 - **Mesh before decomposition** (Stages 4-6): The Mesh records the alternative plans. Decomposition happens after the best alternative is selected, so it only restructures the chosen plan.
-- **Routing before index matching** (Stages 7, 10): The routing stage decides which subtrees should use indexes. Index matching in Stage 10 respects those decisions via the `INDEX_GATE_CLOSED` flag.
+- **Routing before index matching** (Stages 7, 10): The routing stage supplies `INDEX_GATE_CLOSED`; [The Cost Gate Check](#the-cost-gate-check) describes its consumers.
 
 ### Deterministic Work Budgets
 
@@ -492,9 +492,7 @@ Think of it like traffic lights at an intersection:
 - **Green light** (`PREFER_INDEX=true`): "Go ahead and use the index."
 - **Red light** (`INDEX_GATE_CLOSED=true`): "Don't use the index — sequential scan is cheaper."
 
-When Stage 2 annotates a ForBind with `PREFER_INDEX=false`, Stage 7 propagates `INDEX_GATE_CLOSED=true` to **all descendant nodes**. When Stage 10's index matching walkers visit those nodes, they check the gate and skip the rewrite.
-
-Without this stage, the index matching walkers would blindly rewrite every eligible node to use an index, even when the cost model determined it would be slower.
+When Stage 2 annotates a ForBind with `PREFER_INDEX=false`, Stage 7 propagates `INDEX_GATE_CLOSED=true` to **all descendant nodes**. [The Cost Gate Check](#the-cost-gate-check) owns the description of how the index walkers consume that signal.
 
 ---
 
@@ -744,7 +742,7 @@ When `INTERSECTION_JOIN=true` is detected on a Join node, forces `skipSort=true`
 
 ### Physical Operators
 
-**`IndexExpr`** (`IndexExpr.java`, 406 lines): Replaces sequential scans with direct index lookups. Dispatches on index type (PATH, CAS, NAME), opens the appropriate index via `IndexController`, and materializes results into an `ItemSequence`.
+**`IndexExpr`** (`IndexExpr.java`): Executes PATH, CAS, and NAME lookups through `IndexController` and materializes their results. Its revision, catalogue, and fallback contract is documented in [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
 
 **`VectorizedPipelineExpr`** (`VectorizedPipelineExpr.java`, 343 lines): Replaces simple scan-filter-project pipelines with batch-oriented columnar execution using SIMD instructions.
 
@@ -788,7 +786,7 @@ This catches a class of bugs where the optimizer makes a correct decision but th
 |------|-----------|
 | **AST** | Abstract Syntax Tree — tree representation of a parsed query |
 | **Cardinality** | Number of rows a query operation produces |
-| **CAS Index** | Content And Structure — B+-tree index on `(value, path)` pairs |
+| **CAS Index** | Content And Structure — typed value/path index; see [Secondary indexes](ARCHITECTURE.md#secondary-index-types) for storage |
 | **Circuit Breaker** | Timeout that aborts optimization if it takes too long |
 | **DPhyp** | Dynamic Programming via Hypergraph Partitioning — optimal join ordering algorithm |
 | **Equi-depth** | Histogram where each bucket has the same number of values |
@@ -796,7 +794,7 @@ This catches a class of bugs where the optimizer makes a correct decision but th
 | **FLWOR** | For-Let-Where-OrderBy-Return — the XQuery/JSONiq loop construct |
 | **GOO** | Greedy Operator Ordering — fast fallback for large join graphs |
 | **HOT** | Height Optimized Trie — SirixDB's index structure with SIMD search |
-| **Index Gate** | Flag that prevents index matching when the cost model prefers sequential scan |
+| **Index Gate** | Cost-model signal consumed as described in [The Cost Gate Check](#the-cost-gate-check) |
 | **JQGM** | JSON Query Graph Model — adaptation of Weiner's XQGM for JSON |
 | **MCV** | Most-Common Values — exact frequencies for the K most frequent values |
 | **Mesh** | Search space structure grouping equivalent plans into equivalence classes |

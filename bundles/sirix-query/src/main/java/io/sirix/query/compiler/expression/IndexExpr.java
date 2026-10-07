@@ -60,6 +60,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
@@ -99,7 +100,7 @@ public final class IndexExpr implements Expr {
   }
 
   @Override
-  public Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
+  public @Nullable Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
     final var jsonItemStore = ((SirixQueryContext) ctx).getJsonItemStore();
 
     final JsonDBCollection jsonCollection = jsonItemStore.lookup(databaseName);
@@ -342,8 +343,8 @@ public final class IndexExpr implements Expr {
     }
     final Atomic lower = (Atomic) properties.get("atomic");
     final Atomic upper = (Atomic) properties.get("upperBoundAtomic");
-    if (lower instanceof Numeric number && number.doubleValue() == 0.0d
-        || upper instanceof Numeric upperNumber && upperNumber.doubleValue() == 0.0d) {
+    if ((lower instanceof Numeric number && number.doubleValue() == 0.0d)
+        || (upper instanceof Numeric upperNumber && upperNumber.doubleValue() == 0.0d)) {
       return false;
     }
     if (!type.instanceOf(Type.INR)) {
@@ -382,8 +383,8 @@ public final class IndexExpr implements Expr {
   }
 
   @SuppressWarnings("unchecked")
-  private Sequence evaluateCASSource(final QueryContext context, final Tuple tuple, final JsonDBCollection collection,
-      final JsonResourceSession session, final int revisionNumber) {
+  private @Nullable Sequence evaluateCASSource(final QueryContext context, final Tuple tuple,
+      final JsonDBCollection collection, final JsonResourceSession session, final int revisionNumber) {
     final Path<QNm> path = (Path<QNm>) properties.get("casSourcePath");
     final Type type = (Type) properties.get("casSourceType");
     final var controller = session.getRtxIndexController(revisionNumber);
@@ -422,8 +423,8 @@ public final class IndexExpr implements Expr {
             rejected++;
           }
           inspected++;
-          if (rejected == 2 || inspected == 2 && !deweyIDs
-              && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey)) {
+          if (rejected == 2 || (inspected == 2 && !deweyIDs
+              && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey))) {
             rtx.close();
             return fallback.evaluate(context, tuple);
           }

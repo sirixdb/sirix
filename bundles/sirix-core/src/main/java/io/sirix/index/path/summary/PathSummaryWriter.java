@@ -327,7 +327,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Rename an existing OBJECT_KEY path-summary entry in place (does not move it among siblings). Used
+   * Rename the OBJECT_KEY path-summary entry for a fused array field. An exclusive class with no
+   * destination class is renamed in place; otherwise the subtree's path classes are remapped. Used
    * when {@code setObjectKeyName} renames a fused {@link NodeKind#OBJECT_NAMED_ARRAY} field — the
    * OBJECT_KEY layer that carries the field name lives one level above the fused record's
    * {@code __array__/ARRAY} pathNodeKey, so the rename targets that parent entry.
