@@ -6,6 +6,7 @@ package io.sirix.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.index.IndexType;
+import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.io.PageHasher;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
@@ -154,6 +155,99 @@ final class HOTProjectionImageTest {
               .putShort(slots + Short.BYTES + suffixLength, (short) 0xffff);
     final HOTProjectionImage valueImage = open(badValueLength);
     assertThrows(IllegalStateException.class, () -> valueImage.select(key(0), -256));
+  }
+
+  @Test
+  void fixedWordDirectoryOwnsAndAccountsEverySignedKeyAndRelocatedValueRange() throws IOException {
+    final long[] keys =
+        {Long.MIN_VALUE, Long.MIN_VALUE + 1, -129, -128, -1, 0, 1, 127, 128, 65_535, 1L << 46, Long.MAX_VALUE};
+    final byte[] dense = wordWire(keys);
+    final ByteArrayBytesIn input = new ByteArrayBytesIn(dense);
+    input.position(3);
+    Utils.getVarLong(input);
+    input.skip(Integer.BYTES + Byte.BYTES);
+    final int prefix = Short.toUnsignedInt(input.readShort());
+    input.skip(prefix);
+    final int count = input.readInt() & Integer.MAX_VALUE;
+    final int usedAt = (int) input.position();
+    final int used = input.readInt();
+    final int offsets = (int) input.position();
+    final int slots = offsets + count * Integer.BYTES;
+    // Reverse the physical records and leave retired bytes before each one. Logical slot order
+    // remains the independent signed-long key order; serialized offsets need not be monotonic.
+    final byte[] relocated = new byte[dense.length + count * 3];
+    System.arraycopy(dense, 0, relocated, 0, slots);
+    final ByteBuffer original = ByteBuffer.wrap(dense).order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer changed = ByteBuffer.wrap(relocated).order(ByteOrder.LITTLE_ENDIAN);
+    changed.putInt(usedAt, used + count * 3);
+    int at = 0;
+    for (int row = count - 1; row >= 0; row--) {
+      final int offset = original.getInt(offsets + row * Integer.BYTES);
+      final int suffix = original.getShort(slots + offset) & 0xffff;
+      final int length = original.getShort(slots + offset + Short.BYTES + suffix) & 0xffff;
+      final int recordSize = 2 * Short.BYTES + suffix + length;
+      at += 3;
+      changed.putInt(offsets + row * Integer.BYTES, at);
+      System.arraycopy(dense, slots + offset, relocated, slots + at, recordSize);
+      at += recordSize;
+    }
+    System.arraycopy(dense, slots + used, relocated, slots + at, dense.length - slots - used);
+    final HOTProjectionImage image = open(relocated);
+    assertEquals(72 + ((16L + relocated.length + 7) & ~7L) + 16L + keys.length * 2L * Long.BYTES,
+        image.retainedSizeBytes(), "charge the entire primitive directory in addition to the owned image");
+    Arrays.fill(relocated, (byte) 0);
+    for (int row = 0; row < keys.length; row++) {
+      final HOTLeafEntry entry = image.select(wordKey(keys[row]), row - 6);
+      assertNotNull(entry);
+      assertArrayEquals(value(row), entry.value());
+      assertEquals(row + 1000, entry.sideReference().getKey());
+      Arrays.fill(entry.value(), (byte) 0);
+      assertArrayEquals(value(row), image.select(wordKey(keys[row]), row - 6).value());
+    }
+    assertNull(image.select(wordKey(2), 0));
+    assertNull(image.select(Arrays.copyOf(wordKey(0), Long.BYTES - 1), 0));
+    assertNull(image.select(Arrays.copyOf(wordKey(0), Long.BYTES + 1), 0));
+  }
+
+  @Test
+  void malformedWordSlotsCannotPublishUncheckedRanges() throws IOException {
+    final byte[] wire = wordWire(new long[] {1, 2});
+    final ByteArrayBytesIn input = new ByteArrayBytesIn(wire);
+    input.position(3);
+    Utils.getVarLong(input);
+    input.skip(Integer.BYTES + Byte.BYTES);
+    input.skip(Short.toUnsignedInt(input.readShort()));
+    final int count = input.readInt() & Integer.MAX_VALUE;
+    final int used = input.readInt();
+    final int offsets = (int) input.position();
+    final int slots = offsets + count * Integer.BYTES;
+    final ByteBuffer changed = ByteBuffer.wrap(wire).order(ByteOrder.LITTLE_ENDIAN);
+    final int offset = changed.getInt(offsets);
+    final int suffix = changed.getShort(slots + offset) & 0xffff;
+    changed.putShort(slots + offset + Short.BYTES + suffix, (short) (used + 1));
+    final HOTProjectionImage image = open(wire);
+    assertThrows(IllegalStateException.class, () -> image.select(wordKey(1), -6));
+    assertEquals(72 + ((16L + wire.length + 7) & ~7L), image.retainedSizeBytes(),
+        "a malformed word slot must decline the prevalidated directory");
+  }
+
+  private static byte[] wordWire(final long[] keys) throws IOException {
+    try (HOTLeafPage leaf = new HOTLeafPage(123, 1, IndexType.PROJECTION);
+        MemorySegmentBytesOut out = new MemorySegmentBytesOut(128 * 1024)) {
+      for (int row = 0; row < keys.length; row++) {
+        assertTrue(leaf.put(wordKey(keys[row]), value(row)));
+        leaf.setPageReference(row - 6, new PageReference().setKey(row + 1000));
+      }
+      leaf.setCompleteDump(true);
+      new PagePersister().serializePage(CONFIG, out, leaf, SerializationType.DATA);
+      return out.toByteArray();
+    }
+  }
+
+  private static byte[] wordKey(final long value) {
+    final byte[] key = new byte[Long.BYTES];
+    PathKeySerializer.INSTANCE.serialize(value, key, 0);
+    return key;
   }
 
   private static void assertBadHeader(final byte[] wire, final int at, final long value, final int width) {

@@ -22,8 +22,9 @@ import java.util.Objects;
 
 /**
  * A bounded immutable complete image. Its envelope and ordered side trailer are validated once;
- * each lookup validates the slot headers it visits. No native page, mutable reference, input array
- * or borrowed frame escapes. A directory may retain this routing under its own cache byte charge.
+ * fixed-width slot bounds are validated once; other lookups validate the slot headers they visit.
+ * No native page, mutable reference, input array or borrowed frame escapes. A directory may retain
+ * this routing under its own cache byte charge.
  */
 public final class HOTProjectionImage {
   public static final int MAX_BYTES = 64 * 1024;
@@ -38,6 +39,7 @@ public final class HOTProjectionImage {
   private final int used;
   private final int references;
   private final int referencesStart;
+  private final long @Nullable [] wordSlots;
 
   private HOTProjectionImage(final byte[] bytes, final int start) {
     this.bytes = bytes;
@@ -85,6 +87,7 @@ public final class HOTProjectionImage {
         }
         previous = composite;
       }
+      wordSlots = indexWordSlots();
     } catch (final IndexOutOfBoundsException e) {
       throw new IllegalStateException("Truncated projection leaf image", e);
     }
@@ -136,6 +139,27 @@ public final class HOTProjectionImage {
         || !Arrays.equals(bytes, prefixStart, prefixStart + prefixLength, key, 0, prefixLength)) {
       return null;
     }
+    if (wordSlots != null && key.length == Long.BYTES) {
+      final long encoded = Long.reverseBytes((long) LONGS.get(key, 0));
+      int low = 0;
+      int high = count - 1;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        final int at = middle << 1;
+        final int comparison = Long.compareUnsigned(wordSlots[at], encoded);
+        if (comparison < 0) {
+          low = middle + 1;
+        } else if (comparison > 0) {
+          high = middle - 1;
+        } else {
+          final long range = wordSlots[at + 1];
+          final int start = (int) (range >>> Integer.SIZE);
+          final int length = (int) range;
+          return new HOTLeafEntry(Arrays.copyOfRange(bytes, start, start + length), sideReference(sideReferenceKey));
+        }
+      }
+      return null;
+    }
     int low = 0;
     int high = count - 1;
     while (low <= high) {
@@ -168,6 +192,55 @@ public final class HOTProjectionImage {
     return null;
   }
 
+  /**
+   * Projection slot keys normally fit one word. Decode their immutable bounds once, storing adjacent
+   * key/range lanes for cache locality. Variable keys or malformed slots keep the checked selector;
+   * an invalid record cannot enter the prevalidated directory.
+   */
+  private long @Nullable [] indexWordSlots() {
+    if (prefixLength > Long.BYTES || count == 0) {
+      return null;
+    }
+    final int firstOffset = (int) INTS.get(bytes, offsets);
+    if (firstOffset < 0 || firstOffset > used - 2 * Short.BYTES
+        || shortAt(slots + firstOffset) != Long.BYTES - prefixLength) {
+      return null;
+    }
+    long prefix = 0;
+    for (int i = 0; i < prefixLength; i++) {
+      prefix = (prefix << Byte.SIZE) | (bytes[prefixStart + i] & 255L);
+    }
+    final long[] indexed = new long[count * 2];
+    long previous = 0;
+    for (int i = 0; i < count; i++) {
+      final int offset = (int) INTS.get(bytes, offsets + i * Integer.BYTES);
+      if (offset < 0 || offset > used - 2 * Short.BYTES) {
+        return null;
+      }
+      final int length = shortAt(slots + offset);
+      if (length != Long.BYTES - prefixLength || length > used - offset - 2 * Short.BYTES) {
+        return null;
+      }
+      final int suffix = slots + offset + Short.BYTES;
+      long encoded = prefix;
+      for (int at = suffix; at < suffix + length; at++) {
+        encoded = (encoded << Byte.SIZE) | (bytes[at] & 255L);
+      }
+      if (i > 0 && Long.compareUnsigned(previous, encoded) >= 0) {
+        return null;
+      }
+      final int valueStart = suffix + length + Short.BYTES;
+      final int valueLength = shortAt(valueStart - Short.BYTES);
+      if (valueLength > slots + used - valueStart) {
+        return null;
+      }
+      indexed[i * 2] = encoded;
+      indexed[i * 2 + 1] = ((long) valueStart << Integer.SIZE) | valueLength;
+      previous = encoded;
+    }
+    return indexed;
+  }
+
   private @Nullable PageReference sideReference(final long key) {
     int low = 0;
     int high = references - 1;
@@ -195,6 +268,8 @@ public final class HOTProjectionImage {
   }
 
   public long retainedSizeBytes() {
-    return 64 + ((16L + bytes.length + 7) & ~7L);
+    return 72 + ((16L + bytes.length + 7) & ~7L) + (wordSlots == null
+        ? 0
+        : 16L + (long) wordSlots.length * Long.BYTES);
   }
 }
