@@ -3046,10 +3046,11 @@ vector parameters (dimension, distance, the HNSW $m$/\code{efConstruction}/\allo
 and the projection field list with aligned field types. Factory helpers live in \code{IndexDefs}
 (\code{createCASIdxDef}, \code{createPathIdxDef}, \code{createFilteredNameIdxDef},
 \code{createVectorIdxDef}, \code{createProjectionIdxDef}). The full set is a per-resource
-\code{Indexes} catalogue (a copy-on-write set with a \code{dirty} flag).
+\code{Indexes} catalogue; mutation tracking is defined by \code{Indexes.isDirty}.
 
-\textbf{Persistence is one XML catalogue per revision}: at commit the definitions are serialised
-to \pp{{resource}/indexes/{revision}.xml}, and on open the controller searches \emph{backward}
+\textbf{Persistence uses revision-numbered XML catalogues}: commit serialisation is governed by
+\code{NodeStorageEngineWriter.serializeIndexDefinitions}, which writes to
+\pp{{resource}/indexes/{revision}.xml}. On open the controller searches \emph{backward}
 from the requested revision for the most recent \code{{n}.xml}: the same max-numbered-file
 search whose naïve per-commit \code{Files.exists} walk was the $O(R^2)$ \code{access(2)} pathology
 of \S\ref{sec:evolution}. Each index \emph{tree} is rooted in a fixed reference slot on the
@@ -4387,8 +4388,8 @@ of kind} before any such replacement. The lesson generalises: index rewrites mus
 ``this path genuinely yields nothing'' from ``my kind assumption was wrong'', or they become
 silent-wrong-result generators.
 
-Rewrites are gated by a cost flag so the optimiser can prefer a sequential scan when an index
-would not pay.
+Cost-gate consumers are described in \pp{docs/cost-based-optimizer-design.md}
+(The Cost Gate Check).
 
 \section{The cost-based optimiser: the pipeline}
 \label{sec:optpipeline}
@@ -4411,8 +4412,8 @@ each stage rewriting the AST in place, bounded by a \textbf{50\,ms circuit-break
 \end{diagramS}
 
 Stages~1 and 10 bracket the cost-based core: the first normalises the query graph (fusing adjacent
-joins, pushing predicates toward the access path) to a fixpoint; the last turns the cost decisions into
-actual \code{IndexExpr} scans through the path-rewrite walkers of the previous section.
+joins, pushing predicates toward the access path) to a fixpoint; the last applies the installed
+index walkers, subject to their admission rules.
 
 One query through the pipeline ties the stages together.
 
@@ -5558,8 +5559,8 @@ node layer (commitInternal):
                                                       ├─ serialise dirty KeyValueLeafPages in parallel (> 4 pages)
                                                       ├─ uberPage.commit(): recurse the dirty page subtree,
                                                       │                     write pages, assign disk offsets
+                                                      ├─ serialise and fsync the index catalogue
                                                       ├─ writeUberPageReference(): fsync data + dual beacons  (Ch. 4)
-                                                      ├─ serialise the index catalogue
                                                       └─ clear the intent log, free off-heap pages
   4  publish the new RevisionRootPage as the resource's latest revision
   5  apply JSON update-diff publication policy (docs/JSON_UPDATE_DIFFS.md)
@@ -5567,8 +5568,8 @@ node layer (commitInternal):
   7  post-commit hooks
 \end{diagram}
 
-Two details are easy to miss. Secondary indexes are not rebuilt at commit. Each node mutation calls
-\code{notifyChange(\ldots)} synchronously during the write, and the path, CAS and name change-listeners
+Two details are easy to miss. Secondary indexes are not rebuilt at commit. Node mutations notify
+the index controller synchronously during the write, and the path, CAS and name change-listeners
 write their own records into the same intent log, so the index updates land in the same atomic page set
 as the data. The path summary is the one deferred case: its per-path statistics are buffered during the
 transaction and applied in a single copy-on-write pass per path at step~1

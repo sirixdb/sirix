@@ -169,8 +169,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         // lookup above assumed OBJECT_NAMED_OBJECT — so {@code match} comes back empty even
         // though the path exists.
         // Destroying the subtree here would turn such queries into the empty sequence. Only take
-        // the empty-sequence shortcut when the segment truly does not exist; otherwise bail and
-        // let normal (non-index) evaluation run by falling through.
+        // the empty-sequence shortcut when the segment truly does not exist and no runtime revision
+        // operand can select a different path summary; otherwise retain normal evaluation.
         if (revisionData.operand() == null
             && !pathSegmentExistsRegardlessOfKind(rightmostSegmentName, queryPathSegmentIsArray, pathSummary)) {
           return replaceAstNodeWithEmptySequenceAstNode(astNode);
@@ -284,8 +284,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
    * DIFFERENT kind — e.g. a scalar predicate leaf field ({@code price}) fused into the path by a
    * {@code $$}-deref predicate, stored as OBJECT_NAMED_NUMBER/STRING/BOOLEAN/NULL — the kind-specific
    * match comes back empty even though the path genuinely exists. This kind-agnostic check lets the
-   * caller tell a real "no such path" (safe to short-circuit to the empty sequence) apart from a mere
-   * node-kind mismatch (must NOT destroy the subtree).
+   * caller distinguish genuine absence from a node-kind mismatch. Before replacing the source with
+   * the empty sequence, the caller must also rule out a runtime revision operand selecting different
+   * paths.
    */
   private static boolean pathSegmentExistsRegardlessOfKind(String pathSegmentName, boolean isArraySegment,
       PathSummaryReader pathSummary) {

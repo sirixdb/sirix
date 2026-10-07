@@ -508,10 +508,11 @@ This query **joins data across time**—something that would require ETL pipelin
 
 ### Temporal Query Functions
 
+Resource access by revision number or timestamp is documented in
+[Time-Travel Queries](../README.md#time-travel-queries).
+
 | Function | Description |
 |----------|-------------|
-| `jn:open(db, resource, revision)` | Open specific revision by number |
-| `jn:open(db, resource, timestamp)` | Open revision at point-in-time |
 | `jn:previous($node)` | Get node from previous revision |
 | `jn:next($node)` | Get node from next revision |
 | `jn:all-times($node)` | Iterate all versions of node |

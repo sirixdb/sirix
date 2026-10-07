@@ -3894,8 +3894,8 @@ final class JsonNodeTrxImpl extends
           ? pathSummaryWriter.getPathSummary().getPathNodeForPathNodeKey(oldFieldPath)
           : null;
       final boolean remapArrayDescendants = oldField != null && (oldField.getReferences() > 1
-          || pathSummaryWriter.getPathSummary().findChild(oldField.getParentKey(), renamed,
-              oldField.getPathKind()) >= 0);
+          || pathSummaryWriter.getPathSummary()
+                              .findChild(oldField.getParentKey(), renamed, oldField.getPathKind()) >= 0);
       if (updateHashes) {
         hashes.capturePath(node.getNodeKey());
         if (remapArrayDescendants) {

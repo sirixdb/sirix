@@ -168,7 +168,7 @@ This is analogous to how HTTP headers carry metadata alongside the request body 
 | Fusion | `JOIN_FUSED`, `FUSED_OPERATOR` | JqgmRewriteStage | CostBasedJoinReorder |
 | Decomposition | `DECOMPOSITION_TYPE`, `INTERSECTION_JOIN` | IndexDecompositionStage | SirixPipelineStrategy |
 | Mesh | `MESH_CLASS_ID` | MeshPopulationStage | MeshSelectionStage |
-| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage | IndexMatching walkers |
+| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage | [The Cost Gate Check](#the-cost-gate-check) |
 
 ---
 
