@@ -16,14 +16,19 @@ import java.nio.charset.StandardCharsets;
  * do is give the query back the bytes the document held. This class is the only place that maps
  * between them, in both directions, so the round trip cannot drift.
  *
- * <h2>Exactly one shape, validated per value</h2> The accepted text is the ISO-8601 form with no
- * zone, no fraction and no alternative spelling: {@code dddd-dd-ddTdd:dd:dd} (19 chars) for a
+ * <h2>Fixed shapes, validated per value</h2> The accepted text is the ISO-8601 form with no
+ * fraction: {@code dddd-dd-ddTdd:dd:dd} (19 chars), optionally suffixed with {@code Z}, for a
  * timestamp and {@code dddd-dd-dd} (10 chars) for a date, with a calendar-valid date and
  * {@code 00:00:00..23:59:59}. There is no sniffing and no partial acceptance: a value of any other
  * shape in a declared temporal column is a BUILD error, because storing it would either lose the
  * original bytes (no formatter can reproduce {@code "2013-7-15"} from a number) or silently make
  * the column answer a different question than the document says. Absent and non-string cells keep
  * the ordinary present/unrepresentable discipline — this is a shape rule, not a type rule.
+ *
+ * <p>
+ * The epoch lane stores no timezone spelling. A {@code Z} input is parsed losslessly on the
+ * timeline, but extractors flag that cell unrepresentable for text reconstruction. Existing query
+ * admission then falls back to the original record, preserving the suffix without a format change.
  *
  * <h2>Formatting is allocation-free</h2> Every {@code format*} method writes ASCII into a
  * caller-owned {@code byte[]}; {@link #scratch()} hands out a per-thread buffer big enough for the
@@ -151,12 +156,16 @@ public final class ProjectionTemporalCodec {
   // ==== parsing ================================================================================
 
   /**
-   * Parse canonical {@code dddd-dd-ddTdd:dd:dd} UTF-8 into epoch seconds UTC.
+   * Parse {@code dddd-dd-ddTdd:dd:dd}, optionally suffixed with {@code Z}, into epoch seconds UTC.
    *
    * @return the epoch second, or {@link #NOT_CANONICAL} when the slice is not exactly canonical
    */
   public static long parseTimestampSeconds(final byte[] utf8, final int off, final int len) {
-    if (utf8 == null || len != TIMESTAMP_TEXT_LENGTH || off < 0 || off > utf8.length - len) {
+    if (utf8 == null || (len != TIMESTAMP_TEXT_LENGTH && len != TIMESTAMP_TEXT_LENGTH + 1) || off < 0
+        || off > utf8.length - len) {
+      return NOT_CANONICAL;
+    }
+    if (len == TIMESTAMP_TEXT_LENGTH + 1 && utf8[off + TIMESTAMP_TEXT_LENGTH] != 'Z') {
       return NOT_CANONICAL;
     }
     if (utf8[off + 4] != '-' || utf8[off + 7] != '-' || utf8[off + 10] != 'T' || utf8[off + 13] != ':'
@@ -239,7 +248,7 @@ public final class ProjectionTemporalCodec {
   public static IllegalArgumentException notCanonical(final byte kind, final int column, final String text) {
     final boolean timestamp = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
     return new IllegalArgumentException("projection column " + column + " is declared " + (timestamp
-        ? "xs:dateTime and accepts exactly 'YYYY-MM-DDTHH:MM:SS' (UTC, no zone, no fraction)"
+        ? "xs:dateTime and accepts 'YYYY-MM-DDTHH:MM:SS' or 'YYYY-MM-DDTHH:MM:SSZ' (UTC, no fraction)"
         : "xs:date and accepts exactly 'YYYY-MM-DD'") + ", but the record holds '" + text
         + "'. Fix the value, or declare the column 'string' to keep it as text.");
   }

@@ -7,6 +7,7 @@ import io.brackit.query.util.path.PathParser;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.ProjectionSortedSpec;
+import io.sirix.index.projection.ProjectionTemporalCodec;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -29,9 +30,7 @@ import static java.util.Objects.requireNonNull;
  * @param fieldPaths the projected field paths, each written from the document root
  * @param fieldTypes one type name per field — {@code long}, {@code double}, {@code decimal},
  *        {@code boolean}, {@code string}, {@code timestamp} ({@code datetime}) or {@code date}. The
- *        two temporal names declare that every value is exactly {@code YYYY-MM-DDTHH:MM:SS} or
- *        {@code YYYY-MM-DD}: the column then stores an epoch instead of the text, and a value of
- *        any other shape fails the build
+ *        temporal input shapes and text reconstruction follow {@link ProjectionTemporalCodec}
  * @param expectedRows how many records the source will deliver, or {@code -1} when unknown. Only
  *        the resource-wide value dictionary's election reads it, and only to decline a column whose
  *        dictionary would not fit in its byte budget. A streaming build cannot derive this — it
@@ -97,7 +96,7 @@ public record ProjectionSpec(String rootPath, List<String> fieldPaths, List<Stri
       case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
-      // Declared temporal columns: one canonical ISO-8601 shape per kind, stored as an epoch.
+      // Temporal input validation and text reconstruction are owned by ProjectionTemporalCodec.
       case "timestamp", "datetime" -> Type.DATI;
       case "date" -> Type.DATE;
       default -> throw new IllegalArgumentException("Unsupported projection column type '" + type

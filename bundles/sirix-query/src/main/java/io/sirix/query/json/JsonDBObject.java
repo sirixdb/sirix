@@ -86,20 +86,22 @@ public final class JsonDBObject extends AbstractItem
   private final JsonItemFactory jsonItemFactory;
 
   /**
-   * Field values memoized on first successful lookup. Lazily allocated: a scan creates one
-   * {@link JsonDBObject} per record and reads each field once, so eagerly building this map
-   * allocated it and threw it away for every record.
+   * Read-only field values memoized on first successful lookup. Writers bypass this map; see
+   * {@link #firstChildKey}. Lazily allocated: a scan creates one {@link JsonDBObject} per record and
+   * reads each field once, so eagerly building this map allocated it and threw it away for every
+   * record.
    */
   private Map<QNm, Sequence> fields;
 
   /**
    * Path-summary match results, keyed by path-class record AND field name.
    *
-   * <p>The field name is part of the key because the cached {@link BitSet} comes from
-   * {@code PathSummaryReader.match(field, level)}, which depends on BOTH. Keying by PCR alone let
-   * the FIRST field looked up on an object decide the answer for every later field on it: look up
-   * a missing field first and its empty match was cached, after which every existing field was
-   * reported missing too — {@code ($d.nope, $d.title)} returned the empty sequence while
+   * <p>
+   * The field name is part of the key because the cached {@link BitSet} comes from
+   * {@code PathSummaryReader.match(field, level)}, which depends on BOTH. Keying by PCR alone let the
+   * FIRST field looked up on an object decide the answer for every later field on it: look up a
+   * missing field first and its empty match was cached, after which every existing field was reported
+   * missing too — {@code ($d.nope, $d.title)} returned the empty sequence while
    * {@code ($d.title, $d.nope)} was correct.
    */
   private Map<Long, Map<QNm, BitSet>> filterMap;
@@ -108,27 +110,37 @@ public final class JsonDBObject extends AbstractItem
   private static final long FIRST_CHILD_UNKNOWN = -2L;
 
   /**
+   * A writer must re-read its children and fields; reuse the key slot rather than growing every
+   * object.
+   */
+  private static final long MUTABLE_FIRST_CHILD = Long.MIN_VALUE;
+
+  /**
    * This object's first-child key, captured at construction.
    *
-   * <p>The constructor runs with the cursor already ON this node, so reading the key there is
-   * free. A field lookup can then jump straight to the first child instead of re-anchoring at the
-   * object and asking the cursor for the same key again -- {@code moveToFirstChild()} is exactly
-   * {@code moveTo(getFirstChildKey())}, so the pair cost two full singleton binds (page lookup,
-   * slot lookup, kind decode, flyweight rebind) to reach a node key this object already knew.
+   * <p>
+   * The constructor runs with the cursor already ON this node, so reading the key there is free. A
+   * field lookup can then jump straight to the first child instead of re-anchoring at the object and
+   * asking the cursor for the same key again -- {@code moveToFirstChild()} is exactly
+   * {@code moveTo(getFirstChildKey())}, so the pair cost two full singleton binds (page lookup, slot
+   * lookup, kind decode, flyweight rebind) to reach a node key this object already knew.
    *
-   * <p>A scan does one field lookup per record, so that is one of roughly three moves per record
+   * <p>
+   * A scan does one field lookup per record, so that is one of roughly three moves per record
    * removed; {@code moveRtx} measured 73.8% inclusive of a warm filter scan.
    *
-   * <p>Captured ONLY for a read-only transaction, which sees a fixed revision, so the key cannot
-   * go stale under it. A write transaction leaves this {@link #FIRST_CHILD_UNKNOWN} and always
-   * re-reads the current first child, because the object can be mutated through a DIFFERENT
+   * <p>
+   * Captured ONLY for a read-only transaction, which sees a fixed revision, so the key cannot go
+   * stale under it. A write transaction leaves this {@link #MUTABLE_FIRST_CHILD} and always re-reads
+   * the current first child, because the object can be mutated through a DIFFERENT
    * {@link JsonDBObject} instance or through the write transaction directly -- neither of which
    * {@link #clearMemo()} can observe. A deleted first child would fail the {@code moveTo} and fall
-   * back safely, but a field INSERTED before it still resolves and would silently shift the walk
-   * past the new first field: a wrong answer with no error. This class is public API, so that is
-   * reachable outside XQuery even though XUST0001 forbids a read nested in an updating expression.
+   * back safely, but a field INSERTED before it still resolves and would silently shift the walk past
+   * the new first field: a wrong answer with no error. This class is public API, so that is reachable
+   * outside XQuery even though XUST0001 forbids a read nested in an updating expression.
    *
-   * <p>Also reset by every mutating method, which covers mutations through this instance.
+   * <p>
+   * Read-only keys are reset by mutating methods. The writer marker survives every mutation.
    */
   private long firstChildKey;
 
@@ -148,7 +160,9 @@ public final class JsonDBObject extends AbstractItem
 
     nodeKey = this.rtx.getNodeKey();
     // Read-only transactions only -- see the field's javadoc for why a writer must not cache this.
-    firstChildKey = this.rtx instanceof JsonNodeTrx ? FIRST_CHILD_UNKNOWN : this.rtx.getFirstChildKey();
+    firstChildKey = this.rtx instanceof JsonNodeTrx
+        ? MUTABLE_FIRST_CHILD
+        : this.rtx.getFirstChildKey();
     jsonItemFactory = JsonItemFactory.INSTANCE;
   }
 
@@ -254,7 +268,8 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include),
+        collection);
   }
 
   @Override
@@ -263,7 +278,8 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include),
+        collection);
   }
 
   @Override
@@ -407,7 +423,9 @@ public final class JsonDBObject extends AbstractItem
     if (rtx.hasChildren()) {
       modify(field, value);
       clearMemo();
-      fields().put(field, value);
+      if (firstChildKey != MUTABLE_FIRST_CHILD) {
+        fields().put(field, value);
+      }
     }
     return this;
   }
@@ -533,7 +551,9 @@ public final class JsonDBObject extends AbstractItem
         // or the OBJECT/ARRAY pair for the structural kinds). JsonItemFactory dispatches on
         // the fused kind — descending into the first child here would collapse a structural
         // value to its first inner field.
-        fields().put(newFieldName, jsonItemFactory.getSequence(trx, collection));
+        if (firstChildKey != MUTABLE_FIRST_CHILD) {
+          fields().put(newFieldName, jsonItemFactory.getSequence(trx, collection));
+        }
       }
     }
     return this;
@@ -550,7 +570,9 @@ public final class JsonDBObject extends AbstractItem
     insert(field, value, trx);
 
     clearMemo();
-    fields().put(field, value);
+    if (firstChildKey != MUTABLE_FIRST_CHILD) {
+      fields().put(field, value);
+    }
 
     return this;
   }
@@ -630,6 +652,11 @@ public final class JsonDBObject extends AbstractItem
       }
     }
 
+    // Writers never populate the memo. Check their marker only on a miss, keeping immutable
+    // cache hits on the original lookup path without an extra branch or metadata read.
+    if (firstChildKey == MUTABLE_FIRST_CHILD) {
+      return lookupField(field);
+    }
     final Sequence value = lookupField(field);
     if (value != null) {
       fields().put(field, value);
@@ -638,34 +665,39 @@ public final class JsonDBObject extends AbstractItem
   }
 
   /**
-   * Drop every memoized field value. Any mutation invalidates them: without this a read after a
-   * write keeps answering with the pre-write value.
+   * Drop every memoized field value. Any mutation invalidates them: without this a read after a write
+   * keeps answering with the pre-write value.
    */
   private void clearMemo() {
     if (fields != null) {
       fields.clear();
     }
     // Inserting or removing a field can change which node is first, so the cached key must go too.
-    firstChildKey = FIRST_CHILD_UNKNOWN;
+    if (firstChildKey != MUTABLE_FIRST_CHILD) {
+      firstChildKey = FIRST_CHILD_UNKNOWN;
+    }
   }
 
   /**
    * Find {@code field} among this object's children without allocating.
    *
-   * <p>Replaces {@code new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field))}, which
-   * cost three objects plus a capturing lambda on every field access. A scan binds a FRESH
-   * {@link JsonDBObject} per record, so those allocations were paid per record and the memoizing
-   * map they filled was discarded immediately. Allocation profiling of a 290k-record filter scan
+   * <p>
+   * Replaces {@code new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field))}, which cost
+   * three objects plus a capturing lambda on every field access. A scan binds a FRESH
+   * {@link JsonDBObject} per record, so those allocations were paid per record and the memoizing map
+   * they filled was discarded immediately. Allocation profiling of a 290k-record filter scan
    * attributed ~13% of all allocations to this path.
    *
-   * <p>Matching compares NAME KEYS rather than {@link QNm} objects: the filter's
+   * <p>
+   * Matching compares NAME KEYS rather than {@link QNm} objects: the filter's
    * {@code name.equals(rtx.getName())} materialized a QNm and compared strings for every child
    * visited, i.e. ~4.5 times per record on this corpus. The name key is resolved once here and the
    * walk then compares ints.
    *
-   * <p>Cursor semantics match the axis exactly: on a match the cursor is left ON the matching
-   * node (which under record fusion IS the value), and on a miss it is reset to this object's node
-   * key, mirroring {@code AbstractAxis.resetToStartKey()}.
+   * <p>
+   * Cursor semantics match the axis exactly: on a match the cursor is left ON the matching node
+   * (which under record fusion IS the value), and on a miss it is reset to this object's node key,
+   * mirroring {@code AbstractAxis.resetToStartKey()}.
    *
    * @param field the field name to look up
    * @return the field's value, or {@code null} when this object has no such field
@@ -731,15 +763,16 @@ public final class JsonDBObject extends AbstractItem
   /**
    * Position the cursor on this object's first child.
    *
-   * <p>Uses the key captured at construction, so the usual path is a single {@code moveTo} rather
-   * than re-anchoring at the object and then moving to the child it names. Falls back to the
-   * cursor when the cached key was invalidated by a mutation.
+   * <p>
+   * Uses the key captured at construction, so the usual path is a single {@code moveTo} rather than
+   * re-anchoring at the object and then moving to the child it names. Falls back to the cursor when
+   * the cached key was invalidated by a mutation.
    *
    * @return {@code false} when this object has no children, cursor left on the object
    */
   private boolean enterFirstChild() {
     final long first = firstChildKey;
-    if (first == FIRST_CHILD_UNKNOWN) {
+    if (first == FIRST_CHILD_UNKNOWN || first == MUTABLE_FIRST_CHILD) {
       moveRtx();
       return rtx.moveToFirstChild();
     }

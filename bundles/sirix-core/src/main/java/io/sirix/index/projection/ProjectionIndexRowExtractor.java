@@ -731,6 +731,8 @@ public final class ProjectionIndexRowExtractor {
           throw ProjectionTemporalCodec.notCanonical(columnKind, column, value);
         }
         rowLongs[column] = epoch;
+        rowUnrepresentable[column] =
+            columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && value.length() == 20;
       } else {
         final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
         rowStringUtf8[column] = utf8;
@@ -1011,8 +1013,8 @@ public final class ProjectionIndexRowExtractor {
    * A value that is not exactly the declared shape FAILS THE BUILD rather than degrading the cell.
    * That is the whole contract of a declared temporal column: the numeric lane is lossless only
    * because every stored value formats back to the bytes the document held, so a value that cannot
-   * make the round trip must never be stored — and a silently unrepresentable cell would make the
-   * column answer nothing while looking healthy.
+   * make the round trip must never be stored. The supported Z suffix is the exception: the epoch is
+   * retained, while the existing unrepresentable flag makes consumers read the original text.
    */
   private void readTemporalIntoRow(final byte columnKind, final int col) {
     final byte[] utf8 = rowStringUtf8[col];
@@ -1022,6 +1024,7 @@ public final class ProjectionIndexRowExtractor {
       throw ProjectionTemporalCodec.notCanonical(columnKind, col, utf8, 0, length);
     }
     rowLongs[col] = epoch;
+    rowUnrepresentable[col] = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && length == 20;
     // The cell lives in the long lane from here on; leaving the borrowed slice visible would let a
     // string-shaped consumer read a value this column does not store.
     rowStringUtf8[col] = null;

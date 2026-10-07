@@ -92,9 +92,20 @@ final class ProjectionTemporalCodecTest {
   }
 
   @Test
+  void utcSuffixAndZoneLessFormsDenoteTheSameEpoch() {
+    for (final String text : new String[] {"1970-01-01T00:00:00", "1969-12-31T23:59:59", "2024-02-29T12:34:56"}) {
+      final long expected = LocalDateTime.parse(text).toEpochSecond(ZoneOffset.UTC);
+      assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8(text), 0, 19));
+      assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8(text + "Z"), 0, 20));
+      assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8("__" + text + "Z__"), 2, 20));
+      assertEquals(expected, ProjectionTemporalCodec.parseTimestampSeconds(utf8(formatTimestamp(expected)), 0, 19));
+    }
+  }
+
+  @Test
   @DisplayName("a value that is not exactly canonical is refused, never approximated")
   void nonCanonicalValuesAreRefused() {
-    for (final String bad : new String[] {"2013-7-15T10:00:00", "2013-07-15 10:00:00", "2013-07-15T10:00:00Z",
+    for (final String bad : new String[] {"2013-7-15T10:00:00", "2013-07-15 10:00:00", "2013-07-15T10:00:00z",
         "2013-07-15T10:00:00.500", "2013-07-15T10:00", "2013-07-15", "", " 2013-07-15T10:00:00", "2013-13-01T00:00:00",
         "2013-00-01T00:00:00", "2013-07-32T00:00:00", "2013-07-00T00:00:00", "2013-07-15T24:00:00",
         "2013-07-15T10:60:00", "2013-07-15T10:00:60", "2013-07-15t10:00:00", "2013/07/15T10:00:00",

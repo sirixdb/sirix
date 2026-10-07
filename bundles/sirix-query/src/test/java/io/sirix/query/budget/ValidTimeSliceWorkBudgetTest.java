@@ -67,6 +67,17 @@ final class ValidTimeSliceWorkBudgetTest {
   private static final WorkCapture INDEX_WORK =
       WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_REFS,
           EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS);
+
+  /** Both accessors observe the same unit: one timestamp field value read. */
+  private static void assertTimestampReads(final JsonNodeReadOnlyTrx cursor, final long minimum, final long maximum) {
+    final long reads = mockingDetails(cursor).getInvocations().stream().filter(invocation -> {
+      final String method = invocation.getMethod().getName();
+      return method.equals("getValue") || method.equals("getValueBytes");
+    }).count();
+    assertTrue(reads >= minimum && reads <= maximum,
+        "timestamp field reads: expected [" + minimum + ", " + maximum + "] but saw " + reads);
+  }
+
   @TempDir
   Path directory;
 
@@ -149,14 +160,14 @@ final class ValidTimeSliceWorkBudgetTest {
                       text);
                   verify(cursor, never()).moveTo(anyLong());
                   verify(cursor, never()).getFirstChildKey();
-                  verify(cursor, never()).getValue();
+                  assertTimestampReads(cursor, 0, 0);
                   clearInvocations(cursor);
                   try (var iterator = rows.iterate()) {
                     final JsonDBItem item = (JsonDBItem) iterator.next();
                     assertNotNull(item);
                     verify(cursor, times(1)).moveTo(anyLong());
                     verify(cursor, times(1)).getFirstChildKey();
-                    verify(cursor, never()).getValue();
+                    assertTimestampReads(cursor, 0, 0);
                     assertEquals(expected == 1
                         ? second
                         : first, item.getNodeKey());
@@ -214,7 +225,7 @@ final class ValidTimeSliceWorkBudgetTest {
                 "admission and candidates may only probe their compressed evidence chunks");
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
       }
     }
   }
@@ -365,7 +376,7 @@ final class ValidTimeSliceWorkBudgetTest {
                 "first admission must validate multiple compressed cohort chunks");
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         for (int repetition = 0; repetition < 2; repetition++) {
           for (int mode = 0; mode < 4; mode++) {
             final String expression = "for $x in " + source + " where "
@@ -396,7 +407,7 @@ final class ValidTimeSliceWorkBudgetTest {
                       "only candidate membership and verification may be probed")
                   .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
                       "warm admission must not decode cohort chunks again");
-              verify(cursor, never()).getValue();
+              assertTimestampReads(cursor, 0, 0);
               verify(cursor, times(request == 0
                   ? 0
                   : 1)).moveTo(anyLong());
@@ -425,7 +436,7 @@ final class ValidTimeSliceWorkBudgetTest {
         realCursor.moveTo(matchKey);
         clearInvocations(cursor);
         assertNotNull(new JsonDBObject(cursor, realCollection).get(new QNm("vf")));
-        verify(cursor, atLeast(1)).getValue();
+        assertTimestampReads(cursor, 1, Long.MAX_VALUE);
         verify(cursor, times(1)).getFirstChildKey();
       }
     }
@@ -436,8 +447,8 @@ final class ValidTimeSliceWorkBudgetTest {
    * RI-tree, so a closed stab that no interval contains must not re-materialize any of them.
    *
    * <p>
-   * Healthy: zero {@code moveTo} and zero {@code getValue} for the empty answer, and at least 64 of
-   * each for the 64-record answer. Checked by mutation — making the verification-posting union
+   * Healthy: zero {@code moveTo} and zero timestamp value reads for the empty answer, and at least 64
+   * of each for the 64-record answer. Checked by mutation — making the verification-posting union
    * unconditional again fails the empty answer at its first {@code moveTo} inside
    * {@code ValidTimeIntervalIndex.keys}, while the other budget in this class stays green.
    * </p>
@@ -577,7 +588,7 @@ final class ValidTimeSliceWorkBudgetTest {
       final WorkReport verification = INDEX_WORK.run(() -> assertNotNull(inexact.get(Int32.ONE)));
       verification.assertAtLeast(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, count - 1L,
           "a positive control must still reach the inexact intervals");
-      verify(cursor, atLeast(1)).getValue();
+      assertTimestampReads(cursor, 1, Long.MAX_VALUE);
       verify(cursor, atLeast(1)).getFirstChildKey();
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(realCollection));
       doReturn(observed).when(collection).getDocument("rows");
@@ -628,7 +639,7 @@ final class ValidTimeSliceWorkBudgetTest {
             "only the three candidates' membership and verification chunks may be probed")
         .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 1, 6,
             "only the three candidates' compressed posting chunks may be read");
-    verify(cursor, never()).getValue();
+    assertTimestampReads(cursor, 0, 0);
     if (demand == 0) {
       verify(cursor, never()).moveTo(anyLong());
       verify(cursor, never()).getFirstChildKey();
@@ -733,11 +744,11 @@ final class ValidTimeSliceWorkBudgetTest {
           if (count == 64) {
             assertEquals(count, inside.size().intValue());
             verify(cursor, atLeast(count)).moveTo(anyLong());
-            verify(cursor, atLeast(count)).getValue();
+            assertTimestampReads(cursor, count, Long.MAX_VALUE);
           } else {
             assertNotNull(inside.get(Int32.ONE));
             verify(cursor, atLeast(1)).moveTo(anyLong());
-            verify(cursor, atLeast(1)).getValue();
+            assertTimestampReads(cursor, 1, Long.MAX_VALUE);
             verify(cursor, atLeast(1)).getFirstChildKey();
           }
         });
@@ -793,7 +804,7 @@ final class ValidTimeSliceWorkBudgetTest {
           }
         });
         assertPositiveIndexWork(positive, count);
-        verify(cursor, atLeast(1)).getValue();
+        assertTimestampReads(cursor, 1, Long.MAX_VALUE);
       }
     }
   }
@@ -836,7 +847,7 @@ final class ValidTimeSliceWorkBudgetTest {
   private static void assertZeroObjectReads(final JsonNodeReadOnlyTrx cursor, final int count, final Instant point,
       final int mode, final String route) {
     verify(cursor, never()).moveTo(anyLong());
-    verify(cursor, never()).getValue();
+    assertTimestampReads(cursor, 0, 0);
     verify(cursor, never()).getFirstChildKey();
     for (final String method : new String[] {"moveTo", "getFirstChildKey", "getValue"}) {
       final long calls = mockingDetails(cursor).getInvocations()
@@ -881,7 +892,7 @@ final class ValidTimeSliceWorkBudgetTest {
           ((Numeric) new Query(observedChain, "count(" + source + ")").evaluate(observedContext)).intValue());
       verify(cursor, never()).moveTo(anyLong());
       verify(cursor, never()).getFirstChildKey();
-      verify(cursor, never()).getValue();
+      assertTimestampReads(cursor, 0, 0);
       clearInvocations(cursor);
       try (final var iterator = rows.iterate()) {
         if (expected == 0) {
@@ -893,7 +904,7 @@ final class ValidTimeSliceWorkBudgetTest {
           verify(cursor, times(1)).moveTo(anyLong());
           verify(cursor, times(1)).getFirstChildKey();
         }
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
       }
     }
   }
@@ -924,19 +935,19 @@ final class ValidTimeSliceWorkBudgetTest {
       assertNotNull(sequence);
       try (var iterator = sequence.iterate()) {
         verify(cursor, never()).moveTo(anyLong());
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         verify(cursor, never()).isObject();
         verify(cursor, never()).getFirstChildKey();
         assertEquals(count, sequence.size().intValue());
         verify(cursor, never()).moveTo(anyLong()); // parent membership is answered by index postings
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         verify(cursor, never()).isObject();
         verify(cursor, never()).getFirstChildKey();
         clearInvocations(cursor);
         assertNotNull(iterator.next());
         verify(cursor, times(1)).moveTo(anyLong());
         verify(cursor, times(1)).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         // A second iteration is independent and early-close never closes the borrowed transaction.
         try (var second = sequence.iterate()) {
           assertEquals(((JsonDBItem) sequence.get(Int32.ONE)).getNodeKey(), ((JsonDBItem) second.next()).getNodeKey());
@@ -949,7 +960,10 @@ final class ValidTimeSliceWorkBudgetTest {
       cursor.moveToFirstChild();
       cursor.moveToRightSibling();
       cursor.getValue();
-      verify(cursor, times(1)).getValue();
+      assertTimestampReads(cursor, 1, 1);
+      clearInvocations(cursor);
+      cursor.getValueBytes();
+      assertTimestampReads(cursor, 1, 1);
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(store.lookup("budget")));
       doReturn(observed).when(collection).getDocument(eq("rows"), any(Instant.class));
       doReturn(observed).when(collection).getDocument(eq("rows"), anyInt());
@@ -964,20 +978,20 @@ final class ValidTimeSliceWorkBudgetTest {
             ((Numeric) new Query(observedChain, "count(" + direct + ")").evaluate(observedContext)).intValue());
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         assertBitemporalBoundaryBudgets(observedChain, observedContext, cursor, direct, count);
         clearInvocations(cursor);
         assertEquals(count, ((Numeric) new Query(observedChain, "count(for $x in " + direct + " return $x)").evaluate(
             observedContext)).intValue());
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         final String directSlice =
             "count(for $x in " + direct + " where xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt) return $x)";
         clearInvocations(cursor);
         assertEquals(count, ((Numeric) new Query(observedChain, directSlice).evaluate(observedContext)).intValue());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         final String plainSlice = "for $x in jn:doc('budget','rows')[] where "
             + "xs:dateTime($x.vf) le xs:dateTime('2024-01-01T00:00:00Z') and "
             + "xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt) return $x";
@@ -985,14 +999,14 @@ final class ValidTimeSliceWorkBudgetTest {
         assertEquals(count,
             ((Numeric) new Query(observedChain, "count(" + plainSlice + ")").evaluate(observedContext)).intValue());
         verify(cursor, never()).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         clearInvocations(cursor);
         final Sequence demanded = new Query(observedChain, plainSlice).execute(observedContext);
         try (var iterator = demanded.iterate()) {
           assertNotNull(iterator.next());
         }
         verify(cursor, atLeast(1)).getFirstChildKey();
-        verify(cursor, never()).getValue();
+        assertTimestampReads(cursor, 0, 0);
         if (!includeUserFunction) {
           return;
         }
@@ -1019,7 +1033,7 @@ final class ValidTimeSliceWorkBudgetTest {
           assertEquals(count, ((Numeric) new Query(observedChain, declaration + "count(" + call + ")").evaluate(
               observedContext)).intValue());
           verify(cursor, never()).getFirstChildKey();
-          verify(cursor, never()).getValue();
+          assertTimestampReads(cursor, 0, 0);
           final Sequence wrapped = new Query(observedChain, declaration + call).execute(observedContext);
           final long firstKey;
           try (var iterator = wrapped.iterate()) {
@@ -1034,7 +1048,7 @@ final class ValidTimeSliceWorkBudgetTest {
           }
           assertEquals(count, wrapped.size().intValue());
           verify(cursor, times(2)).getFirstChildKey();
-          verify(cursor, never()).getValue();
+          assertTimestampReads(cursor, 0, 0);
           final String typed = declaration + """
               declare function local:typed($p as xs:dateTime) as xs:string* { local:slice($p) };
               count(local:typed(xs:dateTime('2024-01-01T00:00:00Z')))

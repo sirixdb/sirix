@@ -296,6 +296,9 @@ public final class ProjectionChunkRowBatch {
           throw ProjectionTemporalCodec.notCanonical(columnKind, column, utf8, 0, length);
         }
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
+        if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && length == 20) {
+          flags[cell] |= FLAG_UNREPRESENTABLE;
+        }
         longLanes[column][rowCount] = epoch;
       } else {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);

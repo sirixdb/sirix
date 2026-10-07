@@ -101,10 +101,9 @@ codec-local (`decodeKeysView`, `KeysView.compareOrderLabelAt/copyOrderLabelAt`; 
 `ProjectionPersistedRecordLookup`). Acceptance ≤ 1.5 B/row. Record keys stay as they are (already delta-FOR).
 
 ### P-ET — Declared `TIMESTAMP` / `DATE` column types (−22 B/row; q23/q24 numeric sort; q6, q36–q42 numeric dates)
-No detection exists in core (the loader's ISO check is bench-side and only tests `isString`). A declared type per
-column with one canonical shape (19-char `dddd-dd-ddTdd:dd:dd`; 10-char dates) validated per value at build — a
-non-conforming value is a build error, like a string in a long column — with an epoch numeric lane, an exact
-formatter on emission (round trip witnessed), a literal→bound rule for partial string literals (prefix compares map
+No detection exists in core (the loader's ISO check is bench-side and only tests `isString`). Declared temporal
+columns follow the [projection input and original-text fallback contract](PROJECTION_INDEXES.md).
+The epoch numeric lane supports a literal→bound rule for partial string literals (prefix compares map
 exactly or the numeric arm declines), and the substring shapes (`substring(…,15,2)`, `substring(…,1,16)`) as
 arithmetic on the long. A DATE variant is required or q6/q36–q42 miss the lever.
 
