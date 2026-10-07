@@ -47,7 +47,6 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.utils.XMLToken;
-import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -98,7 +97,7 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
       if (invalidCodePoint != -1) {
         throw new DocumentException("Replacement value contains an invalid XML character: U+%04X", invalidCodePoint);
       }
-      ctx.addPendingUpdate(new ReplaceContent(node, text, node.getTrx(), node.getNodeKey()));
+      ctx.addPendingUpdate(new ReplaceContent(node, text));
       return null;
     }
     // Preserve Brackit's validation and value-update behavior for other targets. An Item is itself
@@ -116,8 +115,7 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
     return false;
   }
 
-  private record ReplaceContent(XmlDBNode target, String value, XmlNodeReadOnlyTrx reader,
-      long key) implements UpdateOp {
+  private record ReplaceContent(XmlDBNode target, String value) implements UpdateOp {
     @Override
     public XmlDBNode getTarget() {
       return target;
@@ -135,11 +133,14 @@ public final class SirixReplaceValue extends ConstructedNodeBuilder implements E
 
     @Override
     public void apply() {
+      final XmlNodeReadOnlyTrx reader = target.getTrx();
+      final long key = target.getNodeKey();
       final XmlResourceSession resource = reader.getResourceSession();
       final XmlNodeTrx writer;
-      final Optional<XmlNodeTrx> runningWriter = resource.getNodeTrx();
-      if (runningWriter.isPresent()) {
-        writer = runningWriter.orElseThrow();
+      final XmlNodeTrx runningWriter = reader instanceof XmlNodeTrx scopedWriter
+          ? scopedWriter : resource.getNodeTrx().orElse(null);
+      if (runningWriter != null) {
+        writer = runningWriter;
       } else {
         writer = resource.beginNodeTrx();
         if (reader.getRevisionNumber() < resource.getMostRecentRevisionNumber()) {

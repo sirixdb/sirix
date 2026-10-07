@@ -2,26 +2,42 @@ package io.sirix.query.node;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.Query;
+import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Kind;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.node.parser.DocumentParser;
+import io.brackit.query.update.op.OpType;
+import io.brackit.query.update.op.UpdateOp;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.SirixQueryContext.CommitStrategy;
 import io.sirix.settings.VersioningType;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 final class XmlAliasIdentityRegressionTest {
   private static final String XML = "<r xmlns:p='urn:p' a='1'><c>old</c><tail/></r>";
@@ -116,6 +132,215 @@ final class XmlAliasIdentityRegressionTest {
         assertEquals(new Int64(2), new Query(chain, VARIABLES + "count($a | $b)").execute(context));
       }
     }
+  }
+
+  @ParameterizedTest
+  @MethodSource("updateConfigurations")
+  void aliasPendingUpdatesShareOneWriter(final VersioningType versioning, final CommitStrategy strategy,
+      final boolean deweyIds, final int suppliedWriter) throws IOException {
+    checkUpdate(versioning, strategy, deweyIds, suppliedWriter, true, "rename-delete", "<r><a/></r>",
+        "(rename node $a/r/a as 'z', delete node $b/r/a)", "<r/>");
+    checkUpdate(versioning, strategy, deweyIds, suppliedWriter, true, "content",
+        "<r><a>old</a><b>before</b></r>",
+        "(replace value of node $a/r/a with 'first', replace value of node $b/r/b with 'second')",
+        "<r><a>first</a><b>second</b></r>");
+  }
+
+  @ParameterizedTest
+  @MethodSource("updateConfigurations")
+  void sameNameAttributeReplacementUsesTheExecutionView(final VersioningType versioning,
+      final CommitStrategy strategy, final boolean deweyIds, final int suppliedWriter) throws IOException {
+    for (final boolean alias : new boolean[] {false, true}) {
+      checkUpdate(versioning, strategy, deweyIds, suppliedWriter, alias, "attribute", "<r a='old' keep='yes'/>",
+          "(replace node $a/r/@a with attribute a {'new'}, insert node <c/> into $b/r)",
+          "<r keep=\"yes\" a=\"new\"><c xmlns=\"\"/></r>");
+    }
+  }
+
+  private void checkUpdate(final VersioningType versioning, final CommitStrategy strategy, final boolean deweyIds,
+      final int suppliedWriter, final boolean useAlias, final String name, final String xml, final String update,
+      final String expected) throws IOException {
+    final String configuration = name + "-" + strategy + "-" + deweyIds + "-" + suppliedWriter + "-" + useAlias;
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                    .location(directory.resolve(configuration))
+                                                    .versioningType(versioning)
+                                                    .storeDeweyIds(deweyIds)
+                                                    .build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy)) {
+      final XmlDBCollection collection = store.create("data", new DocumentParser(xml));
+      final Path link = store.getLocation().resolve("linked");
+      Files.createSymbolicLink(link, store.getLocation().resolve("data"));
+      try (final XmlDBCollection alias = store.lookup(link.toString())) {
+        final XmlDBNode original = collection.getDocument(1);
+        final XmlDBNode other = useAlias ? alias.getDocument(1) : original;
+        final XmlResourceSession firstSession = original.getTrx().getResourceSession();
+        final XmlResourceSession secondSession = other.getTrx().getResourceSession();
+        if (useAlias) {
+          assertNotSame(firstSession, secondSession);
+        }
+        final String before = serialize(original);
+        final AtomicInteger commits = new AtomicInteger();
+        try (final XmlNodeTrx supplied = suppliedWriter == 0 ? null
+            : (suppliedWriter == 1 ? firstSession : secondSession).beginNodeTrx(1)) {
+          if (supplied != null) {
+            supplied.addPreCommitHook(unused -> commits.incrementAndGet());
+          }
+          context.bind(new QNm("a"), original);
+          context.bind(new QNm("b"), other);
+          new Query(chain, VARIABLES + update).execute(context);
+          assertEquals(before, serialize(original));
+          assertEquals(before, serialize(other));
+          if (strategy == CommitStrategy.EXPLICIT) {
+            assertEquals(1, firstSession.getMostRecentRevisionNumber());
+            assertEquals(0, commits.get());
+            try (final XmlNodeTrx writer = firstSession.getNodeTrx().orElseGet(
+                () -> secondSession.getNodeTrx().orElseThrow())) {
+              if (supplied != null) {
+                assertSame(supplied, writer);
+                if (useAlias) {
+                  assertTrue((suppliedWriter == 1 ? secondSession : firstSession).getNodeTrx().isEmpty());
+                }
+              }
+              writer.commit();
+            }
+          } else if (supplied != null) {
+            assertTrue(supplied.isClosed());
+          }
+          if (supplied != null) {
+            assertEquals(1, commits.get());
+          }
+        }
+        assertEquals(2, firstSession.getMostRecentRevisionNumber());
+        assertEquals(2, secondSession.getMostRecentRevisionNumber());
+        assertEquals(expected, serialize(collection.getDocument(2)));
+        assertEquals(expected, serialize(alias.getDocument(2)));
+        assertEquals(before, serialize(original));
+        assertEquals(before, serialize(other));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void scopedComparisonsResolveBothOperandsAndRestoreSnapshots(final VersioningType versioning)
+      throws IOException {
+    for (final boolean deweyIds : new boolean[] {false, true}) {
+      try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                      .location(directory.resolve("scoped-" + deweyIds))
+                                                      .versioningType(versioning)
+                                                      .storeDeweyIds(deweyIds)
+                                                      .build()) {
+        final XmlDBCollection collection = store.create("data", new DocumentParser(XML));
+        final Path link = store.getLocation().resolve("linked");
+        Files.createSymbolicLink(link, store.getLocation().resolve("data"));
+        try (final XmlDBCollection alias = store.lookup(link.toString());
+            final XmlNodeTrx writer = alias.getDocument(1).getTrx().getResourceSession().beginNodeTrx(1)) {
+          final XmlDBNode[] originals = nodes(collection.getDocument(1));
+          final XmlDBNode[] aliases = nodes(alias.getDocument(1));
+          writer.moveToDocumentRoot();
+          final XmlDBNode[] live = nodes(new XmlDBNode(writer, alias));
+          writer.beginAtomicOperation();
+          try {
+            for (int i = 0; i < originals.length; i++) {
+              final XmlDBNode source = originals[i];
+              final XmlDBNode otherAlias = aliases[i];
+              final XmlDBNode target = source.writerView(writer);
+              final XmlNodeReadOnlyTrx reader = source.getTrx();
+              final int snapshotHash = source.hashCode();
+              source.applyUpdate(new UpdateOp() {
+                @Override
+                public XmlDBNode getTarget() {
+                  return source;
+                }
+
+                @Override
+                public OpType getType() {
+                  return OpType.RENAME;
+                }
+
+                @Override
+                public void apply() {
+                  assertSame(writer, source.getTrx());
+                  assertSame(writer, otherAlias.getTrx());
+                  assertEquals(target.hashCode(), source.hashCode());
+                  assertEquals(target.hashCode(), otherAlias.hashCode());
+                  for (final XmlDBNode node : live) {
+                    checkRelationships(target, node, source, node);
+                    checkRelationships(node, target, node, source);
+                    checkRelationships(target, node, otherAlias, node);
+                    checkRelationships(node, target, node, otherAlias);
+                  }
+                }
+              }, target);
+              assertSame(reader, source.getTrx());
+              assertEquals(snapshotHash, source.hashCode());
+              assertTrue(source.isSelfOf(otherAlias));
+              assertFalse(source.isSelfOf(target));
+              assertNotEquals(0, source.cmp(target));
+              assertEquals(1, source.getTrx().getRevisionNumber());
+              assertEquals(1, otherAlias.getTrx().getRevisionNumber());
+            }
+          } finally {
+            writer.endAtomicOperation();
+          }
+        }
+      }
+    }
+  }
+
+  private static void checkRelationships(final XmlDBNode expected, final XmlDBNode expectedOther,
+      final XmlDBNode actual, final XmlDBNode actualOther) {
+    assertEquals(expected.isSelfOf(expectedOther), actual.isSelfOf(actualOther));
+    assertEquals(expected.equals(expectedOther), actual.equals(actualOther));
+    assertEquals(expected.cmp(expectedOther), actual.cmp(actualOther));
+    assertEquals(expected.isParentOf(expectedOther), actual.isParentOf(actualOther));
+    assertEquals(expected.isChildOf(expectedOther), actual.isChildOf(actualOther));
+    assertEquals(expected.isDescendantOf(expectedOther), actual.isDescendantOf(actualOther));
+    assertEquals(expected.isDescendantOrSelfOf(expectedOther), actual.isDescendantOrSelfOf(actualOther));
+    assertEquals(expected.isAncestorOf(expectedOther), actual.isAncestorOf(actualOther));
+    assertEquals(expected.isAncestorOrSelfOf(expectedOther), actual.isAncestorOrSelfOf(actualOther));
+    assertEquals(expected.isSiblingOf(expectedOther), actual.isSiblingOf(actualOther));
+    assertEquals(expected.isPrecedingSiblingOf(expectedOther), actual.isPrecedingSiblingOf(actualOther));
+    assertEquals(expected.isFollowingSiblingOf(expectedOther), actual.isFollowingSiblingOf(actualOther));
+    assertEquals(expected.isPrecedingOf(expectedOther), actual.isPrecedingOf(actualOther));
+    assertEquals(expected.isFollowingOf(expectedOther), actual.isFollowingOf(actualOther));
+    if (expected.getKind() != Kind.DOCUMENT) {
+      assertEquals(expected.isAttributeOf(expectedOther), actual.isAttributeOf(actualOther));
+    }
+    assertEquals(expected.isDocumentOf(expectedOther), actual.isDocumentOf(actualOther));
+    assertEquals(expected.isDocumentRoot(), actual.isDocumentRoot());
+    assertEquals(expected.isRoot(), actual.isRoot());
+    assertEquals(expected.isNextOf(expectedOther), actual.isNextOf(actualOther));
+    assertEquals(expected.isPreviousOf(expectedOther), actual.isPreviousOf(actualOther));
+    assertEquals(expected.isFutureOf(expectedOther), actual.isFutureOf(actualOther));
+    assertEquals(expected.isFutureOrSelfOf(expectedOther), actual.isFutureOrSelfOf(actualOther));
+    assertEquals(expected.isEarlierOf(expectedOther), actual.isEarlierOf(actualOther));
+    assertEquals(expected.isEarlierOrSelfOf(expectedOther), actual.isEarlierOrSelfOf(actualOther));
+    assertEquals(expected.isLastOf(expectedOther), actual.isLastOf(actualOther));
+    assertEquals(expected.isFirstOf(expectedOther), actual.isFirstOf(actualOther));
+  }
+
+  private static List<Arguments> updateConfigurations() {
+    final List<Arguments> configurations = new ArrayList<>(48);
+    for (final VersioningType versioning : VersioningType.values()) {
+      for (final CommitStrategy strategy : CommitStrategy.values()) {
+        for (final boolean deweyIds : new boolean[] {false, true}) {
+          for (int suppliedWriter = 0; suppliedWriter < 3; suppliedWriter++) {
+            configurations.add(Arguments.of(versioning, strategy, deweyIds, suppliedWriter));
+          }
+        }
+      }
+    }
+    return configurations;
+  }
+
+  private static String serialize(final XmlDBNode document) {
+    final BrackitQueryContext context = new BrackitQueryContext();
+    context.setContextItem(document);
+    final StringWriter output = new StringWriter();
+    new Query(new CompileChain(), "$$").serialize(context, new PrintWriter(output));
+    return output.toString();
   }
 
   private static XmlDBNode[] nodes(final XmlDBNode document) {
