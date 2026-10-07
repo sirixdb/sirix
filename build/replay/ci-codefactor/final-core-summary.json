@@ -1,0 +1,233 @@
+{
+  "tests": 1372,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 6,
+  "budget_tests": 229,
+  "classes": [
+    {
+      "name": "io.sirix.access.node.json.JsonNodeTrxInsertTest",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 2
+    },
+    {
+      "name": "io.sirix.access.node.json.JsonNodeTrxRemoveTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonAnonymousArrayPathMutationTest",
+      "tests": 48,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityDerivedIndexTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityEpochTest",
+      "tests": 170,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityGraphGeneratedTest",
+      "tests": 144,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityHistoryTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityImportTest",
+      "tests": 109,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityProjectionEpochTest",
+      "tests": 120,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonIdentityValidTimeEpochTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonStructuralEpochRegressionTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.json.JsonStructuralHashInvariantTest",
+      "tests": 170,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.BasicJsonDiffWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonHashingWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonIdentityReplayWorkBudgetTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonStructuralHashingWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.budget.WriterListenerRetentionBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.diff.JsonBulkInsertDiffRegressionTest",
+      "tests": 150,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest",
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.service.json.replay.JsonReplayTransitionValidatorTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.service.json.shredder.JacksonJsonShredderTest",
+      "tests": 52,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 4
+    },
+    {
+      "name": "io.sirix.service.json.shredder.JsonIdentityCopyIntegrationTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.service.json.shredder.LdjsonShredderTest",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

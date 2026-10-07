@@ -8,7 +8,7 @@ projectsEvaluated {
     def artifact = new File(campaign, variant)
     def benchmarkCompile = core.tasks.register('compileReplayLatency', JavaCompile) {
         dependsOn core.tasks.named('classes')
-        source = new File(campaign, 'ReplayLatency.java')
+        source = new File(campaign, 'io/sirix/replaybench/ReplayLatency.java')
         classpath = core.sourceSets.main.runtimeClasspath
         destinationDirectory = new File(artifact, 'harness')
         javaCompiler = core.tasks.named('compileJava', JavaCompile).get().javaCompiler

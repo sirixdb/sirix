@@ -108,28 +108,29 @@ public final class JsonReplayTransitionValidator {
     }
     validateAncestry();
     for (final var keys = parents.iterator(); keys.hasNext();) {
-      final long key = keys.nextLong();
-      final Shape current = shape(key);
-      if (current == null) {
-        continue;
-      }
-      final Shape prior = old(key);
-      if ((childCounts && current.children() != Math.addExact(prior == null
-          ? 0
-          : prior.children(), childChanges.get(key)))
-          || (descendantCounts && current.descendants() != Math.addExact(prior == null
-              ? 0
-              : prior.descendants(), descendantChanges.get(key)))) {
-        throw new IllegalStateException("Replay child contributions disagree at " + key);
-      }
-      final boolean append = !nonAppendParents.contains(key) && (prior == null
-          || (prior.kind() == current.kind() && (prior.first() == -1 || prior.first() == current.first())));
-      validateChildren(current, prior, append);
+      validateParent(keys.nextLong());
     }
   }
 
-  // Every non-root old parent exists in the already validated base graph.
-  @SuppressWarnings("NullAway")
+  private void validateParent(final long key) {
+    final Shape current = shape(key);
+    if (current == null) {
+      return;
+    }
+    final Shape prior = old(key);
+    if ((childCounts && current.children() != Math.addExact(prior == null
+        ? 0
+        : prior.children(), childChanges.get(key)))
+        || (descendantCounts && current.descendants() != Math.addExact(prior == null
+            ? 0
+            : prior.descendants(), descendantChanges.get(key)))) {
+      throw new IllegalStateException("Replay child contributions disagree at " + key);
+    }
+    final boolean append = !nonAppendParents.contains(key) && (prior == null
+        || (prior.kind() == current.kind() && (prior.first() == -1 || prior.first() == current.first())));
+    validateChildren(current, prior, append);
+  }
+
   private void observe(final @Nullable Shape prior, final @Nullable Shape current) {
     addBoundaries(prior);
     addBoundaries(current);
@@ -152,13 +153,7 @@ public final class JsonReplayTransitionValidator {
     }
     if (prior == null || current == null || prior.parent() != current.parent() || prior.left() != current.left()
         || prior.right() != current.right()) {
-      if (prior != null && prior.parent() >= 0) {
-        parents.add(prior.parent());
-        if (current == null || prior.parent() != current.parent() || prior.left() != current.left()
-            || old(prior.parent()).last() != prior.key()) {
-          nonAppendParents.add(prior.parent());
-        }
-      }
+      observePriorParent(prior, current);
       if (current != null && current.parent() >= 0) {
         parents.add(current.parent());
         if (prior != null && prior.parent() != current.parent()) {
@@ -170,6 +165,18 @@ public final class JsonReplayTransitionValidator {
         || prior.last() != current.last() || prior.children() != current.children()
         || prior.descendants() != current.descendants())) {
       parents.add(current.key());
+    }
+  }
+
+  // Every non-root old parent exists in the already validated base graph.
+  @SuppressWarnings("NullAway")
+  private void observePriorParent(final @Nullable Shape prior, final @Nullable Shape current) {
+    if (prior != null && prior.parent() >= 0) {
+      parents.add(prior.parent());
+      if (current == null || prior.parent() != current.parent() || prior.left() != current.left()
+          || old(prior.parent()).last() != prior.key()) {
+        nonAppendParents.add(prior.parent());
+      }
     }
   }
 
@@ -211,21 +218,25 @@ public final class JsonReplayTransitionValidator {
         throw new IllegalStateException("Invalid replay right boundary at " + node.key());
       }
       if (deweyIDs) {
-        final SirixDeweyID nodeID = node.dewey();
-        final SirixDeweyID parentID = parent.dewey();
-        final SirixDeweyID leftID = node.left() == -1
-            ? null
-            : require(node.left()).dewey();
-        if (nodeID == null || parentID == null || !nodeID.isDescendantOf(parentID)
-            || (node.left() != -1 && (leftID == null || leftID.compareTo(nodeID) >= 0))) {
-          throw new IllegalStateException("Invalid replay Dewey boundary at " + node.key());
-        }
+        validateDeweyBoundary(node, parent);
       }
     }
     if ((node.first() == -1) != (node.last() == -1)
         || (node.first() >= 0 && (require(node.first()).parent() != node.key() || require(node.first()).left() != -1
             || require(node.last()).parent() != node.key() || require(node.last()).right() != -1))) {
       throw new IllegalStateException("Invalid replay child boundary at " + node.key());
+    }
+  }
+
+  private void validateDeweyBoundary(final Shape node, final Shape parent) {
+    final SirixDeweyID nodeID = node.dewey();
+    final SirixDeweyID parentID = parent.dewey();
+    final SirixDeweyID leftID = node.left() == -1
+        ? null
+        : require(node.left()).dewey();
+    if (nodeID == null || parentID == null || !nodeID.isDescendantOf(parentID)
+        || (node.left() != -1 && (leftID == null || leftID.compareTo(nodeID) >= 0))) {
+      throw new IllegalStateException("Invalid replay Dewey boundary at " + node.key());
     }
   }
 
@@ -282,6 +293,10 @@ public final class JsonReplayTransitionValidator {
         || (!append && descendantCounts && parent.descendants() != descendants)) {
       throw new IllegalStateException("Replay child chain counts disagree at " + parent.key());
     }
+    validateRequiredChildren(parent, append, visited);
+  }
+
+  private void validateRequiredChildren(final Shape parent, final boolean append, final LongSet visited) {
     final LongSet required = requiredChildren.get(parent.key());
     if (required != null) {
       for (final var keys = required.iterator(); keys.hasNext();) {

@@ -21,6 +21,7 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 import io.sirix.service.json.replay.JsonIdentityDelta;
+import io.sirix.service.json.replay.JsonReplayRecord;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
@@ -130,22 +131,27 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
               || structure.getLeftSiblingKey() != target.left() || structure.getRightSiblingKey() != target.right())) {
         indexWriter.checkOrder(target.key(), target.parent(), target.left(), target.right());
       }
-      final String oldName = old instanceof final NameNode named
-          ? storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)
-          : null;
-      if ((isBoundName(oldName) || isBoundName(target.name())) && (old == null || old.getKind() != target.kind()
-          || old.getParentKey() != target.parent() || !Objects.equals(oldName, target.name())
-          || (old.getKind() == NodeKind.OBJECT_NAMED_STRING && old instanceof final ValueNode value
-              && !Objects.equals(value.getValue(), target.stringValue())))) {
-        if (old != null && isBoundName(oldName)) {
-          captureIdentityObject(old.getParentKey(), intervals);
-        }
-        if (isBoundName(target.name())) {
-          captureIdentityObject(target.parent(), intervals);
-        }
-      }
+      captureIdentityBounds(old, target, intervals);
     }
     identityIntervals = intervals;
+  }
+
+  private void captureIdentityBounds(final @Nullable ImmutableNode old, final JsonReplayRecord target,
+      final Long2ObjectOpenHashMap<Interval> intervals) {
+    final String oldName = old instanceof final NameNode named
+        ? storageEngineWriter.getName(named.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT)
+        : null;
+    if ((isBoundName(oldName) || isBoundName(target.name()))
+        && (old == null || old.getKind() != target.kind() || old.getParentKey() != target.parent()
+            || !Objects.equals(oldName, target.name()) || (old.getKind() == NodeKind.OBJECT_NAMED_STRING
+                && old instanceof final ValueNode value && !Objects.equals(value.getValue(), target.stringValue())))) {
+      if (old != null && isBoundName(oldName)) {
+        captureIdentityObject(old.getParentKey(), intervals);
+      }
+      if (isBoundName(target.name())) {
+        captureIdentityObject(target.parent(), intervals);
+      }
+    }
   }
 
   /** Reconcile each affected object once against the epoch's completed document topology. */

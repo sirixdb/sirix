@@ -70,10 +70,7 @@ public final class JsonReplayPaths {
         if (same(old, current) && Objects.equals(oldName, newName) && Arrays.equals(oldStats, newStats)) {
           return;
         }
-        if (key != 0 && (old == null || current == null || old.getParentKey() != current.getParentKey()
-            || !Objects.equals(oldName, newName)
-            || (old instanceof final PathNode a && current instanceof final PathNode b
-                && (a.getPathKind() != b.getPathKind() || a.getLevel() != b.getLevel())))) {
+        if (logicalPathChanged(key, old, current, oldName, newName)) {
           logicalRoots.add(key);
         }
         if (current == null) {
@@ -110,6 +107,13 @@ public final class JsonReplayPaths {
       target.getPathSummaryPage(target.getActualRevisionRootPage()).setMaxNodeKey(0, newPage.getMaxNodeKey(0));
     }
     return result;
+  }
+
+  private static boolean logicalPathChanged(final long key, final @Nullable StructNode old,
+      final @Nullable StructNode current, final @Nullable QNm oldName, final @Nullable QNm newName) {
+    return key != 0 && (old == null || current == null || old.getParentKey() != current.getParentKey()
+        || !Objects.equals(oldName, newName) || (old instanceof final PathNode a && current instanceof final PathNode b
+            && (a.getPathKind() != b.getPathKind() || a.getLevel() != b.getLevel())));
   }
 
   private static @Nullable StructNode pathRecord(final StorageEngineReader reader, final long key) {

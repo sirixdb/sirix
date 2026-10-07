@@ -22,9 +22,10 @@ matrix has not been rerun after factoring the walker/history import.
 
 ## Reproducer
 
-Install build/replay/repro/JsonIdentityDerivedIndexTest.java at the same package path
-under bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/ and run it with the
-memory-gated build/replay/run.sh. It covers all 24 version/hash/Dewey configurations,
+The reproducer was promoted to
+bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/JsonIdentityDerivedIndexTest.java;
+run that test with the current memory-gated validation runner. The superseded auxiliary
+copy was removed during CodeFactor cleanup. It covers all 24 version/hash/Dewey configurations,
 full copy and a suffix beginning at source revision 3, every cold historical revision,
 and initial/later failure injection followed by retry.
 
@@ -67,8 +68,9 @@ not assumed to be physical zero. These corrections are retained in the reproduce
 
 The failed projection production changes were removed from the live source tree and saved
 as an exact patch against 4c0f97a83 (it also contains the small history importer hook/config
-hunks; those are already retained in the history checkpoint). The reproducer stays under
-build/replay/repro rather than adding a knowingly failing test to the standard suite.
+hunks; those are already retained in the history checkpoint). At this checkpoint the
+reproducer stayed under build/replay/repro rather than adding a knowingly failing test
+to the standard suite; the promoted test now covers the subsequent production repairs.
 No work bounds or oracle expectations were relaxed.
 
 ## Required next seam / resume work

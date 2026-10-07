@@ -59,14 +59,7 @@ public final class JsonReplayGraphValidator {
         throw new IllegalStateException("Replay parent or ordered sibling links disagree at " + childKey);
       }
       if (config.areDeweyIDsStored) {
-        if (node.getDeweyID() == null || child.getDeweyID() == null
-            || !child.getDeweyID().isDescendantOf(node.getDeweyID())) {
-          throw new IllegalStateException("Invalid replay Dewey ancestry at " + childKey);
-        }
-        final long left = frames.getLong(offset + 2);
-        if (left != -1 && requireRecord(reader, left).getDeweyID().compareTo(child.getDeweyID()) >= 0) {
-          throw new IllegalStateException("Invalid replay Dewey sibling order at " + childKey);
-        }
+        validateDeweyOrder(reader, node, child, childKey, frames.getLong(offset + 2));
       }
       frames.set(offset + 1, child.getRightSiblingKey());
       frames.set(offset + 2, childKey);
@@ -77,6 +70,17 @@ public final class JsonReplayGraphValidator {
       if (!visited.contains(key)) {
         throw new IllegalStateException("Unreachable staged replay identity " + key);
       }
+    }
+  }
+
+  private static void validateDeweyOrder(final StorageEngineReader reader, final StructNode node,
+      final StructNode child, final long childKey, final long left) {
+    if (node.getDeweyID() == null || child.getDeweyID() == null
+        || !child.getDeweyID().isDescendantOf(node.getDeweyID())) {
+      throw new IllegalStateException("Invalid replay Dewey ancestry at " + childKey);
+    }
+    if (left != -1 && requireRecord(reader, left).getDeweyID().compareTo(child.getDeweyID()) >= 0) {
+      throw new IllegalStateException("Invalid replay Dewey sibling order at " + childKey);
     }
   }
 

@@ -61,32 +61,16 @@ final class JsonReplayPageWalk {
       compareLeaf(oldRef != null, newRef != null, prefix);
       return;
     }
-    final IndirectPage oldPage = oldRef != null && oldHeight == height
-        ? dereference(oldReader, oldRef)
-        : null;
-    final IndirectPage newPage = newRef != null && newHeight == height
-        ? dereference(newReader, newRef)
-        : null;
-    if ((oldRef != null && oldHeight == height && oldPage == null)
-        || (newRef != null && newHeight == height && newPage == null)) {
+    final IndirectPage oldPage = dereferenceAtHeight(oldReader, oldRef, oldHeight, height);
+    final IndirectPage newPage = dereferenceAtHeight(newReader, newRef, newHeight, height);
+    if (missingIndirectPage(oldRef, oldHeight, height, oldPage)
+        || missingIndirectPage(newRef, newHeight, height, newPage)) {
       throw new IllegalStateException("Missing indirect page for a populated record reference");
     }
     final int shift = exponents[exponents.length - height];
     for (int offset = 0; offset < Constants.INP_REFERENCE_COUNT; offset++) {
-      final PageReference oldChild = oldHeight == height
-          ? oldPage == null
-              ? null
-              : oldPage.referenceAt(offset)
-          : offset == 0
-              ? oldRef
-              : null;
-      final PageReference newChild = newHeight == height
-          ? newPage == null
-              ? null
-              : newPage.referenceAt(offset)
-          : offset == 0
-              ? newRef
-              : null;
+      final PageReference oldChild = childReference(oldRef, oldHeight, height, oldPage, offset);
+      final PageReference newChild = childReference(newRef, newHeight, height, newPage, offset);
       if (oldChild == null && newChild == null) {
         continue;
       }
@@ -99,6 +83,29 @@ final class JsonReplayPageWalk {
       walk(populated(oldChild), Math.min(oldHeight, height - 1), populated(newChild), Math.min(newHeight, height - 1),
           childPrefix);
     }
+  }
+
+  private static @Nullable IndirectPage dereferenceAtHeight(final StorageEngineReader reader,
+      final @Nullable PageReference reference, final int referenceHeight, final int height) {
+    return reference != null && referenceHeight == height
+        ? dereference(reader, reference)
+        : null;
+  }
+
+  private static boolean missingIndirectPage(final @Nullable PageReference reference, final int referenceHeight,
+      final int height, final @Nullable IndirectPage page) {
+    return reference != null && referenceHeight == height && page == null;
+  }
+
+  private static @Nullable PageReference childReference(final @Nullable PageReference reference,
+      final int referenceHeight, final int height, final @Nullable IndirectPage page, final int offset) {
+    return referenceHeight == height
+        ? page == null
+            ? null
+            : page.referenceAt(offset)
+        : offset == 0
+            ? reference
+            : null;
   }
 
   private static IndirectPage dereference(final StorageEngineReader reader, final PageReference reference) {

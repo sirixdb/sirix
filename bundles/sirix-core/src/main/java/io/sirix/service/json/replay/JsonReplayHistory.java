@@ -49,27 +49,7 @@ public final class JsonReplayHistory {
         if (old != null && Arrays.equals(old.getRevisions(), current.getRevisions())) {
           return;
         }
-        final int[] revisions = current.getRevisions();
-        final int[] mapped;
-        if (offset == 0) {
-          mapped = revisions.clone();
-        } else {
-          int firstVisible = 0;
-          while (firstVisible < revisions.length && revisions[firstVisible] < start) {
-            firstVisible++;
-          }
-          final var visible = new IntArrayList(revisions.length - firstVisible + 1);
-          // The copied snapshot makes an older live identity first available at revision one.
-          // An actual event at that boundary already represents that availability.
-          if (firstVisible > 0 && (firstVisible == revisions.length || revisions[firstVisible] > start)
-              && boundary != null && boundary.moveTo(key)) {
-            visible.add(1);
-          }
-          for (int index = firstVisible; index < revisions.length; index++) {
-            visible.add(revisions[index] - offset);
-          }
-          mapped = visible.toIntArray();
-        }
+        final int[] mapped = mapRevisions(key, current.getRevisions(), offset, start, boundary);
         if (mapped.length > 0) {
           target.persistRecord(new RevisionReferencesNode(key, mapped), IndexType.RECORD_TO_REVISIONS, 0);
         } else if (target.getRecord(key, IndexType.RECORD_TO_REVISIONS, 0) != null) {
@@ -82,6 +62,28 @@ public final class JsonReplayHistory {
       target.getActualRevisionRootPage()
             .setMaxNodeKeyInRecordToRevisionsIndex(newRoot.getMaxNodeKeyInRecordToRevisionsIndex());
     }
+  }
+
+  private static int[] mapRevisions(final long key, final int[] revisions, final int offset, final int start,
+      final @Nullable JsonNodeReadOnlyTrx boundary) {
+    if (offset == 0) {
+      return revisions.clone();
+    }
+    int firstVisible = 0;
+    while (firstVisible < revisions.length && revisions[firstVisible] < start) {
+      firstVisible++;
+    }
+    final var visible = new IntArrayList(revisions.length - firstVisible + 1);
+    // The copied snapshot makes an older live identity first available at revision one.
+    // An actual event at that boundary already represents that availability.
+    if (firstVisible > 0 && (firstVisible == revisions.length || revisions[firstVisible] > start) && boundary != null
+        && boundary.moveTo(key)) {
+      visible.add(1);
+    }
+    for (int index = firstVisible; index < revisions.length; index++) {
+      visible.add(revisions[index] - offset);
+    }
+    return visible.toIntArray();
   }
 
   private static @Nullable RevisionReferencesNode history(final StorageEngineReader reader, final long key) {

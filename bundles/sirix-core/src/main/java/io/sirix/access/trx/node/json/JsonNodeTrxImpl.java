@@ -590,12 +590,7 @@ final class JsonNodeTrxImpl extends
         final boolean repairForest = !perInsertHashAdaptation && bulkHashes.begin();
         if (repairForest) {
           bulkHashes.capturePath(getNodeKey());
-          bulkHashes.capturePath(switch (insertionPosition) {
-            case AS_FIRST_CHILD -> getFirstChildKey();
-            case AS_LAST_CHILD -> getLastChildKey();
-            case AS_LEFT_SIBLING -> getLeftSiblingKey();
-            case AS_RIGHT_SIBLING -> getRightSiblingKey();
-          });
+          bulkHashes.capturePath(insertionBoundary(insertionPosition));
         }
         mutationStarted = true;
         nodeHashing.setBulkInsert(true);
@@ -604,12 +599,7 @@ final class JsonNodeTrxImpl extends
         }
         final long nodeKey = getNodeKey();
         final long siblingBoundary = (storeDiffs || repairForest) && skipRootJsonToken == SkipRootToken.YES
-            ? switch (insertionPosition) {
-              case AS_FIRST_CHILD -> getFirstChildKey();
-              case AS_LAST_CHILD -> getLastChildKey();
-              case AS_LEFT_SIBLING -> getLeftSiblingKey();
-              case AS_RIGHT_SIBLING -> getRightSiblingKey();
-            }
+            ? insertionBoundary(insertionPosition)
             : Fixed.NULL_NODE_KEY.getStandardProperty();
 
         shredderExecutor.execute(skipRootJsonToken, insertionPosition);
@@ -631,21 +621,7 @@ final class JsonNodeTrxImpl extends
         }
 
         if (repairForest) {
-          final long selectedRoot = getNodeKey();
-          final boolean walkLeft =
-              insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
-          if (selectedRoot > oldFrontier) {
-            do {
-              bulkHashes.addNewSubtree(getNodeKey());
-              if (skipRootJsonToken != SkipRootToken.YES) {
-                break;
-              }
-            } while ((walkLeft
-                ? moveToLeftSibling()
-                : moveToRightSibling()) && getNodeKey() != siblingBoundary);
-            bulkHashes.finish();
-          }
-          moveTo(selectedRoot);
+          repairBulkInsertHashes(bulkHashes, insertionPosition, skipRootJsonToken, oldFrontier, siblingBoundary);
         }
 
         nodeHashing.setBulkInsert(false);
@@ -676,6 +652,34 @@ final class JsonNodeTrxImpl extends
       }
     });
     return this;
+  }
+
+  private long insertionBoundary(final InsertPosition insertionPosition) {
+    return switch (insertionPosition) {
+      case AS_FIRST_CHILD -> getFirstChildKey();
+      case AS_LAST_CHILD -> getLastChildKey();
+      case AS_LEFT_SIBLING -> getLeftSiblingKey();
+      case AS_RIGHT_SIBLING -> getRightSiblingKey();
+    };
+  }
+
+  private void repairBulkInsertHashes(final JsonHashingMutation bulkHashes, final InsertPosition insertionPosition,
+      final SkipRootToken skipRootJsonToken, final long oldFrontier, final long siblingBoundary) {
+    final long selectedRoot = getNodeKey();
+    final boolean walkLeft =
+        insertionPosition == InsertPosition.AS_LAST_CHILD || insertionPosition == InsertPosition.AS_LEFT_SIBLING;
+    if (selectedRoot > oldFrontier) {
+      do {
+        bulkHashes.addNewSubtree(getNodeKey());
+        if (skipRootJsonToken != SkipRootToken.YES) {
+          break;
+        }
+      } while ((walkLeft
+          ? moveToLeftSibling()
+          : moveToRightSibling()) && getNodeKey() != siblingBoundary);
+      bulkHashes.finish();
+    }
+    moveTo(selectedRoot);
   }
 
   private SkipRootToken validateSubtreePosition(final InsertPosition insertionPosition,
@@ -3417,22 +3421,7 @@ final class JsonNodeTrxImpl extends
 
       try {
         final StructNode node = nodeReadOnlyTrx.getStructuralNode();
-        if (node.getKind() == NodeKind.JSON_DOCUMENT) {
-          throw new SirixUsageException("Document root can not be removed.");
-        }
-
-        final var parentNodeKind = getParentKind();
-
-        // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
-        // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
-        // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
-        // child parents alongside the legacy kinds.
-        if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-            && parentNodeKind != NodeKind.ARRAY && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
-            && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
-          throw new SirixUsageException(
-              "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
-        }
+        validateRemoval(node);
 
         canRemoveValue = false;
         final JsonHashingMutation hashes = ((JsonNodeHashing) nodeHashing).mutation();
@@ -3532,6 +3521,20 @@ final class JsonNodeTrxImpl extends
       if (lock != null) {
         lock.unlock();
       }
+    }
+  }
+
+  private void validateRemoval(final StructNode node) {
+    if (node.getKind() == NodeKind.JSON_DOCUMENT) {
+      throw new SirixUsageException("Document root can not be removed.");
+    }
+    final var parentNodeKind = getParentKind();
+    // Fused containers have the same removable-child roles as plain OBJECT/ARRAY parents.
+    if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
+        && parentNodeKind != NodeKind.ARRAY && parentNodeKind != NodeKind.OBJECT_NAMED_OBJECT
+        && parentNodeKind != NodeKind.OBJECT_NAMED_ARRAY) && !canRemoveValue) {
+      throw new SirixUsageException(
+          "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
     }
   }
 
@@ -4773,14 +4776,7 @@ final class JsonNodeTrxImpl extends
    * without rewriting its unchanged identity or its name reference count.
    */
   private LongSet replayAdditionalIndexKeys(final JsonIdentityDelta delta) {
-    boolean filtered = false;
-    for (final IndexDef definition : indexController.getIndexes().getIndexDefs()) {
-      if ((definition.isPathIndex() || definition.isCasIndex()) && !definition.getPaths().isEmpty()) {
-        filtered = true;
-        break;
-      }
-    }
-    if (!filtered) {
+    if (!hasFilteredReplayIndex()) {
       return LongSets.emptySet();
     }
     final LongSet additional = new LongOpenHashSet();
@@ -4816,6 +4812,15 @@ final class JsonNodeTrxImpl extends
       }
     }
     return additional;
+  }
+
+  private boolean hasFilteredReplayIndex() {
+    for (final IndexDef definition : indexController.getIndexes().getIndexDefs()) {
+      if ((definition.isPathIndex() || definition.isCasIndex()) && !definition.getPaths().isEmpty()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean replayRemoveDerivedState(final long key) {

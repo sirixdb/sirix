@@ -18,6 +18,12 @@ repairs. They are historical evidence, not full validation of the submitted chan
 The outer no-mistakes run is active and owns subsequent validation and delivery;
 merge still requires explicit approval.
 
+The [CodeFactor CI repair](ci-codefactor/README.md) captures the exact target report,
+behavior-preserving helper extractions and both auxiliary package-layout corrections.
+It also supplies five retained complexity notes for the outer executor's PR description;
+publication and the next provider report remain owned by that executor. Its local checks
+use the same private validation environment and cutoff described below.
+
 The [latency report](latency/report.md) describes the measured candidate and retains the
 source/public-diff uncertainty. No new campaign covers the review repairs, and the
 one-element move fixture does not establish wide-move latency or production p99.
