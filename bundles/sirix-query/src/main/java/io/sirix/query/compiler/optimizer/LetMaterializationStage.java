@@ -54,9 +54,13 @@ public final class LetMaterializationStage implements Stage {
 
   private static final class Admission extends ScopeWalker {
     private static final int MAX_PROOF_WORK = 1024;
+    private static final int NON_SCALAR = 0;
+    private static final int PARTIAL_CONSUMPTION = 1;
+    private static final int FULL_CONSUMPTION = 2;
     private final List<AST> candidates = new ArrayList<>();
     private final Map<AST, Integer> references = new IdentityHashMap<>();
     private final Set<AST> nonScalarConsumers = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<AST> fullConsumers = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<QNm, AST> declarations = new HashMap<>();
     private final Set<QNm> defaults = new LinkedHashSet<>();
     private final Set<QNm> captured = new LinkedHashSet<>();
@@ -108,8 +112,11 @@ public final class LetMaterializationStage implements Stage {
             && !BindingDependencies.parameter(node, name, variable.scope.getNode())) {
           final AST binding = variable.scope.getNode();
           references.put(binding, Math.min(2, references.getOrDefault(binding, 0) + 1));
-          if (!scalarConsumer(node, binding))
+          final int consumption = scalarConsumer(node, binding);
+          if (consumption == NON_SCALAR)
             nonScalarConsumers.add(binding);
+          else if (consumption == FULL_CONSUMPTION)
+            fullConsumers.add(binding);
         }
       }
       return node;
@@ -118,7 +125,8 @@ public final class LetMaterializationStage implements Stage {
     @Override
     protected AST finish(final AST ast) {
       for (final AST binding : candidates) {
-        if (references.getOrDefault(binding, 0) > 1 && !nonScalarConsumers.contains(binding)) {
+        if (references.getOrDefault(binding, 0) > 1 && !nonScalarConsumers.contains(binding)
+            && fullConsumers.contains(binding)) {
           remaining = MAX_PROOF_WORK;
           defaults.clear();
           captured.clear();
@@ -138,20 +146,28 @@ public final class LetMaterializationStage implements Stage {
       return ast;
     }
 
-    private boolean scalarConsumer(final AST reference, final AST binding) {
+    private int scalarConsumer(final AST reference, final AST binding) {
       final AST end = binding.getLastChild();
       if (end.getType() != XQ.End)
-        return false;
-      boolean reduced = false;
+        return NON_SCALAR;
+      int consumption = NON_SCALAR;
       AST child = reference;
       for (AST parent = reference.getParent(); parent != null; child = parent, parent = parent.getParent()) {
         if (parent == end)
-          return reduced;
+          return consumption;
         final int type = parent.getType();
         if (type == XQ.PipeExpr || type == XQ.End || type == XQ.InlineFuncItem || type == XQ.FunctionDecl)
-          return false;
-        if (reduced)
+          return NON_SCALAR;
+        if (consumption != NON_SCALAR) {
+          if (type == XQ.IfExpr && parent.getChild(0) != child
+              || (type == XQ.AndExpr || type == XQ.OrExpr) && parent.getChild(0) != child
+              || (type == XQ.ArrayAccess || type == XQ.DerefExpr || type == XQ.FilterExpr)
+                  && parent.getChild(0) != child
+              || type == XQ.Predicate
+              || type == XQ.FunctionCall && !scalarFunction(functionName(parent)))
+            consumption = PARTIAL_CONSUMPTION;
           continue;
+        }
         if (type == XQ.ParenthesizedExpr)
           continue;
         if ((type == XQ.DerefExpr || type == XQ.ArrayAccess) && parent.getChild(0) == child) {
@@ -159,16 +175,18 @@ public final class LetMaterializationStage implements Stage {
         }
         final String name = functionName(parent);
         if (name == null || parent.getChild(0) != child)
-          return false;
+          return NON_SCALAR;
         if (scalarFunction(name)) {
-          reduced = true;
+          consumption = FULL_CONSUMPTION;
+        } else if (name.equals("exists")) {
+          consumption = PARTIAL_CONSUMPTION;
         } else if ((name.equals("data") || name.equals("distinct-values")) && parent.getChildCount() == 1) {
           continue;
         } else {
-          return false;
+          return NON_SCALAR;
         }
       }
-      return false;
+      return NON_SCALAR;
     }
 
     private boolean eagerResult(final AST binding) {
@@ -196,7 +214,7 @@ public final class LetMaterializationStage implements Stage {
 
     private static boolean scalarFunction(final String name) {
       return name != null && switch (name) {
-        case "count", "sum", "avg", "min", "max", "exists" -> true;
+        case "count", "sum", "avg", "min", "max" -> true;
         default -> false;
       };
     }

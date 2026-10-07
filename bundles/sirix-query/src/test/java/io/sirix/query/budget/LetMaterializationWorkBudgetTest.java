@@ -15,10 +15,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,6 +64,34 @@ final class LetMaterializationWorkBudgetTest {
     assertEquals(baseline.answer, optimized.answer);
     assertEquals(2 * rows, optimized.reads);
     assertEquals(1, optimized.markers);
+  }
+
+  static Stream<Arguments> existenceOnlyConsumers() {
+    return Stream.of(Arguments.of("[exists($rows),exists($rows)][]", "true true", 2),
+        Arguments.of("[empty($rows),empty($rows)][]", "false false", 2),
+        Arguments.of("[exists($rows),empty($rows)][]", "true false", 2),
+        Arguments.of("{\"first\":exists($rows),\"second\":exists($rows)}", "{\"first\":true,\"second\":true}", 2),
+        Arguments.of("(exists($rows),exists($rows))", "true true", 2),
+        Arguments.of("[exists(data($rows)),exists(data($rows))][]", "true true", 2),
+        Arguments.of("[exists($rows),if (exists($rows)) then exists($rows) else sum($rows)][]", "true true", 3),
+        Arguments.of("[exists($rows),exists($rows) or sum($rows) gt 0][]", "true true", 2),
+        Arguments.of("[exists($rows),empty($rows) and count($rows) gt 0][]", "true false", 2),
+        Arguments.of("[exists($rows),exists($rows),()[sum($rows)]][]", "true true", 2),
+        Arguments.of("[exists($rows),exists((1,sum($rows))),exists((1,count($rows)))][]", "true true true", 1));
+  }
+
+  @ParameterizedTest
+  @MethodSource("existenceOnlyConsumers")
+  void existenceOnlyConsumersKeepConstantSourceWork(final String result, final String answer, final int reads) {
+    final String query = "let $rows := (for $r in jn:doc('bt','contracts')[] return $r.cost) return " + result;
+    final Capture optimized = run(query, 10000, true, 2);
+    final Capture baseline = run(query, 10000, false, 2);
+    assertEquals(answer, optimized.answer);
+    assertEquals(baseline.answer, optimized.answer);
+    assertEquals(2L * reads, baseline.reads, "the disabled plan observes first-item demand on every evaluation");
+    assertTrue(optimized.reads > 0, "the source-read counter must observe item demand");
+    assertTrue(optimized.reads <= 2L * reads, "existence checks must not scan or buffer the 10,000-row source");
+    assertEquals(0, optimized.markers);
   }
 
   @Test

@@ -23,7 +23,10 @@ invoked on individual bodies, which do not contain those declarations. Engine-pr
 inside the candidate source, including join outputs and filter context items, are covered by the
 same source proof. Dependency cycles or exhausted proof budgets decline admission.
 
-Consumer admission requires a terminal return with scalar reductions. Direct composite returns,
+Consumer admission requires a terminal return with scalar reductions and at least one unconditional
+full-consuming reduction. Existence-only consumers stay lazy; `exists` remains eligible alongside
+full-consuming reductions. Reductions in skipped branches or behind partial-consuming calls do
+not establish full consumption. Direct composite returns,
 aliases, deferred bodies and bindings retained across further iteration stay lazy. Global-dependent
 bindings and all stored reads, including transitive producers, require an eager scalar result or
 constructed result object or array, so every dependent use finishes before a result reaches the
@@ -66,7 +69,8 @@ observes all three references. The Q3 plan must carry exactly one materializatio
 baseline carries none.
 
 `LetMaterializationWorkBudgetTest` additionally checks empty, singleton, 10,000-item and partially
-consumed results against the disabled-stage plan, nested bindings, and correlated rebinding for
+consumed results against the disabled-stage plan, constant first-item work for existence-only
+consumers of a 10,000-row source, nested bindings, and correlated rebinding for
 three outer tuples. `LetMaterializationTest` checks shadowing, single/unused bindings, unproven
 calls, effectful lazy dependencies caller-dependent function parameters, global overrides, external defaults, shadowed functions,
 implicit context arguments and positional `allowing empty` bindings. `MaterializeExprTest`
