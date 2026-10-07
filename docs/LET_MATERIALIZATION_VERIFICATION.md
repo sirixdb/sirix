@@ -56,7 +56,11 @@ including ones with defaults, are never statically admitted. This is a purity ch
 sequence or invalidation state. Resolved user functions that shadow JSON read functions and
 implicit context arguments without a source proof are also excluded. A source that reads stored
 JSON is materialized only with the stock `BasicJsonDBStore`; a custom provider keeps the generic
-per-reference behavior because its document and field reads have no purity proof.
+per-reference behavior because its document and field reads have no purity proof. The shared
+runtime guard also requires stock implementations for every currently registered collection:
+`addDatabase` can install a decorator inside a stock store, including after compilation. The
+guard checks implementation types without opening documents or inspecting fields. Replacement,
+removal and drop are reflected by reading the current registry, without retaining a trust flag.
 
 Single-reference bindings remain lazy. Admission currently targets lazy FLWOR (`PipeExpr`)
 initializers; it does not add materialization to scalar lets or module-global declarations.

@@ -431,6 +431,15 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return location;
   }
 
+  public boolean hasOnlyStockCollections() {
+    for (final JsonDBCollection collection : collections.values()) {
+      if (!(collection instanceof JsonDBCollectionImpl)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * Begin the write transaction for a bulk import: the asynchronous background pre-flush when enabled
    * and supported (FILE_CHANNEL or MEMORY_MAPPED — see the guard in {@code beginNodeTrx}), otherwise

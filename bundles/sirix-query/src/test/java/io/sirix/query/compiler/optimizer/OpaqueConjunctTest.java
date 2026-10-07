@@ -328,6 +328,54 @@ final class OpaqueConjunctTest {
     });
   }
 
+  static Stream<Arguments> registeredProviderPaths() {
+    return Stream.of(false, true)
+        .flatMap(cheap -> Stream.of(false, true)
+            .flatMap(afterCompilation -> Stream.of(false, true)
+                .map(row -> Arguments.of(cheap, afterCompilation, row))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("registeredProviderPaths")
+  void aRegisteredCollectionKeepsItsChangingFieldsInOriginalOrder(final boolean cheap,
+      final boolean afterCompilation, final boolean row) {
+    withSwitch(cheap, () -> {
+      final Reads reads = new Reads();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+        final JsonDBCollection actual = store.create("data", "rows", "{\"value\":0}");
+        final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
+        object.replace(new QNm("value"), increasing(reads));
+        final JsonDBCollection custom = mock(JsonDBCollection.class,
+            withSettings().stubOnly().defaultAnswer(invocation -> {
+              if (invocation.getMethod().getName().equals("getDocument"))
+                return object;
+              try {
+                return invocation.getMethod().invoke(actual, invocation.getArguments());
+              } catch (final InvocationTargetException exception) {
+                throw exception.getCause();
+              }
+            }));
+        if (!afterCompilation)
+          store.addDatabase(custom, actual.getDatabase());
+        try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+            final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+          final String doc = "jn:doc('data','rows')";
+          final String text = row
+              ? "declare variable $keep external; for $r in " + doc
+                  + " where if ($keep eq 1) then (xs:integer($r.value) gt 0 and $r.value eq 2) else false() return true()"
+              : "xs:integer(" + doc + ".value) gt 0 and " + doc + ".value eq 2";
+          final Query query = new Query(chain, text);
+          if (afterCompilation)
+            store.addDatabase(custom, actual.getDatabase());
+          context.bind(new QNm("keep"), Int32.ONE);
+          reads.scalar = 0;
+          assertEquals("true", serialize(query, context));
+          assertEquals(2, reads.scalar);
+        }
+      }
+    });
+  }
+
   static Stream<Arguments> escapedRows() {
     return Stream.of("native-return", "native-selected-return", "literal-return", "literal-selected-return",
         "native-inner", "literal-inner", "native-join")

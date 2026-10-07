@@ -60,9 +60,8 @@ public final class ConjunctInputs {
   }
 
   boolean admit(final QueryContext context, final Tuple tuple) {
-    // Only the final stock store guarantees freshly opened document views. A caller's
-    // provider may return an already exposed object with changing lazy field values.
-    if (nativeStore && !(context.getJsonItemStore() instanceof BasicJsonDBStore)) {
+    if (nativeStore && (!(context.getJsonItemStore() instanceof BasicJsonDBStore store)
+        || !store.hasOnlyStockCollections())) {
       return false;
     }
     for (int i = 0; i < names.length; i++) {

@@ -11,6 +11,7 @@ import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.BaseIter;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -20,6 +21,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.json.JsonDBStore;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
@@ -610,6 +612,87 @@ final class LetMaterializationTest {
         assertEquals(2, lookups.get(), "the purity of a custom provider's reads has not been established");
       }
     }
+  }
+
+  static Stream<Arguments> registeredCollectionPaths() {
+    return Stream.of(false, true)
+        .flatMap(enabled -> Stream.of(false, true)
+            .flatMap(afterCompilation -> Stream.of(false, true)
+                .map(revision -> Arguments.of(enabled, afterCompilation, revision))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("registeredCollectionPaths")
+  void registeredCollectionsRetainChangingFieldsPerReference(final boolean enabled, final boolean afterCompilation,
+      final boolean revision, @TempDir final Path directory) {
+    withMaterialization(enabled, () -> {
+      final AtomicInteger iterations = new AtomicInteger();
+      final AtomicInteger documents = new AtomicInteger();
+      final AtomicInteger fields = new AtomicInteger();
+      final AtomicInteger inspections = new AtomicInteger();
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+        final JsonDBCollection actual = store.create("input", "rows", "{\"value\":0}");
+        final JsonDBObject object = (JsonDBObject) actual.getDocument("rows");
+        object.replace(new QNm("value"), increasing(iterations));
+        final JsonDBObject counted = mock(JsonDBObject.class, withSettings().stubOnly().defaultAnswer(invocation -> {
+          final String method = invocation.getMethod().getName();
+          if (method.equals("iterate"))
+            return new ItemSequence((Item) invocation.getMock()).iterate();
+          if (method.equals("evaluate") || method.equals("evaluateToItem"))
+            return invocation.getMock();
+          if (method.equals("get"))
+            fields.incrementAndGet();
+          else if (method.equals("values") || method.equals("names") || method.equals("len") || method.equals("length"))
+            inspections.incrementAndGet();
+          try {
+            return invocation.getMethod().invoke(object, invocation.getArguments());
+          } catch (final InvocationTargetException exception) {
+            throw exception.getCause();
+          }
+        }));
+        final JsonDBCollection custom = mock(JsonDBCollection.class,
+            withSettings().stubOnly().defaultAnswer(invocation -> {
+              if (invocation.getMethod().getName().equals("getDocument")) {
+                documents.incrementAndGet();
+                return counted;
+              }
+              try {
+                return invocation.getMethod().invoke(actual, invocation.getArguments());
+              } catch (final InvocationTargetException exception) {
+                throw exception.getCause();
+              }
+            }));
+        if (!afterCompilation)
+          store.addDatabase(custom, actual.getDatabase());
+        try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+            final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+          final Query query = new Query(chain,
+              "let $rows := (for $n in 1 to 2 return jn:doc('input','rows'" + (revision
+                  ? ",1"
+                  : "") + ").value) return {\"first\":sum($rows),\"second\":sum($rows)}");
+          assertEquals(enabled
+              ? 1
+              : 0, markers(chain.getOptimizedAST()));
+          if (afterCompilation)
+            store.addDatabase(custom, actual.getDatabase());
+          for (int evaluation = 0; evaluation < 2; evaluation++) {
+            iterations.set(0);
+            documents.set(0);
+            fields.set(0);
+            inspections.set(0);
+            final StringWriter output = new StringWriter();
+            try (final PrintWriter writer = new PrintWriter(output)) {
+              query.serialize(context, writer);
+            }
+            assertEquals("{\"first\":3,\"second\":7}", output.toString().trim());
+            assertEquals(4, iterations.get(), "both references retain the changing lazy field");
+            assertEquals(4, documents.get(), "the guard must not open custom documents");
+            assertEquals(4, fields.get(), "the guard must not read custom fields");
+            assertEquals(0, inspections.get(), "the guard must not inspect custom containers");
+          }
+        }
+      }
+    });
   }
 
   @Test
