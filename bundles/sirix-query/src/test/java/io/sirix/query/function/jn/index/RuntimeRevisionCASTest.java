@@ -189,21 +189,21 @@ final class RuntimeRevisionCASTest {
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final String source = "jn:doc('cas','" + resource + "')" + (resource.equals("root") ? "[]" : ".rows[]");
+      final String source = "jn:doc('cas','" + resource + "')" + (resource.equals("root")
+          ? "[]"
+          : ".rows[]");
       for (final String projection : List.of("$c.details.value", "$c.details.values[0]",
-          "let $d := $c.details return $d.value",
-          "for $d in $c.details.values[] where $d eq 20 return $d")) {
-        final String text = "for $c in " + source
-            + " where $c.id eq 1 and $c.details.value eq 20 return " + projection;
+          "let $d := $c.details return $d.value", "for $d in $c.details.values[] where $d eq 20 return $d")) {
+        final String text = "for $c in " + source + " where $c.id eq 1 and $c.details.value eq 20 return " + projection;
         final Query query = new Query(chain, text);
         assertEquals(List.of(20L), values(query.execute(context)), projection);
-        final QueryPlan plan = QueryPlan.explain(text, store, null);
+        final QueryPlan plan = QueryPlan.explain(text, store, context.getNodeStore());
         assertTrue(plan.usesIndex());
         assertEquals("CAS", plan.indexType());
       }
       final String filter = source + "[?$$.id eq 1].details.value";
       assertEquals(List.of(20L), values(new Query(chain, filter).execute(context)));
-      final QueryPlan plan = QueryPlan.explain(filter, store, null);
+      final QueryPlan plan = QueryPlan.explain(filter, store, context.getNodeStore());
       assertTrue(plan.usesIndex());
       assertEquals("CAS", plan.indexType());
     }
@@ -217,7 +217,7 @@ final class RuntimeRevisionCASTest {
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var sequential = SirixCompileChain.createWithJsonStore(store);
-        var parallel = SirixCompileChain.createParallel(null, store);
+        var parallel = SirixCompileChain.createParallel(context.getNodeStore(), store);
         var workers = Executors.newFixedThreadPool(2)) {
       final String text = switch (shape) {
         case "flwor" -> "for $c in jn:doc('cas','root')[] where $c.id eq 1 return $c";
@@ -225,7 +225,7 @@ final class RuntimeRevisionCASTest {
         case "legacy" -> "jn:doc('cas','nested')[].item[?$$.id ge 1]";
         default -> throw new AssertionError(shape);
       };
-      final QueryPlan plan = QueryPlan.explain(text, store, null);
+      final QueryPlan plan = QueryPlan.explain(text, store, context.getNodeStore());
       assertTrue(plan.usesIndex(), plan::toJSON);
       assertEquals("CAS", plan.indexType());
       final List<JsonDBObject> rows = new ArrayList<>(count);
@@ -285,11 +285,11 @@ final class RuntimeRevisionCASTest {
     create(VersioningType.FULL);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
-        var chain = SirixCompileChain.createParallel(null, store)) {
-      final String text = "sum(for $i in 1 to 4096 "
-          + "let $t := if ($i mod 2 eq 0) then xs:dateTime('2020-01-01T00:00:00Z') "
-          + "else xs:dateTime('2021-01-01T00:00:00Z') "
-          + "for $c in jn:open('cas','root',$t)[] where $c.id eq 1 return $c.value)";
+        var chain = SirixCompileChain.createParallel(context.getNodeStore(), store)) {
+      final String text =
+          "sum(for $i in 1 to 4096 " + "let $t := if ($i mod 2 eq 0) then xs:dateTime('2020-01-01T00:00:00Z') "
+              + "else xs:dateTime('2021-01-01T00:00:00Z') "
+              + "for $c in jn:open('cas','root',$t)[] where $c.id eq 1 return $c.value)";
       assertEquals(61_440, ((Numeric) new Query(chain, text).evaluate(context)).intValue());
       assertTrue(contains(chain.getOptimizedAST(), XQExt.IndexExpr));
     }
@@ -310,17 +310,12 @@ final class RuntimeRevisionCASTest {
         doReturn(1).when(replacement).getMostRecentRevisionNumber();
         doReturn(1).when(replacement).getRevisionNumber(instant);
         assertEquals(1, context.resolveRevision(replacement, instant));
-        if (last != first) {
-          last.close();
-        }
         last = replacement;
       }
       assertEquals(1, context.resolveRevision(last, instant));
       verify(last, times(1)).getRevisionNumber(instant);
       assertEquals(1, context.resolveRevision(first, instant));
       verify(first, times(2)).getRevisionNumber(instant);
-      last.close();
-      first.close();
     }
   }
 
@@ -378,8 +373,8 @@ final class RuntimeRevisionCASTest {
     final JsonResourceSession session = mock(JsonResourceSession.class);
     final AtomicInteger head = new AtomicInteger(512);
     doAnswer(call -> head.get()).when(session).getMostRecentRevisionNumber();
-    doAnswer(call -> (int) call.getArgument(0, Instant.class).getEpochSecond() + head.get() - 511)
-        .when(session).getRevisionNumber(any(Instant.class));
+    doAnswer(call -> (int) call.getArgument(0, Instant.class).getEpochSecond() + head.get() - 511).when(
+        session).getRevisionNumber(any(Instant.class));
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var workers = Executors.newFixedThreadPool(8)) {
@@ -442,8 +437,9 @@ final class RuntimeRevisionCASTest {
           writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(nested
               ? nestedRows.toString()
               : rows.toString()), JsonNodeTrx.Commit.NO);
-          final IndexDef index = IndexDefs.createCASIdxDef(false, Type.INR,
-              Set.of(parse(nested ? "/[]/item/id" : "/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+          final IndexDef index = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse(nested
+              ? "/[]/item/id"
+              : "/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
           session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(index), writer);
           writer.commit();
         }
@@ -486,8 +482,8 @@ final class RuntimeRevisionCASTest {
   }
 
   private static String json(final boolean nested, final int value) {
-    final String rows = "[{\"id\":1,\"value\":" + value + ",\"details\":{\"value\":" + value
-        + ",\"values\":[" + value + "," + (value + 1) + "]}},{\"id\":2,\"value\":5}]";
+    final String rows = "[{\"id\":1,\"value\":" + value + ",\"details\":{\"value\":" + value + ",\"values\":[" + value
+        + "," + (value + 1) + "]}},{\"id\":2,\"value\":5}]";
     return nested
         ? "{\"rows\":" + rows + "}"
         : rows;

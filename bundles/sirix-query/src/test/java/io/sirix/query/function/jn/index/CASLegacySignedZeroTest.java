@@ -40,11 +40,11 @@ final class CASLegacySignedZeroTest {
     final Path databasePath = directory.resolve("zero");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .storeDiffs(false).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
-        final StringBuilder json = new StringBuilder("[{\"item\":{\"id\":1,\"value\":10}},"
-            + "{\"item\":{\"id\":0,\"value\":20}}");
+        final StringBuilder json =
+            new StringBuilder("[{\"item\":{\"id\":1,\"value\":10}}," + "{\"item\":{\"id\":0,\"value\":20}}");
         for (int i = 0; i < 2_048; i++) {
           json.append(",{\"item\":{\"id\":2,\"value\":0}}");
         }
@@ -56,9 +56,9 @@ final class CASLegacySignedZeroTest {
         writer.moveToFirstChild();
         writer.moveToFirstChild();
         writer.setNumberValue(-0.0d);
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/item/id", PathParser.Type.JSON)), 0,
-                IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INR,
+                   Set.of(parse("/[]/item/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit();
       }
     }
@@ -70,10 +70,11 @@ final class CASLegacySignedZeroTest {
       for (final String predicate : List.of("$$.id eq 0", "$$.id lt 0", "$$.id le 0", "$$.id gt 0", "$$.id ge 0",
           "$$.id ge -1 and $$.id le 0", "$$.id ge 0 and $$.id le 1")) {
         final String text = source + "[?" + predicate + "].value";
-        assertEquals(values(new Query(generic, text).execute(context)), values(new Query(chain, text).execute(context)), predicate);
+        assertEquals(values(new Query(generic, text).execute(context)), values(new Query(chain, text).execute(context)),
+            predicate);
       }
       final String equality = source + "[?$$.id eq 0].value";
-      assertTrue(QueryPlan.explain(equality, store, null).usesIndex());
+      assertTrue(QueryPlan.explain(equality, store, context.getNodeStore()).usesIndex());
       assertEquals(List.of(20d), values(new Query(generic, equality).execute(context)));
       assertEquals(List.of(20d), values(new Query(chain, equality).execute(context)));
       assertEquals(List.of(10d), values(new Query(chain, source + "[?$$.id lt 0].value").execute(context)));

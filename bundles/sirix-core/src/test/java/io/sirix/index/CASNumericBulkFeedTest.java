@@ -34,17 +34,23 @@ final class CASNumericBulkFeedTest {
     final Path databasePath = directory.resolve("bulk");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .hashKind(HashType.NONE).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("rows")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .hashKind(HashType.NONE)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INR,
+                   Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         final StringBuilder json = new StringBuilder(24_000).append('[');
         for (int i = 0; i < 2_048; i++) {
           if (i > 0) {
             json.append(',');
           }
-          json.append(i % 2 == 0 ? "{\"id\":1.0}" : "{\"id\":1.5}");
+          json.append(i % 2 == 0
+              ? "{\"id\":1.0}"
+              : "{\"id\":1.5}");
         }
         if (unsupported) {
           json.append(",{\"id\":null},{\"id\":{\"value\":1}},{\"id\":[1]}");
@@ -55,12 +61,13 @@ final class CASNumericBulkFeedTest {
         writer.commit();
       }
     }
-    try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows");
+    try (var database = Databases.openJsonDatabase(databasePath);
+        var session = database.beginResourceSession("rows");
         var reader = session.beginNodeReadOnlyTrx()) {
       final var controller = session.getRtxIndexController(reader.getRevisionNumber());
       final IndexDef definition = controller.getIndexes().getIndexDef(0, IndexType.CAS);
-      final var filter = controller.createCASFilter(Set.of("/[]/id"), new Int32(1), SearchMode.EQUAL,
-          new JsonPCRCollector(reader));
+      final var filter =
+          controller.createCASFilter(Set.of("/[]/id"), new Int32(1), SearchMode.EQUAL, new JsonPCRCollector(reader));
       final var postings = controller.openCASIndex(reader.getStorageEngineReader(), definition, filter);
       long count = 0;
       while (postings.hasNext()) {

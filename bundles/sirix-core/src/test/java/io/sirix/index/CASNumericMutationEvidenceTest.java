@@ -37,7 +37,8 @@ final class CASNumericMutationEvidenceTest {
     final Path databasePath = directory.resolve("mutations");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"id\":1}]"), JsonNodeTrx.Commit.NO);
         writer.moveToDocumentRoot();
@@ -47,8 +48,9 @@ final class CASNumericMutationEvidenceTest {
         writer.moveToFirstChild();
         final long idKey = writer.getNodeKey();
         writer.setNumberValue(number(kind, 1));
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, type, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, type,
+                   Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit();
         writer.moveTo(idKey);
         writer.setNumberValue(number(kind, 2));

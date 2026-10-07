@@ -229,13 +229,15 @@ final class CASContainerRenameTest {
       }
       assertEquals("CAS", QueryPlan
                                    .explain("for $c in jn:doc('containers','rows')" + selector
-                                       + "[] where $c.id eq 1 return $c.value", store, null)
+                                       + "[] where $c.id eq 1 return $c.value", store, context.getNodeStore())
                                    .indexType());
       assertEquals("CAS",
-          QueryPlan.explain("jn:doc('containers','rows')" + selector + "[][?$$.id eq 1]", store, null).indexType());
-      assertEquals("CAS",
-          QueryPlan.explain("jn:doc('containers','rows')" + selector + "[].item[?$$.id eq 1]", store, null)
+          QueryPlan.explain("jn:doc('containers','rows')" + selector + "[][?$$.id eq 1]", store, context.getNodeStore())
                    .indexType());
+      assertEquals("CAS", QueryPlan
+                                   .explain("jn:doc('containers','rows')" + selector + "[].item[?$$.id eq 1]", store,
+                                       context.getNodeStore())
+                                   .indexType());
     }
   }
 

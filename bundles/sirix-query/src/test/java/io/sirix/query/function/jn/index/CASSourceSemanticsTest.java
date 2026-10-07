@@ -43,8 +43,7 @@ final class CASSourceSemanticsTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void numericCandidatesKeepEqualityAndHistoricalMaintenance(final VersioningType versioning) {
-    create("[{\"id\":1.0,\"value\":10},{\"id\":1.5,\"value\":15},{\"id\":2.0,\"value\":20}]",
-        "/[]/id", versioning);
+    create("[{\"id\":1.0,\"value\":10},{\"id\":1.5,\"value\":15},{\"id\":2.0,\"value\":20}]", "/[]/id", versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var optimized = SirixCompileChain.createWithJsonStore(store)) {
@@ -52,22 +51,27 @@ final class CASSourceSemanticsTest {
       for (final String probe : List.of("1", "1.0", "1.5", "xs:decimal('1')", "xs:double('1')")) {
         for (final boolean filter : List.of(false, true)) {
           final String text = point("jn:doc('case','rows')[]", probe, filter);
-          final List<Double> expected = probe.equals("1.5") ? List.of(15d) : List.of(10d);
+          final List<Double> expected = probe.equals("1.5")
+              ? List.of(15d)
+              : List.of(10d);
           assertEquals(expected, values(new Query(generic, text).execute(context)));
           assertEquals(expected, values(new Query(optimized, text).execute(context)));
         }
       }
-      assertTrue(QueryPlan.explain(point("jn:doc('case','rows')[]", "1", false), store, null).usesIndex());
-      assertEquals(List.of(1d), values(new Query(optimized,
-          "count(jn:scan-cas-index(jn:doc('case','rows'),0,1,'==','/[]/id'))").execute(context)));
+      assertTrue(
+          QueryPlan.explain(point("jn:doc('case','rows')[]", "1", false), store, context.getNodeStore()).usesIndex());
+      assertEquals(List.of(1d), values(
+          new Query(optimized, "count(jn:scan-cas-index(jn:doc('case','rows'),0,1,'==','/[]/id'))").execute(context)));
       assertEquals(List.of(1d), values(new Query(optimized,
           "count(jn:scan-cas-index-range(jn:doc('case','rows'),0,1,2,false(),true(),'/[]/id'))").execute(context)));
     }
     try (var database = Databases.openJsonDatabase(directory.resolve("case"));
-        var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
+        var session = database.beginResourceSession("rows");
+        var writer = session.beginNodeTrx()) {
       writer.moveToDocumentRoot();
       writer.moveToFirstChild();
-      writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"id\":1.0,\"value\":30}"), JsonNodeTrx.Commit.NO);
+      writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"id\":1.0,\"value\":30}"),
+          JsonNodeTrx.Commit.NO);
       writer.commit(null, Instant.parse("2021-01-01T00:00:00Z"));
       writer.moveToDocumentRoot();
       writer.moveToFirstChild();
@@ -95,10 +99,13 @@ final class CASSourceSemanticsTest {
         }
         final String scan = "count(jn:scan-cas-index(jn:open('case','rows',xs:dateTime('" + year
             + "-01-01T00:00:00Z')),0,1,'==','/[]/id'))";
-        assertEquals(List.of((double) expected.get(year - 2020).size()), values(new Query(chain, scan).execute(context)));
+        assertEquals(List.of((double) expected.get(year - 2020).size()),
+            values(new Query(chain, scan).execute(context)));
         final String range = "count(jn:scan-cas-index-range(jn:open('case','rows',xs:dateTime('" + year
             + "-01-01T00:00:00Z')),0,1,2,false(),true(),'/[]/id'))";
-        assertEquals(List.of(year < 2022 ? 1d : 2d), values(new Query(chain, range).execute(context)));
+        assertEquals(List.of(year < 2022
+            ? 1d
+            : 2d), values(new Query(chain, range).execute(context)));
       }
     }
   }
@@ -116,28 +123,37 @@ final class CASSourceSemanticsTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final CompileChain generic = new CompileChain();
-      assertTrue(QueryPlan.explain("jn:doc('case','rows')[].item[?$$.id eq 1].value", store, null).usesIndex());
+      assertTrue(QueryPlan.explain("jn:doc('case','rows')[].item[?$$.id eq 1].value", store, context.getNodeStore())
+                          .usesIndex());
       for (final String predicate : List.of("eq 1", "gt 1", "ge 1", "lt 2", "le 2")) {
         final String text = "jn:doc('case','rows')[].item[?$$.id " + predicate + "].value";
-        assertEquals(values(new Query(generic, text).execute(context)), values(new Query(chain, text).execute(context)));
+        assertEquals(values(new Query(generic, text).execute(context)),
+            values(new Query(chain, text).execute(context)));
       }
-      assertEquals(List.of(10d), values(new Query(chain,
-          "jn:doc('case','rows')[].item[?$$.id eq 1].value").execute(context)));
-      assertEquals(List.of(15d, 20d), values(new Query(chain,
-          "jn:doc('case','rows')[].item[?$$.id gt 1].value").execute(context)));
+      assertEquals(List.of(10d),
+          values(new Query(chain, "jn:doc('case','rows')[].item[?$$.id eq 1].value").execute(context)));
+      assertEquals(List.of(15d, 20d),
+          values(new Query(chain, "jn:doc('case','rows')[].item[?$$.id gt 1].value").execute(context)));
     }
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void positionalFocusAndForPositionsRemainRelativeToOriginalRows(final boolean named) {
-    create(named ? "{\"rows\":[{\"id\":0,\"value\":0},{\"id\":1,\"value\":10}]}"
-        : "[{\"id\":0,\"value\":0},{\"id\":1,\"value\":10}]", named ? "/rows/[]/id" : "/[]/id", VersioningType.FULL);
+    create(named
+        ? "{\"rows\":[{\"id\":0,\"value\":0},{\"id\":1,\"value\":10}]}"
+        : "[{\"id\":0,\"value\":0},{\"id\":1,\"value\":10}]",
+        named
+            ? "/rows/[]/id"
+            : "/[]/id",
+        VersioningType.FULL);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final CompileChain generic = new CompileChain();
-      final String source = "jn:doc('case','rows')" + (named ? ".rows[]" : "[]");
+      final String source = "jn:doc('case','rows')" + (named
+          ? ".rows[]"
+          : "[]");
       for (final String focus : List.of("position() eq 2", "last() eq 2", "position() eq last()")) {
         final String text = source + "[?$$.id eq 1 and " + focus + "].value";
         assertEquals(List.of(10d), values(new Query(generic, text).execute(context)));
@@ -159,14 +175,20 @@ final class CASSourceSemanticsTest {
       case "field" -> "[{\"id\":0,\"id\":1,\"value\":10}]";
       default -> throw new AssertionError(shape);
     };
-    final String prefix = shape.equals("holder") ? "/holder/rows" : shape.equals("field") ? "" : "/rows";
+    final String prefix = shape.equals("holder")
+        ? "/holder/rows"
+        : shape.equals("field")
+            ? ""
+            : "/rows";
     create(json, prefix + "/[]/id", VersioningType.FULL);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final CompileChain generic = new CompileChain();
       final String source = "jn:doc('case','rows')" + prefix.replace('/', '.') + "[]";
-      final List<Double> expected = shape.equals("matching") ? List.of(10d) : List.of();
+      final List<Double> expected = shape.equals("matching")
+          ? List.of(10d)
+          : List.of();
       for (final boolean filter : List.of(false, true)) {
         final String text = point(source, "1", filter);
         assertEquals(expected, values(new Query(generic, text).execute(context)));
@@ -178,19 +200,26 @@ final class CASSourceSemanticsTest {
   private void create(final String json, final String path, final VersioningType versioning) {
     Databases.createJsonDatabase(new DatabaseConfiguration(directory.resolve("case")));
     try (var database = Databases.openJsonDatabase(directory.resolve("case"))) {
-      database.createResource(ResourceConfiguration.newBuilder("rows").storageType(StorageType.FILE_CHANNEL)
-          .versioningApproach(versioning).customCommitTimestamps(true).useDeweyIDs(true).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("rows")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .customCommitTimestamps(true)
+                                                   .useDeweyIDs(true)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(
-            IndexDefs.createCASIdxDef(false, Type.INR, Set.of(parse(path, PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
+        session.getWtxIndexController(writer.getRevisionNumber())
+               .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INR,
+                   Set.of(parse(path, PathParser.Type.JSON)), 0, IndexDef.DbType.JSON)), writer);
         writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
       }
     }
   }
 
   private static String point(final String source, final String probe, final boolean filter) {
-    return filter ? source + "[?$$.id eq " + probe + "].value"
+    return filter
+        ? source + "[?$$.id eq " + probe + "].value"
         : "for $c in " + source + " where $c.id eq " + probe + " return $c.value";
   }
 
