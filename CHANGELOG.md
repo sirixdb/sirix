@@ -6,6 +6,15 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Index-routed row source for projection scans** — a secondary index's answer (the valid-time
+  stab, a CAS posting list) becomes a record-key mask over the projection (`Op.KEY_IN` on the
+  virtual KEYS column), honoured by every mask evaluator with leaf pruning. Grouped FLWORs over
+  `jn:open-bitemporal`, their correlated form (an outer loop supplying the instants and keys), a
+  membership semi/anti-join over a second opener and a column-side equality join between two
+  openers are served from columns without materialising a record; grouped computed aggregates
+  (`sum($r.a * $r.b)`) and `count($let)` are admitted. The SH1 kit declares a projection per
+  business resource at E0. See `docs/INDEX_ROUTED_ROW_SOURCE.md`.
+
 - **Open projection row-group tails** — append-only commits retain base column segments
   and store new rows as referenced side pages. Every reader resolves the merged group;
   completion and other edits fold it atomically. A bounded writer-seeded merge memo

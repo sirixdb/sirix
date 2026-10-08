@@ -85,17 +85,21 @@ raw results, and emit the same canonical TSV bytes.
 | 3 | valid-range price extrema | revision scan + strict overlap | no |
 | 4 | corrections, system-time self-join | VALIDTIME + generic join | no |
 | 5 | one entity's publication history | revision scan per publication | no |
-| 6 | grouped publication evolution | VALIDTIME + generic group | no |
-| 7 | latest grouped exposure | VALIDTIME + generic group | no |
-| 8 | supplier/grade distribution | VALIDTIME + generic group | no |
-| 9 | supplier temporal join/group | VALIDTIME + generic join/group | no |
+| 6 | grouped publication evolution | VALIDTIME row mask + projection group, per publication | no |
+| 7 | latest grouped exposure | VALIDTIME row mask + projection group | no |
+| 8 | supplier/grade distribution | VALIDTIME row mask + projection group | no |
+| 9 | supplier temporal join/group | VALIDTIME row masks + column-side hash join + group | no |
 | 10 | interval-overlap product join | revision scans + generic join/group | no |
-| 11 | daily temporal aggregation | VALIDTIME + generic group | no |
-| 12 | disappearance anti-join/group | VALIDTIME + [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants) + generic group | no |
+| 11 | daily temporal aggregation | VALIDTIME row mask + projection group, per day | no |
+| 12 | disappearance anti-join/group | VALIDTIME row masks + column-side key subtraction + projection group (fallback: [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)) | no |
 
 Q4, Q6-Q9, Q11 and Q12 call `jn:open-bitemporal` directly, using its half-open validity
 (`valid-from <= valid < valid-to`) without an additional strict end residual. Physical predicate folding, lazy evaluation, and dependency
 requirements are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
+Each business resource also declares a projection (column) index at E0 (`BitemporalProjections`), and
+the grouped queries read their columns under the valid-time index's row mask instead of materialising
+segment objects — see [Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md). Q4 keeps
+the generic join over lazily materialised slices.
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe logical query shapes, not physical plan

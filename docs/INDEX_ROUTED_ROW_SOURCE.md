@@ -77,6 +77,35 @@ order. The two agree except at order exceptions, so a routed grouping is served 
 `order by` that names every group key: the wrapper applies it and the groups' order is total. An
 unordered routed grouping stays generic.
 
+## The other SH1 shapes
+
+**Correlated grouping** (Q6, Q11; `CorrelatedGroupAggregateDetectionStage`,
+`SirixCorrelatedGroupAggregateExpr`): an outer loop over a small table supplies the opener's
+instants and some group keys. The outer prefix (the outer loop and its selections) runs as an
+ordinary operator chain; per outer tuple the outer keys are evaluated by the interpreter and the
+inner grouping — exactly the plain shape, over a synthetic pipe the stage builds and the plain stages
+annotate — is served from the projection under that tuple's row mask; the groups merge on (outer
+keys, inner keys) with `count` and `sum` added exactly and `min`/`max` compared (an `avg` or a
+distinct count would need the lanes behind the emitted value, and declines). The order-by must name
+every key. Executors are resolved per revision through the chain's per-source resolver; a query
+touching more revisions than the resolver caches re-creates executors as it goes.
+
+**Membership filter** (Q12): `where empty|exists(for $b in SRC2 where $b.f eq $r.g return …)`
+under a routed loop, with `SRC2` a second routed opener (or a leading `let` bound to one). The filter
+source's `f` values are read under its own mask, the main rows' `g` values decide which record keys
+survive (a missing value matches nothing: it survives an anti-join and fails a semi-join), and the
+grouping runs over the reduced key set. The hash-membership pipeline stays the fallback.
+
+**Column-side equality join** (Q9; `JoinedGroupAggregateDetectionStage`,
+`SirixJoinedGroupAggregateExpr`): Brackit's `Join` node over two single-loop branches, each over a
+routed opener or a literal document, comparing one integral field of each side. Both sides' columns
+are read under their row masks (`MaskedColumns`), the smaller side is hashed on its join values,
+the other probes; every matched pair folds into a group keyed on fields of either side (string keys
+are interned once per leaf dictionary into one id space shared by both sides) with
+`count` (pairs, or present values of a field), `sum`, `min` and `max` over fields or `+,-,*` programs
+of one side. No post-join predicate, no aggregate over both sides, an order-by naming every key; an
+overflow declines to the generic `TableJoin` pipeline.
+
 ## Tests
 
 - `RecordKeySetPredicateTest` (core): every kernel family — sliced resident and windowed, conjunctive
@@ -84,7 +113,9 @@ unordered routed grouping stays generic.
   exceptions, alone and conjoined with column predicates.
 - `IndexRoutedGroupAggregateTest` (query): the routed grouped shapes against the generic pipeline,
   byte-for-byte, over all four versioning types, at five transaction instants (old revisions
-  included) and seven valid instants (both half-open boundaries included), with missing fields.
+  included) and seven valid instants (both half-open boundaries included), with missing fields;
+  the membership semi- and anti-joins; the correlated shapes (including an outer key that repeats,
+  so groups merge); the joins (two openers, an opener and a document, duplicate hashed join values).
 - `IndexRoutedGroupWorkBudgetTest` (query, work budget): a routed grouping materialises no object
   (no cursor move on the opener's document) and prunes the leaves that hold no admitted key; the
   generic reference over the same decorated cursor is the positive control.

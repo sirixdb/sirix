@@ -45,6 +45,13 @@ their original object-root and missing-resource semantics.
 Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the temporal source's
 order, while plain FLWOR retains its document-order admission check.
 
+## Row masks for projection scans
+
+The sorted key set a stab yields is also the row source of the projection route: a grouped FLWOR
+over `jn:open-bitemporal` is served from the resource's projection with the keys as a
+`KEY_IN` mask, materialising no object. The mechanism, its admission rules and fallbacks are in
+[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
+
 ## Index representation
 
 The lower and upper RI-tree stores retain their `(fork, endpoint)` keys. `stabHalfOpen` excludes an

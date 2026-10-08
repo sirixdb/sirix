@@ -87,7 +87,7 @@ public final class BitemporalQueries {
             order by $e.epoch
             return {"epoch":$e.epoch,"cost":$c.cost,"qty":$c.qty}
             """);
-    add(queries, 6, "grouped publication evolution", 2, "VALIDTIME-half-open+generic-group", false,
+    add(queries, 6, "grouped publication evolution", 2, "VALIDTIME-half-open+projection-group-per-publication", false,
         List.of("epoch", "grade", "n", "qty_sum"), """
             for $e in jn:doc('bt','epochs')[]
             for $c in jn:open-bitemporal('bt','contracts',xs:dateTime($e.ts),$V)
@@ -97,7 +97,7 @@ public final class BitemporalQueries {
             order by $epoch,$grade
             return {"epoch":$epoch,"grade":$grade,"n":$n,"qty_sum":$qty_sum}
             """);
-    add(queries, 7, "latest exposure by grade", 1, "VALIDTIME-half-open+generic-group", false,
+    add(queries, 7, "latest exposure by grade", 1, "VALIDTIME-half-open+projection-group", false,
         List.of("grade", "n", "qty_sum", "exposure"), """
             for $c in jn:open-bitemporal('bt','contracts',$B,$V)
             let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty
@@ -106,7 +106,7 @@ public final class BitemporalQueries {
             order by $grade
             return {"grade":$grade,"n":$n,"qty_sum":$qty_sum,"exposure":$exposure}
             """);
-    add(queries, 8, "supplier grade distribution", 2, "VALIDTIME-half-open+generic-group", false,
+    add(queries, 8, "supplier grade distribution", 2, "VALIDTIME-half-open+projection-group", false,
         List.of("sid", "grade", "n", "min_cost", "max_cost"), """
             for $c in jn:open-bitemporal('bt','contracts',$A,$V)
             let $sid := $c.sid, $grade := $c.grade, $cost := $c.cost
@@ -115,7 +115,7 @@ public final class BitemporalQueries {
             order by $sid,$grade
             return {"sid":$sid,"grade":$grade,"n":$n,"min_cost":$min_cost,"max_cost":$max_cost}
             """);
-    add(queries, 9, "supplier temporal join", 2, "VALIDTIME-half-open+generic-join-group", false,
+    add(queries, 9, "supplier temporal join", 2, "VALIDTIME-half-open+projection-join-group", false,
         List.of("region", "grade", "n", "exposure"), """
             for $c in jn:open-bitemporal('bt','contracts',$B,$V)
             for $s in jn:open-bitemporal('bt','suppliers',$B,$V)
@@ -143,7 +143,7 @@ public final class BitemporalQueries {
             return {"category":$category,"contracts":$contracts,
                     "min_margin":$min_margin,"max_margin":$max_margin}
             """);
-    add(queries, 11, "daily grouped exposure", 2, "VALIDTIME-half-open+generic-group", false,
+    add(queries, 11, "daily grouped exposure", 2, "VALIDTIME-half-open+projection-group-per-day", false,
         List.of("day_no", "grade", "n", "exposure"), """
             for $d in jn:doc('bt','days')[]
             where $d.day_no ge 150 and $d.day_no lt 210
@@ -154,7 +154,7 @@ public final class BitemporalQueries {
             order by $day_no,$grade
             return {"day_no":$day_no,"grade":$grade,"n":$n,"exposure":$exposure}
             """);
-    add(queries, 12, "retroactive disappearance", 1, "VALIDTIME-half-open+generic-anti-join-group", false,
+    add(queries, 12, "retroactive disappearance", 1, "VALIDTIME-half-open+projection-anti-join-group", false,
         List.of("grade", "n", "old_exposure"), """
             let $new := jn:open-bitemporal('bt','contracts',$D,$V)
             for $a in jn:open-bitemporal('bt','contracts',$A,$V)
