@@ -13,8 +13,11 @@ import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.FillBudgetExceededException;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionRecordKeySet.Masks;
 import io.sirix.io.StorageType;
@@ -46,7 +49,9 @@ import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,6 +68,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -343,6 +349,101 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void maskedWindowBudgetDeclinesBeforeActualBodyRequests(final VersioningType versioning) throws Exception {
+    build(true, 32_000, versioning);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getTrx().getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final var handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"}, new String[] {"cost"});
+      assertNotNull(handle);
+      final var columns = handle.columnStoreOrNull();
+      assertNotNull(columns);
+      assertTrue(columns.leafCount() >= 32);
+      final var realFetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final long[] keys = {columns.recordKeysMasked(realFetcher, new long[] {2L})[1][0]};
+      final AtomicInteger bodyRequests = new AtomicInteger();
+      final ColumnSegmentFetcher observedFetcher = mock(ColumnSegmentFetcher.class, delegatesTo(realFetcher));
+      doAnswer(invocation -> {
+        final int from = invocation.getArgument(2);
+        final int to = invocation.getArgument(3);
+        final byte[][] out = invocation.getArgument(4);
+        realFetcher.fetchSlotRange(invocation.getArgument(0), invocation.getArgument(1), from, to, out);
+        countBodyRequests(out, from, to, bodyRequests);
+        return null;
+      }).when(observedFetcher).fetchSlotRange(anyInt(), any(), anyInt(), anyInt(), any());
+      doAnswer(invocation -> {
+        final int from = invocation.getArgument(1);
+        final int to = invocation.getArgument(2);
+        final byte[][] out = invocation.getArgument(3);
+        realFetcher.fetchRange(invocation.getArgument(0), from, to, out);
+        countBodyRequests(out, from, to, bodyRequests);
+        return null;
+      }).when(observedFetcher).fetchRange(any(), anyInt(), anyInt(), any());
+      doAnswer(invocation -> {
+        final byte[][] out = realFetcher.fetchAll(invocation.getArgument(0));
+        countBodyRequests(out, 0, out.length, bodyRequests);
+        return out;
+      }).when(observedFetcher).fetchAll(any());
+      // Positive control: a real BODY fetch is visible even when the work counter misses it.
+      columns.windowedLeafAccess(observedFetcher, null, 1).slice(handle.columnOf("cost"), 1);
+      assertEquals(1, bodyRequests.get());
+      final var observedColumns = spy(columns);
+      final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
+      doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
+      // Static mocks are caller-thread scoped; bind the probe to worker accesses as well.
+      doAnswer(invocation -> columns.windowedLeafAccess(observedFetcher, invocation.getArgument(1),
+          invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4)))
+              .when(observedColumns).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
+      final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
+          + "xs:dateTime('2024-06-01T00:00:00Z'))";
+      final String query = "for $c in " + source + " let $grade := $c.grade group by $grade"
+          + " order by $grade return {'grade':$grade,'n':sum($c.cost)}";
+      final String expected = run(chain, ctx, query.replace(source, "(" + source + ")"));
+      assertEquals("{\"grade\":0,\"n\":1100}", expected);
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
+        catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
+               .thenReturn(observedHandle);
+        catalog.when(() -> ProjectionIndexCatalog.columnSegmentFetcher(session, revision)).thenReturn(observedFetcher);
+        for (int repeat = 0; repeat < 4; repeat++) {
+          bodyRequests.set(0);
+          final WorkCapture.Captured<ServedGroups> result =
+              WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                         .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                         .call(() -> group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
+          assertAll(() -> assertNull(result.result(), "a masked request must decline the unmasked window decoder"),
+              () -> assertEquals(0, bodyRequests.get(), "decline must precede actual BODY requests"));
+          result.work()
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "a budget refusal is an ordinary decline");
+          final WorkCapture.Captured<String> fallback = WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                                                                 .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                                 .call(() -> run(chain, ctx, query));
+          assertEquals(expected, fallback.result(), "generic fallback preserves the query result");
+          fallback.work()
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the compiled request declines")
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "the generic fallback supplies the result");
+          assertEquals(0, bodyRequests.get(), "fallback fetches no projection BODY segments");
+        }
+        assertFalse(handle.payloadsMaterialized());
+        assertEquals(0, handle.slicedRouteTick());
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
+        executor.close();
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void maskedBudgetReentryStopsBeforeWholeLeafFetch(final VersioningType versioning) throws Exception {
     build(true, ROWS, versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
@@ -360,9 +461,6 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(refusing).when(observedHandle).columnStoreOrNull();
       doThrow(mock(FillBudgetExceededException.class)).when(refusing).columnMaskedView(anyInt(), any(), any());
-      doThrow(mock(FillBudgetExceededException.class)).when(refusing)
-                                                      .windowedLeafAccess(any(), any(), anyInt(), anyInt(),
-                                                          anyBoolean());
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
@@ -376,11 +474,11 @@ final class IndexRoutedGroupWorkBudgetTest {
                          .call(() -> group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
           assertNull(result.result());
           result.work()
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the windowed retry declines once")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the resident fill refusal declines once")
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
           verify(refusing).columnMaskedView(anyInt(), any(), any());
-          verify(refusing).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
+          verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
         }
         assertFalse(handle.payloadsMaterialized());
         assertEquals(0, handle.slicedRouteTick());
@@ -460,6 +558,17 @@ final class IndexRoutedGroupWorkBudgetTest {
     return executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, new String[] {"grade"},
         new String[] {"grade"}, new String[] {func}, new String[] {field}, new String[] {"n"}, null, null, null, -1L,
         null, null, null, null, null, null, null, null, null, null, routing);
+  }
+
+  private static void countBodyRequests(final byte[][] segments, final int from, final int to,
+      final AtomicInteger requests) {
+    for (int i = from; i < to; i++) {
+      final byte[] segment = segments[i];
+      if (segment != null && segment[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES - 1]
+          == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
+        requests.incrementAndGet();
+      }
+    }
   }
 
   private static void restoreProperty(final String name, final String previous) {

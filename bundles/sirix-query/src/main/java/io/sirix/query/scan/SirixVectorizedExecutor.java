@@ -16002,8 +16002,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               deferredCols.toIntArray(), derivedOperandCols), identityCol, computedLaneBytes(groupStore, derivedLanes));
       final boolean windowedSlices = slicedKinds && !slicedFits && !cdStringDict;
       final boolean groupSliced = slicedFits || windowedSlices;
-      if (routing != null && routing.rowKeys() != null && !groupSliced) {
-        return declineGroupAgg("masked rows require a sliced execution arm");
+      // Windowed access fetches contiguous windows, including leaves the row source excludes.
+      if (routing != null && routing.rowKeys() != null && !slicedFits) {
+        return declineGroupAgg("masked rows require the resident sliced execution arm");
       }
       // A derived lane exists only as resident slices: the windowed and whole-leaf arms read their
       // operands by column index and would fold the proxy column instead.
