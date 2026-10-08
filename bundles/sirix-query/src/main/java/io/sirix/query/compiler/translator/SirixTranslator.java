@@ -199,6 +199,13 @@ public class SirixTranslator extends TopDownTranslator {
     return anyExpr(node);
   }
 
+  /** Release every binding made since {@code initialBindings} (a prefix operator's loop variables). */
+  void unbindTo(final int initialBindings) {
+    for (int count = table.bound().length - initialBindings; count > 0; count--) {
+      table.unbind();
+    }
+  }
+
   Expr pipelineReturn(final AST node, final int initialBindings) {
     final Expr result = anyExpr(node);
     for (int count = table.bound().length - initialBindings; count > 0; count--) {

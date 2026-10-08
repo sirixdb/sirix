@@ -4,6 +4,7 @@ import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.expr.PipeExpr;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.operator.HashMembershipJoin;
@@ -15,6 +16,7 @@ import io.brackit.query.expr.VectorizedGroupByExpr;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.operator.Operator;
+import io.sirix.query.compiler.optimizer.CorrelatedGroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.IndexRoutedSourceStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
@@ -66,6 +68,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
+    final Expr generic;
     if (hasMembershipJoin(node)) {
       // Membership tables have one cursor owner. Do not split this pipeline into morsels or
       // block workers, each of which would otherwise build the same inner relation again.
@@ -76,11 +79,19 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       while (end.getType() != XQ.End) {
         end = end.getLastChild();
       }
-      return new PipeExpr(root, translator.pipelineReturn(end.getChild(0), initialBindings));
+      generic = new PipeExpr(root, translator.pipelineReturn(end.getChild(0), initialBindings));
+      // A membership filter over an index-routed opener under a routed grouping is served as a
+      // row-key subtraction before the grouping; the membership pipeline is its fallback.
+      if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))
+          || !Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))
+          || node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_DATABASE) == null) {
+        return generic;
+      }
+    } else {
+      generic = Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
+          ? super.compileGenericPipeExpr(node, compiler)
+          : super.compilePipeExpr(node, compiler);
     }
-    final Expr generic = Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
-        ? super.compileGenericPipeExpr(node, compiler)
-        : super.compilePipeExpr(node, compiler);
     // P5b stage 7b (+gap 1b multi-key): sorted-scan serving. Brackit's own
     // supportsSortedScan hook DROPS the predicate (its sorted() factory never receives
     // it), so sirix consumes its OWN SortedScanDetectionStage annotations here instead —
@@ -138,6 +149,18 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields, rowOutNames, rowDirect, rowCodes,
             rowConsts, rowSourceRef, generic);
+      }
+    }
+    // Correlated index-routed grouping (an outer loop supplying the opener's instants and some keys).
+    if (Boolean.TRUE.equals(node.getProperty(CorrelatedGroupAggregateDetectionStage.CORRELATED))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider corrExecutor) {
+      final Expr correlated = correlated(node, compiler, corrExecutor, generic);
+      if (correlated != null) {
+        return correlated;
+      }
+      if (Boolean.getBoolean("sirix.projDiag")) {
+        System.err.println("[corr-translate] annotations did not yield a serving expression");
       }
     }
     // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
@@ -268,6 +291,11 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     if (computedLanes == null && hasComputedAggregate(aggFields)) {
       return generic; // a prog: operand without its program annotations is not ours
     }
+    final RoutedGroupRequest.MembershipFilter membership = membershipFilter(node, compiler);
+    if (node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_DATABASE) != null
+        && (membership == null || routedSource == null)) {
+      return generic; // a membership filter serves only under a routed source, with its own source compiled
+    }
     if (routedSource != null && !ordersEveryKey(orderIndexes, groupFields.length)) {
       // The opener yields its rows in record-key order while the projection folds them in physical
       // row order; the two agree except at order exceptions, so a routed grouping is served only
@@ -281,7 +309,147 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             : -1L,
         keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
         keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
-        sourceRef, generic, routedSource, computedLanes);
+        sourceRef, generic, routedSource, computedLanes, membership);
+  }
+
+  /** The membership filter the detection stage annotated, its opener's instants compiled, or null. */
+  private static RoutedGroupRequest.@org.jspecify.annotations.Nullable MembershipFilter membershipFilter(
+      final AST node, final Compiler compiler) throws QueryException {
+    final String database = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_DATABASE);
+    final String resource = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_RESOURCE);
+    final AST txTime = (AST) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_TX_TIME);
+    final AST validTime = (AST) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_VALID_TIME);
+    final String innerField = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_INNER_FIELD);
+    final String outerField = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_OUTER_FIELD);
+    if (database == null || resource == null || txTime == null || validTime == null || innerField == null
+        || outerField == null || !(compiler instanceof SirixTranslator translator)) {
+      return null;
+    }
+    return new RoutedGroupRequest.MembershipFilter(
+        new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
+            translator.routedInstant(validTime)),
+        innerField, outerField, Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_ANTI)));
+  }
+
+  /**
+   * The correlated serving expression, or {@code null} when the annotations are not this strategy's.
+   * The outer prefix (the outer loop and its selections) compiles as operators; while its variables
+   * are bound, the outer key expressions and the inner opener's instants compile in that scope.
+   */
+  private Expr correlated(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
+      final Expr generic) throws QueryException {
+    final AST innerPipe = (AST) node.getProperty(CorrelatedGroupAggregateDetectionStage.INNER_PIPE);
+    final AST[] outerKeyAsts = (AST[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_EXPRS);
+    final String[] outerKeyNames =
+        (String[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_NAMES);
+    final int[] entryKinds = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ENTRY_KINDS);
+    final int[] orderIndexes = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_INDEXES);
+    final boolean[] orderAsc = (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_ASC);
+    final boolean[] orderEmptyLeast =
+        (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_EMPTY_LEAST);
+    if (innerPipe == null || outerKeyAsts == null || outerKeyNames == null || entryKinds == null
+        || orderIndexes == null || orderAsc == null || orderEmptyLeast == null
+        || outerKeyNames.length != outerKeyAsts.length || orderAsc.length != orderIndexes.length
+        || orderEmptyLeast.length != orderIndexes.length || !(compiler instanceof SirixTranslator translator)) {
+      return null;
+    }
+    final RoutedGroupRequest inner = routedGroupRequest(innerPipe);
+    final String database = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_DATABASE);
+    final String resource = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
+    final AST txTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
+    final AST validTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
+    if (inner == null || database == null || resource == null || txTime == null || validTime == null) {
+      return null;
+    }
+    // The real record's entry names, in order.
+    final AST returnRecord = returnRecord(node);
+    if (returnRecord == null || returnRecord.getChildCount() != entryKinds.length) {
+      return null;
+    }
+    final String[] entryNames = new String[entryKinds.length];
+    for (int i = 0; i < entryNames.length; i++) {
+      final AST nameNode = returnRecord.getChild(i).getChild(0);
+      entryNames[i] = nameNode.getValue() instanceof Str str
+          ? str.stringValue()
+          : String.valueOf(nameNode.getValue());
+    }
+    // The outer prefix: the chain up to (excluding) the inner loop, ended with a bare End.
+    final AST prefix = node.getChild(0).copyTree();
+    AST parent = prefix;
+    AST current = prefix.getLastChild(); // the outer ForBind
+    while (current != null && current.getType() != XQ.ForBind) {
+      parent = current;
+      current = current.getLastChild();
+    }
+    if (current == null) {
+      return null;
+    }
+    parent = current;
+    current = current.getLastChild();
+    while (current != null && current.getType() == XQ.Selection) {
+      parent = current;
+      current = current.getLastChild();
+    }
+    if (current == null || current.getType() != XQ.ForBind) {
+      return null;
+    }
+    parent.replaceChild(parent.getChildCount() - 1, new AST(XQ.End));
+    final int initialBindings = translator.bindingCount();
+    final Operator outer = anyOp(null, prefix, compiler);
+    final Expr[] outerKeyExprs = new Expr[outerKeyAsts.length];
+    final SirixGroupAggregateExpr.RoutedSource routed;
+    try {
+      for (int k = 0; k < outerKeyAsts.length; k++) {
+        outerKeyExprs[k] = translator.routedInstant(outerKeyAsts[k]);
+      }
+      routed = new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
+          translator.routedInstant(validTime));
+    } finally {
+      translator.unbindTo(initialBindings);
+    }
+    return new SirixCorrelatedGroupAggregateExpr(executor, outer, outerKeyExprs, outerKeyNames, routed, inner,
+        entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast, generic);
+  }
+
+  /** The {@code ObjectConstructor} of a pipe's return, or {@code null}. */
+  private static AST returnRecord(final AST pipe) {
+    AST end = pipe.getChild(0);
+    while (end != null && end.getType() != XQ.End) {
+      end = end.getLastChild();
+    }
+    if (end == null || end.getChildCount() < 1 || end.getChild(0).getType() != XQ.ObjectConstructor) {
+      return null;
+    }
+    return end.getChild(0);
+  }
+
+  /**
+   * The executor-side request an annotated plain pipe describes, or {@code null} when the
+   * annotations are not this strategy's or the shape carries what the correlated route declines.
+   */
+  private static RoutedGroupRequest routedGroupRequest(final AST pipe) {
+    final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+    final String[] groupFields = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_GROUP_FIELDS);
+    final String[] keyNames = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_NAMES);
+    final String[] funcs = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
+    final String[] aggFields = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FIELDS);
+    final String[] outNames = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OUT_NAMES);
+    if (sourcePath == null || groupFields == null || keyNames == null || funcs == null || aggFields == null
+        || outNames == null || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_OFFSETS) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_ELSE) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_REGEX_PATTERN) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_STRINGIFY) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_HAVING) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_POS) != null
+        || pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_POS) != null) {
+      return null;
+    }
+    final SirixVectorizedExecutor.ComputedLane[] lanes = computedLanes(pipe);
+    if (lanes == null && hasComputedAggregate(aggFields)) {
+      return null;
+    }
+    return new RoutedGroupRequest(sourcePath, servedPredicate(pipe), groupFields, keyNames, funcs, aggFields,
+        outNames, lanes);
   }
 
   /**

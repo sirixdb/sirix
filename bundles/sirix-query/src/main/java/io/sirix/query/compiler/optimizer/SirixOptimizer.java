@@ -134,6 +134,11 @@ public class SirixOptimizer extends TopDownOptimizer {
     // 9b because it supplies the source-path annotation 9b requires.
     getStages().add(new IndexRoutedSourceStage());
     getStages().add(new GroupAggregateDetectionStage());
+    // 9b'. Correlated index-routed grouping: an outer loop over a small table whose rows supply the
+    // opener's instants and some group keys (SH1 Q6/Q11). Runs after 9b, which declines the shape.
+    getStages().add(new CorrelatedGroupAggregateDetectionStage());
+    // 9b''. Column-side equality join with a grouped aggregate over the pairs (SH1 Q9).
+    getStages().add(new JoinedGroupAggregateDetectionStage());
     // 9c. Covered-row detection (P5b stage 7c): record-constructor returns over covered
     // fields, servable from projection segments alone. Same ordering rationale as 9b.
     getStages().add(new RowMaterializeDetectionStage());

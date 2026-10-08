@@ -73,12 +73,21 @@ public final class IndexRoutedSourceStage implements Stage {
   }
 
   private static void tryAnnotate(final AST pipeExpr) {
+    annotate(pipeExpr);
+  }
+
+  /**
+   * Annotate {@code pipeExpr} when its loop source is an admitted index-routed opener.
+   *
+   * @return whether the pipe was annotated
+   */
+  public static boolean annotate(final AST pipeExpr) {
     if (pipeExpr.getChildCount() < 1) {
-      return;
+      return false;
     }
     final AST chain = pipeExpr.getChild(0);
     if (chain.getType() != XQ.Start || chain.getChildCount() < 1) {
-      return;
+      return false;
     }
     // The same head the group-aggregate detection admits: leading lets, then the loop.
     final Set<Object> boundBefore = new HashSet<>(4);
@@ -91,23 +100,23 @@ public final class IndexRoutedSourceStage implements Stage {
     }
     if (forBind == null || forBind.getType() != XQ.ForBind || forBind.getChildCount() != 3
         || forBind.getChild(0).getType() != XQ.TypedVariableBinding) {
-      return;
+      return false;
     }
     final AST source = forBind.getChild(1);
     if (source.getType() != XQ.FunctionCall || !(source.getValue() instanceof QNm fn)
         || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI()) || !"open-bitemporal".equals(fn.getLocalName())
         || source.getChildCount() != 4) {
-      return;
+      return false;
     }
     final String database = stringLiteral(source.getChild(0));
     final String resource = stringLiteral(source.getChild(1));
     if (database == null || resource == null) {
-      return; // a dynamic name cannot be bound to one executor at compile time
+      return false; // a dynamic name cannot be bound to one executor at compile time
     }
     final AST txTime = source.getChild(2);
     final AST validTime = source.getChild(3);
     if (referencesAny(txTime, boundBefore) || referencesAny(validTime, boundBefore)) {
-      return; // evaluated at the pipeline's entry, where those bindings do not exist
+      return false; // evaluated at the pipeline's entry, where those bindings do not exist
     }
     pipeExpr.setProperty(SOURCE_PATH, ARRAY_MEMBERS.clone());
     pipeExpr.setProperty(ROUTED_SOURCE, Boolean.TRUE);
@@ -115,6 +124,7 @@ public final class IndexRoutedSourceStage implements Stage {
     pipeExpr.setProperty(ROUTED_SOURCE_RESOURCE, resource);
     pipeExpr.setProperty(ROUTED_SOURCE_TX_TIME, txTime);
     pipeExpr.setProperty(ROUTED_SOURCE_VALID_TIME, validTime);
+    return true;
   }
 
   private static String stringLiteral(final AST node) {

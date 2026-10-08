@@ -4,7 +4,6 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -23,15 +22,10 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
-import io.sirix.query.function.DateTimeToInstant;
-import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
-import io.sirix.query.json.JsonDBCollection;
-import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -114,7 +108,8 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final @Nullable RoutedSource routedSource;
   /** The computed pre-group programs the aggregate lanes named {@code prog:<i>} fold, or null. */
   private final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes;
-  private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
+  /** A membership filter over a second routed opener, applied to the row keys before grouping. */
+  private final RoutedGroupRequest.@Nullable MembershipFilter membership;
 
   /** The literal document and the two compiled instant expressions of an index-routed source. */
   public record RoutedSource(String database, String resource, Expr txTime, Expr validTime) {
@@ -137,7 +132,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
         orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
         keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, decorPos, decorPrefix, decorSuffix,
-        constEntryPos, constEntryNames, constEntryValues, sourceRef, genericFallback, null, null);
+        constEntryPos, constEntryNames, constEntryValues, sourceRef, genericFallback, null, null, null);
   }
 
   public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
@@ -149,9 +144,11 @@ public final class SirixGroupAggregateExpr implements Expr {
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
       final SourceRef sourceRef, final Expr genericFallback, final @Nullable RoutedSource routedSource,
-      final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes) {
+      final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes,
+      final RoutedGroupRequest.@Nullable MembershipFilter membership) {
     this.routedSource = routedSource;
     this.computedLanes = computedLanes;
+    this.membership = membership;
     this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -247,29 +244,18 @@ public final class SirixGroupAggregateExpr implements Expr {
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple)
       throws QueryException {
     final RoutedSource routed = routedSource;
-    final Item txItem = routed.txTime().evaluateToItem(ctx, tuple);
-    final Item validItem = routed.validTime().evaluateToItem(ctx, tuple);
-    if (!(txItem instanceof DateTime txTime) || !(validItem instanceof DateTime validTime)) {
+    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed);
+    if (rows == null) {
       return null;
     }
-    final long[] keys;
-    final int revision;
-    try {
-      final Instant txInstant = DATE_TIME_TO_INSTANT.convert(txTime);
-      final Instant validInstant = DATE_TIME_TO_INSTANT.convert(validTime);
-      if (!(ctx.getJsonItemStore().lookup(routed.database()) instanceof JsonDBCollection collection)) {
+    if (membership != null) {
+      rows = RoutedGroupRequest.filterByMembership(executorProvider, ctx, tuple, sourcePath, rows, routed, membership);
+      if (rows == null) {
         return null;
       }
-      final JsonDBItem document = collection.getDocument(routed.resource(), txInstant);
-      if (document == null || document.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
-        return null;
-      }
-      // Half-open validity, exactly the public opener's: validFrom <= P < validTo.
-      keys = ValidTimeIntervalIndex.keys(document, validInstant, true);
-      revision = document.getTrx().getRevisionNumber();
-    } catch (final RuntimeException notServable) {
-      return null;
     }
+    final long[] keys = rows.keys();
+    final int revision = rows.revision();
     final SirixExecutorProvider.Lease lease =
         executorProvider.acquire(ctx, SourceRef.document(routed.database(), routed.resource(), revision));
     if (lease == null) {

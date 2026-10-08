@@ -96,7 +96,84 @@ final class IndexRoutedGroupAggregateTest {
       final long before = SirixVectorizedExecutor.groupAggServedCount();
       assertEquals(run(chain, ctx, unordered.replace(source(), "(" + source() + ")")), run(chain, ctx, unordered));
       assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "an unordered routed grouping stays generic");
+      // MEMBERSHIP: an anti-join (Q12) and a semi-join against a second routed opener at another
+      // revision, served as a row-key subtraction / intersection before the grouping.
+      for (final boolean anti : new boolean[] {true, false}) {
+        final String body = """
+            declare variable $T2 := xs:dateTime('2024-10-01T00:00:00Z');
+            let $new := jn:open-bitemporal('DBNAME','RESNAME',$T2,$P)
+            for $a in SRC
+            where QUANT(for $b in $new where $b.id eq $a.id return $b.id)
+            let $grade := $a.grade, $value := $a.cost * $a.qty
+            group by $grade
+            let $n := count($value), $old_exposure := sum($value)
+            order by $grade
+            return {"grade":$grade,"n":$n,"old_exposure":$old_exposure}
+            """.replace("DBNAME", DB).replace("RESNAME", RES).replace("QUANT", anti
+                ? "empty"
+                : "exists");
+        final String routedQuery = prolog(txTimes.get(0), validTimes.get(1)) + body.replace("SRC", source());
+        final String referenceQuery =
+            prolog(txTimes.get(0), validTimes.get(1)) + body.replace("SRC", "(" + source() + ")");
+        // (the $T2 declaration is the body's first line, which keeps it in the prolog)
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        final String expected = run(chain, ctx, referenceQuery);
+        assertEquals(served, SirixVectorizedExecutor.groupAggServedCount(), "membership reference stays generic");
+        assertEquals(expected, run(chain, ctx, routedQuery), "membership anti=" + anti + " versioning=" + versioning);
+        assertEquals(served + 1, SirixVectorizedExecutor.groupAggServedCount(),
+            "the membership grouping must be served: anti=" + anti);
+      }
+      // CORRELATED: an outer loop supplies the opener's instants and some keys (SH1 Q6/Q11); groups
+      // of several outer tuples merge when an outer key repeats.
+      for (final String[] shape : correlatedShapes()) {
+        final String opener = source2().replace("TX", shape[2]).replace("VALID", shape[3]);
+        final String routed = prolog(txTimes.get(2), validTimes.get(1)) + shape[1].replace("SRC", opener);
+        final String reference =
+            prolog(txTimes.get(2), validTimes.get(1)) + shape[1].replace("SRC", "(" + opener + ")");
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        final String expected = run(chain, ctx, reference);
+        assertEquals(served, SirixVectorizedExecutor.groupAggServedCount(), "reference stays generic: " + shape[0]);
+        assertEquals(expected, run(chain, ctx, routed), shape[0] + " versioning=" + versioning);
+        assertTrue(SirixVectorizedExecutor.groupAggServedCount() > served,
+            "the correlated grouping must be served per outer tuple: " + shape[0]);
+      }
     }
+  }
+
+  /** The opener with placeholder instants; a shape supplies them (they may read the outer row). */
+  private static String source2() {
+    return "jn:open-bitemporal('" + DB + "','" + RES + "',TX,VALID)";
+  }
+
+  private static List<String[]> correlatedShapes() {
+    return List.of(new String[] {"q6: per-epoch revision, outer key + inner key", """
+        for $e in jn:doc('DBNAME','epochs')[]
+        for $c in SRC
+        let $epoch := $e.epoch, $grade := $c.grade, $qty := $c.qty
+        group by $epoch,$grade
+        let $n := count($qty), $qty_sum := sum($qty)
+        order by $epoch,$grade
+        return {"epoch":$epoch,"grade":$grade,"n":$n,"qty_sum":$qty_sum}
+        """.replace("DBNAME", DB), "xs:dateTime($e.ts)", "$P"},
+        new String[] {"q11: per-day valid instant with an outer where, computed sum", """
+        for $d in jn:doc('DBNAME','days')[]
+        where $d.day_no ge 2 and $d.day_no lt 8
+        for $c in SRC
+        let $day_no := $d.day_no, $grade := $c.grade, $value := $c.cost * $c.qty
+        group by $day_no,$grade
+        let $n := count($value), $exposure := sum($value)
+        order by $day_no,$grade
+        return {"day_no":$day_no,"grade":$grade,"n":$n,"exposure":$exposure}
+        """.replace("DBNAME", DB), "$T", "xs:dateTime($d.ts)"},
+        new String[] {"merged outer key: groups of several epochs fold together", """
+        for $e in jn:doc('DBNAME','epochs')[]
+        for $c in SRC
+        let $bucket := $e.epoch idiv 2, $grade := $c.grade, $cost := $c.cost
+        group by $bucket,$grade
+        let $n := count($c), $lo := min($cost), $hi := max($cost), $total := sum($cost)
+        order by $grade descending, $bucket
+        return {"bucket":$bucket,"grade":$grade,"n":$n,"lo":$lo,"hi":$hi,"total":$total}
+        """.replace("DBNAME", DB), "xs:dateTime($e.ts)", "$P"});
   }
 
   /** {@code {name, body}} pairs; {@code SRC} is the loop source. */
@@ -159,6 +236,18 @@ final class IndexRoutedGroupAggregateTest {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      // The small driver tables of the correlated shapes.
+      for (final String[] table : new String[][] {
+          {"epochs", "[{\"epoch\":0,\"ts\":\"2024-01-15T00:00:00Z\"},{\"epoch\":1,\"ts\":\"2024-04-01T00:00:00Z\"},"
+              + "{\"epoch\":2,\"ts\":\"2024-09-01T00:00:00Z\"}]"},
+          {"days", days()}}) {
+        database.createResource(ResourceConfiguration.newBuilder(table[0]).buildPathSummary(true).build());
+        try (JsonResourceSession session = database.beginResourceSession(table[0]);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(table[1]), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+      }
       database.createResource(ResourceConfiguration.newBuilder(RES)
                                                    .validTimePaths("vf", "vt")
                                                    .customCommitTimestamps(true)
@@ -251,6 +340,19 @@ final class IndexRoutedGroupAggregateTest {
       }
     }
     wtx.moveToFirstChild();
+  }
+
+  /** Ten days, twenty days apart from 2024-01-01: valid instants that cross the fixture's bounds. */
+  private static String days() {
+    final StringBuilder json = new StringBuilder(512).append('[');
+    for (int day = 0; day < 10; day++) {
+      if (day > 0) {
+        json.append(',');
+      }
+      json.append("{\"day_no\":").append(day).append(",\"ts\":\"")
+          .append(Instant.parse("2024-01-01T00:00:00Z").plusSeconds(day * 20L * 86_400L)).append("\"}");
+    }
+    return json.append(']').toString();
   }
 
   private static String rows() {

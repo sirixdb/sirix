@@ -9330,6 +9330,73 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * The projection's {@code fields} under the row mask {@code rowKeys} (every row when {@code null}),
+   * resident as slices, for the column-side join and membership routes. {@code null} declines: no
+   * covering projection, a field that is neither an integral null-free NUMERIC_LONG nor a
+   * per-leaf-dictionary string column, or a fill the residency budget refuses.
+   */
+  public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
+      final String[] fields) {
+    try {
+      if (!sourcePathIsPresent(sourcePath) || projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, fields);
+      if (handle == null) {
+        return null;
+      }
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      if (store == null) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      final int[] cols = new int[fields.length];
+      final byte[] kinds = new byte[fields.length];
+      for (int i = 0; i < fields.length; i++) {
+        final int col = handle.columnOf(fields[i]);
+        if (col < 0 || !store.columnSliceable(col) || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        final byte kind = handle.columnKindOf(col);
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          if (!handle.numericColumnIsIntegral(col, fetcher)) {
+            return null;
+          }
+        } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return null;
+        }
+        cols[i] = col;
+        kinds[i] = kind;
+      }
+      final int[] residency = Arrays.copyOf(cols, cols.length + 1);
+      residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
+      if (!store.columnsFitWithinBudget(residency, -1)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds = rowKeys == null
+          ? new ProjectionIndexScan.ColumnPredicate[0]
+          : new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys)};
+      final long[] keep = preds.length == 0
+          ? null
+          : ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
+      final ProjectionColumnStore.ColumnSlice[][] predCols =
+          ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher);
+      final int leaves = store.rowGroupCount();
+      final long[][] rowMasks = new long[leaves][];
+      final long rows = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, null, null, 0, leaves, rowMasks);
+      final ProjectionColumnStore.ColumnSlice[][] slices = new ProjectionColumnStore.ColumnSlice[fields.length][];
+      for (int i = 0; i < fields.length; i++) {
+        slices[i] = store.columnMaskedView(cols[i], fetcher, keep);
+      }
+      return new MaskedColumns(store, rowMasks, store.recordKeys(fetcher), slices, kinds, rows);
+    } catch (final RuntimeException e) {
+      failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
+      return null;
+    }
+  }
+
+  /**
    * A {@link ProjectionColumnStore.ColumnSegmentFetcher} bound to THIS executor's OWN live session
    * and revision — threaded into a SHARED column-lazy handle's per-column fill calls so every fill
    * reads through this reader's own transaction, never a since-closed sibling's. Cheap (a closure); a

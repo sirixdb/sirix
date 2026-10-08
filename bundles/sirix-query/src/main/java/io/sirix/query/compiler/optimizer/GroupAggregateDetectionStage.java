@@ -11,6 +11,7 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
+import io.sirix.query.compiler.XQExt;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -200,6 +201,20 @@ public final class GroupAggregateDetectionStage implements Stage {
   public static final String GROUP_AGG_PROG_CONSTS = "SIRIX_GROUP_AGG_PROG_CONSTS";
   /** Field-token prefix of a computed pre-group let, indexing the program annotations. */
   public static final String COMPUTED_FIELD_PREFIX = "prog:";
+  /**
+   * A MEMBERSHIP filter ({@code where empty|exists(for $b in SRC2 where $b.f eq $r.g return ...)},
+   * recognised by {@code HashMembershipStage}) whose inner source is an index-routed opener: the
+   * literal database and resource, the two instant ASTs, the inner field, the loop var's field and
+   * whether the filter is an ANTI-join. The serving expression subtracts (or intersects) the rows
+   * whose key value the inner opener's rows hold from the row source before grouping.
+   */
+  public static final String MEMBERSHIP_DATABASE = "SIRIX_GROUP_AGG_MEMBERSHIP_DATABASE";
+  public static final String MEMBERSHIP_RESOURCE = "SIRIX_GROUP_AGG_MEMBERSHIP_RESOURCE";
+  public static final String MEMBERSHIP_TX_TIME = "SIRIX_GROUP_AGG_MEMBERSHIP_TX_TIME";
+  public static final String MEMBERSHIP_VALID_TIME = "SIRIX_GROUP_AGG_MEMBERSHIP_VALID_TIME";
+  public static final String MEMBERSHIP_INNER_FIELD = "SIRIX_GROUP_AGG_MEMBERSHIP_INNER_FIELD";
+  public static final String MEMBERSHIP_OUTER_FIELD = "SIRIX_GROUP_AGG_MEMBERSHIP_OUTER_FIELD";
+  public static final String MEMBERSHIP_ANTI = "SIRIX_GROUP_AGG_MEMBERSHIP_ANTI";
 
   /**
    * A {@link PredicateNode} built HERE, over chain-qualified field names, for a {@code where} that
@@ -267,7 +282,15 @@ public final class GroupAggregateDetectionStage implements Stage {
       return "pipe: chain is not a Start node";
     }
     AST forBind = chain.getLastChild();
+    // Leading lets (`let $new := jn:open-bitemporal(...)`): a membership filter may name one.
+    final List<QNm> leadingLetVars = new ArrayList<>(2);
+    final List<AST> leadingLetExprs = new ArrayList<>(2);
     while (forBind != null && forBind.getType() == XQ.LetBind) {
+      final QNm leadingVar = bindingVarName(forBind);
+      if (leadingVar != null && forBind.getChildCount() >= 2) {
+        leadingLetVars.add(leadingVar);
+        leadingLetExprs.add(forBind.getChild(1));
+      }
       forBind = forBind.getLastChild();
     }
     if (forBind == null || forBind.getType() != XQ.ForBind) {
@@ -290,6 +313,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String[] subField = new String[1];
     // Computed pre-group lets, in field-token order (prog:0, prog:1, ...).
     final List<ComputedLet> programs = new ArrayList<>();
+    MembershipFilter membership = null;
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
     final List<Long> constLetVals = new ArrayList<>();
@@ -328,6 +352,18 @@ public final class GroupAggregateDetectionStage implements Stage {
             havingOpLit = havingCountFilter(current.getChild(0), postGroupVars, postGroupFuncs, postGroupFields);
             if (havingOpLit == null) {
               return "having: post-group where is not `$countLet OP intLiteral`";
+            }
+            continue;
+          }
+          // A membership filter over an index-routed opener is served as a row-key subtraction
+          // (or intersection) before grouping — never as a predicate the kernels evaluate.
+          if (current.getChild(0).getType() == XQExt.HashMembershipJoin) {
+            if (membership != null) {
+              return "where: a second membership filter";
+            }
+            membership = membershipFilter(current.getChild(0), loopVar, leadingLetVars, leadingLetExprs);
+            if (membership == null) {
+              return "where: membership filter is not over an index-routed opener";
             }
             continue;
           }
@@ -822,6 +858,9 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (constMode && !programs.isEmpty()) {
       return "let: computed pre-group let under constant-only grouping"; // the scalar route has no derived lane
     }
+    if (constMode && membership != null) {
+      return "where: membership filter under constant-only grouping"; // the scalar route reads no row source
+    }
     if (constMode) {
       pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       if (ownPredicate != null) {
@@ -836,6 +875,15 @@ public final class GroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     if (ownPredicate != null) {
       pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
+    }
+    if (membership != null) {
+      pipeExpr.setProperty(MEMBERSHIP_DATABASE, membership.database());
+      pipeExpr.setProperty(MEMBERSHIP_RESOURCE, membership.resource());
+      pipeExpr.setProperty(MEMBERSHIP_TX_TIME, membership.txTime());
+      pipeExpr.setProperty(MEMBERSHIP_VALID_TIME, membership.validTime());
+      pipeExpr.setProperty(MEMBERSHIP_INNER_FIELD, membership.innerField());
+      pipeExpr.setProperty(MEMBERSHIP_OUTER_FIELD, membership.outerField());
+      pipeExpr.setProperty(MEMBERSHIP_ANTI, membership.anti());
     }
     if (!programs.isEmpty()) {
       for (final String g : groupFields) {
@@ -1155,6 +1203,83 @@ public final class GroupAggregateDetectionStage implements Stage {
 
   /** A computed pre-group let's program over the loop var's fields. */
   private record ComputedLet(String[] fields, int[] code, long[] consts) {
+  }
+
+  /** A membership filter whose inner source is an index-routed opener (see {@link #MEMBERSHIP_ANTI}). */
+  private record MembershipFilter(String database, String resource, AST txTime, AST validTime, String innerField,
+      String outerField, boolean anti) {
+  }
+
+  /**
+   * Parse a {@code HashMembershipJoin} node: its source (child 0) is the opener call or a leading
+   * let bound to one, its key (child 2) is {@code $loop.field}, its inner field is the
+   * {@code HashMembershipStage.FIELD} property. The opener's instants are evaluated at the
+   * pipeline's entry, so they must not read the loop var or a leading let.
+   */
+  private static MembershipFilter membershipFilter(final AST node, final QNm loopVar, final List<QNm> leadingLetVars,
+      final List<AST> leadingLetExprs) {
+    if (node.getChildCount() < 3) {
+      return null;
+    }
+    AST source = node.getChild(0);
+    if (source.getType() == XQ.VariableRef && source.getValue() instanceof QNm sourceVar) {
+      final int at = leadingLetVars.indexOf(sourceVar);
+      if (at < 0) {
+        return null;
+      }
+      source = leadingLetExprs.get(at);
+    }
+    if (source.getType() != XQ.FunctionCall || !(source.getValue() instanceof QNm fn)
+        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI()) || !"open-bitemporal".equals(fn.getLocalName())
+        || source.getChildCount() != 4) {
+      return null;
+    }
+    final String database = stringLiteral(source.getChild(0));
+    final String resource = stringLiteral(source.getChild(1));
+    if (database == null || resource == null) {
+      return null;
+    }
+    final AST txTime = source.getChild(2);
+    final AST validTime = source.getChild(3);
+    final Set<Object> boundInPipe = new HashSet<>(leadingLetVars);
+    boundInPipe.add(loopVar);
+    if (referencesAny(txTime, boundInPipe) || referencesAny(validTime, boundInPipe)) {
+      return null;
+    }
+    final String outerField = loopVarDerefField(node.getChild(2), loopVar);
+    if (outerField == null || !(node.getProperty(HashMembershipStage.FIELD) instanceof QNm innerField)) {
+      return null;
+    }
+    return new MembershipFilter(database, resource, txTime, validTime, innerField.getLocalName(), outerField,
+        node.checkProperty(HashMembershipStage.ANTI));
+  }
+
+  private static String stringLiteral(final AST node) {
+    if (node == null || node.getType() != XQ.Str) {
+      return null;
+    }
+    final Object value = node.getValue();
+    if (value instanceof Str str) {
+      return str.stringValue();
+    }
+    return value instanceof String s
+        ? s
+        : null;
+  }
+
+  private static boolean referencesAny(final AST node, final Set<Object> vars) {
+    if (node == null) {
+      return false;
+    }
+    if (node.getType() == XQ.VariableRef && vars.contains(node.getValue())) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (referencesAny(node.getChild(i), vars)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

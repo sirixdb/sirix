@@ -130,8 +130,11 @@ public final class ProjectionComputedColumn {
     return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
   }
 
-  /** One evaluation of the postfix program; exact arithmetic, overflow throws. */
-  static long run(final int[] code, final long[] consts, final long[] operandValues, final long[] stack) {
+  /**
+   * One evaluation of the postfix program over {@code operandValues}; exact arithmetic, overflow
+   * throws. {@code stack} is the caller's scratch of at least the program's depth.
+   */
+  public static long run(final int[] code, final long[] consts, final long[] operandValues, final long[] stack) {
     int sp = 0;
     for (final int op : code) {
       if (op >= ProjectionIndexByteScan.COMPUTED_CONST_BASE) {
