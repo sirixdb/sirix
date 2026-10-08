@@ -22,18 +22,29 @@ final class ProjectionSortedDirectoryNode {
   private final byte @Nullable [][] separatorKeys;
 
   private ProjectionSortedDirectoryNode(final ProjectionSortedLeaf leaf, final byte @Nullable [][] keys) {
+    this(leaf, keys, true);
+  }
+
+  private ProjectionSortedDirectoryNode(final ProjectionSortedLeaf leaf, final byte @Nullable [][] keys,
+      final boolean validateChildren) {
     this.leaf = Objects.requireNonNull(leaf, "leaf");
     separatorKeys = keys;
     final int payloadBytes = keys == null
         ? Integer.BYTES
         : 2 * Integer.BYTES;
-    for (int i = 0; i < leaf.rowCount(); i++) {
-      if (leaf.payloadLength(i) != payloadBytes || leaf.payloadIntAt(i, 0) <= 0) {
-        throw new IllegalStateException("invalid sorted directory child reference");
+    if (validateChildren) {
+      for (int i = 0; i < leaf.rowCount(); i++) {
+        if (leaf.payloadLength(i) != payloadBytes || leaf.payloadIntAt(i, 0) <= 0) {
+          throw new IllegalStateException("invalid sorted directory child reference");
+        }
       }
-      if (keys != null
-          && (leaf.payloadIntAt(i, Integer.BYTES) <= 0 || i > 0 && Arrays.compareUnsigned(keys[i - 1], keys[i]) >= 0)) {
-        throw new IllegalStateException("invalid sorted directory separator references");
+    }
+    if (keys != null) {
+      for (int i = 0; i < leaf.rowCount(); i++) {
+        if (validateChildren && leaf.payloadIntAt(i, Integer.BYTES) <= 0
+            || i > 0 && Arrays.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
+          throw new IllegalStateException("invalid sorted directory separator references");
+        }
       }
     }
   }
@@ -61,17 +72,25 @@ final class ProjectionSortedDirectoryNode {
     return indirect(leaf, keys);
   }
 
-  static ProjectionSortedDirectoryNode open(final ProjectionSortedLeaf leaf, final StorageEngineReader reader,
+  static ProjectionSortedDirectoryNode openReadOnly(final byte[] bytes, final StorageEngineReader reader,
       final int indexNumber, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.openDirectoryReadOnly(bytes);
     if (leaf.payloadLength(0) == Integer.BYTES) {
-      return direct(leaf);
+      return new ProjectionSortedDirectoryNode(leaf, null, false);
+    }
+    if (leaf.rowCount() > 2) {
+      throw new IllegalArgumentException("an indirect node must hold one or two separators");
     }
     final byte[][] keys = new byte[leaf.rowCount()][];
     for (int i = 0; i < keys.length; i++) {
       keys[i] = requireKey(
           ProjectionIndexHOTStorage.readBlob(reader, indexNumber, separatorSlot(leaf, i), intent, scope)).clone();
     }
-    return indirect(leaf, keys);
+    return new ProjectionSortedDirectoryNode(leaf, keys, false);
+  }
+
+  ProjectionSortedLeaf leaf() {
+    return leaf;
   }
 
   long retainedMetadataBytes() {

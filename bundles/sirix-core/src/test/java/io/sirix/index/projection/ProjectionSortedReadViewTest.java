@@ -207,6 +207,44 @@ final class ProjectionSortedReadViewTest {
   }
 
   @Test
+  void everyDirectoryChildIsCheckedBeforeTheViewEscapes() {
+    final byte[][] keys = {{1}, {2}, {3}};
+    for (final int length : new int[] {Integer.BYTES, 2 * Integer.BYTES, 3 * Integer.BYTES}) {
+      final byte[][] payloads = new byte[3][Integer.BYTES];
+      for (int row = 0; row < payloads.length; row++) {
+        ProjectionIndexRowGroupCodec.putIntLEAt(payloads[row], 0, row + 1);
+      }
+      payloads[2] = new byte[length];
+      final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(keys, payloads, keys.length);
+      assertNotNull(leaf);
+      assertThrows(IllegalStateException.class, () -> ProjectionSortedReadView.open(leaf.encodedBytes(), true,
+          mock(StorageEngineReader.class), 0, HOTReadIntent.SELECTIVE, null));
+    }
+  }
+
+  @Test
+  void invalidIndirectChildIsRejectedBeforeFetchingItsSeparator() {
+    final byte[][] keys = {SortedScanFixtures.key(new SortedScanFixtures.Row("group", 1, 1)),
+        SortedScanFixtures.key(new SortedScanFixtures.Row("group", 2, 2))};
+    for (final int invalidOffset : new int[] {0, Integer.BYTES}) {
+      final byte[][] payloads = new byte[2][2 * Integer.BYTES];
+      for (int row = 0; row < payloads.length; row++) {
+        ProjectionIndexRowGroupCodec.putIntLEAt(payloads[row], 0, row + 1);
+        ProjectionIndexRowGroupCodec.putIntLEAt(payloads[row], Integer.BYTES, row + 11);
+      }
+      ProjectionIndexRowGroupCodec.putIntLEAt(payloads[1], invalidOffset, 0);
+      final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.encode(keys, payloads, keys.length);
+      assertNotNull(leaf);
+      final StorageEngineReader reader = mock(StorageEngineReader.class);
+      try (MockedStatic<ProjectionIndexHOTStorage> reads = mockStatic(ProjectionIndexHOTStorage.class)) {
+        assertThrows(IllegalStateException.class,
+            () -> ProjectionSortedReadView.open(leaf.encodedBytes(), true, reader, 0, HOTReadIntent.SELECTIVE, null));
+        reads.verifyNoInteractions();
+      }
+    }
+  }
+
+  @Test
   void firstUseValidatesLeafAndDirectoryBeforePublication() {
     final byte[] corrupt = view(false).copyBytes();
     corrupt[0] = 0;

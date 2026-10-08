@@ -30,13 +30,15 @@ public final class ProjectionSortedReadView {
 
   static ProjectionSortedReadView open(final byte[] verified, final boolean directory, final StorageEngineReader reader,
       final int indexNumber, final HOTReadIntent intent, final @Nullable ReadScope scope) {
-    final ProjectionSortedLeaf leaf = ProjectionSortedLeaf.openReadOnly(verified);
-    return new ProjectionSortedReadView(leaf, directory
-        ? ProjectionSortedDirectoryNode.open(leaf, reader, indexNumber, intent, scope)
-        : null,
-        directory && scope != null
-            ? scope.snapshotImage()
-            : null);
+    final ProjectionSortedDirectoryNode node = directory
+        ? ProjectionSortedDirectoryNode.openReadOnly(verified, reader, indexNumber, intent, scope)
+        : null;
+    final ProjectionSortedLeaf leaf = node == null
+        ? ProjectionSortedLeaf.openReadOnly(verified)
+        : node.leaf();
+    return new ProjectionSortedReadView(leaf, node, directory && scope != null
+        ? scope.snapshotImage()
+        : null);
   }
 
   void restoreRouting(final StorageEngineReader reader, final @Nullable ReadScope scope) {

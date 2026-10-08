@@ -251,10 +251,30 @@ final class ProjectionSortedLeaf {
     return open(data.clone(), true);
   }
 
+  /** Validate directory references during the same traversal that checks the owned row bytes. */
+  static ProjectionSortedLeaf openDirectoryReadOnly(final byte[] data) {
+    return open(Objects.requireNonNull(data, "data").clone(), true, true);
+  }
+
   private static ProjectionSortedLeaf open(final byte[] data, final boolean readOnly) {
+    return open(data, readOnly, false);
+  }
+
+  private static ProjectionSortedLeaf open(final byte[] data, final boolean readOnly, final boolean directory) {
     Objects.requireNonNull(data, "data");
     if (data.length >= 5 && getInt(data, 0) == MAGIC && data[4] == ProjectionSortedDataBlock.SCHEME) {
-      return new ProjectionSortedLeaf(ProjectionSortedDataBlock.open(data, readOnly), data, readOnly);
+      final ProjectionSortedLeaf leaf =
+          new ProjectionSortedLeaf(ProjectionSortedDataBlock.open(data, readOnly), data, readOnly);
+      if (directory) {
+        final int payloadBytes = directoryPayloadBytes(leaf.payloadLength(0));
+        for (int row = 0; row < leaf.rowCount(); row++) {
+          if (leaf.payloadLength(row) != payloadBytes || leaf.payloadIntAt(row, 0) <= 0
+              || payloadBytes == 2 * Integer.BYTES && leaf.payloadIntAt(row, Integer.BYTES) <= 0) {
+            throw new IllegalStateException("invalid sorted directory child reference");
+          }
+        }
+      }
+      return leaf;
     }
     if (data.length < HEADER_BYTES + 2 * Integer.BYTES || data.length > MAX_BYTES || getInt(data, 0) != MAGIC
         || data[4] != PREFIX_SCHEME) {
@@ -272,6 +292,7 @@ final class ProjectionSortedLeaf {
     }
     int previousSuffixStart = -1;
     int previousSuffixEnd = -1;
+    int directoryPayloadBytes = 0;
     for (int i = 0; i < count; i++) {
       final int start = leaf.offset(i);
       final int end = leaf.offset(i + 1);
@@ -284,6 +305,16 @@ final class ProjectionSortedLeaf {
       if ((long) suffixStart + suffixLength + payloadLength != end) {
         throw new IllegalArgumentException("invalid sorted projection leaf entry at row " + i);
       }
+      if (directory) {
+        if (i == 0) {
+          directoryPayloadBytes = directoryPayloadBytes(payloadLength);
+        }
+        final int payloadStart = suffixStart + suffixLength;
+        if (payloadLength != directoryPayloadBytes || getInt(data, payloadStart) <= 0
+            || directoryPayloadBytes == 2 * Integer.BYTES && getInt(data, payloadStart + Integer.BYTES) <= 0) {
+          throw new IllegalStateException("invalid sorted directory child reference");
+        }
+      }
       if (i > 0 && Arrays.compareUnsigned(data, previousSuffixStart, previousSuffixEnd, data, suffixStart,
           suffixStart + suffixLength) >= 0) {
         throw new IllegalArgumentException("sorted projection leaf keys are not strictly increasing");
@@ -292,6 +323,13 @@ final class ProjectionSortedLeaf {
       previousSuffixEnd = suffixStart + suffixLength;
     }
     return leaf;
+  }
+
+  private static int directoryPayloadBytes(final int length) {
+    if (length != Integer.BYTES && length != 2 * Integer.BYTES) {
+      throw new IllegalStateException("invalid sorted directory child reference");
+    }
+    return length;
   }
 
   int rowCount() {
