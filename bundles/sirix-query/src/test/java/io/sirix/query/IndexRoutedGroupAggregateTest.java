@@ -248,6 +248,14 @@ final class IndexRoutedGroupAggregateTest {
         let $n := count($c), $avg_cost := avg($c.cost), $qty := sum($c.qty)
         order by $grade
         return {"grade":$grade,"n":$n,"avg_cost":$avg_cost,"qty":$qty}
+        """}, new String[] {"OR predicate: the row mask joins a predicate tree", """
+        for $c in SRC
+        where $c.grade eq 1 or $c.sid eq 3
+        let $sid := $c.sid, $value := $c.cost * $c.qty
+        group by $sid
+        let $n := count($value), $total := sum($value), $rows := count($c)
+        order by $sid
+        return {"sid":$sid,"n":$n,"total":$total,"rows":$rows}
         """}, new String[] {"computed sum with a literal, no order by", """
         for $c in SRC
         let $sid := $c.sid, $margin := $c.cost * 3 - $c.qty
@@ -345,6 +353,11 @@ final class IndexRoutedGroupAggregateTest {
           }
           i++;
         } while (wtx.moveTo(wtx.getNodeKey()) && wtx.moveToRightSibling());
+        wtx.moveTo(array);
+        // An ORDER EXCEPTION in the projection: a record stored before its siblings with a key above
+        // theirs; every evaluator's membership walk must take the binary-search arm for it.
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            row(ROWS + 500, "2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true)), JsonNodeTrx.Commit.NO);
         wtx.moveTo(array);
         final StringBuilder appended = new StringBuilder();
         for (int k = 0; k < 60; k++) {
