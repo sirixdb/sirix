@@ -19,6 +19,7 @@ import io.brackit.query.operator.Operator;
 import io.sirix.query.compiler.optimizer.CorrelatedGroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.IndexRoutedSourceStage;
+import io.sirix.query.compiler.optimizer.JoinedGroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
 import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
@@ -149,6 +150,15 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields, rowOutNames, rowDirect, rowCodes,
             rowConsts, rowSourceRef, generic);
+      }
+    }
+    // Column-side equality join with a grouped aggregate over the pairs.
+    if (Boolean.TRUE.equals(node.getProperty(JoinedGroupAggregateDetectionStage.JOIN_GROUP))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider joinExecutor) {
+      final Expr joined = joined(node, compiler, joinExecutor, generic);
+      if (joined != null) {
+        return joined;
       }
     }
     // Correlated index-routed grouping (an outer loop supplying the opener's instants and some keys).
@@ -409,6 +419,65 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     return new SirixCorrelatedGroupAggregateExpr(executor, outer, outerKeyExprs, outerKeyNames, routed, inner,
         entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast, generic);
+  }
+
+  /** The joined serving expression, or {@code null} when the annotations are not this strategy's. */
+  private static Expr joined(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
+      final Expr generic) throws QueryException {
+    final String[] databases = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_DATABASES);
+    final String[] resources = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_RESOURCES);
+    final AST[] txTimes = (AST[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_TX_TIMES);
+    final AST[] validTimes = (AST[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_VALID_TIMES);
+    final int[] revisions = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_REVISIONS);
+    final String[] joinFields = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.JOIN_FIELDS);
+    final int[] keySides = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.KEY_SIDES);
+    final String[] keyFields = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.KEY_FIELDS);
+    final String[] aggFuncs = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.AGG_FUNCS);
+    final int[] aggSides = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.AGG_SIDES);
+    final String[] aggFields = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.AGG_FIELDS);
+    final int[] progSides = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.PROG_SIDES);
+    final String[][] progFields = (String[][]) node.getProperty(JoinedGroupAggregateDetectionStage.PROG_FIELDS);
+    final int[][] progCode = (int[][]) node.getProperty(JoinedGroupAggregateDetectionStage.PROG_CODE);
+    final long[][] progConsts = (long[][]) node.getProperty(JoinedGroupAggregateDetectionStage.PROG_CONSTS);
+    final int[] entryKinds = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.ENTRY_KINDS);
+    final int[] orderIndexes = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.ORDER_INDEXES);
+    final boolean[] orderAsc = (boolean[]) node.getProperty(JoinedGroupAggregateDetectionStage.ORDER_ASC);
+    final boolean[] orderEmptyLeast =
+        (boolean[]) node.getProperty(JoinedGroupAggregateDetectionStage.ORDER_EMPTY_LEAST);
+    if (databases == null || resources == null || txTimes == null || validTimes == null || revisions == null
+        || joinFields == null || keySides == null || keyFields == null || aggFuncs == null || aggSides == null
+        || aggFields == null || progSides == null || progFields == null || progCode == null || progConsts == null
+        || entryKinds == null || orderIndexes == null || orderAsc == null || orderEmptyLeast == null
+        || databases.length != 2 || keySides.length != keyFields.length || aggSides.length != aggFuncs.length
+        || aggFields.length != aggFuncs.length || progFields.length != progSides.length
+        || progCode.length != progSides.length || progConsts.length != progSides.length
+        || orderAsc.length != orderIndexes.length || orderEmptyLeast.length != orderIndexes.length
+        || !(compiler instanceof SirixTranslator translator)) {
+      return null;
+    }
+    final AST returnRecord = returnRecord(node);
+    if (returnRecord == null || returnRecord.getChildCount() != entryKinds.length) {
+      return null;
+    }
+    final String[] entryNames = new String[entryKinds.length];
+    for (int i = 0; i < entryNames.length; i++) {
+      final AST nameNode = returnRecord.getChild(i).getChild(0);
+      entryNames[i] = nameNode.getValue() instanceof Str str
+          ? str.stringValue()
+          : String.valueOf(nameNode.getValue());
+    }
+    final SirixJoinedGroupAggregateExpr.Side[] sides = new SirixJoinedGroupAggregateExpr.Side[2];
+    for (int side = 0; side < 2; side++) {
+      final SirixGroupAggregateExpr.RoutedSource routed = txTimes[side] == null
+          ? null
+          : new SirixGroupAggregateExpr.RoutedSource(databases[side], resources[side],
+              translator.routedInstant(txTimes[side]), translator.routedInstant(validTimes[side]));
+      sides[side] = new SirixJoinedGroupAggregateExpr.Side(databases[side], resources[side], routed,
+          revisions[side], joinFields[side]);
+    }
+    return new SirixJoinedGroupAggregateExpr(executor, sides, keySides, keyFields, aggFuncs, aggSides, aggFields,
+        progSides, progFields, progCode, progConsts, entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast,
+        generic);
   }
 
   /** The {@code ObjectConstructor} of a pipe's return, or {@code null}. */

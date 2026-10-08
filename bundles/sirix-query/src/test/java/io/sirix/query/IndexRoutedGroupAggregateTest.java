@@ -123,6 +123,19 @@ final class IndexRoutedGroupAggregateTest {
         assertEquals(served + 1, SirixVectorizedExecutor.groupAggServedCount(),
             "the membership grouping must be served: anti=" + anti);
       }
+      // JOIN: a column-side equality join between two routed openers (SH1 Q9), between an opener and
+      // a literal document, and with duplicate join values on the hashed side.
+      for (final String[] shape : joinShapes()) {
+        final String routedQuery = prolog(txTimes.get(2), validTimes.get(1)) + shape[1];
+        final String referenceQuery = prolog(txTimes.get(2), validTimes.get(1)) + shape[1].replace(
+            "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)", "(jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P))");
+        final long served = SirixVectorizedExecutor.joinGroupServedCount();
+        final String expected = run(chain, ctx, referenceQuery);
+        assertEquals(served, SirixVectorizedExecutor.joinGroupServedCount(), "join reference stays generic");
+        assertEquals(expected, run(chain, ctx, routedQuery), shape[0] + " versioning=" + versioning);
+        assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(),
+            "the join grouping must be served: " + shape[0]);
+      }
       // CORRELATED: an outer loop supplies the opener's instants and some keys (SH1 Q6/Q11); groups
       // of several outer tuples merge when an outer key repeats.
       for (final String[] shape : correlatedShapes()) {
@@ -138,6 +151,41 @@ final class IndexRoutedGroupAggregateTest {
             "the correlated grouping must be served per outer tuple: " + shape[0]);
       }
     }
+  }
+
+  private static List<String[]> joinShapes() {
+    final String contracts = "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)";
+    final String suppliers = "jn:open-bitemporal('" + DB + "','suppliers',$T,$P)";
+    return List.of(new String[] {"q9: two routed openers, string key from the hashed side", """
+        for $c in CONTRACTS
+        for $s in SUPPLIERS
+        where $c.sid eq $s.id
+        let $region := $s.region, $grade := $c.grade, $value := $c.cost * $c.qty
+        group by $region,$grade
+        let $n := count($value), $exposure := sum($value)
+        order by $region,$grade
+        return {"region":$region,"grade":$grade,"n":$n,"exposure":$exposure}
+        """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)},
+        new String[] {"opener joined with a literal document, pair count and extrema", """
+        for $c in CONTRACTS
+        for $s in jn:doc('DBNAME','suppliers')[]
+        where $s.id = $c.sid
+        let $tier := $s.tier, $grade := $c.grade, $cost := $c.cost
+        group by $tier,$grade
+        let $pairs := count($c), $lo := min($cost), $hi := max($cost)
+        order by $grade, $tier descending
+        return {"tier":$tier,"grade":$grade,"pairs":$pairs,"lo":$lo,"hi":$hi}
+        """.replace("CONTRACTS", contracts).replace("DBNAME", DB)},
+        new String[] {"duplicate join values on the hashed side", """
+        for $c in CONTRACTS
+        for $s in SUPPLIERS
+        where $c.grade eq $s.tier
+        let $region := $s.region, $qty := $c.qty
+        group by $region
+        let $n := count($qty), $total := sum($qty)
+        order by $region
+        return {"region":$region,"n":$n,"total":$total}
+        """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)});
   }
 
   /** The opener with placeholder instants; a shape supplies them (they may read the outer row). */
@@ -255,6 +303,22 @@ final class IndexRoutedGroupAggregateTest {
                                                    .versioningApproach(versioning)
                                                    .storeDiffs(false)
                                                    .build());
+      database.createResource(ResourceConfiguration.newBuilder("suppliers")
+                                                   .validTimePaths("vf", "vt")
+                                                   .customCommitTimestamps(true)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("suppliers");
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(suppliers()), JsonNodeTrx.Commit.NO);
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
+        BitemporalProjections.declare(session, wtx, "suppliers");
+        wtx.commit("S0", T0);
+      }
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows()), JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
@@ -351,6 +415,26 @@ final class IndexRoutedGroupAggregateTest {
       }
       json.append("{\"day_no\":").append(day).append(",\"ts\":\"")
           .append(Instant.parse("2024-01-01T00:00:00Z").plusSeconds(day * 20L * 86_400L)).append("\"}");
+    }
+    return json.append(']').toString();
+  }
+
+  /** Twenty suppliers; one lacks its region, two end their validity early, tiers repeat. */
+  private static String suppliers() {
+    final StringBuilder json = new StringBuilder(2_048).append('[');
+    for (int id = 0; id < 20; id++) {
+      if (id > 0) {
+        json.append(',');
+      }
+      json.append("{\"id\":").append(id);
+      if (id != 3) {
+        json.append(",\"region\":\"").append(new String[] {"north", "south", "east", "west"}[id % 4]).append('"');
+      }
+      json.append(",\"tier\":").append(id % 4).append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"")
+          .append(id % 9 == 8
+              ? "2024-02-10T00:00:00Z"
+              : "2025-01-01T00:00:00Z")
+          .append("\"}");
     }
     return json.append(']').toString();
   }

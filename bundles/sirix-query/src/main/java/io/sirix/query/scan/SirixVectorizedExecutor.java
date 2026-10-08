@@ -1033,6 +1033,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
+  /** Column-side equality joins with a grouped aggregate served without materialising either side. */
+  private static final LongAdder JOIN_GROUP_SERVED = new LongAdder();
+
+  /** Test/ops observability for {@link #JOIN_GROUP_SERVED}. */
+  public static long joinGroupServedCount() {
+    return JOIN_GROUP_SERVED.sum();
+  }
+
+  /** Counts one served column-side join grouping. */
+  public static void noteJoinGroupServed() {
+    JOIN_GROUP_SERVED.increment();
+  }
+
   private static final LongAdder GROUP_AGG_SLICED_SERVED = new LongAdder();
 
   /** Test observability for {@link #GROUP_AGG_SLICED_SERVED}. */
