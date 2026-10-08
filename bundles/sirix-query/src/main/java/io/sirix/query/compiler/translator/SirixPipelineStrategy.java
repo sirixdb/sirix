@@ -268,6 +268,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     if (computedLanes == null && hasComputedAggregate(aggFields)) {
       return generic; // a prog: operand without its program annotations is not ours
     }
+    if (routedSource != null && !ordersEveryKey(orderIndexes, groupFields.length)) {
+      // The opener yields its rows in record-key order while the projection folds them in physical
+      // row order; the two agree except at order exceptions, so a routed grouping is served only
+      // under an order-by that totally orders the groups — every key named — which the wrapper
+      // applies. Without one the generic pipeline keeps its first-appearance order.
+      return generic;
+    }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
@@ -296,6 +303,23 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     return new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
         translator.routedInstant(validTime));
+  }
+
+  /** Whether the order-by specs name every group key (positions {@code 0..keyCount-1}). */
+  private static boolean ordersEveryKey(final int[] orderIndexes, final int keyCount) {
+    if (orderIndexes == null) {
+      return false;
+    }
+    for (int key = 0; key < keyCount; key++) {
+      boolean named = false;
+      for (final int index : orderIndexes) {
+        named |= index == key;
+      }
+      if (!named) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static boolean hasComputedAggregate(final String[] aggFields) {

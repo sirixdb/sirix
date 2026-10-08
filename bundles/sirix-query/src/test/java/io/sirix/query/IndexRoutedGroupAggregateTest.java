@@ -85,6 +85,17 @@ final class IndexRoutedGroupAggregateTest {
         }
       }
       assertTrue(checked >= txTimes.size() * validTimes.size() * shapes().size());
+      // Without an order-by naming every key the routed grouping is NOT served: the opener's
+      // record-key order and the projection's physical row order can differ at order exceptions.
+      final String unordered = prolog(txTimes.get(2), validTimes.get(1)) + """
+          for $c in SRC
+          let $grade := $c.grade
+          group by $grade
+          return {"grade":$grade,"n":count($c)}
+          """.replace("SRC", source());
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(run(chain, ctx, unordered.replace(source(), "(" + source() + ")")), run(chain, ctx, unordered));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "an unordered routed grouping stays generic");
     }
   }
 
@@ -116,6 +127,7 @@ final class IndexRoutedGroupAggregateTest {
         for $c in SRC
         let $sid := $c.sid, $margin := $c.cost * 3 - $c.qty
         group by $sid
+        order by $sid
         return {"sid":$sid,"n":count($c),"margin":sum($margin),"low":min($margin)}
         """});
   }

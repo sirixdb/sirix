@@ -60,8 +60,10 @@ import static org.mockito.Mockito.withSettings;
  * </p>
  *
  * <p>
- * Measured (2026-10-08): routed — groupAggregates 1, leavesPruned 2, cursor moves 0; generic
- * reference — groupAggregates 0, cursor moves ≥ 1,000.
+ * Measured (2026-10-08): routed — groupAggregates 1, numericGroupBys 1, groupSliced 1, leavesPruned 4
+ * (two prune passes over the same two leaves), cursor moves 0; generic reference — groupAggregates 0,
+ * cursor moves ≥ 1,000. With the row source left out of the keep mask, leavesPruned reads 0 and
+ * every leaf's columns are fetched.
  * </p>
  */
 @Isolated
@@ -118,8 +120,12 @@ final class IndexRoutedGroupWorkBudgetTest {
         assertEquals(generic.result(), routed.result(), "the routed answer must equal the generic one");
         routed.work()
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the grouped aggregate must be served")
-              .assertExactly(EngineWorkCounters.PROJECTION_LEAVES_PRUNED, 2,
-                  "two of the three leaves hold no valid row and must never be fetched");
+              // The route prices its keep mask twice — once to bound the derived lane's evaluation
+              // and once inside the arm's own predicate fill — and each pass drops the same two
+              // leaves. A dedup of the two passes tightens this to 2; a mask that stopped pruning
+              // reads 0 whichever pass runs.
+              .assertExactly(EngineWorkCounters.PROJECTION_LEAVES_PRUNED, 4,
+                  "two of the three leaves hold no valid row and must never be fetched (two prune passes)");
         // Zero objects: no cursor move and no child-pointer read on the document the opener returns.
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();

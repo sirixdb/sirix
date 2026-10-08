@@ -75,6 +75,7 @@ failure table and tells the reader where the work went.
 | | grouped top-K, range holding a row without the aggregate | the view walks the range twice before declining, **or** declines ranges of the same view whose rows all carry a value |
 | `sirix-query` `EmptyAttributeAxisWorkBudgetTest` | cold named-attribute queries | an empty attribute axis loads descendant name records, or a local-name miss loads namespace name/count records; matching queries verify that the counters observe dictionary reads |
 | `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
+| `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, or reads a leaf that holds no admitted key (the row source stops pruning); the generic reference over the same decorated cursor is the positive control (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
@@ -178,6 +179,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
+- `EngineWorkCounters.PROJECTION_LEAVES_PRUNED`: projection leaves a scan dropped from its keep mask
+  before any column segment was fetched — descriptor zones, string fingerprints and the index-routed
+  row source's record-key ranges (`ProjectionColumnScan.leavesPrunedCount`, always on). A route may
+  price its mask more than once; the budget states the passes it counts.
 - `EngineWorkCounters.REPLAY`: cursor/storage record visits (nested delegations count), path-summary cursor
   steps including writer reinitialization, created document identities, detached staged document records,
   memoized ancestry hops, attempted presentation sidecar reads, authoritative indirect/leaf resolutions,
