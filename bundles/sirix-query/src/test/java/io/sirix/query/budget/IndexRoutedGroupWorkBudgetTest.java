@@ -11,6 +11,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.ProjectionRecordKeySet.Masks;
 import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -22,16 +25,24 @@ import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -165,6 +176,70 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void sparseColdAndWarmSelectionsUsePersistedLookup(final VersioningType versioning) throws Exception {
+    final int rows = 32_000;
+    build(true, rows, versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
+          + "xs:dateTime('2024-06-01T00:00:00Z'))";
+      final String query =
+          "for $c in " + source + " let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty group by $grade"
+              + " order by $grade return {'grade':$grade,'n':count($qty),'exposure':sum($value)}";
+      for (int repeat = 0; repeat < 2; repeat++) {
+        final WorkCapture.Captured<String> result = WorkCapture.of(EngineWorkCounters.PROJECTION_LOOKUP_DESCRIPTORS)
+                                                               .and(EngineWorkCounters.PROJECTION_LOOKUP_KEYS)
+                                                               .and(EngineWorkCounters.PROJECTION_KEY_SEGMENTS)
+                                                               .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                                                               .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                               .call(() -> run(chain, ctx, query));
+        assertEquals("{\"grade\":0,\"n\":1,\"exposure\":13200}", result.result());
+        result.work()
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the one-key grouping is served")
+              .assertExactly(EngineWorkCounters.PROJECTION_LOOKUP_DESCRIPTORS, 1, "only the selected leaf is located")
+              .assertExactly(EngineWorkCounters.PROJECTION_LOOKUP_KEYS, 1, "lookup reads one KEYS segment")
+              .assertBetween(EngineWorkCounters.PROJECTION_KEY_SEGMENTS, 1, 1,
+                  "predicate KEYS are confined to that leaf")
+              .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, 0,
+                  "neither cold nor warm selection walks all rows");
+      }
+      assertEquals(run(chain, ctx, query.replace(source, "(" + source + ")")), run(chain, ctx, query));
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getTrx().getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final var handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"}, new String[] {"cost"});
+      assertNotNull(handle);
+      final var columns = handle.columnStoreOrNull();
+      assertNotNull(columns);
+      assertTrue(columns.leafCount() >= 32);
+      final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final LongArrayList all = new LongArrayList(rows + 1);
+      for (final long[] leaf : columns.recordKeys(fetcher)) {
+        all.addElements(all.size(), leaf);
+      }
+      final long[] keys = all.toLongArray();
+      Arrays.sort(keys);
+      final WorkCapture.Captured<ColumnPredicate> dense =
+          WorkCapture.of(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                     .and(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES)
+                     .call(() -> ColumnPredicate.recordKeysIn(keys, columns, fetcher));
+      dense.work()
+           .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, rows + 1, "dense construction visits each row once")
+           .assertAtMost(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES, rows + 1 + columns.leafCount(),
+               "dense advances remain linear");
+      final Masks sparse = fetcher.recordKeyMasks(handle.defId(), keys);
+      assertEquals(sparse.physicalSlots(), dense.result().keyMasks.physicalSlots());
+      assertEquals(sparse.byFirstKey().size(), dense.result().keyMasks.byFirstKey().size());
+      for (final var entry : sparse.byFirstKey().long2ObjectEntrySet()) {
+        assertArrayEquals(entry.getValue(), dense.result().keyMasks.byFirstKey().get(entry.getLongKey()));
+      }
+    }
+  }
+
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
       throws Exception {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream(); final PrintWriter pw = new PrintWriter(out)) {
@@ -175,6 +250,10 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   private void build(final boolean orderException) {
+    build(orderException, ROWS, VersioningType.SLIDING_SNAPSHOT);
+  }
+
+  private void build(final boolean orderException, final int rowCount, final VersioningType versioning) {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -182,10 +261,12 @@ final class IndexRoutedGroupWorkBudgetTest {
                                                    .validTimePaths("vf", "vt")
                                                    .customCommitTimestamps(true)
                                                    .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
                                                    .storeDiffs(false)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException)), JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException, rowCount)),
+            JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
@@ -195,18 +276,18 @@ final class IndexRoutedGroupWorkBudgetTest {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-              {"id":2601,"sid":0,"cost":1,"qty":1,"grade":0,
+              {"id":%d,"sid":0,"cost":1,"qty":1,"grade":0,
                "vf":"2024-01-01T00:00:00Z","vt":"2024-02-01T00:00:00Z"}
-              """), JsonNodeTrx.Commit.NO);
+              """.formatted(rowCount + 1)), JsonNodeTrx.Commit.NO);
           wtx.commit("E1", Instant.parse("2024-01-16T00:00:00Z"));
         }
       }
     }
   }
 
-  private static String rows(final boolean orderException) {
-    final StringBuilder json = new StringBuilder(ROWS * 110).append('[');
-    for (int i = 0; i < ROWS; i++) {
+  private static String rows(final boolean orderException, final int rowCount) {
+    final StringBuilder json = new StringBuilder(rowCount * 110).append('[');
+    for (int i = 0; i < rowCount; i++) {
       if (i > 0) {
         json.append(',');
       }

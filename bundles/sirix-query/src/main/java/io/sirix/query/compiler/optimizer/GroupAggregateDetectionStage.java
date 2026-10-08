@@ -1893,7 +1893,11 @@ public final class GroupAggregateDetectionStage implements Stage {
 
   /** The field name a single deref step selects, or {@code null} when it is not a literal key. */
   private static String derefStepName(final AST deref) {
-    final Object name = deref.getChild(deref.getChildCount() - 1).getValue();
+    final AST selector = deref.getChild(deref.getChildCount() - 1);
+    if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
+      return null;
+    }
+    final Object name = selector.getValue();
     final String local;
     if (name instanceof QNm qnm) {
       local = qnm.getLocalName();

@@ -78,6 +78,10 @@ public final class ProjectionColumnStore {
   public interface ColumnSegmentFetcher {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
 
+    default ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
+      throw new IllegalStateException("fetcher does not support persisted projection record lookup");
+    }
+
     /** Optional, revision-bound numeric proofs. Older and offset-only fetchers retain BODY reads. */
     default byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
       return null;
@@ -475,7 +479,7 @@ public final class ProjectionColumnStore {
 
   /** Physical index identity for logical slot requests; -1 for directories of durable offsets. */
   private final int logicalSlotIndexNumber;
-  private final int proofIndexNumber;
+  private final int indexNumber;
   private final byte[] columnKinds;
 
   /** Lazily filled per column; slot = decoded slices for every leaf, ascending rowGroupId. */
@@ -735,7 +739,7 @@ public final class ProjectionColumnStore {
         }
       }
     }
-    proofIndexNumber = indexNumber;
+    this.indexNumber = indexNumber;
     logicalSlotIndexNumber = logical
         ? indexNumber
         : -1;
@@ -3090,6 +3094,23 @@ public final class ProjectionColumnStore {
     return directories.get(i).descriptor();
   }
 
+  long physicalSlot(final int leaf) {
+    return directories.get(leaf).rowGroupId();
+  }
+
+  ProjectionRecordKeySet.Masks recordKeyMasks(final long[] sortedKeys, final ColumnSegmentFetcher fetcher) {
+    if (sortedKeys.length == 0) {
+      return ProjectionRecordKeySet.map(sortedKeys, new long[0][]);
+    }
+    long rows = 0;
+    for (int leaf = 0; leaf < leafCount(); leaf++) {
+      rows += rowCount(leaf);
+    }
+    return sortedKeys.length * 4L >= rows
+        ? ProjectionRecordKeySet.map(sortedKeys, recordKeys(fetcher), this::physicalSlot)
+        : fetcher.recordKeyMasks(indexNumber, sortedKeys);
+  }
+
   /**
    * Per-leaf {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_STRING_BLOOM} payloads for a string
    * column, or {@code null} when the column is not a string kind. Individual entries are {@code null}
@@ -3181,7 +3202,7 @@ public final class ProjectionColumnStore {
    * objects are query-local and never cached.
    */
   public ColumnSlice[] recordKeyPredicateView(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
-    final long[][] keys = recordKeys(fetcher);
+    final long[][] keys = recordKeysMasked(fetcher, keepWords);
     final ColumnSlice[] view = new ColumnSlice[keys.length];
     for (int leaf = 0; leaf < keys.length; leaf++) {
       final int word = leaf >>> 6;
@@ -3295,7 +3316,7 @@ public final class ProjectionColumnStore {
   private ColumnSlice @Nullable [] numericProofColumn(final int col, final ColumnSegmentFetcher fetcher,
       final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired) {
     final int count = directories.size();
-    if (proofIndexNumber < 0 || count > 1 << 20 || columnBytes[col] != null
+    if (indexNumber < 0 || count > 1 << 20 || columnBytes[col] != null
         || "false".equals(System.getProperty("sirix.projection.numericProofs"))) {
       return null;
     }
@@ -3328,7 +3349,7 @@ public final class ProjectionColumnStore {
     for (int i = 0; i < chunks.length; i++) {
       slots[i] = ProjectionNumericProofs.slot(col, chunks[i]);
     }
-    final byte[][] bytes = fetcher.fetchNumericProofs(proofIndexNumber, col, slots);
+    final byte[][] bytes = fetcher.fetchNumericProofs(indexNumber, col, slots);
     if (bytes == null) {
       return null;
     }
@@ -4014,6 +4035,24 @@ public final class ProjectionColumnStore {
     return decoded;
   }
 
+  public long[][] recordKeysMasked(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+    if (keepWords != null && keepWords.length < (leafCount() + 63) >>> 6) {
+      throw new IllegalArgumentException("record-key keep mask must cover every leaf");
+    }
+    if (keepWords == null || recordKeySlices != null) {
+      return recordKeys(fetcher);
+    }
+    final long[][] keys = new long[leafCount()][];
+    final byte[][] segments = fetchSegmentChain(-1, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+        ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS, false, fetcher, keepWords);
+    for (int leaf = 0; leaf < keys.length; leaf++) {
+      keys[leaf] = (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L
+          ? NO_WORDS
+          : ProjectionIndexColumnSegmentCodec.decodeKeysSlice(directories.get(leaf).descriptor(), segments[leaf]);
+    }
+    return keys;
+  }
+
   /**
    * Fetch and verify one segment chain (ascending rowGroupId) for {@code col} — the BODY chain for
    * every sliceable column, and additionally the DICT chain for a string column's fill.
@@ -4065,14 +4104,17 @@ public final class ProjectionColumnStore {
     if (keepWords != null) {
       dropPrunedLeaves(n, keepWords, offsets, inlineBytes);
     }
-    if (SEGMENT_DIAG && segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
+    if (SEGMENT_DIAG && (segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY
+        || segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS)) {
       long requested = 0;
       for (int leaf = 0; leaf < n; leaf++) {
         if (offsets[leaf] != Constants.NULL_ID_LONG || inlineBytes != null && inlineBytes[leaf] != null) {
           requested++;
         }
       }
-      BODY_SEGMENTS_FETCHED.add(requested);
+      (segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY
+          ? BODY_SEGMENTS_FETCHED
+          : KEY_SEGMENTS_FETCHED).add(requested);
     }
     final byte[][] segments;
     try {
@@ -4282,6 +4324,7 @@ public final class ProjectionColumnStore {
 
   private static final boolean SEGMENT_DIAG = Boolean.getBoolean("sirix.projection.segmentDiag");
   private static final LongAdder BODY_SEGMENTS_FETCHED = new LongAdder();
+  private static final LongAdder KEY_SEGMENTS_FETCHED = new LongAdder();
 
   public static boolean segmentDiagEnabled() {
     return SEGMENT_DIAG;
@@ -4289,6 +4332,10 @@ public final class ProjectionColumnStore {
 
   public static long bodySegmentsFetched() {
     return BODY_SEGMENTS_FETCHED.sum();
+  }
+
+  public static long keySegmentsFetched() {
+    return KEY_SEGMENTS_FETCHED.sum();
   }
 
   private static final LongAdder WINDOWED_LEAF_ACCESSES = new LongAdder();
@@ -4729,7 +4776,7 @@ public final class ProjectionColumnStore {
     public long[] recordKeys(final int leaf) {
       long[][] k = keys;
       if (k == null) {
-        k = ProjectionColumnStore.this.recordKeys(fetcher);
+        k = ProjectionColumnStore.this.recordKeysMasked(fetcher, keepWords);
         keys = k;
       }
       return k[leaf];

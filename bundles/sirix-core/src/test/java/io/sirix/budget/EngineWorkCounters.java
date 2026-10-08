@@ -65,6 +65,22 @@ public final class EngineWorkCounters {
   public static final WorkCounter PROJECTION_KEY_SET_ADVANCES = WorkCounter.alwaysOn("projection.keySetAdvances",
       "one sorted source key advanced during row-mask construction", ProjectionRecordKeySet::keySetAdvances);
 
+  public static final WorkCounter PROJECTION_LOOKUP_DESCRIPTORS = WorkCounter.gated("projection.lookupDescriptors",
+      "one descriptor read by persisted row-mask lookup", ProjectionRecordKeySet::lookupDescriptorsRead,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_LOOKUP_KEYS = WorkCounter.gated("projection.lookupKeys",
+      "one KEYS segment read by persisted row-mask lookup", ProjectionRecordKeySet::lookupKeySegmentsRead,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_DENSE_ROWS = WorkCounter.gated("projection.denseRows",
+      "one row visited by dense row-mask construction", ProjectionRecordKeySet::denseRowsVisited,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_KEY_SEGMENTS = WorkCounter.gated("projection.keySegments",
+      "one projection KEYS segment requested", ProjectionColumnStore::keySegmentsFetched,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
   public static final WorkCounter PROJECTION_LEAVES_PRUNED = WorkCounter.alwaysOn("projection.leavesPruned",
       "one projection leaf dropped by a scan's keep mask before its segments were fetched",
       ProjectionColumnScan::leavesPrunedCount);

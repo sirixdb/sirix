@@ -12,7 +12,6 @@ import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrays;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.openhft.hashing.LongTupleHashFunction;
 import org.jspecify.annotations.Nullable;
 
@@ -2301,30 +2300,16 @@ public final class ProjectionColumnScan {
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
     if (p.isRecordKeySet()) {
-      final long[][] keys = store.recordKeys(fetcher);
       final long[] sortedKeys = p.sortedKeys;
-      final Long2ObjectOpenHashMap<long[]> masks = p.keyMasks == null
-          ? ProjectionRecordKeySet.map(sortedKeys, keys)
+      final ProjectionRecordKeySet.Masks masks = p.keyMasks == null
+          ? store.recordKeyMasks(sortedKeys, fetcher)
           : p.keyMasks;
       int dropped = 0;
       for (int i = 0; i < n; i++) {
         if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
           continue;
         }
-        boolean matched = false;
-        if (keys[i].length > 0) {
-          final long[] mask = masks.get(keys[i][0]);
-          if (mask == null || mask.length != (keys[i].length + 63) >>> 6) {
-            throw new IllegalStateException("record-key mask does not match projection leaf");
-          }
-          for (final long word : mask) {
-            if (word != 0L) {
-              matched = true;
-              break;
-            }
-          }
-        }
-        if (!matched) {
+        if (!masks.physicalSlots().contains(store.physicalSlot(i))) {
           keep[i >>> 6] &= ~(1L << (i & 63));
           dropped++;
         }
@@ -2544,8 +2529,12 @@ public final class ProjectionColumnScan {
       // The index-routed row source: `values` is the leaf's record-key lane (every row present), and
       // a row passes iff its key is in the set. Nothing else about the leaf is consulted.
       if (p.keyMasks != null && rowCount > 0) {
-        final long[] membership = p.keyMasks.get(values[0]);
-        if (membership == null || membership.length != stride) {
+        final long[] membership = p.keyMasks.byFirstKey().get(values[0]);
+        if (membership == null) {
+          Arrays.fill(mask, 0, stride, 0L);
+          return;
+        }
+        if (membership.length != stride) {
           throw new IllegalStateException("record-key mask does not cover the projection leaf");
         }
         for (int w = 0; w < stride; w++) {

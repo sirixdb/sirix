@@ -181,7 +181,7 @@ maintains, so a budget quotes the same numbers an investigation would:
   the test wherever its gate is off.
 - `EngineWorkCounters.PROJECTION_LEAVES_PRUNED`: projection leaves a scan dropped from its keep mask
   before any column segment was fetched — descriptor zones, string fingerprints and the index-routed
-  row source's record-key ranges (`ProjectionColumnScan.leavesPrunedCount`, always on). A route may
+  row source's exact leaf membership (`ProjectionColumnScan.leavesPrunedCount`, always on). A route may
   price its mask more than once; the budget states the passes it counts.
 - `EngineWorkCounters.REPLAY`: cursor/storage record visits (nested delegations count), path-summary cursor
   steps including writer reinitialization, created document identities, detached staged document records,
@@ -324,3 +324,12 @@ regressed, not that the bound is wrong.
 `RecordKeySetPredicateTest.denseSourceMapsOnceAcrossAThousandLeaves` bounds sorted-key advances
 for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY segment requests
 as well as pruning, with zero column fills for an empty source.
+Its sparse cold/warm cases select one row from at least 32 leaves on all four versioning types,
+bound persisted lookup descriptors and KEYS segments to one, and require zero dense row visits.
+`PROJECTION_LOOKUP_DESCRIPTORS`, `PROJECTION_LOOKUP_KEYS`, `PROJECTION_KEY_SEGMENTS` and
+`PROJECTION_DENSE_ROWS` use the test fork's `sirix.projection.segmentDiag` gate. The first two
+count the persisted lookup's existing locality figures; the third counts kept-leaf KEYS requests;
+the fourth counts actual rows visited by the dense mapper. Dense and persisted mappings are
+compared after a reordered insertion, including physical-slot membership and every row bit.
+Mutation evidence: forcing the full-chain mapper failed all four sparse cases with 33 KEYS
+requests and 32,001 dense row visits, against one request and zero visits on the locator route.

@@ -17,6 +17,8 @@ All notable changes to SirixDB are documented in this file.
   selector and scalar grouping semantics are enforced before serving; masks are built once and
   every key and operand fetch honors exact leaf-mask pruning, including order exceptions.
   Constant-key field counts use present values; dependent correlated outer lets stay generic.
+  Dynamic field selectors stay generic. Sparse masks use persisted record lookup; selections of
+  at least 25% of projected rows use a linear dense mapper, and sparse KEYS views fetch kept leaves only.
   The SH1 kit declares a projection per
   business resource at E0. See `docs/INDEX_ROUTED_ROW_SOURCE.md`.
 

@@ -1020,6 +1020,20 @@ public final class ProjectionIndexCatalog {
       final int revision) {
     return new ProjectionColumnStore.ColumnSegmentFetcher() {
       @Override
+      public ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final StorageEngineReader reader = fetchRtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, indexNumber));
+          if (metadata == null || metadata.isStale()) {
+            throw new IllegalStateException("projection record lookup requires live metadata");
+          }
+          return ProjectionRecordKeySet.map(sortedKeys,
+              new ProjectionPersistedRecordLookup(reader, indexNumber, metadata));
+        }
+      }
+
+      @Override
       public byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
         try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
           final StorageEngineReader reader = fetchRtx.getStorageEngineReader();

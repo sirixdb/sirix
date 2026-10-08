@@ -116,12 +116,20 @@ final class RecordKeySetPredicateTest {
       }
       directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets, new byte[ids.length][]));
     }
-    final ColumnSegmentFetcher fetcher = wanted -> {
-      final byte[][] out = new byte[wanted.length][];
-      for (int i = 0; i < wanted.length; i++) {
-        out[i] = segmentsByOffset.get(wanted[i]);
+    final ColumnSegmentFetcher fetcher = new ColumnSegmentFetcher() {
+      @Override
+      public byte[][] fetchAll(final long[] wanted) {
+        final byte[][] out = new byte[wanted.length][];
+        for (int i = 0; i < wanted.length; i++) {
+          out[i] = segmentsByOffset.get(wanted[i]);
+        }
+        return out;
       }
-      return out;
+
+      @Override
+      public ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
+        return ProjectionRecordKeySet.map(sortedKeys, keys);
+      }
     };
     return new Fixture(new ProjectionColumnStore(directories), rawLeaves, fetcher, keys, longs, present);
   }
@@ -270,14 +278,22 @@ final class RecordKeySetPredicateTest {
           }
           directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets, new byte[ids.length][]));
         }
-        final ColumnSegmentFetcher fetcher = wanted -> {
-          final byte[][] result = new byte[wanted.length][];
-          for (int i = 0; i < wanted.length; i++) {
-            assertFalse(excludedBodies.contains(wanted[i]), "a leaf without an exact match requested a BODY segment");
-            fetched.add(wanted[i]);
-            result[i] = segments.get(wanted[i]);
+        final ColumnSegmentFetcher fetcher = new ColumnSegmentFetcher() {
+          @Override
+          public byte[][] fetchAll(final long[] wanted) {
+            final byte[][] result = new byte[wanted.length][];
+            for (int i = 0; i < wanted.length; i++) {
+              assertFalse(excludedBodies.contains(wanted[i]), "a leaf without an exact match requested a BODY segment");
+              fetched.add(wanted[i]);
+              result[i] = segments.get(wanted[i]);
+            }
+            return result;
           }
-          return result;
+
+          @Override
+          public ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
+            return ProjectionRecordKeySet.map(sortedKeys, leafKeys);
+          }
         };
         final ProjectionColumnStore store = new ProjectionColumnStore(directories);
         final ColumnPredicate predicate = prepared
@@ -336,7 +352,7 @@ final class RecordKeySetPredicateTest {
               "a dense source advances its key set once, independent of the leaf count");
     long members = 0;
     for (final long[] leaf : leaves) {
-      for (final long word : mapped.result().keyMasks.get(leaf[0])) {
+      for (final long word : mapped.result().keyMasks.byFirstKey().get(leaf[0])) {
         members += Long.bitCount(word);
       }
     }

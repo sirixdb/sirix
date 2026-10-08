@@ -1,6 +1,8 @@
 package io.sirix.query;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -296,6 +298,36 @@ final class IndexRoutedGroupAggregateTest {
         assertEquals(scanServed + 1, SirixVectorizedExecutor.groupAggServedCount(),
             "public closed index scan is served");
       }
+      ctx.bind(new QNm("cost"), new Str("qty"));
+      final String dynamicSource = smallSource.replace("small-a", "dynamic");
+      final String dynamicProlog = "declare variable $cost external;\n" + smallProlog;
+      final String computed = "for $c in " + dynamicSource
+          + " let $grade := $c.grade, $v := $c.$cost * $c.qty group by $grade order by $grade"
+          + " return {'grade':$grade,'v':sum($v)}";
+      assertEquals("{\"grade\":7,\"v\":9}", run(generic, ctx, dynamicProlog + computed));
+      for (final String body : new String[] {computed, computed.replace("$v := $c.$cost * $c.qty", "$v := $c.$cost"),
+          computed.replace("$grade := $c.grade", "$grade := $c.$cost"), computed.replace("sum($v)", "sum($c.$cost)"),
+          computed.replace("sum($v)", "sum($c.$cost * $c.qty)")}) {
+        final String query = dynamicProlog + body;
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(generic, ctx, query), run(chain, ctx, query));
+        assertEquals(served, SirixVectorizedExecutor.groupAggServedCount(), "dynamic group selector declines");
+      }
+      final String pair = "for $a in " + dynamicSource + " for $b in " + dynamicSource.replace("dynamic", "small-b")
+          + " where $a.id eq $b.id";
+      final String groupedPair = pair + " let $grade := $a.grade, $v := $a.cost group by $grade order by $grade"
+          + " return {'grade':$grade,'v':sum($v)}";
+      final String rowsPair = pair + " order by $a.id return {'v':$a.cost}";
+      for (final String body : new String[] {groupedPair.replace("$a.id eq $b.id", "$a.$cost eq $b.id"),
+          groupedPair.replace("$v := $a.cost", "$v := $a.$cost"),
+          groupedPair.replace("$v := $a.cost", "$v := $a.$cost * $a.qty"),
+          rowsPair.replace("'v':$a.cost", "'v':$a.$cost"), rowsPair.replace("order by $a.id", "order by $a.$cost"),
+          rowsPair.replace("order by", "and $a.$cost ne $b.cost order by")}) {
+        final String query = dynamicProlog + body;
+        final long served = SirixVectorizedExecutor.joinGroupServedCount();
+        assertEquals(run(generic, ctx, query), run(chain, ctx, query));
+        assertEquals(served, SirixVectorizedExecutor.joinGroupServedCount(), "dynamic join selector declines");
+      }
       final String dependent = smallProlog + "for $e in jn:doc('" + DB + "','epochs')[] for $c in " + smallSource
           + " let $epoch := $e.epoch, $bucket := $epoch idiv 2, $grade := $c.grade, $cost := $c.cost"
           + " group by $epoch,$bucket,$grade let $n := count($cost) order by $epoch,$bucket,$grade"
@@ -515,7 +547,7 @@ final class IndexRoutedGroupAggregateTest {
         BitemporalProjections.declare(session, wtx, RES);
         wtx.commit();
       }
-      for (final String resource : new String[] {"small-a", "small-b"}) {
+      for (final String resource : new String[] {"small-a", "small-b", "dynamic"}) {
         database.createResource(ResourceConfiguration.newBuilder(resource)
                                                      .validTimePaths("vf", "vt")
                                                      .customCommitTimestamps(true)
@@ -525,16 +557,16 @@ final class IndexRoutedGroupAggregateTest {
                                                      .build());
         try (JsonResourceSession session = database.beginResourceSession(resource);
             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          final int cost = resource.equals("small-a")
-              ? 2
-              : 5;
+          final int cost = resource.equals("small-b")
+              ? 5
+              : 2;
           final String row = """
               {"id":1,"pid":0,"sid":0,"cost":%d,"qty":3,"grade":7,
                "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}
               """.formatted(cost).trim();
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("[" + row + "," + row.replace("\"id\":1", "\"id\":2") + "]"),
-              JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + row + (resource.equals("dynamic")
+              ? ""
+              : "," + row.replace("\"id\":1", "\"id\":2")) + "]"), JsonNodeTrx.Commit.NO);
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);

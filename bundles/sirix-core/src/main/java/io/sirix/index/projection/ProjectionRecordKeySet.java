@@ -5,8 +5,10 @@ package io.sirix.index.projection;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.IntToLongFunction;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /**
  * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the
@@ -16,6 +18,13 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 public final class ProjectionRecordKeySet {
 
   private static final LongAdder KEY_SET_ADVANCES = new LongAdder();
+  private static final boolean DIAG = Boolean.getBoolean("sirix.projection.segmentDiag");
+  private static final LongAdder LOOKUP_DESCRIPTORS = new LongAdder();
+  private static final LongAdder LOOKUP_KEY_SEGMENTS = new LongAdder();
+  private static final LongAdder DENSE_ROWS = new LongAdder();
+
+  public record Masks(Long2ObjectOpenHashMap<long[]> byFirstKey, LongOpenHashSet physicalSlots) {
+  }
 
   private ProjectionRecordKeySet() {}
 
@@ -23,15 +32,62 @@ public final class ProjectionRecordKeySet {
     return KEY_SET_ADVANCES.sum();
   }
 
-  static Long2ObjectOpenHashMap<long[]> map(final long[] sortedKeys, final long[][] leafKeys) {
+  public static long lookupDescriptorsRead() {
+    return LOOKUP_DESCRIPTORS.sum();
+  }
+
+  public static long lookupKeySegmentsRead() {
+    return LOOKUP_KEY_SEGMENTS.sum();
+  }
+
+  public static long denseRowsVisited() {
+    return DENSE_ROWS.sum();
+  }
+
+  static Masks map(final long[] sortedKeys, final ProjectionPersistedRecordLookup lookup) {
+    final Long2ObjectOpenHashMap<long[]> masks = new Long2ObjectOpenHashMap<>();
+    final LongOpenHashSet slots = new LongOpenHashSet();
+    for (final long key : sortedKeys) {
+      final long location = lookup.find(key);
+      if (location == ProjectionPersistedRecordLookup.ABSENT) {
+        continue;
+      }
+      final int slot = ProjectionPersistedRecordLookup.slot(location);
+      final long[] keys = lookup.keys(slot).view().recordKeys();
+      long[] mask = masks.get(keys[0]);
+      if (mask == null) {
+        mask = new long[(keys.length + 63) >>> 6];
+        masks.put(keys[0], mask);
+        slots.add(slot);
+      }
+      final int row = ProjectionPersistedRecordLookup.row(location);
+      mask[row >>> 6] |= 1L << (row & 63);
+    }
+    if (DIAG) {
+      LOOKUP_DESCRIPTORS.add(lookup.descriptorsRead());
+      LOOKUP_KEY_SEGMENTS.add(lookup.keySegmentsRead());
+    }
+    return new Masks(masks, slots);
+  }
+
+  static Masks map(final long[] sortedKeys, final long[][] leafKeys) {
+    return map(sortedKeys, leafKeys, leaf -> leaf + 1L);
+  }
+
+  static Masks map(final long[] sortedKeys, final long[][] leafKeys, final IntToLongFunction physicalSlot) {
     final Long2ObjectOpenHashMap<long[]> masks = new Long2ObjectOpenHashMap<>(leafKeys.length);
+    final LongOpenHashSet slots = new LongOpenHashSet();
     int cursor = 0;
     long previous = Long.MIN_VALUE;
-    for (final long[] keys : leafKeys) {
+    long visited = 0;
+    for (int leaf = 0; leaf < leafKeys.length; leaf++) {
+      final long[] keys = leafKeys[leaf];
+      visited += keys.length;
       if (keys.length == 0) {
         continue;
       }
       final long[] mask = new long[(keys.length + 63) >>> 6];
+      boolean matched = false;
       for (int row = 0; row < keys.length; row++) {
         final long key = keys[row];
         final boolean member;
@@ -46,14 +102,21 @@ public final class ProjectionRecordKeySet {
         }
         if (member) {
           mask[row >>> 6] |= 1L << (row & 63);
+          matched = true;
         }
       }
-      if (masks.put(keys[0], mask) != null) {
+      if (matched && masks.put(keys[0], mask) != null) {
         throw new IllegalArgumentException("projection leaves repeat a record key");
+      }
+      if (matched) {
+        slots.add(physicalSlot.applyAsLong(leaf));
       }
     }
     KEY_SET_ADVANCES.add(cursor);
-    return masks;
+    if (DIAG) {
+      DENSE_ROWS.add(visited);
+    }
+    return new Masks(masks, slots);
   }
 
   /**

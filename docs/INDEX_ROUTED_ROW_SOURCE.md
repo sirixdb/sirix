@@ -4,7 +4,8 @@ A secondary index can prove which rows a query reads; the projection (column) in
 rows' fields as columns. This mechanism joins the two: the index's answer becomes a **row mask** over
 the projection, and the projection kernels fold only the masked rows. No record object is
 materialised. BODY segments of leaves whose exact row-source mask is empty are never fetched;
-the KEYS chain supplies the mapping.
+sparse selections map through the persisted record locator and read KEYS only for lookup candidates
+and kept leaves.
 
 The first consumer is the bitemporal opener: a grouped FLWOR over
 `jn:open-bitemporal('db','res', T, P)` is served from the resource's projection at the revision
@@ -14,7 +15,7 @@ general: any sorted set of record keys is a row source.
 
 ## The predicate: `Op.KEY_IN` on the virtual KEYS column
 
-`ProjectionIndexScan.ColumnPredicate.recordKeysIn(long[] sortedKeys, long[][] leafKeys)` builds a predicate whose
+`ProjectionIndexScan.ColumnPredicate.recordKeysIn(sortedKeys, store, fetcher)` builds a predicate whose
 column is `ProjectionColumnStore.KEYS_COLUMN` (`-1`, the KEYS lane every projection carries) and
 whose literal is the strictly ascending key set. A row passes iff its record key is in the set.
 There is no presence to AND: every row carries a key. The predicate's `keySetHash` is part of its
@@ -30,10 +31,18 @@ Every mask evaluator honours it:
 | Residency and sliceability gates | the virtual column is priced as the KEYS chain, never as a stored column |
 | Page scan (`ProjectionIndexScan.evalColumn`) | refuses by name: the materialising reference path does not serve it |
 
-Row-source construction maps the keys to per-leaf row masks once, with one monotone cursor
-across the projection's ordered keys and binary searches for order exceptions. Slice and byte
-kernels share these immutable masks. Dense sources advance the key set at most once; a leaf
-never restarts a scan through all preceding source keys.
+Row-source construction uses `ProjectionPersistedRecordLookup.find` to resolve sparse keys to
+physical leaf slots and row positions through persisted normal fences and the sparse exception
+locator. Pruning uses those physical slots rather than assuming slot numbers are document-order
+leaf positions. A repeated sparse query never walks the full projection's rows.
+
+Selections containing at least **25% of the descriptor-reported row count** use the explicit dense
+path: one sequential KEYS-chain read and one monotone source-key cursor, with binary searches for
+order exceptions. This threshold avoids a point lookup and exact leaf probe for each key when a
+large selection would read most leaves anyway. The count requires no KEYS read. Dense sources
+advance the key set at most once; a leaf never restarts a scan through preceding source keys.
+Both paths produce the same masks, shared by sliced and byte kernels. The overload accepting
+already decoded `leafKeys` is the explicit in-memory dense mapper.
 
 ## Serving a grouped aggregate under a row mask
 

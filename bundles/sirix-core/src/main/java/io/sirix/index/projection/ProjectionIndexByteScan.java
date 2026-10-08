@@ -5749,9 +5749,13 @@ public final class ProjectionIndexByteScan {
       // long[rowCount] keys). Every row carries a key, so the caller skips the presence AND.
       final int keysOff = kindsOff + getIntLE(payload, 4);
       if (p.keyMasks != null && rowCount > 0) {
-        final long[] membership = p.keyMasks.get(getLongLE(payload, keysOff));
+        final long[] membership = p.keyMasks.byFirstKey().get(getLongLE(payload, keysOff));
         final int stride = (rowCount + 63) >>> 6;
-        if (membership == null || membership.length != stride) {
+        if (membership == null) {
+          Arrays.fill(s.colMask, 0, stride, 0L);
+          return;
+        }
+        if (membership.length != stride) {
           throw new IllegalStateException("record-key mask does not cover the projection leaf");
         }
         System.arraycopy(membership, 0, s.colMask, 0, stride);

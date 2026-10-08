@@ -3,7 +3,6 @@
  */
 package io.sirix.index.projection;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
 
@@ -134,7 +133,7 @@ public final class ProjectionIndexScan {
      * must never share a shape fingerprint.
      */
     public final long keySetHash;
-    public final @Nullable Long2ObjectOpenHashMap<long[]> keyMasks;
+    public final ProjectionRecordKeySet.@Nullable Masks keyMasks;
 
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
@@ -158,6 +157,13 @@ public final class ProjectionIndexScan {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
           sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys), ProjectionRecordKeySet.map(sortedKeys, leafKeys));
+    }
+
+    public static ColumnPredicate recordKeysIn(final long[] sortedKeys, final ProjectionColumnStore store,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+      ProjectionRecordKeySet.requireSorted(sortedKeys);
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
+          sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys), store.recordKeyMasks(sortedKeys, fetcher));
     }
 
     /** Whether this is the index-routed row source ({@link Op#KEY_IN}). */
@@ -240,7 +246,7 @@ public final class ProjectionIndexScan {
         final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
         final @Nullable SegmentCellVerdicts segmentCellVerdicts, final long @Nullable [] sortedKeys,
-        final long keySetHash, final @Nullable Long2ObjectOpenHashMap<long[]> keyMasks) {
+        final long keySetHash, final ProjectionRecordKeySet.@Nullable Masks keyMasks) {
       this.keyMasks = keyMasks;
       if ((op == Op.KEY_IN) != (sortedKeys != null)) {
         throw new IllegalArgumentException("KEY_IN carries a key set, and only KEY_IN does");

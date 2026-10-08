@@ -1280,6 +1280,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return segment;
   }
 
+  static byte @Nullable [] readVerifiedColumnSegment(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSlotLayout layout, final long rowGroupId, final byte[] descriptor, final int columnSegmentId,
+      final byte expectedKind) {
+    final int entry = RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId);
+    if (entry < 0) {
+      return null;
+    }
+    final byte[] segment = RowGroupDescriptor.isTailed(descriptor)
+        ? materializeCommitted(reader, indexNumber, layout, rowGroupId, descriptor).segment(columnSegmentId)
+        : readColumnSegmentSlot(reader, indexNumber, layout.segmentSlot(rowGroupId, columnSegmentId));
+    ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind, entry);
+    return segment;
+  }
+
   /**
    * Descriptor-only row count for the segment-slot layout: reads slotKind 0 alone, touching no
    * segment slots. {@code -1} when the descriptor is absent — the count/pruning path never pays for

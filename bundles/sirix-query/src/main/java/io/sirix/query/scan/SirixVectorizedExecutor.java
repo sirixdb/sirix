@@ -9407,7 +9407,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.ColumnPredicate[] preds = rowKeys == null
           ? new ProjectionIndexScan.ColumnPredicate[0]
           : new ProjectionIndexScan.ColumnPredicate[] {
-              ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys, store.recordKeys(fetcher))};
+              ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys, store, fetcher)};
       final long[] keep = preds.length == 0
           ? null
           : ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
@@ -9420,7 +9420,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       for (int i = 0; i < fields.length; i++) {
         slices[i] = store.columnMaskedView(cols[i], fetcher, keep);
       }
-      return new MaskedColumns(store, rowMasks, store.recordKeys(fetcher), slices, kinds, rows);
+      return new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
     } catch (final RuntimeException e) {
       failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
       return null;
@@ -15893,7 +15893,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // leaf pruning included. A tree is the complete WHERE when present, so the set joins it as
         // an AND over the root rather than riding beside it in a conjunction the tree arms ignore.
         final ProjectionIndexScan.ColumnPredicate rowSource = ProjectionIndexScan.ColumnPredicate.recordKeysIn(
-            routing.rowKeys(), handle.columnStoreOrNull().recordKeys(columnFetcher()));
+            routing.rowKeys(), handle.columnStoreOrNull(), columnFetcher());
         if (predTree != null) {
           predTree = andTreeWith(predTree, rowSource);
           if (predTree == null) {

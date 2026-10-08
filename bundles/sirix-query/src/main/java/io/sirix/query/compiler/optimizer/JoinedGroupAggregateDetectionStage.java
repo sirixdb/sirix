@@ -665,7 +665,11 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (base.getType() != XQ.VariableRef || !var.equals(base.getValue())) {
       return null;
     }
-    final Object name = expr.getChild(expr.getChildCount() - 1).getValue();
+    final AST selector = expr.getChild(expr.getChildCount() - 1);
+    if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
+      return null;
+    }
+    final Object name = selector.getValue();
     if (name instanceof QNm qnm) {
       return qnm.getLocalName();
     }
