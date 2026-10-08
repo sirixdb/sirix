@@ -234,6 +234,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (keyVars.isEmpty()) {
       return "group by: no key";
     }
+    if (keyVars.size() > Long.SIZE) {
+      return "group by: too many keys for the missing-value mask";
+    }
     final List<QNm> postVars = new ArrayList<>();
     final List<String> postFuncs = new ArrayList<>();
     final List<Integer> postSides = new ArrayList<>();

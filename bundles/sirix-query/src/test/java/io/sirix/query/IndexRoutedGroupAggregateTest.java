@@ -231,6 +231,42 @@ final class IndexRoutedGroupAggregateTest {
     assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
     assertEquals("{\"grade\":7,\"n\":7}", run(chain, ctx, scalarJoin.replace("count($grade)", "sum($grade)")));
     assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    for (final int width : new int[] {Long.SIZE, Long.SIZE + 1}) {
+      final StringBuilder bindings = new StringBuilder();
+      final StringBuilder keys = new StringBuilder();
+      final StringBuilder returned = new StringBuilder();
+      for (int key = 0; key < width; key++) {
+        if (key > 0) {
+          bindings.append(',');
+          keys.append(',');
+          returned.append(',');
+        }
+        bindings.append("$k")
+                .append(key)
+                .append(" := ")
+                .append(key == Long.SIZE
+                    ? "$s.region"
+                    : "$c.grade");
+        keys.append("$k").append(key);
+        returned.append('\'')
+                .append(key == 0
+                    ? "grade"
+                    : "k" + key)
+                .append("':$k")
+                .append(key);
+      }
+      final String wide = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + GAP_DB
+          + "','suppliers')[] where $c.qty eq $s.id let " + bindings + " group by " + keys
+          + " let $n := count($c) order by " + keys + " return {" + returned + ",'n':$n}";
+      final long beforeWide = SirixVectorizedExecutor.joinGroupServedCount();
+      final String expected = run(chain, ctx, wide.replace(smallSource, "(" + smallSource + ")"));
+      assertTrue(expected.startsWith("{\"grade\":7,"));
+      assertTrue(expected.endsWith("\"n\":2}"));
+      assertEquals(expected, run(chain, ctx, wide));
+      assertEquals(beforeWide + (width == Long.SIZE
+          ? 1
+          : 0), SirixVectorizedExecutor.joinGroupServedCount(), "joined key-mask width " + width);
+    }
     final String correction = "for $a in " + source().replace("$T", "xs:dateTime('" + txTimes.get(0) + "')")
         + " for $b in " + source().replace("$T", "xs:dateTime('" + txTimes.get(4) + "')")
         + " where $a.id eq $b.id and ($a.cost ne $b.cost or $a.qty ne $b.qty) order by $a.id"

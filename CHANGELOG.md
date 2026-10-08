@@ -19,6 +19,9 @@ All notable changes to SirixDB are documented in this file.
   Constant-key field counts use present values; dependent correlated outer lets stay generic.
   Dynamic field selectors stay generic. Sparse masks use persisted record lookup; selections of
   at least 25% of projected rows use a linear dense mapper, and sparse KEYS views fetch kept leaves only.
+  Masked requests skip whole-projection promotion and unmasked budget fallbacks; dense global-string
+  grouping preserves its mask. Computed residency includes every operand and derived buffer.
+  Joined grouping above 64 keys stays generic.
   The SH1 kit declares a projection per
   business resource at E0. See `docs/INDEX_ROUTED_ROW_SOURCE.md`.
 

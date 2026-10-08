@@ -326,6 +326,11 @@ for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY se
 as well as pruning, with zero column fills for an empty source.
 Its sparse cold/warm cases select one row from at least 32 leaves on all four versioning types,
 bound persisted lookup descriptors and KEYS segments to one, and require zero dense row visits.
+Four repeated requests also exclude whole-projection promotion. Correlated dense global-string
+grouping reads only the selected leaf's key and operand bodies; over-budget dictionary-distinct
+and windowed retries decline before whole-leaf fallback. Computed-lane cases prefill cost and
+group columns and require a single residency decision before fetching qty when either qty or
+the derived buffers exceed the remaining budget, with a fitting request as the positive control.
 `PROJECTION_LOOKUP_DESCRIPTORS`, `PROJECTION_LOOKUP_KEYS`, `PROJECTION_KEY_SEGMENTS` and
 `PROJECTION_DENSE_ROWS` use the test fork's `sirix.projection.segmentDiag` gate. The first two
 count the persisted lookup's existing locality figures; the third counts kept-leaf KEYS requests;

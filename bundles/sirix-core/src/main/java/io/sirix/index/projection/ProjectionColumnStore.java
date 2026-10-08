@@ -2823,7 +2823,14 @@ public final class ProjectionColumnStore {
    * @return {@code true} when the combined fill fits beside what the store already retains
    */
   public boolean columnsFitWithinBudget(final int[] columns, final int identityColumn) {
-    long needed = 0L;
+    return columnsFitWithinBudget(columns, identityColumn, 0L);
+  }
+
+  public boolean columnsFitWithinBudget(final int[] columns, final int identityColumn, final long additionalBytes) {
+    if (additionalBytes < 0L) {
+      throw new IllegalArgumentException("additionalBytes must be non-negative");
+    }
+    long needed = additionalBytes;
     final boolean[] counted = new boolean[columnKinds.length];
     final StringBuilder diag = Boolean.getBoolean("sirix.projDiag")
         ? new StringBuilder()

@@ -52,13 +52,17 @@ over the root of a predicate tree, and otherwise runs the ordinary group arms. U
 metadata routes that read no row mask (sorted top-K, scalar value summaries, any-K groups) are
 skipped, and the request claims the sliced arms even after the handle's payloads were promoted to
 whole-leaf scans: the row source prunes leaves there, and the derived lanes exist only as slices.
+Masked requests do not trigger whole-projection background promotion. Dense global-string grouping
+uses the same keep mask; dictionary-distinct requests that cannot fit resident slices and masked
+windowed retries that exceed the budget decline before entering a whole-leaf arm.
 
 **Computed lanes.** A pre-group `let $v := $r.a * $r.b` (any `+,-,*` program over the loop var's
 fields and integer literals, `ComputedProgram`'s encoding) is an aggregate operand `prog:<i>`. The
 executor resolves its operand columns (NUMERIC_LONG, integral, null-free), evaluates the program once
 per kept leaf into a query-local derived column (`ProjectionComputedColumn`; a row missing an operand
 is missing in the derived column, exactly the interpreter's empty arithmetic), and hands that column
-to the numeric and composite flat kernels in place of a stored one. String-key, packed-substring,
+to the numeric and composite flat kernels in place of a stored one. The combined residency decision
+prices every distinct operand and the derived value and presence buffers. String-key, packed-substring,
 windowed and legacy multi-key arms decline computed lanes that they cannot consume. Exact arithmetic or decline: an overflow is an
 `ArithmeticException`, which routes the query to the generic pipeline's decimal promotion.
 
@@ -125,7 +129,8 @@ are read under their row masks (`MaskedColumns`), the smaller side is hashed on 
 the other probes; every matched pair folds into a group keyed on fields of either side (string keys
 are interned once per leaf dictionary into one id space shared by both sides) with
 `count` (pairs, or present values of a field), `sum`, `min` and `max` over fields or `+,-,*` programs
-of one side. Grouped output requires an order-by naming every key and aggregates over one side. Q4 emits
+of one side. Grouped output supports at most 64 keys and requires an order-by naming every key
+and aggregates over one side. Wider groupings retain the generic pipeline. Q4 emits
 ordered row records and evaluates its equality/inequality residual over the paired long columns.
 Only empty array selectors (`E[]`) admit document iteration. Unsupported selectors, operands,
 residuals or arithmetic overflow retain the generic `TableJoin` pipeline.
