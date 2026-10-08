@@ -19,8 +19,9 @@ import java.util.Set;
 
 /**
  * The projection (column) index each SH1 business resource declares at E0, beside its valid-time
- * index: every payload field as a {@code long} column and the two valid-time bounds as string
- * columns (the kit writes fixed-width UTC instants, which sort as time). The index is maintained
+ * index: every payload field (the integer codes {@code category} and {@code region} included) as a
+ * {@code long} column and the two valid-time bounds as string columns (the kit writes fixed-width
+ * UTC instants, which sort as time). The index is maintained
  * incrementally by every later publication's commit, and a reader at revision {@code r} sees it as
  * of {@code r}, so a query at any publication reads its columns.
  *
@@ -53,10 +54,14 @@ public final class BitemporalProjections {
     };
   }
 
-  /** The declared column type of {@code field}: {@code long} for every number, {@code string} otherwise. */
+  /**
+   * The declared column type of {@code field}: the two valid-time bounds are strings (the kit writes
+   * fixed-width UTC instants, which sort as time); every payload field, {@code category} and
+   * {@code region} included, is an integer code in the SH1 stream and a {@code long} column.
+   */
   public static Type type(final String field) {
     return switch (field) {
-      case "category", "region", "vf", "vt" -> Type.STR;
+      case "vf", "vt" -> Type.STR;
       default -> Type.LON;
     };
   }

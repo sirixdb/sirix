@@ -9348,19 +9348,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * covering projection, a field that is neither an integral null-free NUMERIC_LONG nor a
    * per-leaf-dictionary string column, or a fill the residency budget refuses.
    */
+  private static @Nullable MaskedColumns maskedColumnsDecline(final String why) {
+    if (PROJ_DIAG) {
+      System.err.println("[maskedColumns] decline: " + why);
+    }
+    return null;
+  }
+
   public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
       final String[] fields) {
     try {
       if (!sourcePathIsPresent(sourcePath) || projectionRegistryKey == null || !anyProjectionAvailable()) {
-        return null;
+        return maskedColumnsDecline("no projection for the source path");
       }
       final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, fields);
       if (handle == null) {
-        return null;
+        return maskedColumnsDecline("no projection covers " + Arrays.toString(fields));
       }
       final ProjectionColumnStore store = handle.columnStoreOrNull();
       if (store == null) {
-        return null;
+        return maskedColumnsDecline("projection has no column store");
       }
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
@@ -9369,15 +9376,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       for (int i = 0; i < fields.length; i++) {
         final int col = handle.columnOf(fields[i]);
         if (col < 0 || !store.columnSliceable(col) || !handle.columnSparseClean(col, fetcher, materializer)) {
-          return null;
+          return maskedColumnsDecline("field " + fields[i] + " absent, unsliceable or null-bearing (col " + col + ")");
         }
         final byte kind = handle.columnKindOf(col);
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           if (!handle.numericColumnIsIntegral(col, fetcher)) {
-            return null;
+            return maskedColumnsDecline("field " + fields[i] + " is not integral");
           }
         } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
-          return null;
+          return maskedColumnsDecline("field " + fields[i] + " has kind " + kind);
         }
         cols[i] = col;
         kinds[i] = kind;
@@ -9385,7 +9392,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[] residency = Arrays.copyOf(cols, cols.length + 1);
       residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
       if (!store.columnsFitWithinBudget(residency, -1)) {
-        return null;
+        return maskedColumnsDecline("columns do not fit the residency budget");
       }
       final ProjectionIndexScan.ColumnPredicate[] preds = rowKeys == null
           ? new ProjectionIndexScan.ColumnPredicate[0]

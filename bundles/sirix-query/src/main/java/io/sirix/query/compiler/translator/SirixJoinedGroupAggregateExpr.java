@@ -147,10 +147,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     final MaskedColumns[] columns = new MaskedColumns[2];
+    final long started = DIAG
+        ? System.nanoTime()
+        : 0L;
     for (int side = 0; side < 2; side++) {
       columns[side] = columns(ctx, tuple, side);
       if (columns[side] == null) {
         return decline("side " + side + " has no masked columns");
+      }
+      if (DIAG) {
+        System.err.println("[join-serve] side " + side + " columns in " + (System.nanoTime() - started) / 1_000_000
+            + " ms, rows=" + columns[side].rows());
       }
       if (!columns[side].isLong(0)) {
         return decline("join field of side " + side + " is not a long column");
@@ -183,7 +190,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final int probe = 1 - build;
     columns[build].adopt(columns[probe]);
     try {
-      return join(columns[build], build, columns[probe], probe, stringKeys);
+      final Sequence served = join(columns[build], build, columns[probe], probe, stringKeys);
+      if (DIAG) {
+        System.err.println("[join-serve] joined and grouped in " + (System.nanoTime() - started) / 1_000_000 + " ms");
+      }
+      return served;
     } catch (final ArithmeticException overflow) {
       return decline("exact arithmetic overflow");
     }
@@ -301,6 +312,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long[] operands = new long[8];
     final long[] stack = new long[64];
     final Map<GroupKey, long[]> groups = new LinkedHashMap<>();
+    final GroupKey probeKey = new GroupKey(keyComponents); // the scratch key: hashed per pair, cloned on insert
     final int accWidth = 1 + 4 * aggCount;
     for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
       final long[] mask = probeColumns.rowMask(leaf);
@@ -348,15 +360,15 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
               }
             }
             keyComponents[keyCount] = missing;
-            final GroupKey key = new GroupKey(keyComponents.clone());
-            long[] acc = groups.get(key);
+            probeKey.rehash();
+            long[] acc = groups.get(probeKey);
             if (acc == null) {
               acc = new long[accWidth];
               for (int a = 0; a < aggCount; a++) {
                 acc[1 + 4 * a + 2] = Long.MAX_VALUE;
                 acc[1 + 4 * a + 3] = Long.MIN_VALUE;
               }
-              groups.put(key, acc);
+              groups.put(new GroupKey(keyComponents.clone()), acc);
             }
             acc[0]++;
             for (int a = 0; a < aggCount; a++) {
@@ -502,11 +514,16 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   /** A group's identity: the key components (long values or interned string ids) plus missing flags. */
   private static final class GroupKey {
     private final long[] components;
-    private final int hash;
+    private int hash;
 
     GroupKey(final long[] components) {
       this.components = components;
       this.hash = Arrays.hashCode(components);
+    }
+
+    /** Recompute the hash after the scratch components changed (the probe key only). */
+    void rehash() {
+      hash = Arrays.hashCode(components);
     }
 
     @Override
