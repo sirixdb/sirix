@@ -194,6 +194,9 @@ public final class BitemporalSirixLoadMain {
       }
       state.arrayNodeKey = wtx.getNodeKey();
       ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, BitemporalSchema.DATABASE);
+      // The projection the grouped queries read their columns from, built from the same E0 records
+      // and maintained by every later publication's commit.
+      BitemporalProjections.declare(session, wtx, state.name);
       if (!wtx.moveTo(state.arrayNodeKey) || !wtx.moveToFirstChild()) {
         throw new IllegalStateException("cannot traverse inserted " + state.name + " array");
       }

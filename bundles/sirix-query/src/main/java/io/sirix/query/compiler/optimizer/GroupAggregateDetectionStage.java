@@ -186,6 +186,20 @@ public final class GroupAggregateDetectionStage implements Stage {
    * post-group count let; anything else declines the pipeline.
    */
   public static final String GROUP_AGG_HAVING = "SIRIX_GROUP_AGG_HAVING";
+  /**
+   * COMPUTED pre-group lets ({@code let $v := $r.cost * $r.qty}) that an aggregate folds: three
+   * parallel per-program arrays — {@code String[][]} operand fields, {@code int[][]} postfix code
+   * and {@code long[][]} constants, in {@link ComputedProgram}'s encoding. An aggregate entry over
+   * such a let carries the field token {@code prog:<i>} (see {@link #COMPUTED_FIELD_PREFIX}); the
+   * executor evaluates the program once per kept leaf into a derived column its ordinary group
+   * kernels then sum, count, min or max. {@code count($v)} counts the rows on which every operand is
+   * present — the interpreter's empty arithmetic over a missing field. Absent when no let is computed.
+   */
+  public static final String GROUP_AGG_PROG_FIELDS = "SIRIX_GROUP_AGG_PROG_FIELDS";
+  public static final String GROUP_AGG_PROG_CODE = "SIRIX_GROUP_AGG_PROG_CODE";
+  public static final String GROUP_AGG_PROG_CONSTS = "SIRIX_GROUP_AGG_PROG_CONSTS";
+  /** Field-token prefix of a computed pre-group let, indexing the program annotations. */
+  public static final String COMPUTED_FIELD_PREFIX = "prog:";
 
   /**
    * A {@link PredicateNode} built HERE, over chain-qualified field names, for a {@code where} that
@@ -274,6 +288,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     final List<PreGroupLet> lets = new ArrayList<>();
     final String[] subField = new String[1];
+    // Computed pre-group lets, in field-token order (prog:0, prog:1, ...).
+    final List<ComputedLet> programs = new ArrayList<>();
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
     final List<Long> constLetVals = new ArrayList<>();
@@ -394,6 +410,17 @@ public final class GroupAggregateDetectionStage implements Stage {
               if (shifted != null) {
                 lets.add(PreGroupLet.deref(letVar, shifted.field(), shifted.offset()));
                 continue;
+              }
+              // A +,-,* program over the loop var's fields and integer literals: an aggregate over
+              // this let folds a derived column. It is NOT a key (the executor declines a prog: key).
+              if (bound.getType() == XQ.ArithmeticExpr) {
+                final List<String> programFields = new ArrayList<>(4);
+                final ComputedProgram.Program program = ComputedProgram.build(bound, loopVar, programFields);
+                if (program != null && !programFields.isEmpty()) {
+                  lets.add(PreGroupLet.deref(letVar, COMPUTED_FIELD_PREFIX + programs.size(), 0L));
+                  programs.add(new ComputedLet(programFields.toArray(new String[0]), program.code(), program.consts()));
+                  continue;
+                }
               }
               final String[] regex = regexReplaceCall(bound, loopVar, subField);
               if (regex != null) {
@@ -792,6 +819,9 @@ public final class GroupAggregateDetectionStage implements Stage {
       return "having: constant-only grouping with a HAVING filter"; // one group + HAVING: honoring it means maybe-empty
                                                                     // output — not this shape (v1)
     }
+    if (constMode && !programs.isEmpty()) {
+      return "let: computed pre-group let under constant-only grouping"; // the scalar route has no derived lane
+    }
     if (constMode) {
       pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       if (ownPredicate != null) {
@@ -806,6 +836,24 @@ public final class GroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     if (ownPredicate != null) {
       pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
+    }
+    if (!programs.isEmpty()) {
+      for (final String g : groupFields) {
+        if (g.startsWith(COMPUTED_FIELD_PREFIX)) {
+          return "group by: key bound to a computed let"; // a derived column is an operand, never an identity
+        }
+      }
+      final String[][] progFields = new String[programs.size()][];
+      final int[][] progCode = new int[programs.size()][];
+      final long[][] progConsts = new long[programs.size()][];
+      for (int i = 0; i < programs.size(); i++) {
+        progFields[i] = programs.get(i).fields();
+        progCode[i] = programs.get(i).code();
+        progConsts[i] = programs.get(i).consts();
+      }
+      pipeExpr.setProperty(GROUP_AGG_PROG_FIELDS, progFields);
+      pipeExpr.setProperty(GROUP_AGG_PROG_CODE, progCode);
+      pipeExpr.setProperty(GROUP_AGG_PROG_CONSTS, progConsts);
     }
     if (havingOpLit != null) {
       pipeExpr.setProperty(GROUP_AGG_HAVING, havingOpLit);
@@ -1105,6 +1153,10 @@ public final class GroupAggregateDetectionStage implements Stage {
   private record Agg(String func, String field, long offset) {
   }
 
+  /** A computed pre-group let's program over the loop var's fields. */
+  private record ComputedLet(String[] fields, int[] code, long[] consts) {
+  }
+
   /**
    * A pre-group let's shifted operand {@code $loop.field + k} / {@code k + $loop.field} /
    * {@code $loop.field - k}.
@@ -1398,6 +1450,16 @@ public final class GroupAggregateDetectionStage implements Stage {
     if ("count".equals(func)) {
       if (arg.getType() == XQ.VariableRef && loopVar.equals(arg.getValue())) {
         return new Agg(func, null, 0L);
+      }
+      // count($let) over a pre-group let bound to a field: fn:count of the field's values in the
+      // group — a row MISSING the field contributes nothing, so this is the lane's present count,
+      // not the row count. A shifted or computed let counts exactly as its raw operand does.
+      if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm countVar) {
+        final int li = indexOfLet(lets, countVar);
+        if (li >= 0 && !lets.get(li).transformed()) {
+          return new Agg(func, lets.get(li).field(), 0L);
+        }
+        return null;
       }
       // count(distinct-values($r.f)) — the grouped COUNT(DISTINCT). Emitted as its own token,
       // deliberately NOT in VALUE_FUNCS: a user function literally named `count-distinct` can

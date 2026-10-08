@@ -1,0 +1,272 @@
+package io.sirix.query;
+
+import io.brackit.query.Query;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.StorageType;
+import io.sirix.query.bench.bitemporal.BitemporalProjections;
+import io.sirix.query.bench.bitemporal.BitemporalSchema;
+import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.ValidTimeIndexes;
+import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Oracle-exact pinning of the INDEX-ROUTED grouped aggregates: a grouped FLWOR over
+ * {@code jn:open-bitemporal('db','res', T, P)} served from the resource's projection under the
+ * valid-time index's row mask must answer byte-for-byte what the generic pipeline answers, at every
+ * revision (old ones included — T between two commits resolves to the earlier publication), at the
+ * half-open valid-time boundaries ({@code vf} included, {@code vt} excluded), with missing fields,
+ * and under all four versioning types.
+ *
+ * <p>
+ * The reference is the same query with its source parenthesised: Brackit's walker cannot name a
+ * path for that shape and the routing stage does not see a function call, so it compiles the
+ * generic pipeline — the served counter proves which route each one took.
+ * </p>
+ */
+final class IndexRoutedGroupAggregateTest {
+
+  private static final String DB = "btest";
+  private static final String RES = BitemporalSchema.CONTRACTS;
+  private static final int ROWS = 2_600; // three projection leaves, so masks and leaf pruning span leaves
+  private static final Instant T0 = Instant.parse("2024-01-15T00:00:00Z");
+  private static final Instant T1 = Instant.parse("2024-04-01T00:00:00Z");
+  private static final Instant T2 = Instant.parse("2024-09-01T00:00:00Z");
+
+  @TempDir
+  Path directory;
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void routedGroupsMatchTheGenericPipelineAtEveryRevisionAndBoundary(final VersioningType versioning)
+      throws Exception {
+    build(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final List<String> txTimes = List.of("2024-01-15T00:00:00Z", "2024-02-01T00:00:00Z", "2024-04-01T00:00:00Z",
+          "2024-05-01T00:00:00Z", "2024-10-01T00:00:00Z");
+      final List<String> validTimes = List.of("2024-01-01T00:00:00Z", "2024-02-15T00:00:00Z", "2024-03-01T00:00:00Z",
+          "2024-05-31T23:59:59Z", "2024-06-01T00:00:00Z", "2024-12-31T00:00:00Z", "2025-01-01T00:00:00Z");
+      int checked = 0;
+      for (final String tx : txTimes) {
+        for (final String valid : validTimes) {
+          for (final String[] shape : shapes()) {
+            final String routed = prolog(tx, valid) + shape[1].replace("SRC", source());
+            final String reference = prolog(tx, valid) + shape[1].replace("SRC", "(" + source() + ")");
+            final long before = SirixVectorizedExecutor.groupAggServedCount();
+            final String expected = run(chain, ctx, reference);
+            assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+                "the parenthesised reference must take the generic pipeline: " + shape[0]);
+            final String actual = run(chain, ctx, routed);
+            assertEquals(expected, actual, shape[0] + " tx=" + tx + " valid=" + valid + " versioning=" + versioning);
+            assertEquals(before + 1, SirixVectorizedExecutor.groupAggServedCount(),
+                "the routed query must be served from the projection: " + shape[0] + " tx=" + tx + " valid=" + valid);
+            checked++;
+          }
+        }
+      }
+      assertTrue(checked >= txTimes.size() * validTimes.size() * shapes().size());
+    }
+  }
+
+  /** {@code {name, body}} pairs; {@code SRC} is the loop source. */
+  private static List<String[]> shapes() {
+    return List.of(new String[] {"q7: single key, count of a let, computed sum", """
+        for $c in SRC
+        let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty
+        group by $grade
+        let $n := count($qty), $qty_sum := sum($qty), $exposure := sum($value)
+        order by $grade
+        return {"grade":$grade,"n":$n,"qty_sum":$qty_sum,"exposure":$exposure}
+        """}, new String[] {"q8: two keys, count/min/max", """
+        for $c in SRC
+        let $sid := $c.sid, $grade := $c.grade, $cost := $c.cost
+        group by $sid,$grade
+        let $n := count($cost), $min_cost := min($cost), $max_cost := max($cost)
+        order by $sid,$grade
+        return {"sid":$sid,"grade":$grade,"n":$n,"min_cost":$min_cost,"max_cost":$max_cost}
+        """}, new String[] {"row count, avg and a where predicate", """
+        for $c in SRC
+        where $c.grade ge 2
+        let $grade := $c.grade
+        group by $grade
+        let $n := count($c), $avg_cost := avg($c.cost), $qty := sum($c.qty)
+        order by $grade
+        return {"grade":$grade,"n":$n,"avg_cost":$avg_cost,"qty":$qty}
+        """}, new String[] {"computed sum with a literal, no order by", """
+        for $c in SRC
+        let $sid := $c.sid, $margin := $c.cost * 3 - $c.qty
+        group by $sid
+        return {"sid":$sid,"n":count($c),"margin":sum($margin),"low":min($margin)}
+        """});
+  }
+
+  private static String prolog(final String tx, final String valid) {
+    return "declare variable $T := xs:dateTime('" + tx + "');\ndeclare variable $P := xs:dateTime('" + valid
+        + "');\n";
+  }
+
+  private static String source() {
+    return "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)";
+  }
+
+  private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
+      throws Exception {
+    try (final ByteArrayOutputStream out = new ByteArrayOutputStream(); final PrintWriter pw = new PrintWriter(out)) {
+      new Query(chain, query).serialize(ctx, pw);
+      pw.flush();
+      return out.toString().trim();
+    }
+  }
+
+  /**
+   * Three publications: E0 declares the indexes over 2,600 segments (some without {@code qty}, some
+   * with shifted bounds), E1 edits costs and bounds and appends new segments, E2 removes segments and
+   * edits grades.
+   */
+  private void build(final VersioningType versioning) {
+    final Path databasePath = directory.resolve(DB);
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RES)
+                                                   .validTimePaths("vf", "vt")
+                                                   .customCommitTimestamps(true)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows()), JsonNodeTrx.Commit.NO);
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
+        BitemporalProjections.declare(session, wtx, RES);
+        wtx.commit("E0", T0);
+      }
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        final long array = wtx.getNodeKey();
+        // Edit every 13th segment's cost and every 17th segment's end, so E1 differs from E0 on the
+        // rows the mask selects AND on the mask itself.
+        wtx.moveToFirstChild();
+        int i = 0;
+        do {
+          final long object = wtx.getNodeKey();
+          if (i % 13 == 0) {
+            setNumber(wtx, object, "cost", 100 + i);
+          }
+          if (i % 17 == 0) {
+            setString(wtx, object, "vt", "2024-06-01T00:00:00Z");
+          }
+          i++;
+        } while (wtx.moveTo(wtx.getNodeKey()) && wtx.moveToRightSibling());
+        wtx.moveTo(array);
+        final StringBuilder appended = new StringBuilder();
+        for (int k = 0; k < 60; k++) {
+          wtx.moveTo(array);
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(
+              row(ROWS + k, "2024-06-01T00:00:00Z", "2025-01-01T00:00:00Z", k % 9 != 0)), JsonNodeTrx.Commit.NO);
+          appended.append(k);
+        }
+        wtx.commit("E1", T1);
+      }
+      try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        int i = 0;
+        while (true) {
+          final long object = wtx.getNodeKey();
+          final boolean hasNext = wtx.moveToRightSibling();
+          final long next = hasNext
+              ? wtx.getNodeKey()
+              : -1L;
+          if (i % 19 == 0) {
+            wtx.moveTo(object);
+            wtx.remove();
+          } else if (i % 7 == 0) {
+            setNumber(wtx, object, "grade", (i / 7) % 4);
+          }
+          if (!hasNext) {
+            break;
+          }
+          wtx.moveTo(next);
+          i++;
+        }
+        wtx.commit("E2", T2);
+      }
+    }
+  }
+
+  private static void setNumber(final JsonNodeTrx wtx, final long object, final String field, final long value) {
+    moveToFieldValue(wtx, object, field);
+    wtx.setNumberValue(value);
+  }
+
+  private static void setString(final JsonNodeTrx wtx, final long object, final String field, final String value) {
+    moveToFieldValue(wtx, object, field);
+    wtx.setStringValue(value);
+  }
+
+  private static void moveToFieldValue(final JsonNodeTrx wtx, final long object, final String field) {
+    wtx.moveTo(object);
+    if (!wtx.moveToFirstChild()) {
+      throw new IllegalStateException("empty object " + object);
+    }
+    while (!field.equals(wtx.getName().getLocalName())) {
+      if (!wtx.moveToRightSibling()) {
+        throw new IllegalStateException("object " + object + " has no field " + field);
+      }
+    }
+    wtx.moveToFirstChild();
+  }
+
+  private static String rows() {
+    final StringBuilder json = new StringBuilder(ROWS * 110).append('[');
+    for (int i = 0; i < ROWS; i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      final String vf = i % 5 == 0
+          ? "2024-03-01T00:00:00Z"
+          : "2024-01-01T00:00:00Z";
+      final String vt = i % 11 == 0
+          ? "2024-06-01T00:00:00Z"
+          : "2025-01-01T00:00:00Z";
+      json.append(row(i, vf, vt, i % 97 != 0));
+    }
+    return json.append(']').toString();
+  }
+
+  private static String row(final int i, final String vf, final String vt, final boolean withQty) {
+    final StringBuilder json = new StringBuilder(110);
+    json.append("{\"id\":").append(i + 1).append(",\"pid\":").append(i % 50).append(",\"sid\":").append(i % 7)
+        .append(",\"cost\":").append(1_000 + (i * 37) % 900);
+    if (withQty) {
+      json.append(",\"qty\":").append(1 + i % 23);
+    }
+    json.append(",\"grade\":").append(i % 4).append(",\"vf\":\"").append(vf).append("\",\"vt\":\"").append(vt)
+        .append("\"}");
+    return json.toString();
+  }
+}

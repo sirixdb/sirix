@@ -360,8 +360,12 @@ final class StoreBoundExecutorCache implements AutoCloseable {
     }
     final String localName = name.getLocalName();
     // Only the single-document openers. jn:collection and the multi-revision openers span more
-    // than one resource or revision, which no single bound executor can serve.
-    if (!"doc".equals(localName) && !"open".equals(localName)) {
+    // than one resource or revision, which no single bound executor can serve. The bitemporal
+    // opener names one resource too: its revision is resolved per evaluation by the index-routed
+    // serving expression, which acquires the executor of THAT revision through the per-source
+    // resolver — binding the latest here only installs the provider it resolves through.
+    final boolean bitemporal = "open-bitemporal".equals(localName) && call.getChildCount() == 4;
+    if (!"doc".equals(localName) && !"open".equals(localName) && !bitemporal) {
       return null;
     }
     if (call.getChildCount() < 2) {
@@ -373,7 +377,7 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       // A computed database or resource name — nothing to bind to at compile time.
       return null;
     }
-    if (call.getChildCount() == 2) {
+    if (call.getChildCount() == 2 || bitemporal) {
       return new DocumentSource(database, resource, LATEST_REVISION);
     }
     final Integer revision = literalRevision(call.getChild(2));

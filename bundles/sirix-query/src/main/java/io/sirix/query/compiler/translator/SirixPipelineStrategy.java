@@ -16,10 +16,12 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.operator.Operator;
 import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
+import io.sirix.query.compiler.optimizer.IndexRoutedSourceStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
 import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.scan.SirixExecutorProvider;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 
 /**
  * Sirix-aware pipeline strategy that extends Brackit's sequential strategy with support for
@@ -140,6 +142,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
     if (Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
+        && !Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))
         && !(generic instanceof VectorizedGroupByExpr)
         && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider constExecutor) {
       final SourceRef constRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
@@ -179,7 +182,11 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // attached; the expr verifies the ACTUAL binding at evaluation time and falls back
     // to the generic pipeline when it is not this executor's resource/revision.
     final SourceRef sourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
-    if (!acceptsOrRuntimeCheckable(sirixExecutor, sourceRef)) {
+    // An index-routed source names its document itself and resolves its revision per evaluation,
+    // so the executor it needs is acquired at run time; the compile-time ref (unknown — Brackit's
+    // walker does not know the opener) is not consulted for it.
+    final SirixGroupAggregateExpr.RoutedSource routedSource = routedSource(node, compiler);
+    if (routedSource == null && !acceptsOrRuntimeCheckable(sirixExecutor, sourceRef)) {
       return generic;
     }
     final String[] sourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
@@ -257,13 +264,64 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         || constEntryNames.length != constEntryPos.length || constEntryValues.length != constEntryPos.length)) {
       return generic;
     }
+    final SirixVectorizedExecutor.ComputedLane[] computedLanes = computedLanes(node);
+    if (computedLanes == null && hasComputedAggregate(aggFields)) {
+      return generic; // a prog: operand without its program annotations is not ours
+    }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
         keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
         keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
-        sourceRef, generic);
+        sourceRef, generic, routedSource, computedLanes);
+  }
+
+  /**
+   * The index-routed source of {@code node}, with its two instant expressions compiled at the
+   * pipeline's entry scope, or {@code null} when the pipe is an ordinary document scan.
+   */
+  private static SirixGroupAggregateExpr.@org.jspecify.annotations.Nullable RoutedSource routedSource(final AST node,
+      final Compiler compiler) throws QueryException {
+    if (!Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))) {
+      return null;
+    }
+    final String database = (String) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_DATABASE);
+    final String resource = (String) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
+    final AST txTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
+    final AST validTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
+    if (database == null || resource == null || txTime == null || validTime == null
+        || !(compiler instanceof SirixTranslator translator)) {
+      return null;
+    }
+    return new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
+        translator.routedInstant(validTime));
+  }
+
+  private static boolean hasComputedAggregate(final String[] aggFields) {
+    for (final String field : aggFields) {
+      if (field != null && field.startsWith(GroupAggregateDetectionStage.COMPUTED_FIELD_PREFIX)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The computed pre-group programs the detection stage annotated, or {@code null} for none. */
+  private static SirixVectorizedExecutor.ComputedLane @org.jspecify.annotations.Nullable [] computedLanes(
+      final AST node) {
+    final String[][] fields = (String[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_FIELDS);
+    final int[][] code = (int[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_CODE);
+    final long[][] consts = (long[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_CONSTS);
+    if (fields == null || code == null || consts == null || code.length != fields.length
+        || consts.length != fields.length) {
+      return null;
+    }
+    final SirixVectorizedExecutor.ComputedLane[] lanes = new SirixVectorizedExecutor.ComputedLane[fields.length];
+    for (int i = 0; i < fields.length; i++) {
+      lanes[i] = new SirixVectorizedExecutor.ComputedLane(fields[i], code[i], consts[i]);
+    }
+    return lanes;
   }
 
   /**

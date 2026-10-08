@@ -885,7 +885,9 @@ public final class ProjectionColumnScan {
       resident &= store.columnFilled(sortColumns[kk]);
     }
     for (final ColumnPredicate p : predicates) {
-      resident &= store.columnFilled(p.column);
+      resident &= p.isRecordKeySet()
+          ? store.recordKeysFilled()
+          : store.columnFilled(p.column);
     }
     if (!resident) {
       ProjectionColumnStore.noteWindowedLeafAccess();
@@ -1897,6 +1899,11 @@ public final class ProjectionColumnScan {
       throw new IllegalArgumentException("predicates must not be null");
     }
     for (final ColumnPredicate p : predicates) {
+      if (p.isRecordKeySet()) {
+        // The index-routed row source reads the KEYS lane, which every projection carries; its
+        // literal is the sorted key set, validated at construction.
+        continue;
+      }
       if (!store.columnSliceable(p.column)) {
         throw new IllegalStateException("Predicate column " + p.column + " is not sliceable");
       }
@@ -2115,7 +2122,7 @@ public final class ProjectionColumnScan {
    * Whether {@link #pruneLeaves} would price {@code p} by string fingerprint (Op.EQ on STRING_DICT).
    */
   private static boolean bloomPrunable(final ProjectionColumnStore store, final ColumnPredicate p) {
-    return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
+    return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ && !p.isRecordKeySet()
         && store.columnKind(p.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
@@ -2282,6 +2289,28 @@ public final class ProjectionColumnScan {
   private static int pruneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
+    if (p.isRecordKeySet()) {
+      // The row source: a leaf none of whose record keys is in the set contributes no row, whatever
+      // the other predicates say. The exact per-leaf key range comes from the retained KEYS chain
+      // (the keys of a leaf need not ascend, so the descriptor's first/last pair is not a bound).
+      final long[] ranges = store.recordKeyRanges(fetcher);
+      final long[] sortedKeys = p.sortedKeys;
+      int dropped = 0;
+      for (int i = 0; i < n; i++) {
+        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+          continue;
+        }
+        if (!ProjectionRecordKeySet.anyIn(sortedKeys, ranges[2 * i], ranges[2 * i + 1])) {
+          keep[i >>> 6] &= ~(1L << (i & 63));
+          dropped++;
+        }
+      }
+      if (DIAG) {
+        System.err.println("[prune] record-key set of " + sortedKeys.length + " keys: dropped=" + dropped + " of " + n);
+      }
+      LEAVES_PRUNED.add(dropped);
+      return dropped;
+    }
     final byte kind = store.columnKind(p.column);
     // A segment-scoped EQ/NE arrives resolved to one literal cell per segment; its zone holds packed
     // cells, and zoneSkip compares the leaf's own segment's cell against them. Without this arm the
@@ -2487,6 +2516,12 @@ public final class ProjectionColumnScan {
   private static void evalNumeric(final long[] values, final int rowCount, final ColumnPredicate p,
       final long[] presence, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The index-routed row source: `values` is the leaf's record-key lane (every row present), and
+      // a row passes iff its key is in the set. Nothing else about the leaf is consulted.
+      ProjectionRecordKeySet.andMembership(values, rowCount, p.sortedKeys, mask);
+      return;
+    }
     if (p.globalIdVerdict != null) {
       // Pre-evaluated global verdict: one bit test per present row. Ids outside 1..count — the
       // missing-cell 0 included — never match, the leaf contract's missing ⇒ false.
@@ -2627,6 +2662,8 @@ public final class ProjectionColumnScan {
           // Routing defect — checkPredicates admits string ops onto STRING_DICT slices only.
           case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
             throw new IllegalStateException("string op in the numeric slice kernel: " + p.op);
+          // Handled before the compare loop; reaching the loop with it is a routing defect.
+          case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare loop");
         };
         if (match) {
           out |= 1L << bit;

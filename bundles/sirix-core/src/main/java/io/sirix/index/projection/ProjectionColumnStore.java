@@ -63,6 +63,13 @@ import java.util.stream.IntStream;
 public final class ProjectionColumnStore {
 
   /**
+   * The virtual column a {@link ProjectionIndexScan.Op#KEY_IN} predicate addresses: the record keys of
+   * every leaf (the KEYS lane), never a stored column. Its "slice" is built from the decoded keys —
+   * see {@link #recordKeyPredicateView} and {@link LeafColumnAccess#predicateSlice}.
+   */
+  public static final int KEYS_COLUMN = -1;
+
+  /**
    * Fetches segment pages' bytes by durable offset, one BATCH per column fill — so an implementation
    * bound to a session can open one read transaction per fill instead of one per segment. Result is
    * index-aligned with {@code offsets}; a null element = missing.
@@ -671,6 +678,14 @@ public final class ProjectionColumnStore {
 
   /** KEYS-chain twin of {@link #corruptColumns} — permanent decode corruption, memoized. */
   private volatile boolean keysCorrupt;
+
+  /**
+   * Lazily computed: the EXACT record-key range of every leaf ({@code [2*leaf]} = min,
+   * {@code [2*leaf+1]} = max, the empty sentinel pair for a rowless leaf). The leaf's keys are not
+   * guaranteed ascending (order exceptions), so the descriptor's first/last pair is not a bound and
+   * the range is taken from the decoded KEYS chain. See {@link #recordKeyRanges}.
+   */
+  private volatile long @Nullable [] recordKeyRanges;
 
   /**
    * Lazily computed per STRING_DICT column: the two smallest and two largest REFERENCED values of
@@ -3107,6 +3122,93 @@ public final class ProjectionColumnStore {
   private static final ColumnSlice PRUNED_SLICE =
       new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, NO_WORDS, null, null, null, null, null);
 
+  /** The shared rowless sentinel every evaluator skips, for query-local derived columns. */
+  static ColumnSlice prunedSlice() {
+    return PRUNED_SLICE;
+  }
+
+  /**
+   * Presence words of the virtual KEYS column: every row carries a key, so one shared all-ones array
+   * (sized for the largest leaf) serves every record-key slice. Read-only by contract.
+   */
+  private static final long[] ALL_PRESENT_WORDS = allPresentWords();
+
+  private static long[] allPresentWords() {
+    final long[] words = new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    Arrays.fill(words, -1L);
+    return words;
+  }
+
+  /**
+   * The virtual slice of the KEYS column on one leaf: the leaf's record keys in the long lane, every
+   * row present, and the EXACT key range as the zone so {@code zoneSkip} prunes a leaf no key of the
+   * set can be in. A rowless leaf is the pruned sentinel.
+   */
+  static ColumnSlice recordKeySlice(final long[] leafKeys) {
+    if (leafKeys.length == 0) {
+      return PRUNED_SLICE;
+    }
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (final long key : leafKeys) {
+      if (key < min) {
+        min = key;
+      }
+      if (key > max) {
+        max = key;
+      }
+    }
+    return new ColumnSlice(leafKeys.length, (byte) 0, min, max, ALL_PRESENT_WORDS, leafKeys, null, null, null, null);
+  }
+
+  /**
+   * The exact per-leaf record-key ranges, memoised: {@code [2*leaf]} = min, {@code [2*leaf+1]} = max,
+   * or the empty sentinel pair ({@code MAX_VALUE, MIN_VALUE}) for a rowless leaf. Built from the
+   * retained KEYS chain ({@link #recordKeys}), so the first call pays the key fill the sorted
+   * collections pay too; every later call reads the memo.
+   */
+  public long[] recordKeyRanges(final ColumnSegmentFetcher fetcher) {
+    long[] ranges = recordKeyRanges;
+    if (ranges != null) {
+      return ranges;
+    }
+    final long[][] keys = recordKeys(fetcher);
+    final long[] built = new long[2 * keys.length];
+    final long[] range = new long[2];
+    for (int leaf = 0; leaf < keys.length; leaf++) {
+      ProjectionRecordKeySet.keyRange(keys[leaf], range);
+      built[2 * leaf] = range[0];
+      built[2 * leaf + 1] = range[1];
+    }
+    synchronized (this) {
+      ranges = recordKeyRanges;
+      if (ranges != null) {
+        return ranges;
+      }
+      recordKeyRanges = built;
+    }
+    return built;
+  }
+
+  /**
+   * The predicate view of the virtual KEYS column: one record-key slice per kept leaf (the pruned
+   * sentinel for a leaf {@code keepWords} dropped, or for every leaf when {@code keepWords} is
+   * {@code null} and the leaf is rowless). Backed by the retained KEYS chain; the per-leaf slice
+   * objects are query-local and never cached.
+   */
+  public ColumnSlice[] recordKeyPredicateView(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
+    final long[][] keys = recordKeys(fetcher);
+    final ColumnSlice[] view = new ColumnSlice[keys.length];
+    for (int leaf = 0; leaf < keys.length; leaf++) {
+      final int word = leaf >>> 6;
+      final boolean kept = keepWords == null || (word < keepWords.length && (keepWords[word] & 1L << (leaf & 63)) != 0L);
+      view[leaf] = kept
+          ? recordKeySlice(keys[leaf])
+          : PRUNED_SLICE;
+    }
+    return view;
+  }
+
   /**
    * Like {@link #column(int, ColumnSegmentFetcher)} but fetching and decoding ONLY the leaves set in
    * {@code keepWords} (a bitset over leaf indices); dropped leaves yield a shared
@@ -3129,6 +3231,9 @@ public final class ProjectionColumnStore {
    */
   public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords) {
+    if (col == KEYS_COLUMN) {
+      return recordKeyPredicateView(fetcher, keepWords);
+    }
     if (keepWords == null) {
       return column(col, fetcher);
     }
@@ -4205,7 +4310,16 @@ public final class ProjectionColumnStore {
     boolean resident = true;
     long needed = 0L;
     final boolean[] counted = new boolean[columnKinds.length];
+    // The virtual KEYS column is the KEYS chain: a KEY_IN predicate in `columns` asks for the keys,
+    // not for a stored column.
+    boolean keysNeeded = needKeys;
+    int storedColumns = 0;
     for (final int col : columns) {
+      if (col == KEYS_COLUMN) {
+        keysNeeded = true;
+        continue;
+      }
+      storedColumns++;
       if (!columnSliceable(col)) {
         resident = false;
         break;
@@ -4216,19 +4330,31 @@ public final class ProjectionColumnStore {
       counted[col] = true;
       needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
     }
-    if (resident && needKeys && recordKeySlices == null) {
+    final int[] stored;
+    if (storedColumns == columns.length) {
+      stored = columns;
+    } else {
+      stored = new int[storedColumns];
+      int at = 0;
+      for (final int col : columns) {
+        if (col != KEYS_COLUMN) {
+          stored[at++] = col;
+        }
+      }
+    }
+    if (resident && keysNeeded && recordKeySlices == null) {
       needed += projectedRecordKeysFillBytes();
     }
-    if (resident && !fitsMakingRoom(needed, columns, needKeys)) {
+    if (resident && !fitsMakingRoom(needed, stored, keysNeeded)) {
       resident = false;
     }
     if (resident) {
       // Admitted as resident: pin every lane the access will fill, so a concurrent scope's close
       // cannot release one of them between this decision and the access's first read.
-      for (final int col : columns) {
+      for (final int col : stored) {
         pinResident(col);
       }
-      if (needKeys) {
+      if (keysNeeded) {
         pinResident(keysPinSlot());
       }
       return new ResidentLeafAccess(fetcher, keepWords);
@@ -4533,6 +4659,9 @@ public final class ProjectionColumnStore {
       if (keepWords != null && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L) {
         return PRUNED_SLICE;
       }
+      if (col == KEYS_COLUMN) {
+        return recordKeySlice(recordKeys(leaf));
+      }
       return slice(col, leaf);
     }
 
@@ -4574,6 +4703,12 @@ public final class ProjectionColumnStore {
 
     @Override
     public ColumnSlice predicateSlice(final int col, final int leaf) {
+      if (col == KEYS_COLUMN) {
+        if (keepWords != null && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) == 0L) {
+          return PRUNED_SLICE;
+        }
+        return recordKeySlice(recordKeys(leaf));
+      }
       if (keepWords == null) {
         return slice(col, leaf);
       }
@@ -4651,6 +4786,9 @@ public final class ProjectionColumnStore {
     public ColumnSlice predicateSlice(final int col, final int leaf) {
       if (leaf >= 0 && leaf < leafCount && pruned(leaf)) {
         return PRUNED_SLICE;
+      }
+      if (col == KEYS_COLUMN) {
+        return recordKeySlice(recordKeys(leaf));
       }
       return slice(col, leaf);
     }

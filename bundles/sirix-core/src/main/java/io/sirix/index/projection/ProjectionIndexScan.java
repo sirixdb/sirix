@@ -48,7 +48,10 @@ public final class ProjectionIndexScan {
    * predicates.
    */
   public static final class ColumnPredicate {
-    /** Index into the leaf's column layout. */
+    /**
+     * Index into the leaf's column layout, or {@link ProjectionColumnStore#KEYS_COLUMN} for a
+     * {@link Op#KEY_IN} predicate over the record keys.
+     */
     public final int column;
     public final Op op;
     public final long longLit;
@@ -118,9 +121,40 @@ public final class ProjectionIndexScan {
      */
     public final @Nullable SegmentCellVerdicts segmentCellVerdicts;
 
+    /**
+     * For {@link Op#KEY_IN}: the record keys the row source admits, strictly ascending; {@code null}
+     * for every other predicate. Shared read-only by every worker of a scan.
+     */
+    public final long @Nullable [] sortedKeys;
+
+    /**
+     * Content hash of {@link #sortedKeys} (0 for every other predicate) — the part of this predicate's
+     * identity a plan memo keyed by predicate shape must fold in: two scans over different key sets
+     * must never share a shape fingerprint.
+     */
+    public final long keySetHash;
+
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
         final byte[] stringLitBytes) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
+    }
+
+    /**
+     * The index-routed row source: a row passes iff its record key is in {@code sortedKeys}.
+     *
+     * @param sortedKeys the admitted record keys, strictly ascending and non-negative (an empty set
+     *        admits no row)
+     * @throws IllegalArgumentException when the set is not strictly ascending
+     */
+    public static ColumnPredicate recordKeysIn(final long[] sortedKeys) {
+      ProjectionRecordKeySet.requireSorted(sortedKeys);
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null,
+          null, sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys));
+    }
+
+    /** Whether this is the index-routed row source ({@link Op#KEY_IN}). */
+    public boolean isRecordKeySet() {
+      return op == Op.KEY_IN;
     }
 
     /**
@@ -181,8 +215,25 @@ public final class ProjectionIndexScan {
         final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
         final @Nullable SegmentCellVerdicts segmentCellVerdicts) {
+      this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount,
+          segmentLiteralCells, segmentCellVerdicts, null, 0L);
+    }
+
+    private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
+        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
+        final @Nullable SegmentCellVerdicts segmentCellVerdicts, final long @Nullable [] sortedKeys,
+        final long keySetHash) {
+      if ((op == Op.KEY_IN) != (sortedKeys != null)) {
+        throw new IllegalArgumentException("KEY_IN carries a key set, and only KEY_IN does");
+      }
+      if (op == Op.KEY_IN && column != ProjectionColumnStore.KEYS_COLUMN) {
+        throw new IllegalArgumentException("KEY_IN addresses the virtual KEYS column, not column " + column);
+      }
       this.segmentLiteralCells = segmentLiteralCells;
       this.segmentCellVerdicts = segmentCellVerdicts;
+      this.sortedKeys = sortedKeys;
+      this.keySetHash = keySetHash;
       this.column = column;
       this.op = op;
       this.longLit = longLit;
@@ -343,7 +394,16 @@ public final class ProjectionIndexScan {
      * fingerprints must never prune it: a leaf whose every URL CONTAINS "google" fingerprints none of
      * them as the whole string "google". Missing cells do NOT match.
      */
-    STR_CONTAINS
+    STR_CONTAINS,
+    /**
+     * Record-key membership {@code recordKey(row) ∈ sortedKeys} — the index-routed row source. The
+     * predicate's {@link ColumnPredicate#column} is the virtual KEYS column
+     * ({@link ProjectionColumnStore#KEYS_COLUMN}) and its literal is {@link ColumnPredicate#sortedKeys};
+     * no stored column is read for it. Every row carries a key, so there is no presence to AND. Its
+     * own op so that each exhaustive switch fails to compile rather than compare a key set as a
+     * number, and so that a kernel not taught this form throws by name.
+     */
+    KEY_IN
   }
 
   /**
@@ -521,6 +581,11 @@ public final class ProjectionIndexScan {
    */
   private static void evalColumn(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p, final int rowCount,
       final long[] out) {
+    if (p.op == Op.KEY_IN) {
+      // The page scan is the materialising reference path; the row source is served by the slice and
+      // byte kernels only. Refuse by name rather than index a column that does not exist.
+      throw new IllegalStateException("record-key membership (KEY_IN) is not served by the page scan");
+    }
     final byte kind = leaf.columnKind(p.column);
     switch (kind) {
       // A temporal predicate reaches here already mapped to numeric bounds (see the executor's
@@ -629,6 +694,7 @@ public final class ProjectionIndexScan {
       // under-count. String ops on a numeric column are a routing defect: throw.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op on a numeric column: " + op);
+      case KEY_IN -> throw new IllegalStateException("record-key membership (KEY_IN) is not served by the page scan");
     }
   }
 
@@ -798,6 +864,9 @@ public final class ProjectionIndexScan {
   }
 
   private static boolean pruneByZoneMap(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p) {
+    if (p.op == Op.KEY_IN) {
+      return false; // never served here; evalColumn refuses it by name
+    }
     final byte kind = leaf.columnKind(p.column);
     // Zone maps only help on numeric / dict-id columns. Booleans pass
     // through — pruning them would require leaf-global has-true/
@@ -825,6 +894,7 @@ public final class ProjectionIndexScan {
       // NEVER prune string ops: a dict column's zone map holds min/max dict IDS — meaningless
       // for value order or content, and a prune here silently drops matching rows.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
+      case KEY_IN -> false;
     };
   }
 }

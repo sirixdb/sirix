@@ -190,6 +190,15 @@ public class SirixTranslator extends TopDownTranslator {
     return table.bound().length;
   }
 
+  /**
+   * One of an index-routed source's instant expressions, compiled in the current (pipeline entry)
+   * scope: prolog and outer variables resolve, pipeline-bound ones do not exist yet — the admission
+   * stage guarantees the expression references none of the latter.
+   */
+  Expr routedInstant(final AST node) throws QueryException {
+    return anyExpr(node);
+  }
+
   Expr pipelineReturn(final AST node, final int initialBindings) {
     final Expr result = anyExpr(node);
     for (int count = table.bound().length - initialBindings; count > 0; count--) {

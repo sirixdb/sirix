@@ -129,6 +129,10 @@ public class SirixOptimizer extends TopDownOptimizer {
     // group-by-with-aggregates pipe shape Brackit's walker doesn't cover; consumed by
     // SirixPipelineStrategy. Runs AFTER Brackit's VectorizedGroupByDetection (parent
     // constructor) because it reuses its predicate/source-path annotations.
+    // 9a. Index-routed source admission: a loop over jn:open-bitemporal(...) becomes a projection
+    // scan over the resource's array members with a row mask from the valid-time index. Runs before
+    // 9b because it supplies the source-path annotation 9b requires.
+    getStages().add(new IndexRoutedSourceStage());
     getStages().add(new GroupAggregateDetectionStage());
     // 9c. Covered-row detection (P5b stage 7c): record-constructor returns over covered
     // fields, servable from projection segments alone. Same ordering rationale as 9b.

@@ -5744,6 +5744,12 @@ public final class ProjectionIndexByteScan {
   private static void evalPredicateLeafMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate p,
       final int rowCount, final ScanScratch s) {
     final int kindsOff = 24;
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The index-routed row source over the leaf's inline record keys (header, then kinds, then
+      // long[rowCount] keys). Every row carries a key, so the caller skips the presence AND.
+      evalRecordKeysInBytes(payload, kindsOff + getIntLE(payload, 4), rowCount, p.sortedKeys, s.colMask);
+      return;
+    }
     final byte kind = payload[kindsOff + p.column];
     switch (kind) {
       // A temporal predicate arrives already expressed in the column's own units: the executor maps
@@ -5822,7 +5828,7 @@ public final class ProjectionIndexByteScan {
         Arrays.fill(colMask, 0, stride, 0L);
         evalPredicateLeafMask(payload, p, rowCount, s);
         final long[] dst = stack[top++];
-        if (tailStart >= 0) {
+        if (tailStart >= 0 && !p.isRecordKeySet()) {
           final int presOff = presenceWordsOff(payload, tailStart, p.column);
           for (int i = 0; i < stride; i++) {
             dst[i] = colMask[i] & getLongLE(payload, presOff + i * 8);
@@ -5924,6 +5930,9 @@ public final class ProjectionIndexByteScan {
     // materialising variant). Zone maps fold in only PRESENT,
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
+      if (p.isRecordKeySet()) {
+        continue; // the payload header carries no key range; the row walk below is exact
+      }
       final byte kind = payload[kindsOff + p.column];
       if (!ProjectionIndexRowGroupPage.isNumericKind(kind) && !ProjectionIndexRowGroupPage.isTemporalKind(kind))
         continue;
@@ -5945,7 +5954,7 @@ public final class ProjectionIndexByteScan {
       // `stride` are never read.
       Arrays.fill(colMask, 0, stride, 0L);
       evalPredicateLeafMask(payload, p, rowCount, s);
-      if (tailStart >= 0) {
+      if (tailStart >= 0 && !p.isRecordKeySet()) {
         // Missing field ⇒ predicate is false — AND with the column's presence.
         final int presOff = presenceWordsOff(payload, tailStart, p.column);
         for (int i = 0; i < stride; i++) {
@@ -5981,6 +5990,11 @@ public final class ProjectionIndexByteScan {
 
   /** Package-private: the SINGLE zone-skip authority, shared with the column kernels. */
   static boolean zoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The virtual KEYS slice's zone is the leaf's exact key range: skip the leaf when no key of the
+      // set falls inside it.
+      return !ProjectionRecordKeySet.anyIn(p.sortedKeys, min, max);
+    }
     // A STRING predicate can never be zone-skipped, whatever its op. A string column's zone map
     // holds min/max DICTIONARY IDS — which say nothing about the values' order or content — while
     // the numeric arms below test p.longLit, which a string predicate does not set.
@@ -6032,6 +6046,8 @@ public final class ProjectionIndexByteScan {
       // NEVER skip on string ops: a STRING_DICT column's zone map holds min/max DICT IDS, which
       // say nothing about the values' order or content — pruning here drops matching leaves.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
+      // Decided above from the key set against the exact key range.
+      case KEY_IN -> throw new IllegalStateException("record-key set reached the numeric zone switch");
     };
   }
 
@@ -6087,6 +6103,38 @@ public final class ProjectionIndexByteScan {
     for (int k = 0; k < rowCount; k++) {
       final long id = getLongLE(payload, baseOff + k * 8);
       if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+        out[k >>> 6] |= 1L << (k & 63);
+      }
+    }
+  }
+
+  /**
+   * Row sweep for the index-routed row source over the leaf's INLINE record keys ({@code long[rowCount]}
+   * at {@code keysOff}): row {@code k} matches iff its key is in the sorted set. The same merge walk
+   * the slice kernel runs ({@link ProjectionRecordKeySet#andMembership}), over keys read straight
+   * from the payload into the caller's zeroed {@code out}.
+   */
+  private static void evalRecordKeysInBytes(final byte[] payload, final int keysOff, final int rowCount,
+      final long[] sortedKeys, final long[] out) {
+    final int setSize = sortedKeys.length;
+    if (setSize == 0) {
+      return;
+    }
+    int cursor = 0;
+    long previous = Long.MIN_VALUE;
+    for (int k = 0; k < rowCount; k++) {
+      final long key = getLongLE(payload, keysOff + k * 8);
+      final boolean member;
+      if (key >= previous) {
+        while (cursor < setSize && sortedKeys[cursor] < key) {
+          cursor++;
+        }
+        member = cursor < setSize && sortedKeys[cursor] == key;
+        previous = key;
+      } else {
+        member = Arrays.binarySearch(sortedKeys, 0, cursor, key) >= 0;
+      }
+      if (member) {
         out[k >>> 6] |= 1L << (k & 63);
       }
     }

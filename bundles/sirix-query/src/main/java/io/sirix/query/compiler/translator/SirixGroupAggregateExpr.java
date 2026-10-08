@@ -4,6 +4,7 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -22,9 +23,15 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
+import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
+import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import org.jspecify.annotations.Nullable;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -98,6 +105,25 @@ public final class SirixGroupAggregateExpr implements Expr {
    */
   private final SourceRef sourceRef;
   private final Expr genericFallback;
+  /**
+   * The index-routed source ({@code jn:open-bitemporal('db','res', T, P)}) this pipeline loops over,
+   * or {@code null} for an ordinary document scan. Per evaluation the two instants are evaluated,
+   * the revision is resolved from {@code T}, the valid rows' record keys come from the valid-time
+   * index, and the executor bound to that revision folds exactly those rows as a column mask.
+   */
+  private final @Nullable RoutedSource routedSource;
+  /** The computed pre-group programs the aggregate lanes named {@code prog:<i>} fold, or null. */
+  private final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes;
+  private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
+
+  /** The literal document and the two compiled instant expressions of an index-routed source. */
+  public record RoutedSource(String database, String resource, Expr txTime, Expr validTime) {
+    public RoutedSource {
+      if (database == null || resource == null || txTime == null || validTime == null) {
+        throw new IllegalArgumentException("a routed source names its document and both instants");
+      }
+    }
+  }
 
   public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
@@ -108,6 +134,24 @@ public final class SirixGroupAggregateExpr implements Expr {
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
       final SourceRef sourceRef, final Expr genericFallback) {
+    this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+        keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, decorPos, decorPrefix, decorSuffix,
+        constEntryPos, constEntryNames, constEntryValues, sourceRef, genericFallback, null, null);
+  }
+
+  public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
+      final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
+      final SourceRef sourceRef, final Expr genericFallback, final @Nullable RoutedSource routedSource,
+      final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes) {
+    this.routedSource = routedSource;
+    this.computedLanes = computedLanes;
     this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -158,28 +202,89 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
-    if (lease != null) {
-      try (lease) {
-        final SirixVectorizedExecutor executor = lease.executor();
-        if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
-          final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
-              predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc,
-              orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern,
-              keyRegexRepl, keyDivMod, keyStringify, having);
-          if (served != null) {
-            if (orderIndexes == null || served.ordered()) {
-              return postProcess(served.groups());
-            }
-            final Sequence sorted = sort(served.groups());
-            if (sorted != null) {
-              return postProcess(sorted);
-            }
-          }
-        }
+    final SirixVectorizedExecutor.ServedGroups served = routedSource != null
+        ? serveRouted(ctx, tuple)
+        : serveScan(ctx);
+    if (served != null) {
+      if (orderIndexes == null || served.ordered()) {
+        return postProcess(served.groups());
+      }
+      final Sequence sorted = sort(served.groups());
+      if (sorted != null) {
+        return postProcess(sorted);
       }
     }
     return genericFallback.evaluate(ctx, tuple);
+  }
+
+  /** The ordinary document scan: the executor the lease resolves for the compile-time source. */
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveScan(final QueryContext ctx) throws QueryException {
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
+    if (lease == null) {
+      return null;
+    }
+    try (lease) {
+      final SirixVectorizedExecutor executor = lease.executor();
+      if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
+        return executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
+            aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr,
+            keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having,
+            computedLanes == null
+                ? null
+                : new SirixVectorizedExecutor.GroupRouting(null, computedLanes));
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The index-routed source: the rows the opener would materialise, as a record-key mask over the
+   * projection at the revision current at the transaction-time instant. Any trouble on the way —
+   * an instant that is not a dateTime, a resource without valid-time configuration, an executor
+   * bound to another revision, an index that cannot serve the point — declines to the generic
+   * pipeline, which evaluates the very same opener and raises whatever it raises.
+   */
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple)
+      throws QueryException {
+    final RoutedSource routed = routedSource;
+    final Item txItem = routed.txTime().evaluateToItem(ctx, tuple);
+    final Item validItem = routed.validTime().evaluateToItem(ctx, tuple);
+    if (!(txItem instanceof DateTime txTime) || !(validItem instanceof DateTime validTime)) {
+      return null;
+    }
+    final long[] keys;
+    final int revision;
+    try {
+      final Instant txInstant = DATE_TIME_TO_INSTANT.convert(txTime);
+      final Instant validInstant = DATE_TIME_TO_INSTANT.convert(validTime);
+      if (!(ctx.getJsonItemStore().lookup(routed.database()) instanceof JsonDBCollection collection)) {
+        return null;
+      }
+      final JsonDBItem document = collection.getDocument(routed.resource(), txInstant);
+      if (document == null || document.getResourceSession().getResourceConfig().getValidTimeConfig() == null) {
+        return null;
+      }
+      // Half-open validity, exactly the public opener's: validFrom <= P < validTo.
+      keys = ValidTimeIntervalIndex.keys(document, validInstant, true);
+      revision = document.getTrx().getRevisionNumber();
+    } catch (final RuntimeException notServable) {
+      return null;
+    }
+    final SirixExecutorProvider.Lease lease =
+        executorProvider.acquire(ctx, SourceRef.document(routed.database(), routed.resource(), revision));
+    if (lease == null) {
+      return null;
+    }
+    try (lease) {
+      final SirixVectorizedExecutor executor = lease.executor();
+      if (executor.getRevision() != revision || !executor.canExecute(ctx)) {
+        return null;
+      }
+      return executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
+          aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+          keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having,
+          new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
+    }
   }
 
   /**
