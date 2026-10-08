@@ -4102,6 +4102,15 @@ public final class ProjectionColumnStore {
     if (keepWords != null) {
       dropPrunedLeaves(n, keepWords, offsets, inlineBytes);
     }
+    if (SEGMENT_DIAG && segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
+      long requested = 0;
+      for (int leaf = 0; leaf < n; leaf++) {
+        if (offsets[leaf] != Constants.NULL_ID_LONG || inlineBytes != null && inlineBytes[leaf] != null) {
+          requested++;
+        }
+      }
+      BODY_SEGMENTS_FETCHED.add(requested);
+    }
     final byte[][] segments;
     try {
       // A chain can be entirely INLINE — every leaf's bytes ride its descriptor and not one page is
@@ -4306,6 +4315,17 @@ public final class ProjectionColumnStore {
 
     /** Whether leaves are decoded per window instead of held resident. */
     boolean windowed();
+  }
+
+  private static final boolean SEGMENT_DIAG = Boolean.getBoolean("sirix.projection.segmentDiag");
+  private static final LongAdder BODY_SEGMENTS_FETCHED = new LongAdder();
+
+  public static boolean segmentDiagEnabled() {
+    return SEGMENT_DIAG;
+  }
+
+  public static long bodySegmentsFetched() {
+    return BODY_SEGMENTS_FETCHED.sum();
   }
 
   private static final LongAdder WINDOWED_LEAF_ACCESSES = new LongAdder();

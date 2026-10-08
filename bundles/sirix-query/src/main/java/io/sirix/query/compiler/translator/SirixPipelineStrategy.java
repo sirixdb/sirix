@@ -367,7 +367,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final String resource = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
     final AST txTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
     final AST validTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
-    if (inner == null || database == null || resource == null || txTime == null || validTime == null) {
+    if (inner == null || database == null || resource == null || validTime == null) {
       return null;
     }
     // The real record's entry names, in order.
@@ -411,8 +411,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       for (int k = 0; k < outerKeyAsts.length; k++) {
         outerKeyExprs[k] = translator.routedInstant(outerKeyAsts[k]);
       }
-      routed = new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
-          translator.routedInstant(validTime));
+      routed = routedSource(innerPipe, compiler);
     } finally {
       translator.unbindTo(initialBindings);
     }
@@ -427,6 +426,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final String[] resources = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_RESOURCES);
     final AST[] txTimes = (AST[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_TX_TIMES);
     final AST[] validTimes = (AST[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_VALID_TIMES);
+    final AST[] indexed = (AST[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_SOURCE_EXPRS);
     final int[] revisions = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_REVISIONS);
     final String[] joinFields = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.JOIN_FIELDS);
     final int[] keySides = (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.KEY_SIDES);
@@ -467,16 +467,24 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     final SirixJoinedGroupAggregateExpr.Side[] sides = new SirixJoinedGroupAggregateExpr.Side[2];
     for (int side = 0; side < 2; side++) {
-      final SirixGroupAggregateExpr.RoutedSource routed = txTimes[side] == null
+      final SirixGroupAggregateExpr.RoutedSource routed = validTimes[side] == null
           ? null
-          : new SirixGroupAggregateExpr.RoutedSource(databases[side], resources[side],
-              translator.routedInstant(txTimes[side]), translator.routedInstant(validTimes[side]));
+          : new SirixGroupAggregateExpr.RoutedSource(databases[side], resources[side], txTimes[side] == null
+              ? null
+              : translator.routedInstant(txTimes[side]), translator.routedInstant(validTimes[side]),
+              indexed[side] == null
+                  ? null
+                  : translator.routedInstant(indexed[side]));
       sides[side] = new SirixJoinedGroupAggregateExpr.Side(databases[side], resources[side], routed, revisions[side],
           joinFields[side]);
     }
     return new SirixJoinedGroupAggregateExpr(executor, sides, keySides, keyFields, aggFuncs, aggSides, aggFields,
         progSides, progFields, progCode, progConsts, entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast,
-        generic);
+        Boolean.TRUE.equals(node.getProperty(JoinedGroupAggregateDetectionStage.ROW_JOIN)),
+        (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_SIDES),
+        (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_FIELDS),
+        (boolean[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_NE),
+        (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_CODE), generic);
   }
 
   /** The {@code ObjectConstructor} of a pipe's return, or {@code null}. */
@@ -533,12 +541,17 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final String resource = (String) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
     final AST txTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
     final AST validTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
-    if (database == null || resource == null || txTime == null || validTime == null
+    final AST indexed = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_EXPR);
+    if (database == null || resource == null || txTime == null && indexed == null || validTime == null
         || !(compiler instanceof SirixTranslator translator)) {
       return null;
     }
-    return new SirixGroupAggregateExpr.RoutedSource(database, resource, translator.routedInstant(txTime),
-        translator.routedInstant(validTime));
+    return new SirixGroupAggregateExpr.RoutedSource(database, resource, txTime == null
+        ? null
+        : translator.routedInstant(txTime), translator.routedInstant(validTime),
+        indexed == null
+            ? null
+            : translator.routedInstant(indexed));
   }
 
   /** Whether the order-by specs name every group key (positions {@code 0..keyCount-1}). */

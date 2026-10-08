@@ -13,7 +13,7 @@ general: any sorted set of record keys is a row source.
 
 ## The predicate: `Op.KEY_IN` on the virtual KEYS column
 
-`ProjectionIndexScan.ColumnPredicate.recordKeysIn(long[] sortedKeys)` builds a predicate whose
+`ProjectionIndexScan.ColumnPredicate.recordKeysIn(long[] sortedKeys, long[][] leafKeys)` builds a predicate whose
 column is `ProjectionColumnStore.KEYS_COLUMN` (`-1`, the KEYS lane every projection carries) and
 whose literal is the strictly ascending key set. A row passes iff its record key is in the set.
 There is no presence to AND: every row carries a key. The predicate's `keySetHash` is part of its
@@ -29,9 +29,10 @@ Every mask evaluator honours it:
 | Residency and sliceability gates | the virtual column is priced as the KEYS chain, never as a stored column |
 | Page scan (`ProjectionIndexScan.evalColumn`) | refuses by name: the materialising reference path does not serve it |
 
-The membership walk (`ProjectionRecordKeySet.andMembership`) is a merge over the leaf's keys, which
-ascend except at **order exceptions** (rows stored out of key order), with a binary search for each
-key that breaks the run: `O(rows + |set|)` on the common path and exact for both.
+Row-source construction maps the keys to per-leaf row masks once, with one monotone cursor
+across the projection's ordered keys and binary searches for order exceptions. Slice and byte
+kernels share these immutable masks. Dense sources advance the key set at most once; a leaf
+never restarts a scan through all preceding source keys.
 
 ## Serving a grouped aggregate under a row mask
 
@@ -47,27 +48,36 @@ fields and integer literals, `ComputedProgram`'s encoding) is an aggregate opera
 executor resolves its operand columns (NUMERIC_LONG, integral, null-free), evaluates the program once
 per kept leaf into a query-local derived column (`ProjectionComputedColumn`; a row missing an operand
 is missing in the derived column, exactly the interpreter's empty arithmetic), and hands that column
-to the ordinary group kernels in place of a stored one. Exact arithmetic or decline: an overflow is an
+to the numeric and composite flat kernels in place of a stored one. String-key, packed-substring,
+windowed and legacy multi-key arms decline computed lanes that they cannot consume. Exact arithmetic or decline: an overflow is an
 `ArithmeticException`, which routes the query to the generic pipeline's decimal promotion.
 
 **`count($let)`.** `count` of a let bound to a field is `fn:count` of the field's values in the
-group — the lane's present count, not the row count — and is emitted from that lane. In-kernel
+group — the lane's present count, not the row count — and is emitted from that lane. A grouping
+variable is scalar after grouping; aggregates over it retain the generic pipeline. In-kernel
 ordering on such an entry declines; the wrapper's sort applies the order-by.
 
 ## Admission
 
 `IndexRoutedSourceStage` (before `GroupAggregateDetectionStage`) recognises a loop whose source is
-`jn:open-bitemporal` with literal database and resource names, sets the source path to the array
+`jn:open-bitemporal` and folded half-open slices with literal database and resource names, sets the source path to the array
 members (the path the projection is declared on) and records the two instant expressions.
 `GroupAggregateDetectionStage` then admits the pipeline exactly as it admits a document scan, plus
 computed lets and `count($let)`. `SirixPipelineStrategy` compiles the instants at the pipeline's
 entry scope (they may read prolog and outer variables, never a variable the pipeline binds before the
 loop) and builds `SirixGroupAggregateExpr` with the routed source.
 
+Plain half-open FLWOR slices fold before aggregate detection. Internal `open-bitemporal-slice`
+and `scan-valid-time-index` sources supply their exact key sequences, including endpoint and
+residual checks; unsafe coverage or an unavailable index declines. Both join sides and correlated
+inner groupings use the same source admission.
+
 Per evaluation the expression evaluates the instants, resolves the document at `T` (the revision
 current at that instant), takes the valid rows' record keys from the valid-time index
 (`ValidTimeIntervalIndex.keys`, half-open, exact — inexact candidates are verified), acquires the
-executor bound to that revision through the chain's per-source resolver, and serves. Anything on the
+executor bound to that resource and revision through the chain's per-source resolver, and serves.
+Lease acquisition enforces resource identity for every consumer. One leaf keep mask bounds every
+key and operand fill; an empty source fetches no columns. Anything on the
 way that cannot be served — an instant that is not a dateTime, a resource without valid-time
 configuration, a projection that does not cover the fields, an executor at another revision — falls
 back to the generic pipeline, which evaluates the very same opener.
@@ -96,15 +106,17 @@ source's `f` values are read under its own mask, the main rows' `g` values decid
 survive (a missing value matches nothing: it survives an anti-join and fails a semi-join), and the
 grouping runs over the reduced key set. The hash-membership pipeline stays the fallback.
 
-**Column-side equality join** (Q9; `JoinedGroupAggregateDetectionStage`,
+**Column-side equality join** (Q4, Q9; `JoinedGroupAggregateDetectionStage`,
 `SirixJoinedGroupAggregateExpr`): Brackit's `Join` node over two single-loop branches, each over a
 routed opener or a literal document, comparing one integral field of each side. Both sides' columns
 are read under their row masks (`MaskedColumns`), the smaller side is hashed on its join values,
 the other probes; every matched pair folds into a group keyed on fields of either side (string keys
 are interned once per leaf dictionary into one id space shared by both sides) with
 `count` (pairs, or present values of a field), `sum`, `min` and `max` over fields or `+,-,*` programs
-of one side. No post-join predicate, no aggregate over both sides, an order-by naming every key; an
-overflow declines to the generic `TableJoin` pipeline.
+of one side. Grouped output requires an order-by naming every key and aggregates over one side. Q4 emits
+ordered row records and evaluates its equality/inequality residual over the paired long columns.
+Only empty array selectors (`E[]`) admit document iteration. Unsupported selectors, operands,
+residuals or arithmetic overflow retain the generic `TableJoin` pipeline.
 
 ## Tests
 
@@ -118,4 +130,5 @@ overflow declines to the generic `TableJoin` pipeline.
   so groups merge); the joins (two openers, an opener and a document, duplicate hashed join values).
 - `IndexRoutedGroupWorkBudgetTest` (query, work budget): a routed grouping materialises no object
   (no cursor move on the opener's document) and prunes the leaves that hold no admitted key; the
-  generic reference over the same decorated cursor is the positive control.
+  generic reference over the same decorated cursor is the positive control. BODY segment requests
+  prove excluded leaves are not fetched, and an empty source fills no columns.

@@ -12,7 +12,6 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
-import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
@@ -64,10 +63,15 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private final int[][] progCode;
   private final long[][] progConsts;
   private final int[] entryKinds;
-  private final String[] entryNames;
   private final int[] orderIndexes;
   private final Ordering.OrderModifier[] orderModifiers;
   private final Expr genericFallback;
+  private final boolean rowOutput;
+  private final int[] residualSides;
+  private final int[] residualSlots;
+  private final boolean[] residualNe;
+  private final int[] residualCode;
+  private final QNm[] outputNames;
   /** Per side, the distinct fields read from it (join key first), and each key/agg's slot in them. */
   private final String[][] sideFields;
   private final int[] keySlots;
@@ -78,7 +82,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final int[] keySides, final String[] keyFields, final String[] aggFuncs, final int[] aggSides,
       final String[] aggFields, final int[] progSides, final String[][] progFields, final int[][] progCode,
       final long[][] progConsts, final int[] entryKinds, final String[] entryNames, final int[] orderIndexes,
-      final boolean[] orderAsc, final boolean[] orderEmptyLeast, final Expr genericFallback) {
+      final boolean[] orderAsc, final boolean[] orderEmptyLeast, final boolean rowOutput,
+      final int @Nullable [] residualSides, final String @Nullable [] residualFields,
+      final boolean @Nullable [] residualNe, final int @Nullable [] residualCode, final Expr genericFallback) {
     this.executorProvider = executorProvider;
     this.sides = sides;
     this.keySides = keySides;
@@ -91,13 +97,26 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     this.progCode = progCode;
     this.progConsts = progConsts;
     this.entryKinds = entryKinds;
-    this.entryNames = entryNames;
     this.orderIndexes = orderIndexes;
     this.orderModifiers = new Ordering.OrderModifier[orderIndexes.length];
     for (int i = 0; i < orderIndexes.length; i++) {
       orderModifiers[i] = new Ordering.OrderModifier(orderAsc[i], orderEmptyLeast[i], null);
     }
     this.genericFallback = genericFallback;
+    this.rowOutput = rowOutput;
+    this.residualSides = residualSides == null
+        ? new int[0]
+        : residualSides;
+    this.residualNe = residualNe == null
+        ? new boolean[0]
+        : residualNe;
+    this.residualCode = residualCode == null
+        ? new int[0]
+        : residualCode;
+    this.outputNames = new QNm[entryNames.length];
+    for (int i = 0; i < entryNames.length; i++) {
+      outputNames[i] = new QNm(entryNames[i]);
+    }
     // Field rosters per side.
     final List<List<String>> rosters = List.of(new ArrayList<>(), new ArrayList<>());
     rosters.get(0).add(sides[0].joinField());
@@ -118,6 +137,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       aggSlots[a] = aggFields[a] == null || aggFields[a].startsWith(COMPUTED_PREFIX)
           ? -1
           : slot(rosters.get(aggSides[a]), aggFields[a]);
+    }
+    this.residualSlots = new int[this.residualSides.length];
+    for (int i = 0; i < residualSlots.length; i++) {
+      residualSlots[i] = slot(rosters.get(this.residualSides[i]), residualFields[i]);
     }
     this.sideFields = new String[][] {rosters.get(0).toArray(new String[0]), rosters.get(1).toArray(new String[0])};
   }
@@ -148,17 +171,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     final MaskedColumns[] columns = new MaskedColumns[2];
-    final long started = DIAG
-        ? System.nanoTime()
-        : 0L;
     for (int side = 0; side < 2; side++) {
       columns[side] = columns(ctx, tuple, side);
       if (columns[side] == null) {
         return decline("side " + side + " has no masked columns");
-      }
-      if (DIAG) {
-        System.err.println("[join-serve] side " + side + " columns in " + (System.nanoTime() - started) / 1_000_000
-            + " ms, rows=" + columns[side].rows());
       }
       if (!columns[side].isLong(0)) {
         return decline("join field of side " + side + " is not a long column");
@@ -184,6 +200,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
       }
     }
+    for (int i = 0; i < residualSlots.length; i++) {
+      if (!columns[residualSides[i]].isLong(residualSlots[i])) {
+        return decline("residual operand is not a long column");
+      }
+    }
     // Hash the smaller side; string ids of both sides live in the build side's interner.
     final int build = columns[0].rows() <= columns[1].rows()
         ? 0
@@ -192,9 +213,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     columns[build].adopt(columns[probe]);
     try {
       final Sequence served = join(columns[build], build, columns[probe], probe, stringKeys);
-      if (DIAG) {
-        System.err.println("[join-serve] joined and grouped in " + (System.nanoTime() - started) / 1_000_000 + " ms");
-      }
       return served;
     } catch (final ArithmeticException overflow) {
       return decline("exact arithmetic overflow");
@@ -237,7 +255,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final int fieldCount;
     long[] values;
     boolean[] present;
-    long[] joinKeys;
+    long[] recordKeys;
     int count;
 
     BuildRows(final int fieldCount, final long rows) {
@@ -245,17 +263,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final int capacity = (int) Math.min(Integer.MAX_VALUE - 8, Math.max(16, rows));
       values = new long[capacity * fieldCount];
       present = new boolean[capacity * fieldCount];
-      joinKeys = new long[capacity];
+      recordKeys = new long[capacity];
     }
 
-    int add(final long joinKey) {
-      if (count == joinKeys.length) {
-        final int grown = joinKeys.length << 1;
+    int add(final long recordKey) {
+      if (count == recordKeys.length) {
+        final int grown = recordKeys.length << 1;
         values = Arrays.copyOf(values, grown * fieldCount);
         present = Arrays.copyOf(present, grown * fieldCount);
-        joinKeys = Arrays.copyOf(joinKeys, grown);
+        recordKeys = Arrays.copyOf(recordKeys, grown);
       }
-      joinKeys[count] = joinKey;
+      recordKeys[count] = recordKey;
       return count++;
     }
   }
@@ -264,7 +282,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final MaskedColumns probeColumns, final int probeSide, final boolean[] stringKeys) throws QueryException {
     final int buildFieldCount = sideFields[buildSide].length;
     final BuildRows buildRows = new BuildRows(buildFieldCount, buildColumns.rows());
-    final Long2IntOpenHashMap firstRow = new Long2IntOpenHashMap();
+    final Long2IntOpenHashMap firstRow =
+        new Long2IntOpenHashMap((int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()));
     firstRow.defaultReturnValue(-1);
     int[] nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
     // BUILD: every admitted row with a present join key, chained per key value.
@@ -284,7 +303,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue; // a missing join key matches nothing
           }
           final long joinKey = buildColumns.longValue(0, leaf, row);
-          final int at = buildRows.add(joinKey);
+          final int at = buildRows.add(buildColumns.recordKey(leaf, row));
           if (at == nextRow.length) {
             nextRow = Arrays.copyOf(nextRow, nextRow.length << 1);
           }
@@ -312,7 +331,22 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long[] keyComponents = new long[keyCount + 1]; // the last word packs the missing flags
     final long[] operands = new long[8];
     final long[] stack = new long[64];
-    final Map<GroupKey, long[]> groups = new LinkedHashMap<>();
+    final Map<GroupKey, long[]> groups = rowOutput
+        ? null
+        : new LinkedHashMap<>();
+    final Ordering.OrderModifier[] rowModifiers = rowOutput
+        ? Arrays.copyOf(orderModifiers, orderModifiers.length + 2)
+        : null;
+    final Ordering rowOrdering;
+    if (rowOutput) {
+      rowModifiers[orderModifiers.length] = new Ordering.OrderModifier(true, true, null);
+      rowModifiers[orderModifiers.length + 1] = new Ordering.OrderModifier(true, true, null);
+      rowOrdering = new Ordering(new Expr[0], rowModifiers);
+    } else {
+      rowOrdering = null;
+    }
+    final boolean[] residualStack = new boolean[Math.max(1, residualCode.length)];
+    int emittedRows = 0;
     final GroupKey probeKey = new GroupKey(keyComponents); // the scratch key: hashed per pair, cloned on insert
     final int accWidth = 1 + 4 * aggCount;
     for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
@@ -343,6 +377,36 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             }
           }
           for (; at >= 0; at = nextRow[at]) {
+            if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack)) {
+              continue;
+            }
+            if (rowOutput) {
+              final Sequence[] values = new Sequence[keyCount];
+              for (int k = 0; k < keyCount; k++) {
+                final boolean fromBuild = keySides[k] == buildSide;
+                final int cell = at * buildFieldCount + keySlots[k];
+                final boolean present = fromBuild
+                    ? buildRows.present[cell]
+                    : probePresent[keySlots[k]];
+                if (present) {
+                  final long value = fromBuild
+                      ? buildRows.values[cell]
+                      : probeValues[keySlots[k]];
+                  values[k] = stringKeys[k]
+                      ? new Str(buildColumns.string((int) value))
+                      : new Int64(value);
+                }
+              }
+              final Sequence[] orderKeys = new Sequence[orderIndexes.length + 2];
+              for (int k = 0; k < orderIndexes.length; k++) {
+                orderKeys[k] = values[orderIndexes[k]];
+              }
+              orderKeys[orderIndexes.length + buildSide] = new Int64(buildRows.recordKeys[at]);
+              orderKeys[orderIndexes.length + probeSide] = new Int64(probeColumns.recordKey(leaf, row));
+              rowOrdering.add(orderKeys, new TupleImpl(new ArrayObject(outputNames, values)));
+              emittedRows++;
+              continue;
+            }
             // The group key of this pair.
             long missing = 0L;
             for (int k = 0; k < keyCount; k++) {
@@ -426,7 +490,45 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     SirixVectorizedExecutor.noteJoinGroupServed();
-    return emit(groups, buildColumns, stringKeys);
+    return rowOutput
+        ? ordered(rowOrdering, emittedRows)
+        : emit(groups, buildColumns, stringKeys);
+  }
+
+  private boolean matchesResidual(final BuildRows build, final int row, final int buildSide, final long[] probeValues,
+      final boolean[] probePresent, final boolean[] stack) {
+    int top = 0;
+    for (final int instruction : residualCode) {
+      if (instruction < 0) {
+        final boolean right = stack[--top];
+        stack[top - 1] = instruction == -1
+            ? stack[top - 1] && right
+            : stack[top - 1] || right;
+      } else {
+        final int left = 2 * instruction;
+        final int right = left + 1;
+        final boolean leftBuild = residualSides[left] == buildSide;
+        final boolean rightBuild = residualSides[right] == buildSide;
+        final int leftSlot = residualSlots[left];
+        final int rightSlot = residualSlots[right];
+        final boolean leftPresent = leftBuild
+            ? build.present[row * build.fieldCount + leftSlot]
+            : probePresent[leftSlot];
+        final boolean rightPresent = rightBuild
+            ? build.present[row * build.fieldCount + rightSlot]
+            : probePresent[rightSlot];
+        final long a = leftBuild
+            ? build.values[row * build.fieldCount + leftSlot]
+            : probeValues[leftSlot];
+        final long b = rightBuild
+            ? build.values[row * build.fieldCount + rightSlot]
+            : probeValues[rightSlot];
+        stack[top++] = leftPresent && rightPresent && (residualNe[instruction]
+            ? a != b
+            : a == b);
+      }
+    }
+    return top == 0 || stack[0];
   }
 
   private Sequence emit(final Map<GroupKey, long[]> groups, final MaskedColumns interner, final boolean[] stringKeys)
@@ -437,10 +539,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final long[] key = group.getKey().components;
       final long[] acc = group.getValue();
       final long missing = key[keyCount];
-      final QNm[] names = new QNm[entryKinds.length];
       final Sequence[] values = new Sequence[entryKinds.length];
       for (int i = 0; i < entryKinds.length; i++) {
-        names[i] = new QNm(entryNames[i]);
         final int kind = entryKinds[i];
         if (kind >= 0) {
           if ((missing & 1L << kind) != 0L) {
@@ -468,7 +568,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           };
         }
       }
-      records.add(new ArrayObject(names, values));
+      records.add(new ArrayObject(outputNames, values));
     }
     return sort(records);
   }
@@ -476,7 +576,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private Sequence sort(final List<Item> records) throws QueryException {
     final Ordering ordering = new Ordering(new Expr[0], orderModifiers);
     for (final Item item : records) {
-      final Object record = (Object) item;
+      final ArrayObject record = (ArrayObject) item;
       final Sequence[] keys = new Sequence[orderIndexes.length];
       for (int i = 0; i < orderIndexes.length; i++) {
         final Sequence value = record.value(orderIndexes[i]);
@@ -486,8 +586,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       ordering.add(keys, new TupleImpl(item));
     }
-    final List<Item> out = new ArrayList<>(records.size());
-    if (!records.isEmpty()) {
+    return ordered(ordering, records.size());
+  }
+
+  private static Sequence ordered(final Ordering ordering, final int size) throws QueryException {
+    final List<Item> out = new ArrayList<>(size);
+    if (size > 0) {
       try (final Stream<? extends Tuple> stream = ordering.sorted()) {
         for (Tuple next = stream.next(); next != null; next = stream.next()) {
           out.add((Item) next.get(0));
@@ -535,7 +639,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
 
     @Override
-    public boolean equals(final java.lang.Object other) {
+    public boolean equals(final Object other) {
       return other instanceof GroupKey that && Arrays.equals(components, that.components);
     }
   }

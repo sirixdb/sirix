@@ -8,6 +8,8 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.projection.ProjectionColumnScan;
+import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
@@ -56,6 +58,13 @@ public final class EngineWorkCounters {
    * masked scan over N leaves of which K hold an admitted key must read K leaves: this is the figure
    * that says the other N − K were never fetched.
    */
+  public static final WorkCounter PROJECTION_BODY_SEGMENTS = WorkCounter.gated("projection.bodySegments",
+      "one projection BODY segment requested", ProjectionColumnStore::bodySegmentsFetched,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_KEY_SET_ADVANCES = WorkCounter.alwaysOn("projection.keySetAdvances",
+      "one sorted source key advanced during row-mask construction", ProjectionRecordKeySet::keySetAdvances);
+
   public static final WorkCounter PROJECTION_LEAVES_PRUNED = WorkCounter.alwaysOn("projection.leavesPruned",
       "one projection leaf dropped by a scan's keep mask before its segments were fetched",
       ProjectionColumnScan::leavesPrunedCount);

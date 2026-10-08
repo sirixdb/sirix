@@ -103,6 +103,10 @@ final class ValidTimeKeySequence extends AbstractSequence {
     }
   }
 
+  int revision() {
+    return document.getTrx().getRevisionNumber();
+  }
+
   long[] matchingKeys() {
     final long[] keys = candidates();
     final long[] matches = new long[keys.length];

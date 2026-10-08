@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.budget.EngineWorkCounters;
+import io.sirix.budget.WorkCapture;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
@@ -190,6 +192,11 @@ final class RecordKeySetPredicateTest {
                 continue;
               }
               final ColumnPredicate[] preds = shape(set, withLong, keyFirst);
+              for (int predicate = 0; predicate < preds.length; predicate++) {
+                if (preds[predicate].isRecordKeySet()) {
+                  preds[predicate] = ColumnPredicate.recordKeysIn(set, fx.keys());
+                }
+              }
               final long expected = bruteCount(fx, set, withLong);
               final String at = "seed=" + seed + " exceptions=" + exceptions + " set=" + set.length + " long="
                   + withLong + " keyFirst=" + keyFirst;
@@ -220,6 +227,34 @@ final class RecordKeySetPredicateTest {
         }
       }
     }
+  }
+
+  @Test
+  void denseSourceMapsOnceAcrossAThousandLeaves() throws Exception {
+    final int rows = 1_000_000;
+    final long[] keys = new long[rows];
+    final long[][] leaves = new long[1_000][];
+    for (int leaf = 0; leaf < leaves.length; leaf++) {
+      leaves[leaf] = new long[1_000];
+      for (int row = 0; row < 1_000; row++) {
+        final long key = leaf * 1_000L + row;
+        keys[(int) key] = key;
+        leaves[leaf][row] = key;
+      }
+    }
+    final WorkCapture.Captured<ColumnPredicate> mapped =
+        WorkCapture.of(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES)
+                   .call(() -> ColumnPredicate.recordKeysIn(keys, leaves));
+    mapped.work()
+          .assertAtMost(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES, rows + leaves.length,
+              "a dense source advances its key set once, independent of the leaf count");
+    long members = 0;
+    for (final long[] leaf : leaves) {
+      for (final long word : mapped.result().keyMasks.get(leaf[0])) {
+        members += Long.bitCount(word);
+      }
+    }
+    assertEquals(rows, members);
   }
 
   private static long[] allStoredKeys(final Fixture fx) {

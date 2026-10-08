@@ -32,6 +32,15 @@ public final class ValidTimeIntervalIndex {
 
   private ValidTimeIntervalIndex() {}
 
+  public record RoutedKeys(long[] keys, int revision) {
+  }
+
+  public static @Nullable RoutedKeys routedKeys(final @Nullable Sequence sequence) {
+    return sequence instanceof ValidTimeKeySequence keys
+        ? new RoutedKeys(keys.matchingKeys(), keys.revision())
+        : null;
+  }
+
   public static @Nullable Sequence sequence(final JsonDBItem document, final Instant instant,
       final ValidTimeConfig config, final boolean strictStart, final boolean strictEnd) {
     return sequence(document, instant, config, strictStart, strictEnd, null);

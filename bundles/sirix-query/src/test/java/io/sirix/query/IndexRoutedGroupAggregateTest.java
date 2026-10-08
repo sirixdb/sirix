@@ -168,7 +168,148 @@ final class IndexRoutedGroupAggregateTest {
         assertTrue(SirixVectorizedExecutor.groupAggServedCount() > served,
             "the correlated grouping must be served per outer tuple: " + shape[0]);
       }
+      regressionShapes(chain, ctx, store, txTimes, validTimes);
     }
+  }
+
+  private static void regressionShapes(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final BasicJsonDBStore store, final List<String> txTimes, final List<String> validTimes) throws Exception {
+    final String smallSource = "jn:open-bitemporal('" + DB + "','small-a',$T,$P)";
+    final String smallProlog = prolog(txTimes.get(1), validTimes.get(1));
+    for (final String aggregate : new String[] {"count($grade)", "sum($grade)"}) {
+      final String query = smallProlog + "for $c in " + smallSource
+          + " let $grade := $c.grade group by $grade order by $grade return {'grade':$grade,'n':" + aggregate + "}";
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(aggregate.startsWith("count")
+          ? "{\"grade\":7,\"n\":1}"
+          : "{\"grade\":7,\"n\":7}", run(chain, ctx, query));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
+      final String postLet =
+          query.replace(" order by", " let $n := " + aggregate + " order by").replace("'n':" + aggregate, "'n':$n");
+      assertEquals(run(chain, ctx, query), run(chain, ctx, postLet));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
+    }
+    for (final String key : new String[] {"$c.vf", "substring($c.vf,1,16)"}) {
+      final String query = smallProlog + "for $c in " + smallSource + " let $k := " + key
+          + ", $v := $c.cost * $c.qty group by $k order by $k return {'k':$k,'v':sum($v)}";
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(run(chain, ctx, query.replace(smallSource, "(" + smallSource + ")")), run(chain, ctx, query));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "unwired derived string lane declines");
+    }
+    final String positional = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + DB
+        + "','suppliers')[0] where $c.sid eq $s.id"
+        + " let $grade := $c.grade, $v := $c.cost group by $grade let $n := count($v) order by $grade"
+        + " return {'grade':$grade,'n':$n}";
+    final long joined = SirixVectorizedExecutor.joinGroupServedCount();
+    assertEquals(run(chain, ctx, positional.replace(smallSource, "(" + smallSource + ")")),
+        run(chain, ctx, positional));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    final String scalarJoin = positional.replace("[0]", "[]").replace("count($v)", "count($grade)");
+    assertEquals("{\"grade\":7,\"n\":1}", run(chain, ctx, scalarJoin));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    final String correction = "for $a in " + source().replace("$T", "xs:dateTime('" + txTimes.get(0) + "')")
+        + " for $b in " + source().replace("$T", "xs:dateTime('" + txTimes.get(4) + "')")
+        + " where $a.id eq $b.id and ($a.cost ne $b.cost or $a.qty ne $b.qty) order by $a.id"
+        + " return {'id':$a.id,'old_cost':$a.cost,'new_cost':$b.cost,'old_qty':$a.qty,'new_qty':$b.qty}";
+    for (final String valid : validTimes) {
+      final String query = prolog(txTimes.get(0), valid) + correction;
+      final String reference =
+          query.replace("in jn:open-bitemporal(", "in (jn:open-bitemporal(").replace(",$P)", ",$P))");
+      final long served = SirixVectorizedExecutor.joinGroupServedCount();
+      assertEquals(run(chain, ctx, reference), run(chain, ctx, query));
+      assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(), "Q4 row join is served");
+    }
+    for (final String tx : txTimes) {
+      for (final String valid : validTimes) {
+        final String doc = "jn:open('" + DB + "','" + RES + "',$T)[]";
+        final String body = shapes().get(0)[1];
+        final String slice =
+            "(for $r in " + doc + " where xs:dateTime($r.vf) le $P and $P lt xs:dateTime($r.vt) return $r)";
+        final String query = prolog(tx, valid) + body.replace("SRC", slice);
+        final String reference = prolog(tx, valid) + body.replace("SRC", "(" + source() + ")");
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(chain, ctx, reference), run(chain, ctx, query));
+        assertEquals(served + (Instant.parse(tx).isBefore(T1)
+            ? 1
+            : 0), SirixVectorizedExecutor.groupAggServedCount(), "half-open slice serves only ordered arrays");
+        final String foldedResidual = prolog(tx, valid)
+            + body.replace("SRC", source()).replace("let $grade", "where $P lt xs:dateTime($c.vt) let $grade");
+        final long residualServed = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(chain, ctx, reference), run(chain, ctx, foldedResidual));
+        assertEquals(residualServed + 1, SirixVectorizedExecutor.groupAggServedCount(),
+            "folded bitemporal slice is served");
+      }
+    }
+    try (final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final JsonResourceSession session = store.lookup(DB).getDatabase().beginResourceSession("small-a");
+        final SirixCompileChain bound = SirixCompileChain.createWithJsonStore(store, session)) {
+      for (final String valid : validTimes) {
+        final String prolog = prolog(txTimes.get(0), valid);
+        final String contracts = halfOpenSource(RES, "$T", "$P");
+        final String suppliers = halfOpenSource("suppliers", "$T", "$P");
+        for (final String[] shape : joinShapes()) {
+          final String query =
+              prolog + shape[1].replace(source(), contracts)
+                               .replace("jn:open-bitemporal('" + DB + "','suppliers',$T,$P)", suppliers);
+          final long served = SirixVectorizedExecutor.joinGroupServedCount();
+          assertEquals(run(generic, ctx, query), run(chain, ctx, query));
+          assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(), "half-open join slices are served");
+        }
+        final String[] correlated = correlatedShapes().get(0);
+        final String query = prolog + correlated[1].replace("SRC", halfOpenSource(RES, "$T", "$P"));
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(generic, ctx, query), run(chain, ctx, query));
+        assertTrue(SirixVectorizedExecutor.groupAggServedCount() > served, "correlated half-open slice is served");
+        final String scalar = query.replace("count($qty)", "count($grade)");
+        final long scalarServed = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(generic, ctx, scalar), run(chain, ctx, scalar));
+        assertEquals(scalarServed, SirixVectorizedExecutor.groupAggServedCount(), "correlated scalar key declines");
+        final String scan = prolog
+            + shapes().get(0)[1].replace("SRC", "jn:scan-valid-time-index(jn:open('" + DB + "','" + RES + "',$T),$P)");
+        final long scanServed = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(generic, ctx, scan), run(chain, ctx, scan));
+        assertEquals(scanServed + 1, SirixVectorizedExecutor.groupAggServedCount(),
+            "public closed index scan is served");
+      }
+      final String body = shapes().get(0)[1];
+      final String otherSource = smallSource.replace("small-a", "small-b");
+      final String query = smallProlog + body.replace("SRC", otherSource);
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      final String expected = run(chain, ctx, query.replace(otherSource, "(" + otherSource + ")"));
+      assertEquals(expected, run(bound, ctx, query));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "resource mismatch declines");
+      for (final String cross : new String[] {"for $a in " + smallSource + " where exists(for $b in " + otherSource
+          + " where $a.cost eq $b.cost return $b.id)"
+          + " let $grade := $a.grade, $v := $a.cost group by $grade order by $grade return {'grade':$grade,'v':sum($v)}",
+          "for $a in " + otherSource + " where exists(for $b in " + smallSource
+              + " where $a.cost eq $b.cost return $b.id)"
+              + " let $grade := $a.grade, $v := $a.cost group by $grade order by $grade return {'grade':$grade,'v':sum($v)}",
+          "for $e in jn:doc('" + DB + "','epochs')[] for $c in " + otherSource
+              + " let $epoch := $e.epoch, $grade := $c.grade, $v := $c.cost group by $epoch,$grade"
+              + " let $total := sum($v) order by $epoch,$grade return {'epoch':$epoch,'grade':$grade,'total':$total}",
+          "for $a in " + smallSource + " for $b in " + otherSource + " where $a.id eq $b.id"
+              + " let $grade := $b.grade, $v := $b.cost group by $grade let $total := sum($v) order by $grade"
+              + " return {'grade':$grade,'total':$total}",
+          "for $a in " + otherSource + " for $b in " + smallSource + " where $a.id eq $b.id"
+              + " let $grade := $a.grade, $v := $a.cost group by $grade let $total := sum($v) order by $grade"
+              + " return {'grade':$grade,'total':$total}"}) {
+        final String reference = smallProlog
+            + cross.replace(smallSource, "(" + smallSource + ")").replace(otherSource, "(" + otherSource + ")");
+        final long groups = SirixVectorizedExecutor.groupAggServedCount();
+        final long joins = SirixVectorizedExecutor.joinGroupServedCount();
+        assertEquals(run(chain, ctx, reference), run(bound, ctx, smallProlog + cross));
+        assertEquals(groups, SirixVectorizedExecutor.groupAggServedCount(), "cross-resource grouping declines");
+        assertEquals(joins, SirixVectorizedExecutor.joinGroupServedCount(), "cross-resource join declines");
+      }
+      final String same = smallProlog + body.replace("SRC", smallSource);
+      assertEquals(run(chain, ctx, same.replace(smallSource, "(" + smallSource + ")")), run(bound, ctx, same));
+      assertEquals(before + 1, SirixVectorizedExecutor.groupAggServedCount(), "bound resource still serves");
+    }
+  }
+
+  private static String halfOpenSource(final String resource, final String tx, final String valid) {
+    return "(for $r in jn:open('" + DB + "','" + resource + "'," + tx + ")[] where xs:dateTime($r.vf) le " + valid
+        + " and " + valid + " lt xs:dateTime($r.vt) return $r)";
   }
 
   private static List<String[]> joinShapes() {
@@ -329,6 +470,33 @@ final class IndexRoutedGroupAggregateTest {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      for (final String resource : new String[] {"small-a", "small-b"}) {
+        database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                     .validTimePaths("vf", "vt")
+                                                     .customCommitTimestamps(true)
+                                                     .buildPathSummary(true)
+                                                     .versioningApproach(versioning)
+                                                     .storeDiffs(false)
+                                                     .build());
+        try (JsonResourceSession session = database.beginResourceSession(resource);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final int cost = resource.equals("small-a")
+              ? 2
+              : 5;
+          final String row = """
+              {"id":1,"pid":0,"sid":0,"cost":%d,"qty":3,"grade":7,
+               "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}
+              """.formatted(cost).trim();
+          wtx.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader("[" + row + "," + row.replace("\"id\":1", "\"id\":2") + "]"),
+              JsonNodeTrx.Commit.NO);
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
+          BitemporalProjections.declare(session, wtx, RES);
+          wtx.commit("S0", T0);
+        }
+      }
       // The small driver tables of the correlated shapes.
       for (final String[] table : new String[][] {
           {"epochs", "[{\"epoch\":0,\"ts\":\"2024-01-15T00:00:00Z\"},{\"epoch\":1,\"ts\":\"2024-04-01T00:00:00Z\"},"

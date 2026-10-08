@@ -132,6 +132,7 @@ public class SirixOptimizer extends TopDownOptimizer {
     // 9a. Index-routed source admission: a loop over jn:open-bitemporal(...) becomes a projection
     // scan over the resource's array members with a row mask from the valid-time index. Runs before
     // 9b because it supplies the source-path annotation 9b requires.
+    getStages().add((sctx, ast) -> new JsonValidTimeStep(jsonItemStore).rewrite(ast));
     getStages().add(new IndexRoutedSourceStage());
     getStages().add(new GroupAggregateDetectionStage());
     // 9b'. Correlated index-routed grouping: an outer loop over a small table whose rows supply the
@@ -419,10 +420,8 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-      // Valid-time FIRST: fold stabbing predicates before the CAS path inspects FilterExprs.
       // Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
-      ast = new JsonValidTimeStep(jsonItemStore).rewrite(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);

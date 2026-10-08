@@ -59,12 +59,6 @@ import static org.mockito.Mockito.withSettings;
  * positive control that moves it once per valid row.
  * </p>
  *
- * <p>
- * Measured (2026-10-08): routed — groupAggregates 1, numericGroupBys 1, groupSliced 1, leavesPruned
- * 4 (two prune passes over the same two leaves), cursor moves 0; generic reference —
- * groupAggregates 0, cursor moves ≥ 1,000. With the row source left out of the keep mask,
- * leavesPruned reads 0 and every leaf's columns are fetched.
- * </p>
  */
 @Isolated
 final class IndexRoutedGroupWorkBudgetTest {
@@ -116,16 +110,25 @@ final class IndexRoutedGroupWorkBudgetTest {
         final WorkCapture.Captured<String> routed =
             WorkCapture.of(QueryWorkCounters.ROUTES)
                        .and(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
+                       .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                        .call(() -> run(chain, ctx, prolog + body.replace("SRC", source)));
         assertEquals(generic.result(), routed.result(), "the routed answer must equal the generic one");
         routed.work()
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the grouped aggregate must be served")
-              // The route prices its keep mask twice — once to bound the derived lane's evaluation
-              // and once inside the arm's own predicate fill — and each pass drops the same two
-              // leaves. A dedup of the two passes tightens this to 2; a mask that stopped pruning
-              // reads 0 whichever pass runs.
-              .assertExactly(EngineWorkCounters.PROJECTION_LEAVES_PRUNED, 4,
-                  "two of the three leaves hold no valid row and must never be fetched (two prune passes)");
+              .assertExactly(EngineWorkCounters.PROJECTION_LEAVES_PRUNED, 2,
+                  "one mask excludes the two leaves without valid rows")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
+                  "only the kept leaf supplies grade, qty, cost and the derived qty operand");
+        final WorkCapture.Captured<String> empty =
+            WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                       .and(QueryWorkCounters.GROUP_AGGREGATES)
+                       .call(() -> run(chain, ctx,
+                           prolog.replace("2024-06-01", "2025-01-01") + body.replace("SRC", source)));
+        assertEquals("", empty.result());
+        empty.work()
+             .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
+                 "an empty source fills no key or operand columns")
+             .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the empty source is served");
         // Zero objects: no cursor move and no child-pointer read on the document the opener returns.
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();

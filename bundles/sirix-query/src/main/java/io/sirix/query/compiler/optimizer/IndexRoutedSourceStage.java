@@ -7,6 +7,8 @@ import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.StaticContext;
+import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -49,6 +51,8 @@ public final class IndexRoutedSourceStage implements Stage {
   public static final String ROUTED_SOURCE_TX_TIME = "SIRIX_ROUTED_SOURCE_TX_TIME";
   /** {@code AST}: the valid-time instant expression ({@code xs:dateTime}). */
   public static final String ROUTED_SOURCE_VALID_TIME = "SIRIX_ROUTED_SOURCE_VALID_TIME";
+
+  public static final String ROUTED_SOURCE_EXPR = "SIRIX_ROUTED_SOURCE_EXPR";
 
   private static final String SOURCE_PATH = "VECTORIZED_SOURCE_PATH_PREFIX";
   /**
@@ -105,28 +109,64 @@ public final class IndexRoutedSourceStage implements Stage {
       return false;
     }
     final AST source = forBind.getChild(1);
-    if (source.getType() != XQ.FunctionCall || !(source.getValue() instanceof QNm fn)
-        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI()) || !"open-bitemporal".equals(fn.getLocalName())
-        || source.getChildCount() != 4) {
+    final Source routed = source(source);
+    if (routed == null || referencesAny(source, boundBefore)) {
       return false;
-    }
-    final String database = stringLiteral(source.getChild(0));
-    final String resource = stringLiteral(source.getChild(1));
-    if (database == null || resource == null) {
-      return false; // a dynamic name cannot be bound to one executor at compile time
-    }
-    final AST txTime = source.getChild(2);
-    final AST validTime = source.getChild(3);
-    if (referencesAny(txTime, boundBefore) || referencesAny(validTime, boundBefore)) {
-      return false; // evaluated at the pipeline's entry, where those bindings do not exist
     }
     pipeExpr.setProperty(SOURCE_PATH, ARRAY_MEMBERS.clone());
     pipeExpr.setProperty(ROUTED_SOURCE, Boolean.TRUE);
-    pipeExpr.setProperty(ROUTED_SOURCE_DATABASE, database);
-    pipeExpr.setProperty(ROUTED_SOURCE_RESOURCE, resource);
-    pipeExpr.setProperty(ROUTED_SOURCE_TX_TIME, txTime);
-    pipeExpr.setProperty(ROUTED_SOURCE_VALID_TIME, validTime);
+    pipeExpr.setProperty(ROUTED_SOURCE_DATABASE, routed.database());
+    pipeExpr.setProperty(ROUTED_SOURCE_RESOURCE, routed.resource());
+    pipeExpr.setProperty(ROUTED_SOURCE_TX_TIME, routed.txTime());
+    pipeExpr.setProperty(ROUTED_SOURCE_VALID_TIME, routed.validTime());
+    pipeExpr.setProperty(ROUTED_SOURCE_EXPR, routed.indexed());
     return true;
+  }
+
+  public record Source(String database, String resource, AST txTime, AST validTime, AST indexed) {
+  }
+
+  public static Source source(final AST expression) {
+    AST source = expression;
+    while (source.getType() == XQ.ParenthesizedExpr && source.getChildCount() == 1) {
+      source = source.getChild(0);
+    }
+    if (source.getType() != XQ.FunctionCall || !(source.getValue() instanceof QNm fn)
+        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI())) {
+      return null;
+    }
+    final String local = fn.getLocalName();
+    final boolean opener =
+        expression.getType() != XQ.ParenthesizedExpr && "open-bitemporal".equals(local) && source.getChildCount() == 4;
+    final boolean slice = OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(fn)
+        && source.checkProperty(OpenBitemporal.INTERNAL_SLICE) && source.getChildCount() == 7;
+    final boolean scan = ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(fn) && (source.getChildCount() == 2
+        || source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT));
+    if (!opener && !slice && !scan) {
+      return null;
+    }
+    final AST doc = scan
+        ? source.getChild(0)
+        : source;
+    if (scan && (doc.getType() != XQ.FunctionCall || !(doc.getValue() instanceof QNm docFn)
+        || !JSONFun.JSON_NSURI.equals(docFn.getNamespaceURI())
+        || !("doc".equals(docFn.getLocalName()) || "open".equals(docFn.getLocalName())) || doc.getChildCount() < 2
+        || doc.getChildCount() > 3)) {
+      return null;
+    }
+    final String database = stringLiteral(doc.getChild(0));
+    final String resource = stringLiteral(doc.getChild(1));
+    return database == null || resource == null
+        ? null
+        : new Source(database, resource, scan
+            ? null
+            : source.getChild(2),
+            source.getChild(scan
+                ? 1
+                : 3),
+            opener
+                ? null
+                : source);
   }
 
   private static String stringLiteral(final AST node) {

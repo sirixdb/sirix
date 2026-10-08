@@ -83,7 +83,7 @@ raw results, and emit the same canonical TSV bytes.
 | 1 | point belief at E24 | revision scan + half-open predicate | no |
 | 2 | point belief at E12 | revision scan + half-open predicate | no |
 | 3 | valid-range price extrema | revision scan + strict overlap | no |
-| 4 | corrections, system-time self-join | VALIDTIME + generic join | no |
+| 4 | corrections, system-time self-join | VALIDTIME row masks + column-side row join and residual | no |
 | 5 | one entity's publication history | revision scan per publication | no |
 | 6 | grouped publication evolution | VALIDTIME row mask + projection group, per publication | no |
 | 7 | latest grouped exposure | VALIDTIME row mask + projection group | no |
@@ -98,8 +98,8 @@ Q4, Q6-Q9, Q11 and Q12 call `jn:open-bitemporal` directly, using its half-open v
 requirements are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
 Each business resource also declares a projection (column) index at E0 (`BitemporalProjections`), and
 the grouped queries read their columns under the valid-time index's row mask instead of materialising
-segment objects — see [Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md). Q4 keeps
-the generic join over lazily materialised slices.
+segment objects — see [Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md). Q4 reads both masked column sets, evaluates its correction residual column-side and emits
+ordered row records; the generic join remains the fallback for unsupported shapes.
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe logical query shapes, not physical plan

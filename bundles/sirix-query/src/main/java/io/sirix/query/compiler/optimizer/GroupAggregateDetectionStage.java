@@ -318,6 +318,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     final List<QNm> constLetVars = new ArrayList<>();
     final List<Long> constLetVals = new ArrayList<>();
     final List<QNm> groupSpecVars = new ArrayList<>();
+    final Set<Object> scalarGroupVars = new HashSet<>();
     long[] havingOpLit = null;
     // POST-group aggregate lets: `group by $k let $c := count($r)`. After the group-by, brackit
     // binds the loop var to the GROUPED sequence (the GroupBy node's AggregateSpec/SequenceAgg),
@@ -406,6 +407,9 @@ public final class GroupAggregateDetectionStage implements Stage {
             // per-group expression, a constant, a reference the scan never sees) declines.
             if (groupSpecVars.contains(letVar)) {
               return "let: post-group let rebinds a group-key variable";
+            }
+            if (referencesAny(current.getChild(1), scalarGroupVars)) {
+              return "aggregate: grouping variables are scalar values";
             }
             final Agg plain = aggregateCall(current.getChild(1), loopVar, lets);
             // A SPAN let (`max(f) - min(f)`, or the whole-unit form the millisecond date_diff
@@ -584,8 +588,10 @@ public final class GroupAggregateDetectionStage implements Stage {
             }
             if (constLetVars.contains(var)) {
               constKeySpecs.add(var);
+              scalarGroupVars.add(var);
             } else {
               groupSpecVars.add(var);
+              scalarGroupVars.add(var);
             }
           }
         }
@@ -804,6 +810,9 @@ public final class GroupAggregateDetectionStage implements Stage {
         emittedPostGroupVars.add(valueVar);
         emittedPostGroupAt.add(keyCount + i);
       } else {
+        if (referencesAny(value, scalarGroupVars)) {
+          return "aggregate: grouping variables are scalar values";
+        }
         final Agg direct = aggregateCall(value, loopVar, lets);
         agg = direct != null
             ? direct

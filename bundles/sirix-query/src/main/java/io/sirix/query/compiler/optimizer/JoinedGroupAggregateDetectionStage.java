@@ -43,6 +43,12 @@ import java.util.Set;
 public final class JoinedGroupAggregateDetectionStage implements Stage {
 
   public static final String JOIN_GROUP = "SIRIX_JOIN_GROUP";
+  public static final String ROW_JOIN = "SIRIX_ROW_JOIN";
+  public static final String RESIDUAL_SIDES = "SIRIX_JOIN_RESIDUAL_SIDES";
+  public static final String RESIDUAL_FIELDS = "SIRIX_JOIN_RESIDUAL_FIELDS";
+  public static final String RESIDUAL_NE = "SIRIX_JOIN_RESIDUAL_NE";
+  public static final String RESIDUAL_CODE = "SIRIX_JOIN_RESIDUAL_CODE";
+  public static final String SIDE_SOURCE_EXPRS = "SIRIX_JOIN_SIDE_SOURCE_EXPRS";
   /** Per side ({@code 0} left, {@code 1} right): literal database and resource. */
   public static final String SIDE_DATABASES = "SIRIX_JOIN_SIDE_DATABASES";
   public static final String SIDE_RESOURCES = "SIRIX_JOIN_SIDE_RESOURCES";
@@ -123,6 +129,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final String[] resources = new String[2];
     final AST[] txTimes = new AST[2];
     final AST[] validTimes = new AST[2];
+    final AST[] indexed = new AST[2];
     final int[] revisions = new int[2];
     final String[] joinFields = new String[2];
     final QNm[] vars = new QNm[2];
@@ -144,7 +151,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         return "join: loop variable is not a name";
       }
       final String sourceDecline =
-          source(forBind.getChild(1), side, databases, resources, txTimes, validTimes, revisions);
+          source(forBind.getChild(1), side, databases, resources, txTimes, validTimes, revisions, indexed);
       if (sourceDecline != null) {
         return sourceDecline;
       }
@@ -155,6 +162,11 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     }
     if (vars[0].equals(vars[1])) {
       return "join: both loops bind the same name";
+    }
+    final String rowDecline =
+        rowJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed);
+    if (rowDecline == null) {
+      return null;
     }
     final AST post = join.getChild(2);
     if (post.getType() != XQ.Start || post.getChildCount() != 1 || post.getChild(0).getType() != XQ.End) {
@@ -240,6 +252,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       final AST arg = call.getChild(0);
       if (arg.getType() != XQ.VariableRef || !(arg.getValue() instanceof QNm argVar)) {
         return "post-group let: argument is not a variable";
+      }
+      if (keyVars.contains(argVar)) {
+        return "post-group let: grouping variables are scalar values";
       }
       final String func = fn.getLocalName();
       if (argVar.equals(vars[0]) || argVar.equals(vars[1])) {
@@ -357,6 +372,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(SIDE_RESOURCES, resources);
     pipeExpr.setProperty(SIDE_TX_TIMES, txTimes);
     pipeExpr.setProperty(SIDE_VALID_TIMES, validTimes);
+    pipeExpr.setProperty(SIDE_SOURCE_EXPRS, indexed);
     pipeExpr.setProperty(SIDE_REVISIONS, revisions);
     pipeExpr.setProperty(JOIN_FIELDS, joinFields);
     pipeExpr.setProperty(KEY_SIDES, keySides.stream().mapToInt(Integer::intValue).toArray());
@@ -391,12 +407,209 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     return null;
   }
 
+  private static String rowJoin(final AST pipe, final AST join, final QNm[] vars, final String[] databases,
+      final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
+      final String[] joinFields, final AST[] indexed) {
+    if (validTimes[0] == null || validTimes[1] == null) {
+      return "row join: both sources must be routed";
+    }
+    final List<Integer> residualSides = new ArrayList<>();
+    final List<String> residualFields = new ArrayList<>();
+    final List<Boolean> residualNe = new ArrayList<>();
+    final List<Integer> residualCode = new ArrayList<>();
+    final AST post = join.getChild(2);
+    if (post.getType() != XQ.Start || post.getChildCount() != 1) {
+      return "row join: post chain is not a Start";
+    }
+    AST tail = post.getChild(0);
+    while (tail.getType() == XQ.Selection && tail.getChildCount() == 2) {
+      final boolean previous = !residualCode.isEmpty();
+      if (!residual(tail.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
+        return "row join: unsupported residual";
+      }
+      if (previous) {
+        residualCode.add(-1);
+      }
+      tail = tail.getLastChild();
+    }
+    if (tail.getType() != XQ.End) {
+      return "row join: unsupported post chain";
+    }
+    AST current = join.getChild(3);
+    while (current.getType() == XQ.Selection && current.getChildCount() == 2) {
+      final boolean previous = !residualCode.isEmpty();
+      if (!residual(current.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
+        return "row join: unsupported residual";
+      }
+      if (previous) {
+        residualCode.add(-1);
+      }
+      current = current.getLastChild();
+    }
+    if (current.getType() != XQ.OrderBy || current.getLastChild().getType() != XQ.End
+        || current.getLastChild().getChildCount() != 1
+        || current.getLastChild().getChild(0).getType() != XQ.ObjectConstructor) {
+      return "row join: requires ordered row records";
+    }
+    final AST record = current.getLastChild().getChild(0);
+    final int count = record.getChildCount();
+    final int[] keySides = new int[count];
+    final String[] keyFields = new String[count];
+    final String[] keyNames = new String[count];
+    final int[] entryKinds = new int[count];
+    final Set<String> names = new HashSet<>();
+    for (int i = 0; i < count; i++) {
+      final AST entry = record.getChild(i);
+      if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2) {
+        return "row join: unsupported output entry";
+      }
+      keyNames[i] = stringLiteral(entry.getChild(0));
+      if (keyNames[i] == null || !names.add(keyNames[i])) {
+        return "row join: output names must be distinct literals";
+      }
+      keySides[i] = derefField(entry.getChild(1), vars[0]) == null
+          ? 1
+          : 0;
+      keyFields[i] = derefField(entry.getChild(1), vars[keySides[i]]);
+      if (keyFields[i] == null) {
+        return "row join: output is not a direct field";
+      }
+      entryKinds[i] = i;
+    }
+    final List<Integer> orderIndexes = new ArrayList<>();
+    final List<Boolean> orderAsc = new ArrayList<>();
+    final List<Boolean> emptyLeast = new ArrayList<>();
+    for (int i = 0; i < current.getChildCount() - 1; i++) {
+      final AST spec = current.getChild(i);
+      if (spec.getType() != XQ.OrderBySpec || spec.getChildCount() < 1) {
+        return "row join: unsupported ordering";
+      }
+      int at = -1;
+      for (int field = 0; field < count; field++) {
+        if (keyFields[field].equals(derefField(spec.getChild(0), vars[keySides[field]]))) {
+          at = field;
+          break;
+        }
+      }
+      if (at < 0) {
+        return "row join: ordering field is not emitted";
+      }
+      boolean ascending = true;
+      boolean least = true;
+      for (int m = 1; m < spec.getChildCount(); m++) {
+        final AST modifier = spec.getChild(m);
+        if (modifier.getType() == XQ.OrderByKind) {
+          ascending = modifier.getChild(0).getType() == XQ.ASCENDING;
+        } else if (modifier.getType() == XQ.OrderByEmptyMode) {
+          least = modifier.getChild(0).getType() == XQ.LEAST;
+        } else {
+          return "row join: unsupported ordering modifier";
+        }
+      }
+      orderIndexes.add(at);
+      orderAsc.add(ascending);
+      emptyLeast.add(least);
+    }
+    if (orderIndexes.isEmpty()) {
+      return "row join: no ordering keys";
+    }
+    pipe.setProperty(JOIN_GROUP, Boolean.TRUE);
+    pipe.setProperty(ROW_JOIN, Boolean.TRUE);
+    pipe.setProperty(SIDE_DATABASES, databases);
+    pipe.setProperty(SIDE_RESOURCES, resources);
+    pipe.setProperty(SIDE_TX_TIMES, txTimes);
+    pipe.setProperty(SIDE_VALID_TIMES, validTimes);
+    pipe.setProperty(SIDE_SOURCE_EXPRS, indexed);
+    pipe.setProperty(SIDE_REVISIONS, revisions);
+    pipe.setProperty(JOIN_FIELDS, joinFields);
+    pipe.setProperty(KEY_SIDES, keySides);
+    pipe.setProperty(KEY_FIELDS, keyFields);
+    pipe.setProperty(KEY_NAMES, keyNames);
+    pipe.setProperty(AGG_FUNCS, new String[0]);
+    pipe.setProperty(AGG_SIDES, new int[0]);
+    pipe.setProperty(AGG_FIELDS, new String[0]);
+    pipe.setProperty(AGG_NAMES, new String[0]);
+    pipe.setProperty(PROG_SIDES, new int[0]);
+    pipe.setProperty(PROG_FIELDS, new String[0][]);
+    pipe.setProperty(PROG_CODE, new int[0][]);
+    pipe.setProperty(PROG_CONSTS, new long[0][]);
+    pipe.setProperty(ENTRY_KINDS, entryKinds);
+    pipe.setProperty(ORDER_INDEXES, orderIndexes.stream().mapToInt(Integer::intValue).toArray());
+    final boolean[] asc = new boolean[orderAsc.size()];
+    final boolean[] least = new boolean[asc.length];
+    for (int i = 0; i < asc.length; i++) {
+      asc[i] = orderAsc.get(i);
+      least[i] = emptyLeast.get(i);
+    }
+    final boolean[] ne = new boolean[residualNe.size()];
+    for (int i = 0; i < ne.length; i++) {
+      ne[i] = residualNe.get(i);
+    }
+    pipe.setProperty(ORDER_ASC, asc);
+    pipe.setProperty(ORDER_EMPTY_LEAST, least);
+    pipe.setProperty(RESIDUAL_SIDES, residualSides.stream().mapToInt(Integer::intValue).toArray());
+    pipe.setProperty(RESIDUAL_FIELDS, residualFields.toArray(new String[0]));
+    pipe.setProperty(RESIDUAL_NE, ne);
+    pipe.setProperty(RESIDUAL_CODE, residualCode.stream().mapToInt(Integer::intValue).toArray());
+    return null;
+  }
+
+  private static boolean residual(final AST expression, final QNm[] vars, final List<Integer> sides,
+      final List<String> fields, final List<Boolean> ne, final List<Integer> code) {
+    AST node = expression;
+    while (node.getType() == XQ.ParenthesizedExpr && node.getChildCount() == 1) {
+      node = node.getChild(0);
+    }
+    if ((node.getType() == XQ.AndExpr || node.getType() == XQ.OrExpr) && node.getChildCount() == 2) {
+      if (!residual(node.getChild(0), vars, sides, fields, ne, code)
+          || !residual(node.getChild(1), vars, sides, fields, ne, code)) {
+        return false;
+      }
+      code.add(node.getType() == XQ.AndExpr
+          ? -1
+          : -2);
+      return true;
+    }
+    if (node.getType() != XQ.ComparisonExpr || node.getChildCount() != 3) {
+      return false;
+    }
+    final int op = node.getChild(0).getType();
+    if (op != XQ.ValueCompEQ && op != XQ.GeneralCompEQ && op != XQ.ValueCompNE && op != XQ.GeneralCompNE) {
+      return false;
+    }
+    final int count = ne.size();
+    for (int i = 1; i <= 2; i++) {
+      final int side = derefField(node.getChild(i), vars[0]) == null
+          ? 1
+          : 0;
+      final String field = derefField(node.getChild(i), vars[side]);
+      if (field == null) {
+        return false;
+      }
+      sides.add(side);
+      fields.add(field);
+    }
+    ne.add(op == XQ.ValueCompNE || op == XQ.GeneralCompNE);
+    code.add(count);
+    return true;
+  }
+
   /** Classify one branch's source: an opener (routed) or a literal document; else a decline. */
   private static String source(final AST source, final int side, final String[] databases, final String[] resources,
-      final AST[] txTimes, final AST[] validTimes, final int[] revisions) {
+      final AST[] txTimes, final AST[] validTimes, final int[] revisions, final AST[] indexed) {
+    final IndexRoutedSourceStage.Source routed = IndexRoutedSourceStage.source(source);
+    if (routed != null) {
+      databases[side] = routed.database();
+      resources[side] = routed.resource();
+      txTimes[side] = routed.txTime();
+      validTimes[side] = routed.validTime();
+      indexed[side] = routed.indexed();
+      return null;
+    }
     AST call = source;
     boolean members = false;
-    if (call.getType() == XQ.ArrayAccess && call.getChildCount() >= 1) {
+    if (call.getType() == XQ.ArrayAccess && call.getChildCount() == 2 && call.getChild(1).getType() == XQ.SequenceExpr
+        && call.getChild(1).getChildCount() == 0) {
       // jn:doc('db','res')[]: the array members, which the openers yield directly.
       members = true;
       call = call.getChild(0);
@@ -406,15 +619,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       return "join: source is not a JSON function";
     }
     final String local = fn.getLocalName();
-    if ("open-bitemporal".equals(local) && !members && call.getChildCount() == 4) {
-      databases[side] = stringLiteral(call.getChild(0));
-      resources[side] = stringLiteral(call.getChild(1));
-      txTimes[side] = call.getChild(2);
-      validTimes[side] = call.getChild(3);
-      return databases[side] == null || resources[side] == null
-          ? "join: dynamic database or resource"
-          : null;
-    }
     if (("doc".equals(local) || "open".equals(local)) && members
         && (call.getChildCount() == 2 || call.getChildCount() == 3)) {
       databases[side] = stringLiteral(call.getChild(0));

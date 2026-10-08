@@ -160,6 +160,16 @@ public final class ProjectionColumnScan {
     return resolvePredicateColumns(store, predicates, fetcher);
   }
 
+  public static ColumnSlice[][] resolvePredicateColumnsShared(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep) {
+    checkPredicates(store, predicates);
+    final ColumnSlice[][] columns = new ColumnSlice[predicates.length][];
+    for (int i = 0; i < predicates.length; i++) {
+      columns[i] = store.columnMaskedView(predicates[i].column, fetcher, keep);
+    }
+    return columns;
+  }
+
   /**
    * The predicates' zone-map / fingerprint keep mask ({@code null} = nothing pruned), for callers
    * that feed the kernels windowed slices instead of the shared resident fill.
@@ -2519,7 +2529,17 @@ public final class ProjectionColumnScan {
     if (p.op == ProjectionIndexScan.Op.KEY_IN) {
       // The index-routed row source: `values` is the leaf's record-key lane (every row present), and
       // a row passes iff its key is in the set. Nothing else about the leaf is consulted.
-      ProjectionRecordKeySet.andMembership(values, rowCount, p.sortedKeys, mask);
+      if (p.keyMasks != null && rowCount > 0) {
+        final long[] membership = p.keyMasks.get(values[0]);
+        if (membership == null || membership.length != stride) {
+          throw new IllegalStateException("record-key mask does not cover the projection leaf");
+        }
+        for (int w = 0; w < stride; w++) {
+          mask[w] &= membership[w];
+        }
+      } else {
+        ProjectionRecordKeySet.andMembership(values, rowCount, p.sortedKeys, mask);
+      }
       return;
     }
     if (p.globalIdVerdict != null) {

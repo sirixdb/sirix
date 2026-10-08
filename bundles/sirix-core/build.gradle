@@ -122,6 +122,7 @@ artifacts {
 }
 
 test {
+    systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform {
         // The advisory cross-platform CI lanes exclude soak-style suites that cannot fit the
         // runner budget there; Linux CI runs everything.

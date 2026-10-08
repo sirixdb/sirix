@@ -110,12 +110,16 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes;
   /** A membership filter over a second routed opener, applied to the row keys before grouping. */
   private final RoutedGroupRequest.@Nullable MembershipFilter membership;
-  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /** The literal document and the two compiled instant expressions of an index-routed source. */
-  public record RoutedSource(String database, String resource, Expr txTime, Expr validTime) {
+  public record RoutedSource(String database, String resource, @Nullable Expr txTime, Expr validTime,
+      @Nullable Expr indexed) {
+    public RoutedSource(final String database, final String resource, final Expr txTime, final Expr validTime) {
+      this(database, resource, txTime, validTime, null);
+    }
+
     public RoutedSource {
-      if (database == null || resource == null || txTime == null || validTime == null) {
+      if (database == null || resource == null || txTime == null && indexed == null || validTime == null) {
         throw new IllegalArgumentException("a routed source names its document and both instants");
       }
     }
@@ -245,16 +249,9 @@ public final class SirixGroupAggregateExpr implements Expr {
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple)
       throws QueryException {
     final RoutedSource routed = routedSource;
-    final long started = DIAG
-        ? System.nanoTime()
-        : 0L;
     RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed);
     if (rows == null) {
       return null;
-    }
-    if (DIAG) {
-      System.err.println("[routed-serve] " + rows.keys().length + " row keys resolved in "
-          + (System.nanoTime() - started) / 1_000_000 + " ms");
     }
     if (membership != null) {
       rows = RoutedGroupRequest.filterByMembership(executorProvider, ctx, tuple, sourcePath, rows, routed, membership);
@@ -278,11 +275,6 @@ public final class SirixGroupAggregateExpr implements Expr {
           predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
           limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl,
           keyDivMod, keyStringify, having, new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
-      if (DIAG) {
-        System.err.println("[routed-serve] " + (served == null
-            ? "declined"
-            : "served") + " after " + (System.nanoTime() - started) / 1_000_000 + " ms in total");
-      }
       return served;
     }
   }

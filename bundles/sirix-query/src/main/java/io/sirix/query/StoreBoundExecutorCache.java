@@ -382,7 +382,9 @@ final class StoreBoundExecutorCache implements AutoCloseable {
     }
     final Integer revision = literalRevision(call.getChild(2));
     return revision == null
-        ? null
+        ? "open".equals(localName)
+            ? new DocumentSource(database, resource, LATEST_REVISION)
+            : null
         : new DocumentSource(database, resource, revision);
   }
 

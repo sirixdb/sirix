@@ -320,3 +320,7 @@ regressed, not that the bound is wrong.
 - A change that makes a path cheaper should **tighten** its bound. A bound left loose after an
   improvement stops guarding it.
 - Deleting a budget needs the same justification as widening it.
+
+`RecordKeySetPredicateTest.denseSourceMapsOnceAcrossAThousandLeaves` bounds sorted-key advances
+for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY segment requests
+as well as pruning, with zero column fills for an empty source.

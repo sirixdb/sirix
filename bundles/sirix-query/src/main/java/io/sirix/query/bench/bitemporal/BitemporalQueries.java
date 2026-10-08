@@ -70,7 +70,7 @@ public final class BitemporalQueries {
             return {"min_cost":min($rows.cost),"max_cost":max($rows.cost),
                     "prices":count(distinct-values($rows.cost))}
             """);
-    add(queries, 4, "corrections", 1, "VALIDTIME-half-open", false,
+    add(queries, 4, "corrections", 1, "VALIDTIME-half-open+projection-row-join", false,
         List.of("id", "old_cost", "new_cost", "old_qty", "new_qty"), """
             for $a in jn:open-bitemporal('bt','contracts',$A,$V)
             for $b in jn:open-bitemporal('bt','contracts',$B,$V)

@@ -9,6 +9,7 @@ import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.jdm.Item;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.RoutedKeys;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.MaskedColumns;
@@ -59,6 +60,14 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
    */
   static @Nullable RoutedRows resolve(final QueryContext ctx, final Tuple tuple,
       final SirixGroupAggregateExpr.RoutedSource routed) throws QueryException {
+    if (routed.indexed() != null) {
+      final RoutedKeys rows = routed.indexed() instanceof SirixValidTimeScanExpr scan
+          ? scan.routedKeys(ctx, tuple)
+          : ValidTimeIntervalIndex.routedKeys(routed.indexed().evaluate(ctx, tuple));
+      return rows == null
+          ? null
+          : new RoutedRows(rows.keys(), rows.revision());
+    }
     final Item txItem = routed.txTime().evaluateToItem(ctx, tuple);
     final Item validItem = routed.validTime().evaluateToItem(ctx, tuple);
     if (!(txItem instanceof DateTime txTime) || !(validItem instanceof DateTime validTime)) {

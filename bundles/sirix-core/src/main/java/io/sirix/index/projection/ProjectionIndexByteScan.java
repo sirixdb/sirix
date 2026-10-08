@@ -5747,7 +5747,17 @@ public final class ProjectionIndexByteScan {
     if (p.op == ProjectionIndexScan.Op.KEY_IN) {
       // The index-routed row source over the leaf's inline record keys (header, then kinds, then
       // long[rowCount] keys). Every row carries a key, so the caller skips the presence AND.
-      evalRecordKeysInBytes(payload, kindsOff + getIntLE(payload, 4), rowCount, p.sortedKeys, s.colMask);
+      final int keysOff = kindsOff + getIntLE(payload, 4);
+      if (p.keyMasks != null && rowCount > 0) {
+        final long[] membership = p.keyMasks.get(getLongLE(payload, keysOff));
+        final int stride = (rowCount + 63) >>> 6;
+        if (membership == null || membership.length != stride) {
+          throw new IllegalStateException("record-key mask does not cover the projection leaf");
+        }
+        System.arraycopy(membership, 0, s.colMask, 0, stride);
+      } else {
+        evalRecordKeysInBytes(payload, keysOff, rowCount, p.sortedKeys, s.colMask);
+      }
       return;
     }
     final byte kind = payload[kindsOff + p.column];
@@ -6120,7 +6130,9 @@ public final class ProjectionIndexByteScan {
     if (setSize == 0) {
       return;
     }
-    int cursor = 0;
+    int cursor = rowCount == 0
+        ? 0
+        : ProjectionRecordKeySet.lowerBound(sortedKeys, getLongLE(payload, keysOff));
     long previous = Long.MIN_VALUE;
     for (int k = 0; k < rowCount; k++) {
       final long key = getLongLE(payload, keysOff + k * 8);

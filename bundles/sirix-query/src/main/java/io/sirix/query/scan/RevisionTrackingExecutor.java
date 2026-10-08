@@ -261,7 +261,8 @@ public final class RevisionTrackingExecutor implements SirixExecutorProvider {
     boolean executorAdmitted = false;
     try {
       final Pin pin = pinnedForEvaluation.get();
-      if (pin.executor != null && pin.ctx == context) {
+      if (pin.executor != null && pin.ctx == context
+          && (source == null || pin.executor.acceptsSource(source, context))) {
         executor = pin.executor;
       } else if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
         pin.clear();
@@ -269,7 +270,7 @@ public final class RevisionTrackingExecutor implements SirixExecutorProvider {
       } else {
         executor = current(context);
       }
-      if (executor == null) {
+      if (executor == null || source != null && !executor.acceptsSource(source, context)) {
         unpin(context);
         executionLifecycle.leave();
         return null;

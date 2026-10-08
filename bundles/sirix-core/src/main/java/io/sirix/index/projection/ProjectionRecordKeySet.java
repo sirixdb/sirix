@@ -4,28 +4,57 @@
 package io.sirix.index.projection;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.LongAdder;
+
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 /**
  * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the
  * primitive behind {@link ProjectionIndexScan.Op#KEY_IN}.
  *
- * <p>
- * A secondary index (a valid-time stab, a CAS posting list) yields the record-object node keys of
- * the rows a query must read; the projection's KEYS lane stores exactly those keys per leaf, in
- * physical row order. Mapping the set onto the leaves therefore needs no parent walk and no per-key
- * lookup through the persisted record locator: every evaluator walks the leaf's keys once against
- * the set. The keys of a leaf ascend except at ORDER EXCEPTIONS (rows inserted out of key order),
- * so the walk is a merge over the ascending run with a binary search for every key that breaks the
- * run — exact for both, {@code O(rows + |set|)} on the common path.
- * </p>
- *
- * <p>
- * HFT: no per-row allocation, no per-leaf allocation; every method works on the caller's arrays.
- * </p>
  */
 public final class ProjectionRecordKeySet {
 
+  private static final LongAdder KEY_SET_ADVANCES = new LongAdder();
+
   private ProjectionRecordKeySet() {}
+
+  public static long keySetAdvances() {
+    return KEY_SET_ADVANCES.sum();
+  }
+
+  static Long2ObjectOpenHashMap<long[]> map(final long[] sortedKeys, final long[][] leafKeys) {
+    final Long2ObjectOpenHashMap<long[]> masks = new Long2ObjectOpenHashMap<>(leafKeys.length);
+    int cursor = 0;
+    long previous = Long.MIN_VALUE;
+    for (final long[] keys : leafKeys) {
+      if (keys.length == 0) {
+        continue;
+      }
+      final long[] mask = new long[(keys.length + 63) >>> 6];
+      for (int row = 0; row < keys.length; row++) {
+        final long key = keys[row];
+        final boolean member;
+        if (key >= previous) {
+          while (cursor < sortedKeys.length && sortedKeys[cursor] < key) {
+            cursor++;
+          }
+          member = cursor < sortedKeys.length && sortedKeys[cursor] == key;
+          previous = key;
+        } else {
+          member = Arrays.binarySearch(sortedKeys, 0, cursor, key) >= 0;
+        }
+        if (member) {
+          mask[row >>> 6] |= 1L << (row & 63);
+        }
+      }
+      if (masks.put(keys[0], mask) != null) {
+        throw new IllegalArgumentException("projection leaves repeat a record key");
+      }
+    }
+    KEY_SET_ADVANCES.add(cursor);
+    return masks;
+  }
 
   /**
    * Validate a sorted key set: strictly ascending, non-negative keys.
@@ -121,7 +150,9 @@ public final class ProjectionRecordKeySet {
       Arrays.fill(mask, 0, stride, 0L);
       return 0;
     }
-    int cursor = 0;
+    int cursor = rowCount == 0
+        ? 0
+        : lowerBound(sortedKeys, keys[0]);
     long previous = Long.MIN_VALUE;
     int members = 0;
     for (int w = 0; w < stride; w++) {
@@ -154,7 +185,7 @@ public final class ProjectionRecordKeySet {
   }
 
   /** First index whose key is {@code >= key}, or {@code length}. */
-  private static int lowerBound(final long[] sorted, final long key) {
+  static int lowerBound(final long[] sorted, final long key) {
     int lo = 0;
     int hi = sorted.length;
     while (lo < hi) {
