@@ -189,12 +189,12 @@ public final class GroupAggregateDetectionStage implements Stage {
   public static final String GROUP_AGG_HAVING = "SIRIX_GROUP_AGG_HAVING";
   /**
    * COMPUTED pre-group lets ({@code let $v := $r.cost * $r.qty}) that an aggregate folds: three
-   * parallel per-program arrays — {@code String[][]} operand fields, {@code int[][]} postfix code
-   * and {@code long[][]} constants, in {@link ComputedProgram}'s encoding. An aggregate entry over
-   * such a let carries the field token {@code prog:<i>} (see {@link #COMPUTED_FIELD_PREFIX}); the
-   * executor evaluates the program once per kept leaf into a derived column its ordinary group
-   * kernels then sum, count, min or max. {@code count($v)} counts the rows on which every operand is
-   * present — the interpreter's empty arithmetic over a missing field. Absent when no let is computed.
+   * parallel per-program arrays — {@code String[][]} operand fields, {@code int[][]} postfix code and
+   * {@code long[][]} constants, in {@link ComputedProgram}'s encoding. An aggregate entry over such a
+   * let carries the field token {@code prog:<i>} (see {@link #COMPUTED_FIELD_PREFIX}); the executor
+   * evaluates the program once per kept leaf into a derived column its ordinary group kernels then
+   * sum, count, min or max. {@code count($v)} counts the rows on which every operand is present — the
+   * interpreter's empty arithmetic over a missing field. Absent when no let is computed.
    */
   public static final String GROUP_AGG_PROG_FIELDS = "SIRIX_GROUP_AGG_PROG_FIELDS";
   public static final String GROUP_AGG_PROG_CODE = "SIRIX_GROUP_AGG_PROG_CODE";
@@ -1205,16 +1205,18 @@ public final class GroupAggregateDetectionStage implements Stage {
   private record ComputedLet(String[] fields, int[] code, long[] consts) {
   }
 
-  /** A membership filter whose inner source is an index-routed opener (see {@link #MEMBERSHIP_ANTI}). */
+  /**
+   * A membership filter whose inner source is an index-routed opener (see {@link #MEMBERSHIP_ANTI}).
+   */
   private record MembershipFilter(String database, String resource, AST txTime, AST validTime, String innerField,
       String outerField, boolean anti) {
   }
 
   /**
-   * Parse a {@code HashMembershipJoin} node: its source (child 0) is the opener call or a leading
-   * let bound to one, its key (child 2) is {@code $loop.field}, its inner field is the
-   * {@code HashMembershipStage.FIELD} property. The opener's instants are evaluated at the
-   * pipeline's entry, so they must not read the loop var or a leading let.
+   * Parse a {@code HashMembershipJoin} node: its source (child 0) is the opener call or a leading let
+   * bound to one, its key (child 2) is {@code $loop.field}, its inner field is the
+   * {@code HashMembershipStage.FIELD} property. The opener's instants are evaluated at the pipeline's
+   * entry, so they must not read the loop var or a leading let.
    */
   private static MembershipFilter membershipFilter(final AST node, final QNm loopVar, final List<QNm> leadingLetVars,
       final List<AST> leadingLetExprs) {

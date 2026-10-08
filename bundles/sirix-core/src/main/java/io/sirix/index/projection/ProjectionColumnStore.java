@@ -63,9 +63,9 @@ import java.util.stream.IntStream;
 public final class ProjectionColumnStore {
 
   /**
-   * The virtual column a {@link ProjectionIndexScan.Op#KEY_IN} predicate addresses: the record keys of
-   * every leaf (the KEYS lane), never a stored column. Its "slice" is built from the decoded keys —
-   * see {@link #recordKeyPredicateView} and {@link LeafColumnAccess#predicateSlice}.
+   * The virtual column a {@link ProjectionIndexScan.Op#KEY_IN} predicate addresses: the record keys
+   * of every leaf (the KEYS lane), never a stored column. Its "slice" is built from the decoded keys
+   * — see {@link #recordKeyPredicateView} and {@link LeafColumnAccess#predicateSlice}.
    */
   public static final int KEYS_COLUMN = -1;
 
@@ -3222,7 +3222,8 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] view = new ColumnSlice[keys.length];
     for (int leaf = 0; leaf < keys.length; leaf++) {
       final int word = leaf >>> 6;
-      final boolean kept = keepWords == null || (word < keepWords.length && (keepWords[word] & 1L << (leaf & 63)) != 0L);
+      final boolean kept =
+          keepWords == null || (word < keepWords.length && (keepWords[word] & 1L << (leaf & 63)) != 0L);
       view[leaf] = kept
           ? recordKeySlice(keys[leaf])
           : PRUNED_SLICE;

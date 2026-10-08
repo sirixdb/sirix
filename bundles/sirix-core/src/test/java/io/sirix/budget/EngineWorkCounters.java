@@ -53,8 +53,8 @@ public final class EngineWorkCounters {
   /**
    * Leaves a projection scan dropped from its keep mask before any column segment was fetched —
    * descriptor zones, string fingerprints, and the index-routed row source's record-key ranges. A
-   * masked scan over N leaves of which K hold an admitted key must read K leaves: this is the
-   * figure that says the other N − K were never fetched.
+   * masked scan over N leaves of which K hold an admitted key must read K leaves: this is the figure
+   * that says the other N − K were never fetched.
    */
   public static final WorkCounter PROJECTION_LEAVES_PRUNED = WorkCounter.alwaysOn("projection.leavesPruned",
       "one projection leaf dropped by a scan's keep mask before its segments were fetched",

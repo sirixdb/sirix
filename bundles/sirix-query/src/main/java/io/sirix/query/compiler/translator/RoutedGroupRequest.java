@@ -21,8 +21,8 @@ import java.time.Instant;
 
 /**
  * The executor-side description of one grouped aggregate over an index-routed source — the
- * parameters {@link SirixVectorizedExecutor#executeGroupByAggregate} takes, plus the computed lanes —
- * and the serving step that turns the routed source's instants into a revision and a row mask.
+ * parameters {@link SirixVectorizedExecutor#executeGroupByAggregate} takes, plus the computed lanes
+ * — and the serving step that turns the routed source's instants into a revision and a row mask.
  * Shared by the plain and the correlated serving expressions.
  */
 record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate, String[] groupFields,
@@ -47,8 +47,8 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
    * their {@code outerField} value is ({@code anti == false}) or is not ({@code anti == true}) among
    * the {@code innerField} values of the filter source's rows; a missing value matches nothing.
    */
-  public record MembershipFilter(SirixGroupAggregateExpr.RoutedSource source, String innerField,
-      String outerField, boolean anti) {
+  public record MembershipFilter(SirixGroupAggregateExpr.RoutedSource source, String innerField, String outerField,
+      boolean anti) {
   }
 
   /**

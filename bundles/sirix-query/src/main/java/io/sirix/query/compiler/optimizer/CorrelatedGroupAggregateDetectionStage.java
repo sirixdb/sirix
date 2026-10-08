@@ -313,8 +313,8 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
       }
     }
     // The synthetic inner pipe: for $r in OPENER, inner lets, group by inner keys, post lets, return.
-    final AST synthetic = syntheticInnerPipe(innerFor, innerLets, groupBy, innerKeyVars, postLets,
-        syntheticKeyEntries, syntheticAggEntries);
+    final AST synthetic = syntheticInnerPipe(innerFor, innerLets, groupBy, innerKeyVars, postLets, syntheticKeyEntries,
+        syntheticAggEntries);
     if (!IndexRoutedSourceStage.annotate(synthetic)) {
       return "inner: source is not an admitted index-routed opener";
     }
@@ -345,10 +345,11 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
     return null;
   }
 
-  /** {@code PipeExpr(Start(ForBind(inner, lets..., GroupBy(inner specs, postLets..., End(record)))))}. */
+  /**
+   * {@code PipeExpr(Start(ForBind(inner, lets..., GroupBy(inner specs, postLets..., End(record)))))}.
+   */
   private static AST syntheticInnerPipe(final AST innerFor, final List<AST> innerLets, final AST groupBy,
-      final List<QNm> innerKeyVars, final List<AST> postLets, final List<AST> keyEntries,
-      final List<AST> aggEntries) {
+      final List<QNm> innerKeyVars, final List<AST> postLets, final List<AST> keyEntries, final List<AST> aggEntries) {
     final AST record = new AST(XQ.ObjectConstructor);
     for (final AST entry : keyEntries) {
       record.addChild(entry.copyTree());

@@ -10,14 +10,14 @@ import org.jspecify.annotations.Nullable;
  * A query-local DERIVED numeric column: one slice per leaf holding, for every row on which every
  * operand is present, the value of a postfix {@code +,-,*} program over the operand columns — the
  * grouped twin of {@link ProjectionIndexByteScan#conjunctiveAggregateComputed}. A grouped
- * {@code sum($r.cost * $r.qty)} then folds through the ordinary group kernels as if the product were
- * a stored column: no kernel learns about programs, and every arm that takes resident slices serves
- * it unchanged.
+ * {@code sum($r.cost * $r.qty)} then folds through the ordinary group kernels as if the product
+ * were a stored column: no kernel learns about programs, and every arm that takes resident slices
+ * serves it unchanged.
  *
  * <p>
- * Semantics follow the interpreter: arithmetic over a missing operand is the empty sequence, so such
- * a row is MISSING in the derived column (presence bit clear, contributes nothing). Arithmetic is
- * exact or DECLINES: an {@link ArithmeticException} from {@code Math.*Exact} propagates, and the
+ * Semantics follow the interpreter: arithmetic over a missing operand is the empty sequence, so
+ * such a row is MISSING in the derived column (presence bit clear, contributes nothing). Arithmetic
+ * is exact or DECLINES: an {@link ArithmeticException} from {@code Math.*Exact} propagates, and the
  * executor routes it to the generic pipeline, whose {@code xs:integer} math promotes to decimal.
  * </p>
  *

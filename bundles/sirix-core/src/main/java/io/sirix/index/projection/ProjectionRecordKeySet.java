@@ -6,17 +6,17 @@ package io.sirix.index.projection;
 import java.util.Arrays;
 
 /**
- * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the primitive
- * behind {@link ProjectionIndexScan.Op#KEY_IN}.
+ * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the
+ * primitive behind {@link ProjectionIndexScan.Op#KEY_IN}.
  *
  * <p>
- * A secondary index (a valid-time stab, a CAS posting list) yields the record-object node keys of the
- * rows a query must read; the projection's KEYS lane stores exactly those keys per leaf, in physical
- * row order. Mapping the set onto the leaves therefore needs no parent walk and no per-key lookup
- * through the persisted record locator: every evaluator walks the leaf's keys once against the set.
- * The keys of a leaf ascend except at ORDER EXCEPTIONS (rows inserted out of key order), so the walk
- * is a merge over the ascending run with a binary search for every key that breaks the run — exact
- * for both, {@code O(rows + |set|)} on the common path.
+ * A secondary index (a valid-time stab, a CAS posting list) yields the record-object node keys of
+ * the rows a query must read; the projection's KEYS lane stores exactly those keys per leaf, in
+ * physical row order. Mapping the set onto the leaves therefore needs no parent walk and no per-key
+ * lookup through the persisted record locator: every evaluator walks the leaf's keys once against
+ * the set. The keys of a leaf ascend except at ORDER EXCEPTIONS (rows inserted out of key order),
+ * so the walk is a merge over the ascending run with a binary search for every key that breaks the
+ * run — exact for both, {@code O(rows + |set|)} on the common path.
  * </p>
  *
  * <p>
@@ -41,8 +41,8 @@ public final class ProjectionRecordKeySet {
     }
     for (int i = 1; i < sortedKeys.length; i++) {
       if (sortedKeys[i] <= sortedKeys[i - 1]) {
-        throw new IllegalArgumentException(
-            "sortedKeys must be strictly ascending at index " + i + ": " + sortedKeys[i - 1] + " then " + sortedKeys[i]);
+        throw new IllegalArgumentException("sortedKeys must be strictly ascending at index " + i + ": "
+            + sortedKeys[i - 1] + " then " + sortedKeys[i]);
       }
     }
   }
@@ -105,8 +105,8 @@ public final class ProjectionRecordKeySet {
   /**
    * AND the membership of each row's record key into {@code mask}: bit {@code row} stays set iff it
    * was set and {@code keys[row]} is in the set. Only the first {@code ceil(rowCount/64)} words are
-   * touched; tail bits beyond {@code rowCount} are left as the caller had them (every caller fills the
-   * tail clear).
+   * touched; tail bits beyond {@code rowCount} are left as the caller had them (every caller fills
+   * the tail clear).
    *
    * @param keys the leaf's record keys in physical row order ({@code keys.length >= rowCount})
    * @param rowCount rows of the leaf

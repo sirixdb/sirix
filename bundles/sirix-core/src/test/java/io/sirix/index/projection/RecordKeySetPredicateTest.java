@@ -31,15 +31,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The index-routed row source ({@link Op#KEY_IN}): every kernel family must answer a record-key
  * membership predicate exactly — the sliced kernels over resident and windowed access, the
  * conjunctive and the tree evaluator, the whole-leaf byte kernels, and the leaf keep mask — on
- * stores whose leaves carry ORDER EXCEPTIONS (keys out of ascending order), alone and conjoined with
- * ordinary column predicates. The brute-force walk over the fixture's own keys is the oracle.
+ * stores whose leaves carry ORDER EXCEPTIONS (keys out of ascending order), alone and conjoined
+ * with ordinary column predicates. The brute-force walk over the fixture's own keys is the oracle.
  */
 final class RecordKeySetPredicateTest {
 
   private static final byte[] KINDS =
       {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
-  /** Columns: 0 = long, 1 = string. {@code keys[leaf][row]} and {@code longs[leaf][row]} mirror the pages. */
+  /**
+   * Columns: 0 = long, 1 = string. {@code keys[leaf][row]} and {@code longs[leaf][row]} mirror the
+   * pages.
+   */
   private record Fixture(ProjectionColumnStore store, List<byte[]> rawLeaves, ColumnSegmentFetcher fetcher,
       long[][] keys, long[][] longs, boolean[][] present) {
   }
@@ -119,7 +122,9 @@ final class RecordKeySetPredicateTest {
     return new Fixture(new ProjectionColumnStore(directories), rawLeaves, fetcher, keys, longs, present);
   }
 
-  /** A strictly ascending key set: every {@code oneIn}-th stored key, plus a few keys stored nowhere. */
+  /**
+   * A strictly ascending key set: every {@code oneIn}-th stored key, plus a few keys stored nowhere.
+   */
   private static long[] keySet(final Fixture fx, final Random rnd, final int oneIn, final boolean withForeign) {
     final LongOpenHashSet set = new LongOpenHashSet();
     for (final long[] leafKeys : fx.keys()) {
@@ -186,13 +191,12 @@ final class RecordKeySetPredicateTest {
               }
               final ColumnPredicate[] preds = shape(set, withLong, keyFirst);
               final long expected = bruteCount(fx, set, withLong);
-              final String at = "seed=" + seed + " exceptions=" + exceptions + " set=" + set.length + " long=" + withLong
-                  + " keyFirst=" + keyFirst;
+              final String at = "seed=" + seed + " exceptions=" + exceptions + " set=" + set.length + " long="
+                  + withLong + " keyFirst=" + keyFirst;
               final int n = fx.store().rowGroupCount();
               assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, fx.fetcher()),
                   "sliced resident " + at);
-              assertEquals(expected,
-                  ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, fx.fetcher()),
+              assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, fx.fetcher()),
                   "sliced ranged " + at);
               final long[] keep = ProjectionColumnScan.predicateKeepMask(fx.store(), preds, fx.fetcher());
               assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n,
@@ -207,8 +211,8 @@ final class RecordKeySetPredicateTest {
               assertEquals(expected, treeCount(fx, preds, andTree), "tree AND " + at);
               if (withLong) {
                 final PredicateTree orTree = PredicateTree.of(preds, new byte[] {0, 1, PredicateTree.OP_OR});
-                final long orExpected = bruteCount(fx, set, false) + bruteCount(fx, allStoredKeys(fx), true)
-                    - bruteCount(fx, set, true);
+                final long orExpected =
+                    bruteCount(fx, set, false) + bruteCount(fx, allStoredKeys(fx), true) - bruteCount(fx, set, true);
                 assertEquals(orExpected, treeCount(fx, preds, orTree), "tree OR " + at);
               }
             }
@@ -231,7 +235,8 @@ final class RecordKeySetPredicateTest {
   private static long treeCount(final Fixture fx, final ColumnPredicate[] leaves, final PredicateTree tree) {
     final ColumnPredicate[] none = new ColumnPredicate[0];
     final long[] keep = ProjectionColumnScan.predicateKeepMask(fx.store(), none, tree, fx.fetcher());
-    final ColumnSlice[][] treeCols = ProjectionColumnScan.resolveTreeColumnsShared(fx.store(), tree, fx.fetcher(), keep);
+    final ColumnSlice[][] treeCols =
+        ProjectionColumnScan.resolveTreeColumnsShared(fx.store(), tree, fx.fetcher(), keep);
     final ColumnSlice[][] predCols = ProjectionColumnScan.resolvePredicateColumnsShared(fx.store(), none, fx.fetcher());
     final int n = fx.store().rowGroupCount();
     return ProjectionColumnScan.rowKeepMasks(fx.store(), none, predCols, tree, treeCols, 0, n, new long[n][]);

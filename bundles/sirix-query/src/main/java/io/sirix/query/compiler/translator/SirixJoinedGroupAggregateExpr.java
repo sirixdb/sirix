@@ -36,9 +36,10 @@ import java.util.Map;
  * {@code JoinedGroupAggregateDetectionStage}): both sides' columns are read under their row masks,
  * the smaller side is hashed on its join values, the larger probes it, and every matched pair folds
  * into a group keyed on fields of either side. No record object is built on either side; the group
- * records are ordered with Brackit's own {@link Ordering} under the pipeline's order-by, which names
- * every key. Anything the route cannot do exactly declines to the generic pipeline compiled beside
- * it: a string join key, an overflowing sum or program, a side without a covering projection.
+ * records are ordered with Brackit's own {@link Ordering} under the pipeline's order-by, which
+ * names every key. Anything the route cannot do exactly declines to the generic pipeline compiled
+ * beside it: a string join key, an overflowing sum or program, a side without a covering
+ * projection.
  */
 public final class SirixJoinedGroupAggregateExpr implements Expr {
 
@@ -511,7 +512,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return false;
   }
 
-  /** A group's identity: the key components (long values or interned string ids) plus missing flags. */
+  /**
+   * A group's identity: the key components (long values or interned string ids) plus missing flags.
+   */
   private static final class GroupKey {
     private final long[] components;
     private int hash;

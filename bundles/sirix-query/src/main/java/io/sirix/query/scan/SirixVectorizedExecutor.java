@@ -15048,10 +15048,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (!sourcePathIsPresent(sourcePath)) {
       return null;
     }
-    final ServedGroups served = groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
-        aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
-        keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false,
-        routing);
+    final ServedGroups served =
+        groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+            orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+            keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false, routing);
     return served != null && countDescendingPlainKey(predicateOrNull, groupFields.length, funcs, aggFields, outNames,
         orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse, keyRegexPattern, keyDivMod,
         keyStringify, having)
@@ -15141,10 +15141,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           required.add(raw);
         }
       }
-      final boolean scalarSummaryShape = routing == null
-          && countDescendingPlainKey(predicateOrNull, keyCount, funcs, aggFields, outNames, orderIndexes, orderAsc,
-              limit, keyOffsets, keySubstr, keyCondFields, keyCondElse, keyRegexPattern, keyDivMod, keyStringify,
-              having);
+      final boolean scalarSummaryShape = routing == null && countDescendingPlainKey(predicateOrNull, keyCount, funcs,
+          aggFields, outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse,
+          keyRegexPattern, keyDivMod, keyStringify, having);
       if (scalarSummaryShape && wtx == null) {
         final Map<String, Long> counts = ProjectionIndexCatalog.lookupScalarValueRowCounts(session,
             projectionRegistryKey, revision, sourcePath, groupFields[0]);
@@ -15209,15 +15208,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // pick k the store can aggregate cheaply and serve them through the predicate route
       // (anyKGroupsPredicate). A decline of the rewritten request falls through to the full pass.
       if (ANY_K_GROUPS && routing == null && !wholeLeafOnly && !budgetRefused && predicateOrNull == null
-          && orderIndexes == null
-          && having == null && limit >= 1 && limit * (long) keyCount <= ProjectionIndexScan.PredicateTree.MAX_LEAVES
+          && orderIndexes == null && having == null && limit >= 1
+          && limit * (long) keyCount <= ProjectionIndexScan.PredicateTree.MAX_LEAVES
           && anyKPlainKeys(keyCount, keyOffsets, keySubstr, keyCondElse, keyRegexPattern, keyDivMod, keyStringify)) {
         final PredicateNode anyK = anyKGroupsPredicate(handle, fetcher, groupFields, (int) limit);
         if (anyK != null) {
-          final ServedGroups served = groupByAggregate(ctx, sourcePath, anyK, groupFields, keyNames, funcs, aggFields,
-              outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
-              keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false,
-              null);
+          final ServedGroups served =
+              groupByAggregate(ctx, sourcePath, anyK, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes,
+                  orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+                  keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, false, false, null);
           // The planner saw every chosen group in its sample, so the rewritten pass must return
           // exactly k of them; anything else means the evidence and the aggregate disagree and the
           // full pass — never a short answer — is served.
@@ -15724,7 +15723,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           for (int o = 0; o < operandCols.length; o++) {
             final int oc = handle.columnOf(lane.fields()[o]);
             if (oc < 0 || handle.columnKindOf(oc) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-                || !handle.numericColumnIsIntegral(oc, fetcher) || !handle.columnSparseClean(oc, fetcher, materializer)) {
+                || !handle.numericColumnIsIntegral(oc, fetcher)
+                || !handle.columnSparseClean(oc, fetcher, materializer)) {
               return declineGroupAgg("computed aggregate operand absent, non-integral or null-bearing");
             }
             operandCols[o] = oc;
@@ -15929,13 +15929,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // An index-routed request claims the sliced route the same way: its row source prunes the
       // leaves no admitted key falls in, which a whole-leaf scan over promoted payloads cannot, and
       // its derived lanes exist only as resident slices.
-      final boolean slicedKinds = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
-          && (!handle.payloadsMaterialized() || hasSegmentComponent || segmentScopedPredicate || routing != null
-              || anyDerivedLane)
-          && (tree == null
-              ? predsSliceable(groupStore, preds)
-              : treeSliceableKind(groupStore, tree))
-          && allColumnsSliceableKind(groupStore, groupCols) && allColumnsSliceableKind(groupStore, aggColsFlat);
+      final boolean slicedKinds =
+          GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
+              && (!handle.payloadsMaterialized()
+                  || hasSegmentComponent || segmentScopedPredicate || routing != null || anyDerivedLane)
+              && (tree == null
+                  ? predsSliceable(groupStore, preds)
+                  : treeSliceableKind(groupStore, tree))
+              && allColumnsSliceableKind(groupStore, groupCols) && allColumnsSliceableKind(groupStore, aggColsFlat);
       // FIT is the COMBINED projected fill of every column the resident path would retain (predicate
       // columns at their whole-column projection — conservative for a pruning mask, and a masked fetch
       // is not budget-retained but does hold heap for the query), beside what the store already
@@ -15981,8 +15982,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           for (int o = 0; o < operandCols.length; o++) {
             operands[o] = groupStore.column(operandCols[o], derivedFetcher);
           }
-          computedLaneSlices[a] =
-              ProjectionComputedColumn.evaluate(operands, derivedLanes[a].code(), derivedLanes[a].consts(), derivedKeep);
+          computedLaneSlices[a] = ProjectionComputedColumn.evaluate(operands, derivedLanes[a].code(),
+              derivedLanes[a].consts(), derivedKeep);
         }
       } else {
         computedLaneSlices = null;

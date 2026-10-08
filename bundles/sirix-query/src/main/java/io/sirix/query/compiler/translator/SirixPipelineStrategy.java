@@ -323,8 +323,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** The membership filter the detection stage annotated, its opener's instants compiled, or null. */
-  private static RoutedGroupRequest.@org.jspecify.annotations.Nullable MembershipFilter membershipFilter(
-      final AST node, final Compiler compiler) throws QueryException {
+  private static RoutedGroupRequest.@org.jspecify.annotations.Nullable MembershipFilter membershipFilter(final AST node,
+      final Compiler compiler) throws QueryException {
     final String database = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_DATABASE);
     final String resource = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_RESOURCE);
     final AST txTime = (AST) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_TX_TIME);
@@ -350,17 +350,16 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       final Expr generic) throws QueryException {
     final AST innerPipe = (AST) node.getProperty(CorrelatedGroupAggregateDetectionStage.INNER_PIPE);
     final AST[] outerKeyAsts = (AST[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_EXPRS);
-    final String[] outerKeyNames =
-        (String[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_NAMES);
+    final String[] outerKeyNames = (String[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_NAMES);
     final int[] entryKinds = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ENTRY_KINDS);
     final int[] orderIndexes = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_INDEXES);
     final boolean[] orderAsc = (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_ASC);
     final boolean[] orderEmptyLeast =
         (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_EMPTY_LEAST);
-    if (innerPipe == null || outerKeyAsts == null || outerKeyNames == null || entryKinds == null
-        || orderIndexes == null || orderAsc == null || orderEmptyLeast == null
-        || outerKeyNames.length != outerKeyAsts.length || orderAsc.length != orderIndexes.length
-        || orderEmptyLeast.length != orderIndexes.length || !(compiler instanceof SirixTranslator translator)) {
+    if (innerPipe == null || outerKeyAsts == null || outerKeyNames == null || entryKinds == null || orderIndexes == null
+        || orderAsc == null || orderEmptyLeast == null || outerKeyNames.length != outerKeyAsts.length
+        || orderAsc.length != orderIndexes.length || orderEmptyLeast.length != orderIndexes.length
+        || !(compiler instanceof SirixTranslator translator)) {
       return null;
     }
     final RoutedGroupRequest inner = routedGroupRequest(innerPipe);
@@ -472,8 +471,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
           ? null
           : new SirixGroupAggregateExpr.RoutedSource(databases[side], resources[side],
               translator.routedInstant(txTimes[side]), translator.routedInstant(validTimes[side]));
-      sides[side] = new SirixJoinedGroupAggregateExpr.Side(databases[side], resources[side], routed,
-          revisions[side], joinFields[side]);
+      sides[side] = new SirixJoinedGroupAggregateExpr.Side(databases[side], resources[side], routed, revisions[side],
+          joinFields[side]);
     }
     return new SirixJoinedGroupAggregateExpr(executor, sides, keySides, keyFields, aggFuncs, aggSides, aggFields,
         progSides, progFields, progCode, progConsts, entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast,
@@ -493,8 +492,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /**
-   * The executor-side request an annotated plain pipe describes, or {@code null} when the
-   * annotations are not this strategy's or the shape carries what the correlated route declines.
+   * The executor-side request an annotated plain pipe describes, or {@code null} when the annotations
+   * are not this strategy's or the shape carries what the correlated route declines.
    */
   private static RoutedGroupRequest routedGroupRequest(final AST pipe) {
     final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
@@ -517,8 +516,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     if (lanes == null && hasComputedAggregate(aggFields)) {
       return null;
     }
-    return new RoutedGroupRequest(sourcePath, servedPredicate(pipe), groupFields, keyNames, funcs, aggFields,
-        outNames, lanes);
+    return new RoutedGroupRequest(sourcePath, servedPredicate(pipe), groupFields, keyNames, funcs, aggFields, outNames,
+        lanes);
   }
 
   /**

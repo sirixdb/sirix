@@ -148,8 +148,8 @@ public final class ProjectionIndexScan {
      */
     public static ColumnPredicate recordKeysIn(final long[] sortedKeys) {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
-      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null,
-          null, sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys));
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
+          sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys));
     }
 
     /** Whether this is the index-routed row source ({@link Op#KEY_IN}). */
@@ -398,10 +398,10 @@ public final class ProjectionIndexScan {
     /**
      * Record-key membership {@code recordKey(row) ∈ sortedKeys} — the index-routed row source. The
      * predicate's {@link ColumnPredicate#column} is the virtual KEYS column
-     * ({@link ProjectionColumnStore#KEYS_COLUMN}) and its literal is {@link ColumnPredicate#sortedKeys};
-     * no stored column is read for it. Every row carries a key, so there is no presence to AND. Its
-     * own op so that each exhaustive switch fails to compile rather than compare a key set as a
-     * number, and so that a kernel not taught this form throws by name.
+     * ({@link ProjectionColumnStore#KEYS_COLUMN}) and its literal is
+     * {@link ColumnPredicate#sortedKeys}; no stored column is read for it. Every row carries a key, so
+     * there is no presence to AND. Its own op so that each exhaustive switch fails to compile rather
+     * than compare a key set as a number, and so that a kernel not taught this form throws by name.
      */
     KEY_IN
   }

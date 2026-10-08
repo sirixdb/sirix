@@ -101,9 +101,9 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final Expr genericFallback;
   /**
    * The index-routed source ({@code jn:open-bitemporal('db','res', T, P)}) this pipeline loops over,
-   * or {@code null} for an ordinary document scan. Per evaluation the two instants are evaluated,
-   * the revision is resolved from {@code T}, the valid rows' record keys come from the valid-time
-   * index, and the executor bound to that revision folds exactly those rows as a column mask.
+   * or {@code null} for an ordinary document scan. Per evaluation the two instants are evaluated, the
+   * revision is resolved from {@code T}, the valid rows' record keys come from the valid-time index,
+   * and the executor bound to that revision folds exactly those rows as a column mask.
    */
   private final @Nullable RoutedSource routedSource;
   /** The computed pre-group programs the aggregate lanes named {@code prog:<i>} fold, or null. */
@@ -130,8 +130,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
       final SourceRef sourceRef, final Expr genericFallback) {
-    this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
-        orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+    this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes,
+        orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
         keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, decorPos, decorPrefix, decorSuffix,
         constEntryPos, constEntryNames, constEntryValues, sourceRef, genericFallback, null, null, null);
   }
@@ -225,8 +225,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final SirixVectorizedExecutor executor = lease.executor();
       if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
         return executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
-            aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr,
-            keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having,
+            aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+            keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having,
             computedLanes == null
                 ? null
                 : new SirixVectorizedExecutor.GroupRouting(null, computedLanes));
@@ -237,10 +237,10 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   /**
    * The index-routed source: the rows the opener would materialise, as a record-key mask over the
-   * projection at the revision current at the transaction-time instant. Any trouble on the way —
-   * an instant that is not a dateTime, a resource without valid-time configuration, an executor
-   * bound to another revision, an index that cannot serve the point — declines to the generic
-   * pipeline, which evaluates the very same opener and raises whatever it raises.
+   * projection at the revision current at the transaction-time instant. Any trouble on the way — an
+   * instant that is not a dateTime, a resource without valid-time configuration, an executor bound to
+   * another revision, an index that cannot serve the point — declines to the generic pipeline, which
+   * evaluates the very same opener and raises whatever it raises.
    */
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple)
       throws QueryException {

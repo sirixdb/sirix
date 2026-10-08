@@ -56,8 +56,7 @@ final class IndexRoutedGroupAggregateTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void routedGroupsMatchTheGenericPipelineAtEveryRevisionAndBoundary(final VersioningType versioning)
-      throws Exception {
+  void routedGroupsMatchTheGenericPipelineAtEveryRevisionAndBoundary(final VersioningType versioning) throws Exception {
     build(versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
@@ -109,9 +108,11 @@ final class IndexRoutedGroupAggregateTest {
             let $n := count($value), $old_exposure := sum($value)
             order by $grade
             return {"grade":$grade,"n":$n,"old_exposure":$old_exposure}
-            """.replace("DBNAME", DB).replace("RESNAME", RES).replace("QUANT", anti
-                ? "empty"
-                : "exists");
+            """.replace("DBNAME", DB)
+               .replace("RESNAME", RES)
+               .replace("QUANT", anti
+                   ? "empty"
+                   : "exists");
         final String routedQuery = prolog(txTimes.get(0), validTimes.get(1)) + body.replace("SRC", source());
         final String referenceQuery =
             prolog(txTimes.get(0), validTimes.get(1)) + body.replace("SRC", "(" + source() + ")");
@@ -127,8 +128,9 @@ final class IndexRoutedGroupAggregateTest {
       // a literal document, and with duplicate join values on the hashed side.
       for (final String[] shape : joinShapes()) {
         final String routedQuery = prolog(txTimes.get(2), validTimes.get(1)) + shape[1];
-        final String referenceQuery = prolog(txTimes.get(2), validTimes.get(1)) + shape[1].replace(
-            "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)", "(jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P))");
+        final String referenceQuery = prolog(txTimes.get(2), validTimes.get(1))
+            + shape[1].replace("jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)",
+                "(jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P))");
         final long served = SirixVectorizedExecutor.joinGroupServedCount();
         final String expected = run(chain, ctx, referenceQuery);
         assertEquals(served, SirixVectorizedExecutor.joinGroupServedCount(), "join reference stays generic");
@@ -167,25 +169,25 @@ final class IndexRoutedGroupAggregateTest {
         return {"region":$region,"grade":$grade,"n":$n,"exposure":$exposure}
         """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)},
         new String[] {"opener joined with a literal document, pair count and extrema", """
-        for $c in CONTRACTS
-        for $s in jn:doc('DBNAME','suppliers')[]
-        where $s.id = $c.sid
-        let $tier := $s.tier, $grade := $c.grade, $cost := $c.cost
-        group by $tier,$grade
-        let $pairs := count($c), $lo := min($cost), $hi := max($cost)
-        order by $grade, $tier descending
-        return {"tier":$tier,"grade":$grade,"pairs":$pairs,"lo":$lo,"hi":$hi}
-        """.replace("CONTRACTS", contracts).replace("DBNAME", DB)},
+            for $c in CONTRACTS
+            for $s in jn:doc('DBNAME','suppliers')[]
+            where $s.id = $c.sid
+            let $tier := $s.tier, $grade := $c.grade, $cost := $c.cost
+            group by $tier,$grade
+            let $pairs := count($c), $lo := min($cost), $hi := max($cost)
+            order by $grade, $tier descending
+            return {"tier":$tier,"grade":$grade,"pairs":$pairs,"lo":$lo,"hi":$hi}
+            """.replace("CONTRACTS", contracts).replace("DBNAME", DB)},
         new String[] {"duplicate join values on the hashed side", """
-        for $c in CONTRACTS
-        for $s in SUPPLIERS
-        where $c.grade eq $s.tier
-        let $region := $s.region, $qty := $c.qty
-        group by $region
-        let $n := count($qty), $total := sum($qty)
-        order by $region
-        return {"region":$region,"n":$n,"total":$total}
-        """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)});
+            for $c in CONTRACTS
+            for $s in SUPPLIERS
+            where $c.grade eq $s.tier
+            let $region := $s.region, $qty := $c.qty
+            group by $region
+            let $n := count($qty), $total := sum($qty)
+            order by $region
+            return {"region":$region,"n":$n,"total":$total}
+            """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)});
   }
 
   /** The opener with placeholder instants; a shape supplies them (they may read the outer row). */
@@ -204,24 +206,24 @@ final class IndexRoutedGroupAggregateTest {
         return {"epoch":$epoch,"grade":$grade,"n":$n,"qty_sum":$qty_sum}
         """.replace("DBNAME", DB), "xs:dateTime($e.ts)", "$P"},
         new String[] {"q11: per-day valid instant with an outer where, computed sum", """
-        for $d in jn:doc('DBNAME','days')[]
-        where $d.day_no ge 2 and $d.day_no lt 8
-        for $c in SRC
-        let $day_no := $d.day_no, $grade := $c.grade, $value := $c.cost * $c.qty
-        group by $day_no,$grade
-        let $n := count($value), $exposure := sum($value)
-        order by $day_no,$grade
-        return {"day_no":$day_no,"grade":$grade,"n":$n,"exposure":$exposure}
-        """.replace("DBNAME", DB), "$T", "xs:dateTime($d.ts)"},
+            for $d in jn:doc('DBNAME','days')[]
+            where $d.day_no ge 2 and $d.day_no lt 8
+            for $c in SRC
+            let $day_no := $d.day_no, $grade := $c.grade, $value := $c.cost * $c.qty
+            group by $day_no,$grade
+            let $n := count($value), $exposure := sum($value)
+            order by $day_no,$grade
+            return {"day_no":$day_no,"grade":$grade,"n":$n,"exposure":$exposure}
+            """.replace("DBNAME", DB), "$T", "xs:dateTime($d.ts)"},
         new String[] {"merged outer key: groups of several epochs fold together", """
-        for $e in jn:doc('DBNAME','epochs')[]
-        for $c in SRC
-        let $bucket := $e.epoch idiv 2, $grade := $c.grade, $cost := $c.cost
-        group by $bucket,$grade
-        let $n := count($c), $lo := min($cost), $hi := max($cost), $total := sum($cost)
-        order by $grade descending, $bucket
-        return {"bucket":$bucket,"grade":$grade,"n":$n,"lo":$lo,"hi":$hi,"total":$total}
-        """.replace("DBNAME", DB), "xs:dateTime($e.ts)", "$P"});
+            for $e in jn:doc('DBNAME','epochs')[]
+            for $c in SRC
+            let $bucket := $e.epoch idiv 2, $grade := $c.grade, $cost := $c.cost
+            group by $bucket,$grade
+            let $n := count($c), $lo := min($cost), $hi := max($cost), $total := sum($cost)
+            order by $grade descending, $bucket
+            return {"bucket":$bucket,"grade":$grade,"n":$n,"lo":$lo,"hi":$hi,"total":$total}
+            """.replace("DBNAME", DB), "xs:dateTime($e.ts)", "$P"});
   }
 
   /** {@code {name, body}} pairs; {@code SRC} is the loop source. */
@@ -266,8 +268,7 @@ final class IndexRoutedGroupAggregateTest {
   }
 
   private static String prolog(final String tx, final String valid) {
-    return "declare variable $T := xs:dateTime('" + tx + "');\ndeclare variable $P := xs:dateTime('" + valid
-        + "');\n";
+    return "declare variable $T := xs:dateTime('" + tx + "');\ndeclare variable $P := xs:dateTime('" + valid + "');\n";
   }
 
   private static String source() {
@@ -356,8 +357,9 @@ final class IndexRoutedGroupAggregateTest {
         wtx.moveTo(array);
         // An ORDER EXCEPTION in the projection: a record stored before its siblings with a key above
         // theirs; every evaluator's membership walk must take the binary-search arm for it.
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            row(ROWS + 500, "2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true)), JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(row(ROWS + 500, "2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true)),
+            JsonNodeTrx.Commit.NO);
         wtx.moveTo(array);
         final StringBuilder appended = new StringBuilder();
         for (int k = 0; k < 60; k++) {
@@ -426,8 +428,11 @@ final class IndexRoutedGroupAggregateTest {
       if (day > 0) {
         json.append(',');
       }
-      json.append("{\"day_no\":").append(day).append(",\"ts\":\"")
-          .append(Instant.parse("2024-01-01T00:00:00Z").plusSeconds(day * 20L * 86_400L)).append("\"}");
+      json.append("{\"day_no\":")
+          .append(day)
+          .append(",\"ts\":\"")
+          .append(Instant.parse("2024-01-01T00:00:00Z").plusSeconds(day * 20L * 86_400L))
+          .append("\"}");
     }
     return json.append(']').toString();
   }
@@ -443,7 +448,9 @@ final class IndexRoutedGroupAggregateTest {
       if (id != 3) {
         json.append(",\"region\":\"").append(new String[] {"north", "south", "east", "west"}[id % 4]).append('"');
       }
-      json.append(",\"tier\":").append(id % 4).append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"")
+      json.append(",\"tier\":")
+          .append(id % 4)
+          .append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"")
           .append(id % 9 == 8
               ? "2024-02-10T00:00:00Z"
               : "2025-01-01T00:00:00Z")
@@ -471,12 +478,23 @@ final class IndexRoutedGroupAggregateTest {
 
   private static String row(final int i, final String vf, final String vt, final boolean withQty) {
     final StringBuilder json = new StringBuilder(110);
-    json.append("{\"id\":").append(i + 1).append(",\"pid\":").append(i % 50).append(",\"sid\":").append(i % 7)
-        .append(",\"cost\":").append(1_000 + (i * 37) % 900);
+    json.append("{\"id\":")
+        .append(i + 1)
+        .append(",\"pid\":")
+        .append(i % 50)
+        .append(",\"sid\":")
+        .append(i % 7)
+        .append(",\"cost\":")
+        .append(1_000 + (i * 37) % 900);
     if (withQty) {
       json.append(",\"qty\":").append(1 + i % 23);
     }
-    json.append(",\"grade\":").append(i % 4).append(",\"vf\":\"").append(vf).append("\",\"vt\":\"").append(vt)
+    json.append(",\"grade\":")
+        .append(i % 4)
+        .append(",\"vf\":\"")
+        .append(vf)
+        .append("\",\"vt\":\"")
+        .append(vt)
         .append("\"}");
     return json.toString();
   }

@@ -15,15 +15,15 @@ import java.util.List;
 
 /**
  * A projection's columns under a row mask: the leaves and rows an index-routed row source admits,
- * with the requested fields resident as slices. The build and probe sides of a column-side join, and
- * the two sides of a membership filter, read through this — no record object, no leaf the mask
+ * with the requested fields resident as slices. The build and probe sides of a column-side join,
+ * and the two sides of a membership filter, read through this — no record object, no leaf the mask
  * dropped.
  *
  * <p>
  * Long columns are read from the slice's long lane with its presence; string columns
- * ({@code STRING_DICT}, per-leaf dictionaries) are interned into ONE query-local id space so a value
- * has the same id on every leaf and on either side of a join — built per leaf dictionary entry,
- * never per row. Single-threaded by contract.
+ * ({@code STRING_DICT}, per-leaf dictionaries) are interned into ONE query-local id space so a
+ * value has the same id on every leaf and on either side of a join — built per leaf dictionary
+ * entry, never per row. Single-threaded by contract.
  * </p>
  */
 public final class MaskedColumns {
@@ -62,7 +62,9 @@ public final class MaskedColumns {
     return rowMasks.length;
   }
 
-  /** The admitted rows of {@code leaf} as a bitset, or {@code null} when the leaf is skipped whole. */
+  /**
+   * The admitted rows of {@code leaf} as a bitset, or {@code null} when the leaf is skipped whole.
+   */
   public long @Nullable [] rowMask(final int leaf) {
     return rowMasks[leaf];
   }

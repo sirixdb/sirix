@@ -51,7 +51,9 @@ public final class IndexRoutedSourceStage implements Stage {
   public static final String ROUTED_SOURCE_VALID_TIME = "SIRIX_ROUTED_SOURCE_VALID_TIME";
 
   private static final String SOURCE_PATH = "VECTORIZED_SOURCE_PATH_PREFIX";
-  /** The members of the resource's top-level array — the path the kit's projections are declared on. */
+  /**
+   * The members of the resource's top-level array — the path the kit's projections are declared on.
+   */
   private static final String[] ARRAY_MEMBERS = {"[]"};
 
   @Override

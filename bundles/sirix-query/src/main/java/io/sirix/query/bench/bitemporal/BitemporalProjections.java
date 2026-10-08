@@ -21,16 +21,16 @@ import java.util.Set;
  * The projection (column) index each SH1 business resource declares at E0, beside its valid-time
  * index: every payload field (the integer codes {@code category} and {@code region} included) as a
  * {@code long} column and the two valid-time bounds as string columns (the kit writes fixed-width
- * UTC instants, which sort as time). The index is maintained
- * incrementally by every later publication's commit, and a reader at revision {@code r} sees it as
- * of {@code r}, so a query at any publication reads its columns.
+ * UTC instants, which sort as time). The index is maintained incrementally by every later
+ * publication's commit, and a reader at revision {@code r} sees it as of {@code r}, so a query at
+ * any publication reads its columns.
  *
  * <p>
  * This is what turns the grouped SH1 queries (Q6-Q9, Q11, Q12) into column scans: the valid-time
  * index yields the record keys of the segments valid at the query's instant, and the projection
  * executor folds exactly those rows' {@code grade}, {@code qty}, {@code cost} and {@code sid}
- * columns — no segment object is materialised. The declaration itself is a kit configuration, not
- * a query-time choice.
+ * columns — no segment object is materialised. The declaration itself is a kit configuration, not a
+ * query-time choice.
  * </p>
  */
 public final class BitemporalProjections {
@@ -67,10 +67,10 @@ public final class BitemporalProjections {
   }
 
   /**
-   * Declare the projection over {@code resource}'s array members inside {@code wtx}, which the
-   * caller commits (the E0 commit): the index is built from the inserted records and catalogued with
-   * them, so the first revision already carries its columns. Idempotent per resource: a second call
-   * on a resource that already declares a projection does nothing.
+   * Declare the projection over {@code resource}'s array members inside {@code wtx}, which the caller
+   * commits (the E0 commit): the index is built from the inserted records and catalogued with them,
+   * so the first revision already carries its columns. Idempotent per resource: a second call on a
+   * resource that already declares a projection does nothing.
    *
    * @param session the resource session the write transaction belongs to
    * @param wtx the open write transaction holding the shredded E0 array
@@ -91,8 +91,7 @@ public final class BitemporalProjections {
       fieldTypes.add(type(field));
     }
     final StorageEngineWriter writer = wtx.getStorageEngineWriter();
-    final int indexNumber =
-        writer.getProjectionIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final int indexNumber = writer.getProjectionIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
     final IndexDef definition = IndexDefs.createProjectionIdxDef(Path.parse(ROOT_PATH, PathParser.Type.JSON),
         fieldPaths, fieldTypes, indexNumber, IndexDef.DbType.JSON);
     controller.createIndexes(Set.of(definition), wtx);

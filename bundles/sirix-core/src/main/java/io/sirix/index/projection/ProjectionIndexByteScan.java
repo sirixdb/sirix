@@ -6109,10 +6109,10 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * Row sweep for the index-routed row source over the leaf's INLINE record keys ({@code long[rowCount]}
-   * at {@code keysOff}): row {@code k} matches iff its key is in the sorted set. The same merge walk
-   * the slice kernel runs ({@link ProjectionRecordKeySet#andMembership}), over keys read straight
-   * from the payload into the caller's zeroed {@code out}.
+   * Row sweep for the index-routed row source over the leaf's INLINE record keys
+   * ({@code long[rowCount]} at {@code keysOff}): row {@code k} matches iff its key is in the sorted
+   * set. The same merge walk the slice kernel runs ({@link ProjectionRecordKeySet#andMembership}),
+   * over keys read straight from the payload into the caller's zeroed {@code out}.
    */
   private static void evalRecordKeysInBytes(final byte[] payload, final int keysOff, final int rowCount,
       final long[] sortedKeys, final long[] out) {

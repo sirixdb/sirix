@@ -36,8 +36,8 @@ import java.util.Set;
  * fields or {@code +,-,*} programs of ONE side.
  *
  * <p>
- * Narrow by construction: no post-join selection (a residual predicate over the pair), no
- * aggregate reading both sides, no key transform, and an order-by naming every key.
+ * Narrow by construction: no post-join selection (a residual predicate over the pair), no aggregate
+ * reading both sides, no key transform, and an order-by naming every key.
  * </p>
  */
 public final class JoinedGroupAggregateDetectionStage implements Stage {
@@ -49,7 +49,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   /** Per side: {@code AST} instants of a routed opener ({@code null} entries for a document). */
   public static final String SIDE_TX_TIMES = "SIRIX_JOIN_SIDE_TX_TIMES";
   public static final String SIDE_VALID_TIMES = "SIRIX_JOIN_SIDE_VALID_TIMES";
-  /** Per side: the literal revision of a document source ({@code -1} latest, ignored for an opener). */
+  /**
+   * Per side: the literal revision of a document source ({@code -1} latest, ignored for an opener).
+   */
   public static final String SIDE_REVISIONS = "SIRIX_JOIN_SIDE_REVISIONS";
   /** Per side: the join field. */
   public static final String JOIN_FIELDS = "SIRIX_JOIN_FIELDS";
@@ -133,16 +135,16 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       if (forBind.getType() != XQ.ForBind || forBind.getChildCount() != 3
           || forBind.getChild(0).getType() != XQ.TypedVariableBinding
           || forBind.getChild(1).getType() == XQ.AllowingEmpty
-          || forBind.getChild(1).getType() == XQ.TypedVariableBinding
-          || forBind.getChild(2).getType() != XQ.End || forBind.getChild(2).getChildCount() != 1) {
+          || forBind.getChild(1).getType() == XQ.TypedVariableBinding || forBind.getChild(2).getType() != XQ.End
+          || forBind.getChild(2).getChildCount() != 1) {
         return "join: branch is not a single plain for";
       }
       vars[side] = bindingVarName(forBind);
       if (vars[side] == null) {
         return "join: loop variable is not a name";
       }
-      final String sourceDecline = source(forBind.getChild(1), side, databases, resources, txTimes, validTimes,
-          revisions);
+      final String sourceDecline =
+          source(forBind.getChild(1), side, databases, resources, txTimes, validTimes, revisions);
       if (sourceDecline != null) {
         return sourceDecline;
       }
@@ -439,8 +441,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
 
   private static boolean builtin(final QNm fn) {
     final String ns = fn.getNamespaceURI();
-    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns)
-        || Namespaces.DEFAULT_FN_NSURI.equals(ns);
+    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
   }
 
   private static int indexOf(final List<SideLet> lets, final QNm var) {

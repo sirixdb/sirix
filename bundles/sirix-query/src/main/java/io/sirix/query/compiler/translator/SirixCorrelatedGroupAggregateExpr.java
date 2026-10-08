@@ -38,9 +38,9 @@ import java.util.Map;
  * Serving of the CORRELATED index-routed grouping (see
  * {@code CorrelatedGroupAggregateDetectionStage}): the outer prefix runs as an ordinary operator
  * chain; per outer tuple the outer keys are evaluated by the interpreter and the inner grouping is
- * served from the projection under that tuple's row mask; the served groups are merged on
- * (outer keys, inner keys) with the mergeable aggregates folded ({@code count} and {@code sum}
- * added exactly, {@code min}/{@code max} compared); the real records are assembled and ordered with
+ * served from the projection under that tuple's row mask; the served groups are merged on (outer
+ * keys, inner keys) with the mergeable aggregates folded ({@code count} and {@code sum} added
+ * exactly, {@code min}/{@code max} compared); the real records are assembled and ordered with
  * Brackit's own {@link Ordering} under the pipeline's order-by, which names every key. Any inner
  * serve that declines declines the whole expression to the generic pipeline compiled alongside.
  */
@@ -219,9 +219,9 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
   private static final Sequence DECLINE = new ItemSequence();
 
   /**
-   * Fold one aggregate entry across two outer tuples. {@code count} and {@code sum} add (an empty
-   * sum — an all-missing group — is the identity), {@code min}/{@code max} compare, an empty
-   * extremum is skipped. Only the four mergeable functions are admitted upstream.
+   * Fold one aggregate entry across two outer tuples. {@code count} and {@code sum} add (an empty sum
+   * — an all-missing group — is the identity), {@code min}/{@code max} compare, an empty extremum is
+   * skipped. Only the four mergeable functions are admitted upstream.
    */
   private static @Nullable Sequence merge(final String func, final @Nullable Sequence left,
       final @Nullable Sequence right) {
@@ -313,9 +313,9 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
   }
 
   /**
-   * A group's identity: integer and string atomics compared by value, the empty sequence by
-   * absence. Integers hash by their long value so an {@code Int32} and an {@code Int64} of the same
-   * number meet in one group, exactly as the interpreter's grouping compares them.
+   * A group's identity: integer and string atomics compared by value, the empty sequence by absence.
+   * Integers hash by their long value so an {@code Int32} and an {@code Int64} of the same number
+   * meet in one group, exactly as the interpreter's grouping compares them.
    */
   private static final class GroupKey {
     private final Atomic[] components;

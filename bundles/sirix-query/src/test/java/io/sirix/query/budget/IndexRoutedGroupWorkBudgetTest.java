@@ -60,10 +60,10 @@ import static org.mockito.Mockito.withSettings;
  * </p>
  *
  * <p>
- * Measured (2026-10-08): routed — groupAggregates 1, numericGroupBys 1, groupSliced 1, leavesPruned 4
- * (two prune passes over the same two leaves), cursor moves 0; generic reference — groupAggregates 0,
- * cursor moves ≥ 1,000. With the row source left out of the keep mask, leavesPruned reads 0 and
- * every leaf's columns are fetched.
+ * Measured (2026-10-08): routed — groupAggregates 1, numericGroupBys 1, groupSliced 1, leavesPruned
+ * 4 (two prune passes over the same two leaves), cursor moves 0; generic reference —
+ * groupAggregates 0, cursor moves ≥ 1,000. With the row source left out of the keep mask,
+ * leavesPruned reads 0 and every leaf's columns are fetched.
  * </p>
  */
 @Isolated
@@ -106,17 +106,17 @@ final class IndexRoutedGroupWorkBudgetTest {
         final String source = "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)";
         // Positive control: the generic pipeline over the SAME decorated cursor materialises the
         // valid rows, one cursor move each.
-        final WorkCapture.Captured<String> generic = WorkCapture.of(QueryWorkCounters.ROUTES)
-                                                                .call(() -> run(chain, ctx,
-                                                                    prolog + body.replace("SRC", "(" + source + ")")));
+        final WorkCapture.Captured<String> generic =
+            WorkCapture.of(QueryWorkCounters.ROUTES)
+                       .call(() -> run(chain, ctx, prolog + body.replace("SRC", "(" + source + ")")));
         verify(cursor, atLeast(VALID_ROWS)).moveTo(anyLong());
         generic.work().assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "the reference takes the generic route");
         clearInvocations(cursor);
 
-        final WorkCapture.Captured<String> routed = WorkCapture.of(QueryWorkCounters.ROUTES)
-                                                               .and(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
-                                                               .call(() -> run(chain, ctx,
-                                                                   prolog + body.replace("SRC", source)));
+        final WorkCapture.Captured<String> routed =
+            WorkCapture.of(QueryWorkCounters.ROUTES)
+                       .and(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
+                       .call(() -> run(chain, ctx, prolog + body.replace("SRC", source)));
         assertEquals(generic.result(), routed.result(), "the routed answer must equal the generic one");
         routed.work()
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the grouped aggregate must be served")
@@ -163,7 +163,9 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
-  /** The first {@value #VALID_ROWS} rows are valid through 2025; every later row ended in February. */
+  /**
+   * The first {@value #VALID_ROWS} rows are valid through 2025; every later row ended in February.
+   */
   private static String rows() {
     final StringBuilder json = new StringBuilder(ROWS * 110).append('[');
     for (int i = 0; i < ROWS; i++) {
@@ -173,12 +175,19 @@ final class IndexRoutedGroupWorkBudgetTest {
       final String vt = i < VALID_ROWS
           ? "2025-01-01T00:00:00Z"
           : "2024-02-01T00:00:00Z";
-      json.append("{\"id\":").append(i + 1).append(",\"sid\":").append(i % 7).append(",\"cost\":")
+      json.append("{\"id\":")
+          .append(i + 1)
+          .append(",\"sid\":")
+          .append(i % 7)
+          .append(",\"cost\":")
           .append(1_000 + (i * 37) % 900);
       if (i % 97 != 0) {
         json.append(",\"qty\":").append(1 + i % 23);
       }
-      json.append(",\"grade\":").append(i % 4).append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"").append(vt)
+      json.append(",\"grade\":")
+          .append(i % 4)
+          .append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"")
+          .append(vt)
           .append("\"}");
     }
     return json.append(']').toString();
