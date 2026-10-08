@@ -45,6 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class IndexRoutedGroupAggregateTest {
 
   private static final String DB = "btest";
+  /** A second database whose {@code suppliers} lack one region: a sparse hashed key column. */
+  private static final String GAP_DB = "btest-gap";
   private static final String RES = BitemporalSchema.CONTRACTS;
   private static final int ROWS = 2_600; // three projection leaves, so masks and leaf pruning span leaves
   private static final Instant T0 = Instant.parse("2024-01-15T00:00:00Z");
@@ -138,6 +140,20 @@ final class IndexRoutedGroupAggregateTest {
         assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(),
             "the join grouping must be served: " + shape[0]);
       }
+      // A hashed side whose group-key column has a gap (one supplier without a region): the gap row
+      // carries no key, the sparse column's presence bit says so, and the served answer must match
+      // the generic pipeline's empty-key group exactly.
+      {
+        final String gapQuery = prolog(txTimes.get(2), validTimes.get(1))
+            + joinShapes().get(0)[1].replace("'" + DB + "','suppliers'", "'" + GAP_DB + "','suppliers'");
+        final String gapReference = gapQuery.replace("jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)",
+            "(jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P))");
+        final long served = SirixVectorizedExecutor.joinGroupServedCount();
+        final String expected = run(chain, ctx, gapReference);
+        assertEquals(expected, run(chain, ctx, gapQuery), "gap join versioning=" + versioning);
+        assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(),
+            "a gap in the hashed key column is served through the presence bits");
+      }
       // CORRELATED: an outer loop supplies the opener's instants and some keys (SH1 Q6/Q11); groups
       // of several outer tuples merge when an outer key repeats.
       for (final String[] shape : correlatedShapes()) {
@@ -158,7 +174,7 @@ final class IndexRoutedGroupAggregateTest {
   private static List<String[]> joinShapes() {
     final String contracts = "jn:open-bitemporal('" + DB + "','" + RES + "',$T,$P)";
     final String suppliers = "jn:open-bitemporal('" + DB + "','suppliers',$T,$P)";
-    return List.of(new String[] {"q9: two routed openers, string key from the hashed side", """
+    return List.of(new String[] {"q9: two routed openers, long key from the hashed side", """
         for $c in CONTRACTS
         for $s in SUPPLIERS
         where $c.sid eq $s.id
@@ -178,15 +194,15 @@ final class IndexRoutedGroupAggregateTest {
             order by $grade, $tier descending
             return {"tier":$tier,"grade":$grade,"pairs":$pairs,"lo":$lo,"hi":$hi}
             """.replace("CONTRACTS", contracts).replace("DBNAME", DB)},
-        new String[] {"duplicate join values on the hashed side", """
+        new String[] {"duplicate join values on the hashed side, string key from the hashed side", """
             for $c in CONTRACTS
             for $s in SUPPLIERS
             where $c.grade eq $s.tier
-            let $region := $s.region, $qty := $c.qty
-            group by $region
+            let $region := $s.region, $until := $s.vt, $qty := $c.qty
+            group by $region, $until
             let $n := count($qty), $total := sum($qty)
-            order by $region
-            return {"region":$region,"n":$n,"total":$total}
+            order by $region, $until
+            return {"region":$region,"until":$until,"n":$n,"total":$total}
             """.replace("CONTRACTS", contracts).replace("SUPPLIERS", suppliers)});
   }
 
@@ -290,6 +306,26 @@ final class IndexRoutedGroupAggregateTest {
    * edits grades.
    */
   private void build(final VersioningType versioning) {
+    final Path gapPath = directory.resolve(GAP_DB);
+    Databases.createJsonDatabase(new DatabaseConfiguration(gapPath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(gapPath)) {
+      database.createResource(ResourceConfiguration.newBuilder("suppliers")
+                                                   .validTimePaths("vf", "vt")
+                                                   .customCommitTimestamps(true)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("suppliers");
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(suppliers(true)), JsonNodeTrx.Commit.NO);
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, GAP_DB);
+        BitemporalProjections.declare(session, wtx, "suppliers");
+        wtx.commit("S0", T0);
+      }
+    }
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -321,7 +357,7 @@ final class IndexRoutedGroupAggregateTest {
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession("suppliers");
           JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(suppliers()), JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(suppliers(false)), JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
@@ -437,16 +473,20 @@ final class IndexRoutedGroupAggregateTest {
     return json.append(']').toString();
   }
 
-  /** Twenty suppliers; one lacks its region, two end their validity early, tiers repeat. */
-  private static String suppliers() {
+  /**
+   * Twenty suppliers with the kit's integer region codes; two end their validity early, tiers repeat.
+   * With {@code gap}, one supplier lacks its region: the hashed side's group-key column is sparse and
+   * the column-side join must answer the generic pipeline's empty-key group exactly.
+   */
+  private static String suppliers(final boolean gap) {
     final StringBuilder json = new StringBuilder(2_048).append('[');
     for (int id = 0; id < 20; id++) {
       if (id > 0) {
         json.append(',');
       }
       json.append("{\"id\":").append(id);
-      if (id != 3) {
-        json.append(",\"region\":\"").append(new String[] {"north", "south", "east", "west"}[id % 4]).append('"');
+      if (!gap || id != 3) {
+        json.append(",\"region\":").append(id % 4);
       }
       json.append(",\"tier\":")
           .append(id % 4)

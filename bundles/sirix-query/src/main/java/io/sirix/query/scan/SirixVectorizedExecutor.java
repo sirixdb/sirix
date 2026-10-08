@@ -3108,7 +3108,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return false;
     }
     for (final ProjectionIndexScan.ColumnPredicate leaf : tree.leaves) {
-      if (store.columnKind(leaf.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      // The row source's virtual KEYS column has no stored kind; predsSliceable admitted it above.
+      if (!leaf.isRecordKeySet()
+          && store.columnKind(leaf.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
         return false;
       }
     }
