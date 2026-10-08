@@ -12,6 +12,7 @@ import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrays;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.openhft.hashing.LongTupleHashFunction;
 import org.jspecify.annotations.Nullable;
 
@@ -2300,17 +2301,30 @@ public final class ProjectionColumnScan {
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
     if (p.isRecordKeySet()) {
-      // The row source: a leaf none of whose record keys is in the set contributes no row, whatever
-      // the other predicates say. The exact per-leaf key range comes from the retained KEYS chain
-      // (the keys of a leaf need not ascend, so the descriptor's first/last pair is not a bound).
-      final long[] ranges = store.recordKeyRanges(fetcher);
+      final long[][] keys = store.recordKeys(fetcher);
       final long[] sortedKeys = p.sortedKeys;
+      final Long2ObjectOpenHashMap<long[]> masks = p.keyMasks == null
+          ? ProjectionRecordKeySet.map(sortedKeys, keys)
+          : p.keyMasks;
       int dropped = 0;
       for (int i = 0; i < n; i++) {
         if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
           continue;
         }
-        if (!ProjectionRecordKeySet.anyIn(sortedKeys, ranges[2 * i], ranges[2 * i + 1])) {
+        boolean matched = false;
+        if (keys[i].length > 0) {
+          final long[] mask = masks.get(keys[i][0]);
+          if (mask == null || mask.length != (keys[i].length + 63) >>> 6) {
+            throw new IllegalStateException("record-key mask does not match projection leaf");
+          }
+          for (final long word : mask) {
+            if (word != 0L) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (!matched) {
           keep[i >>> 6] &= ~(1L << (i & 63));
           dropped++;
         }

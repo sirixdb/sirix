@@ -3,7 +3,8 @@
 A secondary index can prove which rows a query reads; the projection (column) index holds those
 rows' fields as columns. This mechanism joins the two: the index's answer becomes a **row mask** over
 the projection, and the projection kernels fold only the masked rows. No record object is
-materialised, and no leaf without a masked row is fetched.
+materialised. BODY segments of leaves whose exact row-source mask is empty are never fetched;
+the KEYS chain supplies the mapping.
 
 The first consumer is the bitemporal opener: a grouped FLWOR over
 `jn:open-bitemporal('db','res', T, P)` is served from the resource's projection at the revision
@@ -25,7 +26,7 @@ Every mask evaluator honours it:
 |---|---|
 | Sliced conjunctive and tree evaluators (`ProjectionColumnScan.evaluateMask*`) | the KEYS column's "slice" is built from the leaf's decoded record keys (`ProjectionColumnStore.recordKeyPredicateView`, `LeafColumnAccess.predicateSlice`) with the leaf's exact key range as its zone; `evalNumeric` runs the membership walk |
 | Whole-leaf byte kernels (`ProjectionIndexByteScan.evalPredicateLeafMask`) | the walk over the payload's inline record keys; the presence AND is skipped |
-| Leaf keep mask (`ProjectionColumnScan.pruneLeaves`) | a leaf none of whose keys (exact range from the retained KEYS chain, memoised in `recordKeyRanges`) is in the set is dropped before any column segment is fetched |
+| Leaf keep mask (`ProjectionColumnScan.pruneLeaves`) | the exact per-leaf membership mask drops leaves with no selected row before any BODY segment fetch, including order-exception leaves whose key ranges overlap the set |
 | Residency and sliceability gates | the virtual column is priced as the KEYS chain, never as a stored column |
 | Page scan (`ProjectionIndexScan.evalColumn`) | refuses by name: the materialising reference path does not serve it |
 
@@ -55,7 +56,8 @@ windowed and legacy multi-key arms decline computed lanes that they cannot consu
 **`count($let)`.** `count` of a let bound to a field is `fn:count` of the field's values in the
 group — the lane's present count, not the row count — and is emitted from that lane. A grouping
 variable is scalar after grouping; aggregates over it retain the generic pipeline. In-kernel
-ordering on such an entry declines; the wrapper's sort applies the order-by.
+ordering on such an entry declines; the wrapper's sort applies the order-by. Constant-key grouping
+uses the same present-count rule for field counts, including double-wrapped counts.
 
 ## Admission
 
@@ -97,7 +99,8 @@ inner grouping — exactly the plain shape, over a synthetic pipe the stage buil
 annotate — is served from the projection under that tuple's row mask; the groups merge on (outer
 keys, inner keys) with `count` and `sum` added exactly and `min`/`max` compared (an `avg` or a
 distinct count would need the lanes behind the emitted value, and declines). The order-by must name
-every key. Executors are resolved per revision through the chain's per-source resolver; a query
+every key. Dependent outer lets retain the generic pipeline because their bindings are not part of
+the separately translated outer-key expressions. Executors are resolved per revision through the chain's per-source resolver; a query
 touching more revisions than the resolver caches re-creates executors as it goes.
 
 **Membership filter** (Q12): `where empty|exists(for $b in SRC2 where $b.f eq $r.g return …)`
@@ -131,4 +134,5 @@ residuals or arithmetic overflow retain the generic `TableJoin` pipeline.
 - `IndexRoutedGroupWorkBudgetTest` (query, work budget): a routed grouping materialises no object
   (no cursor move on the opener's document) and prunes the leaves that hold no admitted key; the
   generic reference over the same decorated cursor is the positive control. BODY segment requests
-  prove excluded leaves are not fetched, and an empty source fills no columns.
+  prove excluded leaves are not fetched, including an order-exception leaf whose key range overlaps
+  the source but whose exact mask is empty. An empty source fills no columns.

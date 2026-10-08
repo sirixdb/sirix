@@ -15,7 +15,9 @@ All notable changes to SirixDB are documented in this file.
   materialising source records; grouped computed aggregates
   (`sum($r.a * $r.b)`) and `count($let)` over grouped values are admitted. Resource identity,
   selector and scalar grouping semantics are enforced before serving; masks are built once and
-  every key and operand fetch honors leaf pruning. The SH1 kit declares a projection per
+  every key and operand fetch honors exact leaf-mask pruning, including order exceptions.
+  Constant-key field counts use present values; dependent correlated outer lets stay generic.
+  The SH1 kit declares a projection per
   business resource at E0. See `docs/INDEX_ROUTED_ROW_SOURCE.md`.
 
 - **Open projection row-group tails** — append-only commits retain base column segments

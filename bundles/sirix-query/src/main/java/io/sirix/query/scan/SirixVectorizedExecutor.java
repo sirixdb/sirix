@@ -18211,9 +18211,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String cfunc = baseFunc(funcs[i]);
       final boolean cdbl = !cfunc.equals(funcs[i]);
       if ("count".equals(cfunc)) {
+        final long count = aggFields[i] == null
+            ? acc[0]
+            : acc[2 + 4 * distinctFields.indexOf(aggFields[i])];
         vals[i] = cdbl
-            ? castToDouble(new Int64(acc[0]))
-            : new Int64(acc[0]);
+            ? castToDouble(new Int64(count))
+            : new Int64(count);
         continue;
       }
       final int a = distinctFields.indexOf(aggFields[i]);

@@ -680,14 +680,6 @@ public final class ProjectionColumnStore {
   private volatile boolean keysCorrupt;
 
   /**
-   * Lazily computed: the EXACT record-key range of every leaf ({@code [2*leaf]} = min,
-   * {@code [2*leaf+1]} = max, the empty sentinel pair for a rowless leaf). The leaf's keys are not
-   * guaranteed ascending (order exceptions), so the descriptor's first/last pair is not a bound and
-   * the range is taken from the decoded KEYS chain. See {@link #recordKeyRanges}.
-   */
-  private volatile long @Nullable [] recordKeyRanges;
-
-  /**
    * Lazily computed per STRING_DICT column: the two smallest and two largest REFERENCED values of
    * every leaf, as dict ids and materialized bytes. See {@link #stringValueExtrema}.
    */
@@ -3180,35 +3172,6 @@ public final class ProjectionColumnStore {
       }
     }
     return new ColumnSlice(leafKeys.length, (byte) 0, min, max, ALL_PRESENT_WORDS, leafKeys, null, null, null, null);
-  }
-
-  /**
-   * The exact per-leaf record-key ranges, memoised: {@code [2*leaf]} = min, {@code [2*leaf+1]} = max,
-   * or the empty sentinel pair ({@code MAX_VALUE, MIN_VALUE}) for a rowless leaf. Built from the
-   * retained KEYS chain ({@link #recordKeys}), so the first call pays the key fill the sorted
-   * collections pay too; every later call reads the memo.
-   */
-  public long[] recordKeyRanges(final ColumnSegmentFetcher fetcher) {
-    long[] ranges = recordKeyRanges;
-    if (ranges != null) {
-      return ranges;
-    }
-    final long[][] keys = recordKeys(fetcher);
-    final long[] built = new long[2 * keys.length];
-    final long[] range = new long[2];
-    for (int leaf = 0; leaf < keys.length; leaf++) {
-      ProjectionRecordKeySet.keyRange(keys[leaf], range);
-      built[2 * leaf] = range[0];
-      built[2 * leaf + 1] = range[1];
-    }
-    synchronized (this) {
-      ranges = recordKeyRanges;
-      if (ranges != null) {
-        return ranges;
-      }
-      recordKeyRanges = built;
-    }
-    return built;
   }
 
   /**

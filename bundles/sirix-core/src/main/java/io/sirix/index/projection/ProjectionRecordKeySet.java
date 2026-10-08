@@ -109,29 +109,6 @@ public final class ProjectionRecordKeySet {
   }
 
   /**
-   * Exact min and max of a leaf's record keys, written to {@code out2}. The keys of a leaf are NOT
-   * guaranteed ascending (order exceptions), so first/last is not a bound; this is.
-   *
-   * @return {@code false} for a rowless leaf (then {@code out2} holds the empty sentinel pair
-   *         {@code MAX_VALUE, MIN_VALUE})
-   */
-  static boolean keyRange(final long[] leafKeys, final long[] out2) {
-    long min = Long.MAX_VALUE;
-    long max = Long.MIN_VALUE;
-    for (final long key : leafKeys) {
-      if (key < min) {
-        min = key;
-      }
-      if (key > max) {
-        max = key;
-      }
-    }
-    out2[0] = min;
-    out2[1] = max;
-    return leafKeys.length > 0;
-  }
-
-  /**
    * AND the membership of each row's record key into {@code mask}: bit {@code row} stays set iff it
    * was set and {@code keys[row]} is in the set. Only the first {@code ceil(rowCount/64)} words are
    * touched; tail bits beyond {@code rowCount} are left as the caller had them (every caller fills

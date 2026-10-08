@@ -176,6 +176,26 @@ final class IndexRoutedGroupAggregateTest {
       final BasicJsonDBStore store, final List<String> txTimes, final List<String> validTimes) throws Exception {
     final String smallSource = "jn:open-bitemporal('" + DB + "','small-a',$T,$P)";
     final String smallProlog = prolog(txTimes.get(1), validTimes.get(1));
+    final String countSource = "jn:doc('" + DB + "','counts')[]";
+    for (final String aggregate : new String[] {"count($q)", "xs:double(count($q))"}) {
+      for (final boolean postGroup : new boolean[] {false, true}) {
+        final String query = "for $c in " + countSource + " let $g := 1, $q := $c.qty group by $g" + (postGroup
+            ? " let $n := " + aggregate
+            : "") + " return {'n':"
+            + (postGroup
+                ? "$n"
+                : aggregate)
+            + ",'rows':count($c)}";
+        final long before = SirixVectorizedExecutor.constGroupAggServedCount();
+        final String expected = run(chain, ctx, query.replace(countSource, "(" + countSource + ")"));
+        if (aggregate.equals("count($q)")) {
+          assertEquals("{\"n\":1,\"rows\":2}", expected);
+        }
+        assertEquals(before, SirixVectorizedExecutor.constGroupAggServedCount(), "constant reference stays generic");
+        assertEquals(expected, run(chain, ctx, query));
+        assertEquals(before + 1, SirixVectorizedExecutor.constGroupAggServedCount(), "constant field count is served");
+      }
+    }
     for (final String aggregate : new String[] {"count($grade)", "sum($grade)"}) {
       final String query = smallProlog + "for $c in " + smallSource
           + " let $grade := $c.grade group by $grade order by $grade return {'grade':$grade,'n':" + aggregate + "}";
@@ -206,6 +226,8 @@ final class IndexRoutedGroupAggregateTest {
     assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
     final String scalarJoin = positional.replace("[0]", "[]").replace("count($v)", "count($grade)");
     assertEquals("{\"grade\":7,\"n\":1}", run(chain, ctx, scalarJoin));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    assertEquals("{\"grade\":7,\"n\":7}", run(chain, ctx, scalarJoin.replace("count($grade)", "sum($grade)")));
     assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
     final String correction = "for $a in " + source().replace("$T", "xs:dateTime('" + txTimes.get(0) + "')")
         + " for $b in " + source().replace("$T", "xs:dateTime('" + txTimes.get(4) + "')")
@@ -264,6 +286,9 @@ final class IndexRoutedGroupAggregateTest {
         final long scalarServed = SirixVectorizedExecutor.groupAggServedCount();
         assertEquals(run(generic, ctx, scalar), run(chain, ctx, scalar));
         assertEquals(scalarServed, SirixVectorizedExecutor.groupAggServedCount(), "correlated scalar key declines");
+        final String scalarSum = query.replace("count($qty)", "sum($grade)");
+        assertEquals(run(generic, ctx, scalarSum), run(chain, ctx, scalarSum));
+        assertEquals(scalarServed, SirixVectorizedExecutor.groupAggServedCount(), "correlated scalar sum declines");
         final String scan = prolog
             + shapes().get(0)[1].replace("SRC", "jn:scan-valid-time-index(jn:open('" + DB + "','" + RES + "',$T),$P)");
         final long scanServed = SirixVectorizedExecutor.groupAggServedCount();
@@ -271,6 +296,13 @@ final class IndexRoutedGroupAggregateTest {
         assertEquals(scanServed + 1, SirixVectorizedExecutor.groupAggServedCount(),
             "public closed index scan is served");
       }
+      final String dependent = smallProlog + "for $e in jn:doc('" + DB + "','epochs')[] for $c in " + smallSource
+          + " let $epoch := $e.epoch, $bucket := $epoch idiv 2, $grade := $c.grade, $cost := $c.cost"
+          + " group by $epoch,$bucket,$grade let $n := count($cost) order by $epoch,$bucket,$grade"
+          + " return {'epoch':$epoch,'bucket':$bucket,'grade':$grade,'n':$n}";
+      final long dependentServed = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(run(generic, ctx, dependent), run(chain, ctx, dependent));
+      assertEquals(dependentServed, SirixVectorizedExecutor.groupAggServedCount(), "dependent outer lets decline");
       final String body = shapes().get(0)[1];
       final String otherSource = smallSource.replace("small-a", "small-b");
       final String query = smallProlog + body.replace("SRC", otherSource);
@@ -470,6 +502,19 @@ final class IndexRoutedGroupAggregateTest {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("counts")
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("counts");
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"qty\":3},{}]"), JsonNodeTrx.Commit.NO);
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        BitemporalProjections.declare(session, wtx, RES);
+        wtx.commit();
+      }
       for (final String resource : new String[] {"small-a", "small-b"}) {
         database.createResource(ResourceConfiguration.newBuilder(resource)
                                                      .validTimePaths("vf", "vt")

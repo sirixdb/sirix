@@ -73,7 +73,7 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   @Test
   void routedGroupReadsOnlyMaskedLeavesAndMaterialisesNoObjects() throws Exception {
-    build();
+    build(false);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build()) {
       final JsonDBCollection realCollection = store.lookup(DB);
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(realCollection));
@@ -136,6 +136,35 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
+  @Test
+  void persistedOrderExceptionPrunesLeavesWithoutSelectedRows() throws Exception {
+    build(true);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String query =
+          """
+              for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),xs:dateTime('2024-06-01T00:00:00Z'))
+              let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty
+              group by $grade
+              let $n := count($qty), $exposure := sum($value)
+              order by $grade
+              return {"grade":$grade,"n":$n,"exposure":$exposure}
+              """;
+      final WorkCapture.Captured<String> routed = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                                             .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                             .call(() -> run(chain, ctx, query));
+      assertEquals("{\"grade\":0,\"n\":1,\"exposure\":13200}", routed.result());
+      routed.work()
+            .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the reordered source is served")
+            .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
+                "only the leaf with the selected row supplies key and operand bodies");
+      final String reference = query.replace("in jn:open-bitemporal(", "in (jn:open-bitemporal(")
+                                    .replace("'2024-06-01T00:00:00Z'))", "'2024-06-01T00:00:00Z')))");
+      assertEquals(run(chain, ctx, reference), routed.result());
+    }
+  }
+
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
       throws Exception {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream(); final PrintWriter pw = new PrintWriter(out)) {
@@ -145,7 +174,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
-  private void build() {
+  private void build(final boolean orderException) {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -156,28 +185,36 @@ final class IndexRoutedGroupWorkBudgetTest {
                                                    .storeDiffs(false)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows()), JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException)), JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
         BitemporalProjections.declare(session, wtx, RES);
         wtx.commit("E0", Instant.parse("2024-01-15T00:00:00Z"));
+        if (orderException) {
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+              {"id":2601,"sid":0,"cost":1,"qty":1,"grade":0,
+               "vf":"2024-01-01T00:00:00Z","vt":"2024-02-01T00:00:00Z"}
+              """), JsonNodeTrx.Commit.NO);
+          wtx.commit("E1", Instant.parse("2024-01-16T00:00:00Z"));
+        }
       }
     }
   }
 
-  /**
-   * The first {@value #VALID_ROWS} rows are valid through 2025; every later row ended in February.
-   */
-  private static String rows() {
+  private static String rows(final boolean orderException) {
     final StringBuilder json = new StringBuilder(ROWS * 110).append('[');
     for (int i = 0; i < ROWS; i++) {
       if (i > 0) {
         json.append(',');
       }
-      final String vt = i < VALID_ROWS
-          ? "2025-01-01T00:00:00Z"
-          : "2024-02-01T00:00:00Z";
+      final String vt = (orderException
+          ? i == VALID_ROWS
+          : i < VALID_ROWS)
+              ? "2025-01-01T00:00:00Z"
+              : "2024-02-01T00:00:00Z";
       json.append("{\"id\":")
           .append(i + 1)
           .append(",\"sid\":")

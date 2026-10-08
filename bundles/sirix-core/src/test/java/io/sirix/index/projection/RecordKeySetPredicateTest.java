@@ -13,6 +13,8 @@ import io.sirix.index.projection.ProjectionIndexScan.Op;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -225,6 +227,90 @@ final class RecordKeySetPredicateTest {
             }
           }
         }
+      }
+    }
+  }
+
+  @Test
+  void orderExceptionLeafWithAnEmptyExactMaskNeverRequestsBodies() throws Exception {
+    for (final boolean prepared : new boolean[] {false, true}) {
+      for (final boolean tree : new boolean[] {false, true}) {
+        final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+        final long[][] leafKeys = {{1, 1_000_000, 3}, {1_001}, {2_001}};
+        final long[] values = {7, 2, 3};
+        final boolean[] presence = {true, true, true};
+        final List<RowGroupDirectory> directories = new ArrayList<>(leafKeys.length);
+        final Long2ObjectOpenHashMap<byte[]> segments = new Long2ObjectOpenHashMap<>();
+        final LongOpenHashSet excludedBodies = new LongOpenHashSet();
+        final LongOpenHashSet keptBodies = new LongOpenHashSet();
+        final LongOpenHashSet fetched = new LongOpenHashSet();
+        long offset = 1;
+        for (int leaf = 0; leaf < leafKeys.length; leaf++) {
+          final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds.clone());
+          for (int row = 0; row < leafKeys[leaf].length; row++) {
+            page.appendExtractedUtf8Row(leafKeys[leaf][row], values, new boolean[kinds.length],
+                new byte[kinds.length][], new int[kinds.length], null, presence, new boolean[kinds.length],
+                new boolean[kinds.length], new boolean[kinds.length], leaf == 0 && row == 1);
+          }
+          final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+          final int[] ids = encoded.columnSegmentIds();
+          final long[] offsets = new long[ids.length];
+          for (int segment = 0; segment < ids.length; segment++) {
+            offsets[segment] = offset;
+            segments.put(offset, encoded.segments()[segment]);
+            for (int column = 0; column < kinds.length; column++) {
+              if (ids[segment] == ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column)) {
+                (leaf == 1
+                    ? keptBodies
+                    : excludedBodies).add(offset);
+              }
+            }
+            offset++;
+          }
+          directories.add(new RowGroupDirectory(leaf + 1, encoded.descriptor(), ids, offsets, new byte[ids.length][]));
+        }
+        final ColumnSegmentFetcher fetcher = wanted -> {
+          final byte[][] result = new byte[wanted.length][];
+          for (int i = 0; i < wanted.length; i++) {
+            assertFalse(excludedBodies.contains(wanted[i]), "a leaf without an exact match requested a BODY segment");
+            fetched.add(wanted[i]);
+            result[i] = segments.get(wanted[i]);
+          }
+          return result;
+        };
+        final ProjectionColumnStore store = new ProjectionColumnStore(directories);
+        final ColumnPredicate predicate = prepared
+            ? ColumnPredicate.recordKeysIn(new long[] {1_001}, store.recordKeys(fetcher))
+            : ColumnPredicate.recordKeysIn(new long[] {1_001});
+        final ColumnPredicate[] predicates = {predicate};
+        final PredicateTree predicateTree = tree
+            ? PredicateTree.of(predicates, new byte[] {0})
+            : null;
+        final ColumnPredicate[] flatPredicates = tree
+            ? new ColumnPredicate[0]
+            : predicates;
+        final WorkCapture.Captured<long[]> read = WorkCapture.of(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
+                                                             .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                                             .call(() -> {
+                                                               final long[] keep =
+                                                                   ProjectionColumnScan.predicateKeepMask(store,
+                                                                       flatPredicates, predicateTree, fetcher);
+                                                               for (int column = 0; column < kinds.length; column++) {
+                                                                 final ColumnSlice[] slices =
+                                                                     store.columnMaskedView(column, fetcher, keep);
+                                                                 assertEquals(0, slices[0].rowCount());
+                                                                 assertEquals(values[column],
+                                                                     slices[1].numericValues()[0]);
+                                                                 assertEquals(0, slices[2].rowCount());
+                                                               }
+                                                               return keep;
+                                                             });
+        assertArrayEquals(new long[] {2}, read.result());
+        read.work()
+            .assertExactly(EngineWorkCounters.PROJECTION_LEAVES_PRUNED, 2, "only the leaf holding key 1001 remains")
+            .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, kinds.length, "one BODY per requested column");
+        assertTrue(fetched.containsAll(keptBodies), "the kept leaf proves BODY fetches were observed");
       }
     }
   }

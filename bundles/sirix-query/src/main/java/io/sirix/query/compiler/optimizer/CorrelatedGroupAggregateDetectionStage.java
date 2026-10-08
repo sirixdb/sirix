@@ -133,10 +133,7 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
         return "let: variable shadows a loop var or an earlier binding";
       }
       final AST bound = current.getChild(1);
-      final Set<Object> outerSide = new HashSet<>();
-      outerSide.add(outerVar);
-      outerSide.addAll(outerLetVars);
-      if (onlyReferences(bound, outerSide, Set.of())) {
+      if (onlyReferences(bound, Set.of(outerVar), Set.of())) {
         outerLets.add(current);
         outerLetVars.add(letVar);
       } else if (onlyReferences(bound, Set.of(innerVar), innerLetVars)) {
