@@ -7,6 +7,7 @@ import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
@@ -46,6 +47,18 @@ public final class EngineWorkCounters {
   public static final WorkCounter VALID_TIME_POSTING_CHUNKS = WorkCounter.gated("validTime.postingChunks",
       "one compressed posting chunk read without enumerating its references", HotOrderedStore::postingChunksRead,
       "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
+  // ===== Projection leaf pruning ===========================================
+
+  /**
+   * Leaves a projection scan dropped from its keep mask before any column segment was fetched —
+   * descriptor zones, string fingerprints, and the index-routed row source's record-key ranges. A
+   * masked scan over N leaves of which K hold an admitted key must read K leaves: this is the
+   * figure that says the other N − K were never fetched.
+   */
+  public static final WorkCounter PROJECTION_LEAVES_PRUNED = WorkCounter.alwaysOn("projection.leavesPruned",
+      "one projection leaf dropped by a scan's keep mask before its segments were fetched",
+      ProjectionColumnScan::leavesPrunedCount);
 
   // ===== HOT leaf pages =====================================================
 

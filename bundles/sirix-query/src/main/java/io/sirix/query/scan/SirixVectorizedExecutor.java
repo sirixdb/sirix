@@ -3054,6 +3054,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[] deferredCols) {
     final IntArrayList out =
         new IntArrayList(preds.length + groupCols.length + aggCols.length + deferredCols.length + 4);
+    // The row source's virtual KEYS column stays in the list: the store prices the KEYS chain for it.
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
       out.add(p.column);
     }
@@ -3146,7 +3147,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return false;
     }
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
-      if (!store.columnFillable(p.column)) {
+      if (!p.isRecordKeySet() && !store.columnFillable(p.column)) {
         return false;
       }
     }
@@ -3252,6 +3253,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
+      if (p.isRecordKeySet()) {
+        continue; // the row source reads the KEYS lane every store carries; nothing to slice
+      }
       if (!store.columnSliceable(p.column)) {
         return false;
       }
@@ -15835,8 +15839,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // its literal is chosen per leaf from that leaf's own cells, which only a slice exposes. The
       // whole-leaf byte kernels have no arm for the kind at all and would refuse the page.
       final boolean segmentScopedPredicate = anySegmentScopedPredicate(preds) || anySegmentScopedPredicate(tree);
+      // An index-routed request claims the sliced route the same way: its row source prunes the
+      // leaves no admitted key falls in, which a whole-leaf scan over promoted payloads cannot, and
+      // its derived lanes exist only as resident slices.
       final boolean slicedKinds = GROUP_SLICED_ENABLED && !wholeLeafOnly && groupStore != null
-          && (!handle.payloadsMaterialized() || hasSegmentComponent || segmentScopedPredicate) && (tree == null
+          && (!handle.payloadsMaterialized() || hasSegmentComponent || segmentScopedPredicate || routing != null
+              || anyDerivedLane)
+          && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceableKind(groupStore, tree))
           && allColumnsSliceableKind(groupStore, groupCols) && allColumnsSliceableKind(groupStore, aggColsFlat);

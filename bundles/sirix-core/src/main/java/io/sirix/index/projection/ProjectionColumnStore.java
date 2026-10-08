@@ -2832,7 +2832,18 @@ public final class ProjectionColumnStore {
     final StringBuilder diag = Boolean.getBoolean("sirix.projDiag")
         ? new StringBuilder()
         : null;
+    boolean keysPriced = false;
+    int storedColumns = 0;
     for (final int col : columns) {
+      if (col == KEYS_COLUMN) {
+        // The row source's virtual column is the KEYS chain, priced once unless already retained.
+        if (!keysPriced && recordKeySlices == null) {
+          needed += projectedRecordKeysFillBytes();
+        }
+        keysPriced = true;
+        continue;
+      }
+      storedColumns++;
       if (col < 0 || col >= columnKinds.length) {
         return false;
       }
@@ -2859,7 +2870,17 @@ public final class ProjectionColumnStore {
             .append("MB");
       }
     }
-    final boolean fits = fitsMakingRoom(needed, columns, false);
+    int[] stored = columns;
+    if (storedColumns != columns.length) {
+      stored = new int[storedColumns];
+      int at = 0;
+      for (final int col : columns) {
+        if (col != KEYS_COLUMN) {
+          stored[at++] = col;
+        }
+      }
+    }
+    final boolean fits = fitsMakingRoom(needed, stored, keysPriced);
     if (diag != null && !fits) {
       System.err.println("[store] combined fit REFUSED: needed=" + (needed >> 20) + "MB retained="
           + (retainedFillBytes.get() >> 20) + "MB budget=" + (residencyBudgetBytes() >> 20) + "MB" + diag);
