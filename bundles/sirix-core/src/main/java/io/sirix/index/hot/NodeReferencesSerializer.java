@@ -650,10 +650,12 @@ public final class NodeReferencesSerializer {
 
   /**
    * Accumulates a lookup's chunk payloads into the cheapest sufficient representation: a sorted
-   * {@code long[]} while the result stays small (the average CAS posting list holds one or two node
-   * keys), spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT}. The emitted
-   * {@link NodeReferences#ofSortedArray} result costs one right-sized array + one wrapper instead of
-   * a bitmap container tree per lookup — the single largest allocation the read path had left.
+   * {@code long[]} for small packed chunks (the average CAS posting list holds one or two node keys),
+   * spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT}. An owned Roaring payload in
+   * the first zero-based chunk is retained directly, avoiding enumeration for chunk-local counts. The
+   * emitted {@link NodeReferences#ofSortedArray} result costs one right-sized array + one wrapper
+   * instead of a bitmap container tree per lookup — the single largest allocation the read path had
+   * left.
    *
    * <p>
    * Sortedness precondition: chunks must be appended in ascending composite-key order (the chunk
@@ -921,6 +923,12 @@ public final class NodeReferencesSerializer {
         if (!chunkBitmap.isEmpty()) {
           requireChunkBit16(chunkBitmap.last());
         }
+        if (high == 0 && count == 0 && bitmap == null) {
+          // Deserialization owns this bitmap. Keep it directly for a chunk-local lookup (or
+          // the first full-key chunk), so cardinality does not enumerate and rebuild its bits.
+          bitmap = chunkBitmap;
+          return true;
+        }
         final LongIterator it = chunkBitmap.getLongIterator();
         while (it.hasNext()) {
           add(high | it.next());
@@ -992,6 +1000,10 @@ public final class NodeReferencesSerializer {
         if (!chunkBitmap.isEmpty()) {
           requireChunkBit16(chunkBitmap.last());
         }
+        if (high == 0 && count == 0 && bitmap == null) {
+          bitmap = chunkBitmap;
+          return true;
+        }
         final LongIterator it = chunkBitmap.getLongIterator();
         while (it.hasNext()) {
           add(high | it.next());
@@ -1002,8 +1014,8 @@ public final class NodeReferencesSerializer {
     }
 
     /**
-     * Emit the accumulated result — compact when it stayed small, bitmap-backed when it spilled — and
-     * reset for reuse. {@code null} when nothing live was accumulated.
+     * Emit the accumulated result — compact for small packed lists, otherwise bitmap-backed — and reset
+     * for reuse. {@code null} when nothing live was accumulated.
      */
     public @Nullable NodeReferences toNodeReferencesAndReset() {
       final Roaring64Bitmap spilled = bitmap;
