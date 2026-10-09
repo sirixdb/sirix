@@ -22,6 +22,7 @@ import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.update.op.UpdateOp;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.jdm.DocumentException;
@@ -85,7 +86,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final boolean isWtx;
 
   /** {@link Scope} of node. */
-  private SirixScope scope;
+  private @Nullable SirixScope scope;
 
   /**
    * Constructor.
@@ -102,6 +103,46 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     deweyID = this.rtx.getResourceSession().getResourceConfig().areDeweyIDsStored
         ? this.rtx.getDeweyID()
         : null;
+  }
+
+  private XmlDBNode(final XmlNodeTrx reader, final XmlDBNode source) {
+    collection = source.collection;
+    rtx = reader;
+    isWtx = true;
+    nodeKey = source.nodeKey;
+    kind = source.kind;
+    deweyID = source.deweyID;
+  }
+
+  /** Apply to this private writer target, skipping nodes removed by earlier pending operations. */
+  public void applyUpdate(final UpdateOp operation) {
+    requireNonNull(operation);
+    if (!isWtx) {
+      throw new IllegalStateException("Update execution requires a writer target");
+    }
+    if (rtx.moveTo(nodeKey)) {
+      operation.apply(this);
+    }
+  }
+
+  /**
+   * Create an execution-owned target for the same stored resource without rebinding this node's
+   * reader. A removed target retains its metadata for pending-update conflict checks.
+   *
+   * @param writer execution writer for this node's database and resource
+   * @return a new private writer node, including for a target that no longer exists
+   * @throws IllegalArgumentException if the writer belongs to a different database or resource
+   */
+  public XmlDBNode writerView(final XmlNodeTrx writer) {
+    requireNonNull(writer);
+    final ResourceConfiguration resource = rtx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration writerResource = writer.getResourceSession().getResourceConfig();
+    if (resource.getDatabaseId() != writerResource.getDatabaseId() || resource.getID() != writerResource.getID()) {
+      throw new IllegalArgumentException("Writer belongs to a different resource");
+    }
+    return writer.moveTo(nodeKey)
+        ? new XmlDBNode(writer, collection)
+        : new XmlDBNode(writer, this);
   }
 
   /** Optional dewey ID. */
@@ -242,7 +283,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode node && isSameDocument(node)) {
       assert node.getNodeClassID() == this.getNodeClassID();
       if (deweyID != null) {
-        retVal = deweyID.isAncestorOf(node.deweyID);
+        retVal = deweyID.isAncestorOrSelfOf(node.deweyID);
       } else {
         if (isSelfOf(other)) {
           retVal = true;
@@ -434,7 +475,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Scope getScope() {
+  public @Nullable Scope getScope() {
     if (scope == null && kind == NodeKind.ELEMENT) {
       scope = new SirixScope(this);
     }
@@ -1552,13 +1593,11 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return 0;
     }
 
-    // Compare collection IDs.
-    final int firstCollectionID = collection.getID();
-    final int secondCollectionID = ((XmlDBCollection) otherNode.getCollection()).getID();
-    if (firstCollectionID != secondCollectionID) {
-      return firstCollectionID < secondCollectionID
-          ? -1
-          : 1;
+    // Collection handles may be aliases. Identity and order use the stored database identity.
+    final long firstDatabaseID = rtx.getResourceSession().getResourceConfig().getDatabaseId();
+    final long secondDatabaseID = ((XmlDBNode) otherNode).rtx.getResourceSession().getResourceConfig().getDatabaseId();
+    if (firstDatabaseID != secondDatabaseID) {
+      return Long.compare(firstDatabaseID, secondDatabaseID);
     }
 
     // Compare document IDs.
@@ -1571,10 +1610,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
 
     // Temporal extension.
-    final Integer revision = rtx.getRevisionNumber();
+    final int revision = rtx.getRevisionNumber();
     final int otherRevision = ((XmlDBNode) otherNode).rtx.getRevisionNumber();
     if (revision != otherRevision) {
-      return revision.compareTo(otherRevision);
+      return Integer.compare(revision, otherRevision);
     }
 
     // Then compare node keys.
@@ -1587,112 +1626,106 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       return deweyID.compareTo(((XmlDBNode) otherNode).deweyID);
     }
 
-    try {
-      final XmlDBNode firstParent = this.getParent();
-      if (firstParent == null) {
-        // First node is the root.
-        return -1;
-      }
+    // Failed traversal must propagate: it cannot establish equality of distinct identities.
+    final XmlDBNode firstParent = this.getParent();
+    if (firstParent == null) {
+      // First node is the root.
+      return -1;
+    }
 
-      final XmlDBNode secondParent = (XmlDBNode) otherNode.getParent();
-      if (secondParent == null) {
-        // Second node is the root.
+    final XmlDBNode secondParent = (XmlDBNode) otherNode.getParent();
+    if (secondParent == null) {
+      // Second node is the root.
+      return +1;
+    }
+
+    // Do they have the same parent (common case)?
+    if (firstParent.getNodeKey() == secondParent.getNodeKey()) {
+      return compareSiblings((XmlDBNode) otherNode);
+    }
+
+    // Find the depths of both nodes in the tree.
+    int depth1 = 0;
+    int depth2 = 0;
+    XmlDBNode p1 = this;
+    XmlDBNode p2 = (XmlDBNode) otherNode;
+    while (p1 != null) {
+      depth1++;
+      p1 = p1.getParent();
+    }
+    while (p2 != null) {
+      depth2++;
+      p2 = p2.getParent();
+    }
+
+    // Move up one branch of the tree so we have two nodes on the same level.
+    p1 = this;
+    while (depth1 > depth2) {
+      p1 = p1.getParent();
+      assert p1 != null;
+      if (p1.getNodeKey() == ((XmlDBNode) otherNode).getNodeKey()) {
         return +1;
       }
+      depth1--;
+    }
 
-      // Do they have the same parent (common case)?
-      if (firstParent.getNodeKey() == secondParent.getNodeKey()) {
-        final int cat1 = nodeCategories(this.getKind());
-        final int cat2 = nodeCategories(otherNode.getKind());
-        if (cat1 == cat2) {
-          final XmlDBNode other = (XmlDBNode) otherNode;
-          if (cat1 == 1) {
-            rtx.moveToParent();
-            for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
-              rtx.moveToNamespace(i);
-              if (rtx.getNodeKey() == other.nodeKey) {
-                return +1;
-              }
-              if (rtx.getNodeKey() == this.nodeKey) {
-                return -1;
-              }
-              rtx.moveToParent();
-            }
-          }
-          if (cat1 == 2) {
-            rtx.moveToParent();
-            for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
-              rtx.moveToAttribute(i);
-              if (rtx.getNodeKey() == other.nodeKey) {
-                return +1;
-              }
-              if (rtx.getNodeKey() == this.nodeKey) {
-                return -1;
-              }
-              rtx.moveToParent();
-            }
-          }
-          return this.getSiblingPosition() - ((XmlDBNode) otherNode).getSiblingPosition();
+    p2 = ((XmlDBNode) otherNode);
+    while (depth2 > depth1) {
+      p2 = p2.getParent();
+      assert p2 != null;
+      if (p2.getNodeKey() == this.getNodeKey()) {
+        return -1;
+      }
+      depth2--;
+    }
+
+    // Now move up both branches in sync until we find a common parent.
+    while (true) {
+      final XmlDBNode par1 = p1.getParent();
+      final XmlDBNode par2 = p2.getParent();
+      if (par1 == null || par2 == null) {
+        throw new NullPointerException("Node order comparison - internal error");
+      }
+      if (par1.getNodeKey() == par2.getNodeKey()) {
+        return p1.compareSiblings(p2);
+      }
+      p1 = par1;
+      p2 = par2;
+    }
+
+  }
+
+  /** Order nonstructural siblings before children, always from an explicit cursor position. */
+  private int compareSiblings(final XmlDBNode other) {
+    final int category = nodeCategories(getKind());
+    final int categoryOrder = category - nodeCategories(other.getKind());
+    if (categoryOrder != 0) {
+      return categoryOrder;
+    }
+    if (category == 1 || category == 2) {
+      moveRtx();
+      rtx.moveToParent();
+      final long parentKey = rtx.getNodeKey();
+      final int count = category == 1
+          ? rtx.getNamespaceCount()
+          : rtx.getAttributeCount();
+      for (int i = 0; i < count; i++) {
+        rtx.moveTo(parentKey);
+        if (category == 1) {
+          rtx.moveToNamespace(i);
         } else {
-          return cat1 - cat2;
+          rtx.moveToAttribute(i);
         }
-      }
-
-      // Find the depths of both nodes in the tree.
-      int depth1 = 0;
-      int depth2 = 0;
-      XmlDBNode p1 = this;
-      XmlDBNode p2 = (XmlDBNode) otherNode;
-      while (p1 != null) {
-        depth1++;
-        p1 = p1.getParent();
-      }
-      while (p2 != null) {
-        depth2++;
-        p2 = p2.getParent();
-      }
-
-      // Move up one branch of the tree so we have two nodes on the same level.
-      p1 = this;
-      while (depth1 > depth2) {
-        p1 = p1.getParent();
-        assert p1 != null;
-        if (p1.getNodeKey() == ((XmlDBNode) otherNode).getNodeKey()) {
-          return +1;
-        }
-        depth1--;
-      }
-
-      p2 = ((XmlDBNode) otherNode);
-      while (depth2 > depth1) {
-        p2 = p2.getParent();
-        assert p2 != null;
-        if (p2.getNodeKey() == this.getNodeKey()) {
+        if (rtx.getNodeKey() == nodeKey) {
           return -1;
         }
-        depth2--;
-      }
-
-      // Now move up both branches in sync until we find a common parent.
-      while (true) {
-        final XmlDBNode par1 = p1.getParent();
-        final XmlDBNode par2 = p2.getParent();
-        if (par1 == null || par2 == null) {
-          throw new NullPointerException("Node order comparison - internal error");
+        if (rtx.getNodeKey() == other.nodeKey) {
+          return 1;
         }
-        if (par1.getNodeKey() == par2.getNodeKey()) {
-          final int categoryOrder = nodeCategories(p1.getKind()) - nodeCategories(p2.getKind());
-          return categoryOrder != 0
-              ? categoryOrder
-              : p1.getSiblingPosition() - p2.getSiblingPosition();
-        }
-        p1 = par1;
-        p2 = par2;
       }
-    } catch (final DocumentException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      throw new DocumentException("Nodes no longer share a parent");
     }
-    return 0;
+    return Integer.compare(getSiblingPosition(), other.getSiblingPosition());
   }
 
   /**

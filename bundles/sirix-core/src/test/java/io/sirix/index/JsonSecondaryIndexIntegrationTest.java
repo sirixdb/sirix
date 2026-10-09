@@ -73,6 +73,7 @@ public final class JsonSecondaryIndexIntegrationTest {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
+      indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToGetSummary);
 
@@ -114,6 +115,7 @@ public final class JsonSecondaryIndexIntegrationTest {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
+      indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
       final var allStreetAddressesAndTwitterAccounts = indexController.openNameIndex(trx.getStorageEngineReader(),
           allObjectKeyNames, indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
@@ -216,6 +218,7 @@ public final class JsonSecondaryIndexIntegrationTest {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
+      indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
@@ -335,6 +338,7 @@ public final class JsonSecondaryIndexIntegrationTest {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
+      indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
 

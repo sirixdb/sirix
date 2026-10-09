@@ -311,7 +311,12 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   private Expr indexExpr(AST node) {
-    return new IndexExpr(node.getProperties());
+    return new IndexExpr(node.getProperties(), node.getChildCount() == 0
+        ? null
+        : expr(node.getChild(0), true),
+        node.getChildCount() < 2
+            ? null
+            : expr(node.getChild(1), true));
   }
 
   @Override

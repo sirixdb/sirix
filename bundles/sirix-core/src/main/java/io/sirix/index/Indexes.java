@@ -123,19 +123,29 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Adopt complete successor catalogue membership, including drops, without marking a new mutation.
-   * The predecessor owns persistence of this state. Matching membership leaves the existing
-   * copy-on-write backing array intact.
+   * Adopt successor catalogue membership, including drops, and inherited numeric coverage. Membership
+   * alone is not a new mutation; coverage changes retain their dirty state for persistence. Matching
+   * definitions keep the catalogue instance used by bound listeners, while copied definitions isolate
+   * mutable evidence from the predecessor's catalogue.
    *
    * @param definitions the predecessor's authoritative definitions
    * @throws NullPointerException if {@code definitions} or an added definition is null
    */
+  @SuppressWarnings("ReferenceEquality") // Identity determines whether listener-bound evidence needs isolation.
   public void replaceWith(final Set<IndexDef> definitions) {
     requireNonNull(definitions);
     indexes.retainAll(definitions);
-    if (indexes.size() != definitions.size()) {
-      for (final IndexDef definition : definitions) {
-        indexes.add(requireNonNull(definition));
+    for (final IndexDef definition : definitions) {
+      requireNonNull(definition);
+      final IndexDef current = getIndexDef(definition.getID(), definition.getType());
+      if (current == null || !current.hasSameDefinition(definition)
+          || (current == definition && definition.isCasIndex() && definition.getContentType().isNumeric())) {
+        if (current != null) {
+          indexes.remove(current);
+        }
+        indexes.add(definition.copyForCatalogue());
+      } else {
+        current.adoptNumericCoverage(definition);
       }
     }
     dirty = false;
@@ -162,7 +172,15 @@ public final class Indexes implements Materializable {
    * Returns whether index definitions have been mutated since last serialization or init.
    */
   public boolean isDirty() {
-    return dirty;
+    if (dirty) {
+      return true;
+    }
+    for (final IndexDef definition : indexes) {
+      if (definition.isNumericCoverageDirty()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -170,6 +188,9 @@ public final class Indexes implements Materializable {
    */
   public void clearDirty() {
     dirty = false;
+    for (final IndexDef definition : indexes) {
+      definition.clearNumericCoverageDirty();
+    }
   }
 
   /**
