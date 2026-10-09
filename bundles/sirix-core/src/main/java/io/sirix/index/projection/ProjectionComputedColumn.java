@@ -11,8 +11,8 @@ import org.jspecify.annotations.Nullable;
  * operand is present, the value of a postfix {@code +,-,*} program over the operand columns — the
  * grouped twin of {@link ProjectionIndexByteScan#conjunctiveAggregateComputed}. A grouped
  * {@code sum($r.cost * $r.qty)} then folds through the ordinary group kernels as if the product
- * were a stored column: no kernel learns about programs, and every arm that takes resident slices
- * serves it unchanged.
+ * were a stored column: no kernel learns about programs. The executor admits only resident slice
+ * arms that can consume the derived lane.
  *
  * <p>
  * Semantics follow the interpreter: arithmetic over a missing operand is the empty sequence, so
@@ -65,7 +65,7 @@ public final class ProjectionComputedColumn {
     final long[] operandValues = new long[operands.length];
     for (int leaf = 0; leaf < leaves; leaf++) {
       final boolean kept =
-          keepWords == null || (leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L;
+          keepWords == null || ((leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L);
       if (!kept) {
         out[leaf] = ProjectionColumnStore.prunedSlice();
         continue;

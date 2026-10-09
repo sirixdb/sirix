@@ -49,7 +49,6 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
   private final SirixExecutorProvider executorProvider;
   private final Operator outer;
   private final Expr[] outerKeyExprs;
-  private final String[] outerKeyNames;
   private final SirixGroupAggregateExpr.RoutedSource routed;
   private final RoutedGroupRequest inner;
   private final int innerKeyCount;
@@ -74,7 +73,6 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
     this.executorProvider = executorProvider;
     this.outer = outer;
     this.outerKeyExprs = outerKeyExprs;
-    this.outerKeyNames = outerKeyNames;
     this.routed = routed;
     this.inner = inner;
     this.innerKeyCount = inner.groupFields().length;
@@ -96,6 +94,7 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
         : genericFallback.evaluate(ctx, tuple);
   }
 
+  @SuppressWarnings("ReferenceEquality") // DECLINE is an identity sentinel, not a result value.
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     // Insertion order is outer-major first appearance; the order-by below totally orders the
     // groups, so this order only decides nothing.
@@ -342,6 +341,7 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
     }
 
     @Override
+    @SuppressWarnings("ReferenceEquality") // The reference comparison is restricted to the null arm.
     public boolean equals(final java.lang.Object other) {
       if (!(other instanceof GroupKey that) || that.components.length != components.length) {
         return false;

@@ -3205,8 +3205,8 @@ public final class ProjectionColumnStore {
   /**
    * The predicate view of the virtual KEYS column: one record-key slice per kept leaf (the pruned
    * sentinel for a leaf {@code keepWords} dropped, or for every leaf when {@code keepWords} is
-   * {@code null} and the leaf is rowless). Backed by the retained KEYS chain; the per-leaf slice
-   * objects are query-local and never cached.
+   * {@code null} and the leaf is rowless). Reads KEYS only for kept leaves unless the full chain is
+   * already retained; the per-leaf slice objects are query-local and never cached.
    */
   public ColumnSlice[] recordKeyPredicateView(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
     final long[][] keys = recordKeysMasked(fetcher, keepWords);
@@ -4115,7 +4115,7 @@ public final class ProjectionColumnStore {
         || segKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS)) {
       long requested = 0;
       for (int leaf = 0; leaf < n; leaf++) {
-        if (offsets[leaf] != Constants.NULL_ID_LONG || inlineBytes != null && inlineBytes[leaf] != null) {
+        if (offsets[leaf] != Constants.NULL_ID_LONG || (inlineBytes != null && inlineBytes[leaf] != null)) {
           requested++;
         }
       }

@@ -47,10 +47,8 @@ order, while plain FLWOR retains its document-order admission check.
 
 ## Row masks for projection scans
 
-The sorted key set a stab yields is also the row source of the projection route: a grouped FLWOR
-over `jn:open-bitemporal` is served from the resource's projection with the keys as a
-`KEY_IN` mask, materialising no object. The mechanism, its admission rules and fallbacks are in
-[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
+Projection consumers of these key sequences follow the mechanism, admission rules and fallbacks
+in [Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
 
 ## Index representation
 

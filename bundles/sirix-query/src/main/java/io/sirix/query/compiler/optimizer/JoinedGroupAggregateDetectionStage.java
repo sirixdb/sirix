@@ -11,6 +11,8 @@ import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.Cmp;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -36,8 +38,9 @@ import java.util.Set;
  * fields or {@code +,-,*} programs of ONE side.
  *
  * <p>
- * Narrow by construction: no post-join selection (a residual predicate over the pair), no aggregate
- * reading both sides, no key transform, and an order-by naming every key.
+ * Grouped output admits no post-join selection, aggregate reading both sides or key transform, and
+ * requires an order-by naming every key. Row output can instead evaluate equality/inequality
+ * residuals over paired long columns before emitting ordered records (SH1 Q4).
  * </p>
  */
 public final class JoinedGroupAggregateDetectionStage implements Stage {
@@ -113,7 +116,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   private record SideLet(QNm var, int side, String field) {
   }
 
-  private String tryAnnotate(final AST pipeExpr) {
+  private @Nullable String tryAnnotate(final AST pipeExpr) {
     if (pipeExpr.getChildCount() < 1) {
       return "pipe: no children";
     }
@@ -410,7 +413,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     return null;
   }
 
-  private static String rowJoin(final AST pipe, final AST join, final QNm[] vars, final String[] databases,
+  private static @Nullable String rowJoin(final AST pipe, final AST join, final QNm[] vars, final String[] databases,
       final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
       final String[] joinFields, final AST[] indexed) {
     if (validTimes[0] == null || validTimes[1] == null) {
@@ -598,8 +601,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   }
 
   /** Classify one branch's source: an opener (routed) or a literal document; else a decline. */
-  private static String source(final AST source, final int side, final String[] databases, final String[] resources,
-      final AST[] txTimes, final AST[] validTimes, final int[] revisions, final AST[] indexed) {
+  private static @Nullable String source(final AST source, final int side, final String[] databases,
+      final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
+      final AST[] indexed) {
     final IndexRoutedSourceStage.Source routed = IndexRoutedSourceStage.source(source);
     if (routed != null) {
       databases[side] = routed.database();
@@ -660,7 +664,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     return -1;
   }
 
-  private static String derefField(final AST expr, final QNm var) {
+  private static @Nullable String derefField(final AST expr, final QNm var) {
     if (expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
       return null;
     }
@@ -681,7 +685,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         : null;
   }
 
-  private static QNm bindingVarName(final AST bindNode) {
+  private static @Nullable QNm bindingVarName(final AST bindNode) {
     if (bindNode.getChildCount() < 1 || bindNode.getChild(0).getChildCount() < 1) {
       return null;
     }
@@ -690,7 +694,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         : null;
   }
 
-  private static String stringLiteral(final AST node) {
+  private static @Nullable String stringLiteral(final AST node) {
     if (node == null || node.getType() != XQ.Str) {
       return null;
     }

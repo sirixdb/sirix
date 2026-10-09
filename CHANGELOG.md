@@ -6,24 +6,10 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
-- **Index-routed row source for projection scans** — a secondary index's answer (the valid-time
-  stab, a CAS posting list) becomes a record-key mask over the projection (`Op.KEY_IN` on the
-  virtual KEYS column), honoured by every mask evaluator with leaf pruning. Grouped FLWORs over
-  `jn:open-bitemporal` and half-open slices, their correlated form (an outer loop supplying the instants and keys), a
-  membership semi/anti-join over a second opener and a column-side equality join between two
-  openers, including Q4 row output with its column residual, are served from columns without
-  materialising source records; grouped computed aggregates
-  (`sum($r.a * $r.b)`) and `count($let)` over grouped values are admitted. Resource identity,
-  selector and scalar grouping semantics are enforced before serving; masks are built once and
-  every key and operand fetch honors exact leaf-mask pruning, including order exceptions.
-  Constant-key field counts use present values; dependent correlated outer lets stay generic.
-  Dynamic field selectors stay generic. Sparse masks use persisted record lookup; selections of
-  at least 25% of projected rows use a linear dense mapper, and sparse KEYS views fetch kept leaves only.
-  Masked requests skip whole-projection promotion and unmasked budget fallbacks; dense global-string
-  grouping preserves its mask. Computed residency includes every operand and derived buffer.
-  Joined grouping above 64 keys stays generic.
-  The SH1 kit declares a projection per
-  business resource at E0. See `docs/INDEX_ROUTED_ROW_SOURCE.md`.
+- **Index-routed projection queries** — projection scans can consume index-selected rows,
+  with grouped computed aggregates and column-side joins. The SH1 loader now declares business
+  resource projections. Admission, count semantics and fallbacks are specified in
+  [Index-routed row source](docs/INDEX_ROUTED_ROW_SOURCE.md).
 
 - **Open projection row-group tails** — append-only commits retain base column segments
   and store new rows as referenced side pages. Every reader resolves the merged group;

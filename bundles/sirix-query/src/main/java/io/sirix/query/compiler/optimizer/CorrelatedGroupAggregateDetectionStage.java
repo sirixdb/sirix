@@ -6,6 +6,8 @@ import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -86,7 +88,7 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
     }
   }
 
-  private String tryAnnotate(final StaticContext sctx, final AST pipeExpr) {
+  private @Nullable String tryAnnotate(final StaticContext sctx, final AST pipeExpr) {
     if (Boolean.TRUE.equals(pipeExpr.getProperty(GroupAggregateDetectionStage.GROUP_AGG))) {
       return null; // the plain shape, already claimed
     }
@@ -398,7 +400,7 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
         && forBind.getChild(1).getType() != XQ.TypedVariableBinding;
   }
 
-  private static QNm bindingVarName(final AST bindNode) {
+  private static @Nullable QNm bindingVarName(final AST bindNode) {
     if (bindNode.getChildCount() < 1) {
       return null;
     }

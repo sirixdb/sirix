@@ -97,13 +97,12 @@ Q4, Q6-Q9, Q11 and Q12 call `jn:open-bitemporal` directly, using its half-open v
 (`valid-from <= valid < valid-to`) without an additional strict end residual. Physical predicate folding, lazy evaluation, and dependency
 requirements are documented in [Valid-time key slices](../../../../docs/VALID_TIME_KEY_SLICES.md).
 Each business resource also declares a projection (column) index at E0 (`BitemporalProjections`), and
-the grouped queries read their columns under the valid-time index's row mask instead of materialising
-segment objects — see [Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md). Q4 reads both masked column sets, evaluates its correction residual column-side and emits
-ordered row records; the generic join remains the fallback for unsupported shapes.
+projection admission and fallbacks are specified in
+[Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md).
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
-in its manifest. The manifest's route labels describe logical query shapes, not physical plan
-operators; Q12's membership route is described in the linked implementation reference.
+in its manifest. The manifest's route labels describe declared query routes; they do not prove
+which physical operator served a particular execution.
 
 ## Runtime prerequisites
 

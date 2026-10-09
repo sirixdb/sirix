@@ -25,6 +25,7 @@ import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Sirix-aware pipeline strategy that extends Brackit's sequential strategy with support for
@@ -323,8 +324,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** The membership filter the detection stage annotated, its opener's instants compiled, or null. */
-  private static RoutedGroupRequest.@org.jspecify.annotations.Nullable MembershipFilter membershipFilter(final AST node,
-      final Compiler compiler) throws QueryException {
+  private static RoutedGroupRequest.@Nullable MembershipFilter membershipFilter(final AST node, final Compiler compiler)
+      throws QueryException {
     final String database = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_DATABASE);
     final String resource = (String) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_RESOURCE);
     final AST txTime = (AST) node.getProperty(GroupAggregateDetectionStage.MEMBERSHIP_TX_TIME);
@@ -532,8 +533,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    * The index-routed source of {@code node}, with its two instant expressions compiled at the
    * pipeline's entry scope, or {@code null} when the pipe is an ordinary document scan.
    */
-  private static SirixGroupAggregateExpr.@org.jspecify.annotations.Nullable RoutedSource routedSource(final AST node,
-      final Compiler compiler) throws QueryException {
+  private static SirixGroupAggregateExpr.@Nullable RoutedSource routedSource(final AST node, final Compiler compiler)
+      throws QueryException {
     if (!Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))) {
       return null;
     }
@@ -581,8 +582,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** The computed pre-group programs the detection stage annotated, or {@code null} for none. */
-  private static SirixVectorizedExecutor.ComputedLane @org.jspecify.annotations.Nullable [] computedLanes(
-      final AST node) {
+  private static SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes(final AST node) {
     final String[][] fields = (String[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_FIELDS);
     final int[][] code = (int[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_CODE);
     final long[][] consts = (long[][]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PROG_CONSTS);

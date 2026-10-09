@@ -3,7 +3,6 @@ package io.sirix.query.compiler.translator;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
-import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -59,7 +58,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private final int[] aggSides;
   private final String[] aggFields;
   private final int[] progSides;
-  private final String[][] progFields;
   private final int[][] progCode;
   private final long[][] progConsts;
   private final int[] entryKinds;
@@ -93,7 +91,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     this.aggSides = aggSides;
     this.aggFields = aggFields;
     this.progSides = progSides;
-    this.progFields = progFields;
     this.progCode = progCode;
     this.progConsts = progConsts;
     this.entryKinds = entryKinds;
@@ -243,7 +240,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     try (lease) {
       final SirixVectorizedExecutor executor = lease.executor();
-      if (revision >= 0 && executor.getRevision() != revision || !executor.canExecute(ctx)) {
+      if ((revision >= 0 && executor.getRevision() != revision) || !executor.canExecute(ctx)) {
         return null;
       }
       return executor.maskedColumns(ARRAY_MEMBERS, keys, sideFields[side]);

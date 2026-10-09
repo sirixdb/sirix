@@ -1032,7 +1032,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return COMPACT_SUM_GROUPS_SERVED.sum();
   }
 
-  /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
   /** Column-side equality joins with a grouped aggregate served without materialising either side. */
   private static final LongAdder JOIN_GROUP_SERVED = new LongAdder();
 
@@ -1046,6 +1045,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     JOIN_GROUP_SERVED.increment();
   }
 
+  /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
   private static final LongAdder GROUP_AGG_SLICED_SERVED = new LongAdder();
 
   /** Test observability for {@link #GROUP_AGG_SLICED_SERVED}. */
@@ -1425,7 +1425,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   @Override
-  public Lease acquire(final QueryContext context, final SourceRef source) {
+  public @Nullable Lease acquire(final QueryContext context, final @Nullable SourceRef source) {
     if (source != null && !acceptsSource(source, context)) {
       return null;
     }
@@ -9372,12 +9372,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields);
   }
 
-  /**
-   * The projection's {@code fields} under the row mask {@code rowKeys} (every row when {@code null}),
-   * resident as slices, for the column-side join and membership routes. {@code null} declines: no
-   * covering projection, a field that is neither an integral null-free NUMERIC_LONG nor a
-   * per-leaf-dictionary string column, or a fill the residency budget refuses.
-   */
   private static @Nullable MaskedColumns maskedColumnsDecline(final String why) {
     if (PROJ_DIAG) {
       System.err.println("[maskedColumns] decline: " + why);
@@ -9385,6 +9379,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return null;
   }
 
+  /**
+   * The projection's {@code fields} under the row mask {@code rowKeys} (every row when {@code null}),
+   * resident as slices, for the column-side join and membership routes. {@code null} declines: no
+   * covering projection, a field that is neither an integral null-free NUMERIC_LONG nor a
+   * per-leaf-dictionary string column, or a fill the residency budget refuses.
+   */
   public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
       final String[] fields) {
     try {
@@ -13727,15 +13727,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * The subset of {@code aggCols} that an ACCUMULATING function reads — the only columns whose group
-   * sums must be proven to fit a long. {@code min}/{@code max}/{@code count} never add, so a column
-   * read solely by them is exempt: gating it on a sum bound would decline a query that cannot
-   * overflow. {@code distinctFields[i]} names {@code aggCols[i]} (built in lockstep at the call
-   * site), so a name lookup maps a function's field to its column.
-   *
-   * @return the columns to bound, in {@code aggCols} order; empty when nothing accumulates
-   */
-  /**
    * {@link #summedColumns} over the STORED lanes only: a derived lane's proxy column bounds nothing
    * about the program's values, and the fold's own {@code Math.addExact} is what keeps it exact.
    */
@@ -13775,6 +13766,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return ProjectionIndexScan.PredicateTree.of(leaves, program);
   }
 
+  /**
+   * The subset of {@code aggCols} that an ACCUMULATING function reads — the only columns whose group
+   * sums must be proven to fit a long. {@code min}/{@code max}/{@code count} never add, so a column
+   * read solely by them is exempt: gating it on a sum bound would decline a query that cannot
+   * overflow. {@code distinctFields[i]} names {@code aggCols[i]} (built in lockstep at the call
+   * site), so a name lookup maps a function's field to its column.
+   *
+   * @return the columns to bound, in {@code aggCols} order; empty when nothing accumulates
+   */
   private static int[] summedColumns(final String[] funcs, final String[] aggFields, final List<String> distinctFields,
       final int[] aggCols) {
     final boolean[] needed = new boolean[aggCols.length];
@@ -14999,13 +14999,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return new ServedGroups(new ItemSequence(ordered), true);
   }
 
-  public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
-      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
-      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
-      final long[] having) {
+  public @Nullable ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final @Nullable PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int @Nullable [] orderIndexes,
+      final boolean @Nullable [] orderAsc, final boolean @Nullable [] orderEmptyLeast, final long limit,
+      final long @Nullable [] keyOffsets, final int @Nullable [] keySubstr, final String @Nullable [] keyCondFields,
+      final long @Nullable [] keyCondLits, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final String @Nullable [] keyRegexRepl,
+      final long @Nullable [] keyDivMod, final boolean @Nullable [] keyStringify, final long @Nullable [] having) {
     return executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
         orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
         keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, null);
@@ -15072,13 +15073,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * aggregate lanes. The ordinary memo routes (sorted top-K, scalar value summaries, any-K groups)
    * are bypassed under routing, because none of them reads a row mask.
    */
-  public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
-      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
-      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
-      final long[] having, final @Nullable GroupRouting routing) {
+  public @Nullable ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final @Nullable PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int @Nullable [] orderIndexes,
+      final boolean @Nullable [] orderAsc, final boolean @Nullable [] orderEmptyLeast, final long limit,
+      final long @Nullable [] keyOffsets, final int @Nullable [] keySubstr, final String @Nullable [] keyCondFields,
+      final long @Nullable [] keyCondLits, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final String @Nullable [] keyRegexRepl,
+      final long @Nullable [] keyDivMod, final boolean @Nullable [] keyStringify, final long @Nullable [] having,
+      final @Nullable GroupRouting routing) {
     // An absent source path selects the empty sequence; serving it unscoped would answer
     // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
@@ -15103,17 +15106,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * sliced arm cannot complete without those bytes, but the whole-leaf arm right beside it can — over
    * an over-budget handle that arm IS the windowed byte-kernel scan the budget declined toward.
    * Re-entering with the arm suppressed takes it, instead of dropping a query that has a viable
-   * projection route in hand all the way to the generic navigational pipeline.
+   * projection route in hand all the way to the generic navigational pipeline. Masked sources decline
+   * before that transition because the whole-leaf arm cannot preserve their leaf pruning.
    * </p>
    */
-  private ServedGroups groupByAggregate(final QueryContext ctx, final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
-      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
-      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
-      final long[] having, final boolean wholeLeafOnly, final boolean budgetRefused,
-      final @Nullable GroupRouting routing) {
+  private @Nullable ServedGroups groupByAggregate(final QueryContext ctx, final String[] sourcePath,
+      final @Nullable PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int @Nullable [] orderIndexes,
+      final boolean @Nullable [] orderAsc, final boolean @Nullable [] orderEmptyLeast, final long limit,
+      final long @Nullable [] keyOffsets, final int @Nullable [] keySubstr, final String @Nullable [] keyCondFields,
+      final long @Nullable [] keyCondLits, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final String @Nullable [] keyRegexRepl,
+      final long @Nullable [] keyDivMod, final boolean @Nullable [] keyStringify, final long @Nullable [] having,
+      final boolean wholeLeafOnly, final boolean budgetRefused, final @Nullable GroupRouting routing) {
     try {
       final RuntimeException fault = GROUP_AGG_TEST_FAULT;
       if (fault != null) {

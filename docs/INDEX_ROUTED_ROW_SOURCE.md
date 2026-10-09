@@ -2,8 +2,10 @@
 
 A secondary index can prove which rows a query reads; the projection (column) index holds those
 rows' fields as columns. This mechanism joins the two: the index's answer becomes a **row mask** over
-the projection, and the projection kernels fold only the masked rows. No record object is
-materialised. BODY segments of leaves whose exact row-source mask is empty are never fetched;
+the projection, and the projection kernels fold only the masked rows without materialising source
+records. Temporal candidates requiring verification retain the checks described in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md#admission-and-exact-fallbacks).
+BODY segments of leaves whose exact row-source mask is empty are never fetched;
 sparse selections map through the persisted record locator and read KEYS only for lookup candidates
 and kept leaves.
 
@@ -52,9 +54,10 @@ over the root of a predicate tree, and otherwise runs the ordinary group arms. U
 metadata routes that read no row mask (sorted top-K, scalar value summaries, any-K groups) are
 skipped, and the request claims the sliced arms even after the handle's payloads were promoted to
 whole-leaf scans: the row source prunes leaves there, and the derived lanes exist only as slices.
-Masked requests do not trigger whole-projection background promotion. Dense global-string grouping
-uses the same keep mask; dictionary-distinct requests that cannot fit resident slices and masked
-windowed retries that exceed the budget decline before entering a whole-leaf arm.
+Masked requests require resident sliced execution and do not trigger whole-projection background
+promotion. Dense global-string grouping uses the same keep mask. A residency refusal declines
+before operand fills; a later fill-budget refusal retains the mask on re-entry and declines before
+entering a whole-leaf arm.
 
 **Computed lanes.** A pre-group `let $v := $r.a * $r.b` (any `+,-,*` program over the loop var's
 fields and integer literals, `ComputedProgram`'s encoding) is an aggregate operand `prog:<i>`. The
@@ -62,8 +65,9 @@ executor resolves its operand columns (NUMERIC_LONG, integral, null-free), evalu
 per kept leaf into a query-local derived column (`ProjectionComputedColumn`; a row missing an operand
 is missing in the derived column, exactly the interpreter's empty arithmetic), and hands that column
 to the numeric and composite flat kernels in place of a stored one. The combined residency decision
-prices every distinct operand and the derived value and presence buffers. String-key, packed-substring,
-windowed and legacy multi-key arms decline computed lanes that they cannot consume. Exact arithmetic or decline: an overflow is an
+prices every distinct operand and the derived value and presence buffers. Dictionary-string flat,
+packed-substring, windowed and legacy multi-key arms decline computed lanes that they cannot consume.
+Exact arithmetic or decline: an overflow is an
 `ArithmeticException`, which routes the query to the generic pipeline's decimal promotion.
 
 **`count($let)`.** `count` of a let bound to a field is `fn:count` of the field's values in the
@@ -75,14 +79,14 @@ uses the same present-count rule for field counts, including double-wrapped coun
 ## Admission
 
 `IndexRoutedSourceStage` (before `GroupAggregateDetectionStage`) recognises a loop whose source is
-`jn:open-bitemporal` and folded half-open slices with literal database and resource names, sets the source path to the array
+`jn:open-bitemporal` and folded valid-time point slices with literal database and resource names, sets the source path to the array
 members (the path the projection is declared on) and records the two instant expressions.
 `GroupAggregateDetectionStage` then admits the pipeline exactly as it admits a document scan, plus
 computed lets and `count($let)`. `SirixPipelineStrategy` compiles the instants at the pipeline's
 entry scope (they may read prolog and outer variables, never a variable the pipeline binds before the
 loop) and builds `SirixGroupAggregateExpr` with the routed source.
 
-Plain half-open FLWOR slices fold before aggregate detection. Internal `open-bitemporal-slice`
+Plain indexed FLWOR point slices fold before aggregate detection. Internal `open-bitemporal-slice`
 and `scan-valid-time-index` sources supply their exact key sequences, including endpoint and
 residual checks; unsafe coverage or an unavailable index declines. Both join sides and correlated
 inner groupings use the same source admission.
@@ -120,7 +124,9 @@ touching more revisions than the resolver caches re-creates executors as it goes
 under a routed loop, with `SRC2` a second routed opener (or a leading `let` bound to one). The filter
 source's `f` values are read under its own mask, the main rows' `g` values decide which record keys
 survive (a missing value matches nothing: it survives an anti-join and fails a semi-join), and the
-grouping runs over the reduced key set. The hash-membership pipeline stays the fallback.
+grouping runs over the reduced key set. Both membership fields must be integral, null-free long
+columns. The [hash-membership pipeline](QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)
+stays the fallback.
 
 **Column-side equality join** (Q4, Q9; `JoinedGroupAggregateDetectionStage`,
 `SirixJoinedGroupAggregateExpr`): Brackit's `Join` node over two single-loop branches, each over a

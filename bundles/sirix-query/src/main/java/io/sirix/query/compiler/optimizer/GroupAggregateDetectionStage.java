@@ -1589,7 +1589,8 @@ public final class GroupAggregateDetectionStage implements Stage {
       }
       // count($let) over a pre-group let bound to a field: fn:count of the field's values in the
       // group — a row MISSING the field contributes nothing, so this is the lane's present count,
-      // not the row count. A shifted or computed let counts exactly as its raw operand does.
+      // not the row count. A shifted let keeps its operand's presence; a computed let requires
+      // every operand to be present.
       if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm countVar) {
         final int li = indexOfLet(lets, countVar);
         if (li >= 0 && !lets.get(li).transformed()) {

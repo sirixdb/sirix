@@ -10,6 +10,8 @@ import io.brackit.query.module.StaticContext;
 import io.sirix.query.function.jn.temporal.OpenBitemporal;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.HashSet;
 import java.util.Set;
 
@@ -123,10 +125,10 @@ public final class IndexRoutedSourceStage implements Stage {
     return true;
   }
 
-  public record Source(String database, String resource, AST txTime, AST validTime, AST indexed) {
+  public record Source(String database, String resource, @Nullable AST txTime, AST validTime, @Nullable AST indexed) {
   }
 
-  public static Source source(final AST expression) {
+  public static @Nullable Source source(final AST expression) {
     AST source = expression;
     while (source.getType() == XQ.ParenthesizedExpr && source.getChildCount() == 1) {
       source = source.getChild(0);
@@ -141,7 +143,7 @@ public final class IndexRoutedSourceStage implements Stage {
     final boolean slice = OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(fn)
         && source.checkProperty(OpenBitemporal.INTERNAL_SLICE) && source.getChildCount() == 7;
     final boolean scan = ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(fn) && (source.getChildCount() == 2
-        || source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT));
+        || (source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)));
     if (!opener && !slice && !scan) {
       return null;
     }
@@ -169,7 +171,7 @@ public final class IndexRoutedSourceStage implements Stage {
                 : source);
   }
 
-  private static String stringLiteral(final AST node) {
+  private static @Nullable String stringLiteral(final AST node) {
     if (node == null || node.getType() != XQ.Str) {
       return null;
     }

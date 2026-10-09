@@ -1101,8 +1101,10 @@ with document-rank tie-break). All projection-side budgets derive from `HeapHead
    `:1402-1484`); `SortedScanDetectionStage` marks `fn:subsequence(pipe, start, len)` limits and group-less sorted or
    predicate scans (`SortedScanDetectionStage.java:94-279`). `VectorizedDetectionStage`/`VectorizedRoutingStage` are
    commented out and serve nothing (`SirixOptimizer.java:108-116`).
-3. **Translation** (`query/compiler/translator/SirixPipelineStrategy.java:41-228`): the generic pipeline is **always**
-   compiled as the fallback; priority SORTED_SCAN → PREDICATE_SCAN → ROW_MAT → GROUP_AGG_CONST → GROUP_AGG.
+3. **Translation** (`query/compiler/translator/SirixPipelineStrategy.java`): the generic pipeline is **always**
+   compiled as the fallback. Ordinary document routes retain their priority
+   SORTED_SCAN → PREDICATE_SCAN → ROW_MAT → GROUP_AGG_CONST → GROUP_AGG; index-routed extensions
+   are specified in [Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
 4. **Runtime**: `SirixGroupAggregateExpr.evaluate` acquires the executor and calls `executeGroupByAggregate`;
    **`null` means the generic pipeline runs**; unordered results are sorted with Brackit's `Ordering`
    (`SirixGroupAggregateExpr.java:161-238`).
@@ -1120,6 +1122,10 @@ with document-rank tie-break). All projection-side budgets derive from `HeapHead
    (`:479-500`). The encoded prefix, and `prefixUpperExclusive` of it, bound every route (§6.1).
 
 ### 7.2 Route selection in `executeGroupByAggregate`
+
+The ordinary document-scan routes are described below. Index-selected rows and computed lanes
+follow the admission, residency and promotion rules in
+[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md#serving-a-grouped-aggregate-under-a-row-mask).
 
 `SVE:14835-17620`:
 
