@@ -51,7 +51,7 @@ public final class ConjunctInputs {
         positions[i] = -2;
       }
       if (i >= inputs.length && table != null) {
-        for (final Binding binding : bindings) {
+        for (final Binding binding : Objects.requireNonNull(bindings)) {
           if (names[i].equals(binding.getName())) {
             final int index = i;
             table.resolve(names[i], position -> positions[index] = position);
