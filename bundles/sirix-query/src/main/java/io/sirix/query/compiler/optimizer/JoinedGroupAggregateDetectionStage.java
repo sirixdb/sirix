@@ -64,18 +64,16 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   public static final String SIDE_REVISIONS = "SIRIX_JOIN_SIDE_REVISIONS";
   /** Per side: the join field. */
   public static final String JOIN_FIELDS = "SIRIX_JOIN_FIELDS";
-  /** Per group key: side, field and record entry name. */
+  /** Per group key: side and field. */
   public static final String KEY_SIDES = "SIRIX_JOIN_KEY_SIDES";
   public static final String KEY_FIELDS = "SIRIX_JOIN_KEY_FIELDS";
-  public static final String KEY_NAMES = "SIRIX_JOIN_KEY_NAMES";
   /**
    * Per aggregate: function, side ({@code -1} = a pair count), field ({@code null} for a pair count,
-   * {@code prog:<i>} for a program) and record entry name.
+   * {@code prog:<i>} for a program).
    */
   public static final String AGG_FUNCS = "SIRIX_JOIN_AGG_FUNCS";
   public static final String AGG_SIDES = "SIRIX_JOIN_AGG_SIDES";
   public static final String AGG_FIELDS = "SIRIX_JOIN_AGG_FIELDS";
-  public static final String AGG_NAMES = "SIRIX_JOIN_AGG_NAMES";
   /** Per program: side, operand fields, code, constants. */
   public static final String PROG_SIDES = "SIRIX_JOIN_PROG_SIDES";
   public static final String PROG_FIELDS = "SIRIX_JOIN_PROG_FIELDS";
@@ -188,10 +186,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final int count = record.getChildCount();
     final int[] keySides = new int[count];
     final String[] keyFields = new String[count];
-    final String[] keyNames = new String[count];
     final int[] entryKinds = new int[count];
     final Set<String> names = new HashSet<>();
-    final String entryDecline = rowEntries(record, count, vars, keySides, keyFields, keyNames, entryKinds, names);
+    final String entryDecline = rowEntries(record, count, vars, keySides, keyFields, entryKinds, names);
     if (entryDecline != null) {
       return entryDecline;
     }
@@ -216,11 +213,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     pipe.setProperty(JOIN_FIELDS, joinFields);
     pipe.setProperty(KEY_SIDES, keySides);
     pipe.setProperty(KEY_FIELDS, keyFields);
-    pipe.setProperty(KEY_NAMES, keyNames);
     pipe.setProperty(AGG_FUNCS, new String[0]);
     pipe.setProperty(AGG_SIDES, new int[0]);
     pipe.setProperty(AGG_FIELDS, new String[0]);
-    pipe.setProperty(AGG_NAMES, new String[0]);
     pipe.setProperty(PROG_SIDES, new int[0]);
     pipe.setProperty(PROG_FIELDS, new String[0][]);
     pipe.setProperty(PROG_CODE, new int[0][]);
@@ -565,12 +560,10 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final List<QNm> entryVars = new ArrayList<>(entries);
     final List<Integer> keySides = new ArrayList<>();
     final List<String> keyFields = new ArrayList<>();
-    final List<String> keyNames = new ArrayList<>();
     final List<Integer> aggAt = new ArrayList<>();
-    final List<String> aggNames = new ArrayList<>();
     final Set<QNm> seenKeys = new HashSet<>();
     final String entryDecline = groupedEntries(record, entries, entryKinds, entryVars, lets, keyVars, postVars,
-        keySides, keyFields, keyNames, aggAt, aggNames, seenKeys);
+        keySides, keyFields, aggAt, seenKeys);
     if (entryDecline != null) {
       return entryDecline;
     }
@@ -600,7 +593,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(JOIN_FIELDS, joinFields);
     pipeExpr.setProperty(KEY_SIDES, keySides.stream().mapToInt(Integer::intValue).toArray());
     pipeExpr.setProperty(KEY_FIELDS, keyFields.toArray(new String[0]));
-    pipeExpr.setProperty(KEY_NAMES, keyNames.toArray(new String[0]));
     final String[] aggFuncs = new String[aggAt.size()];
     final int[] aggSides = new int[aggAt.size()];
     final String[] aggFields = new String[aggAt.size()];
@@ -612,7 +604,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(AGG_FUNCS, aggFuncs);
     pipeExpr.setProperty(AGG_SIDES, aggSides);
     pipeExpr.setProperty(AGG_FIELDS, aggFields);
-    pipeExpr.setProperty(AGG_NAMES, aggNames.toArray(new String[0]));
     pipeExpr.setProperty(PROG_SIDES, progSides.stream().mapToInt(Integer::intValue).toArray());
     pipeExpr.setProperty(PROG_FIELDS, progFields.toArray(new String[0][]));
     pipeExpr.setProperty(PROG_CODE, progCode.toArray(new int[0][]));
@@ -671,8 +662,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
 
   private static @Nullable String groupedEntries(final AST record, final int entries, final int[] entryKinds,
       final List<QNm> entryVars, final List<SideLet> lets, final List<QNm> keyVars, final List<QNm> postVars,
-      final List<Integer> keySides, final List<String> keyFields, final List<String> keyNames,
-      final List<Integer> aggAt, final List<String> aggNames, final Set<QNm> seenKeys) {
+      final List<Integer> keySides, final List<String> keyFields, final List<Integer> aggAt, final Set<QNm> seenKeys) {
     final Set<String> names = new HashSet<>(entries);
     for (int i = 0; i < entries; i++) {
       final AST entry = record.getChild(i);
@@ -698,11 +688,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         entryKinds[i] = keySides.size();
         keySides.add(let.side());
         keyFields.add(let.field());
-        keyNames.add(name);
       } else if (postVars.contains(var)) {
         entryKinds[i] = -(aggAt.size() + 1);
         aggAt.add(postVars.indexOf(var));
-        aggNames.add(name);
       } else {
         return "return: entry is neither a key nor a post-group aggregate";
       }
@@ -711,14 +699,14 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   }
 
   private static @Nullable String rowEntries(final AST record, final int count, final QNm[] vars, final int[] keySides,
-      final String[] keyFields, final String[] keyNames, final int[] entryKinds, final Set<String> names) {
+      final String[] keyFields, final int[] entryKinds, final Set<String> names) {
     for (int i = 0; i < count; i++) {
       final AST entry = record.getChild(i);
       if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2) {
         return "row join: unsupported output entry";
       }
-      keyNames[i] = stringLiteral(entry.getChild(0));
-      if (keyNames[i] == null || !names.add(keyNames[i])) {
+      final String name = stringLiteral(entry.getChild(0));
+      if (name == null || !names.add(name)) {
         return "row join: output names must be distinct literals";
       }
       keySides[i] = ComputedProgram.loopVarDerefField(entry.getChild(1), vars[0]) == null

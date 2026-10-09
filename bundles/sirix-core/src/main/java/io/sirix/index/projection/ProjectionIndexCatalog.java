@@ -793,15 +793,14 @@ public final class ProjectionIndexCatalog {
         physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
         if (DIRECTORY_WINDOWS && metadata.rowGroupCount() >= 1024
             && metadata.slotLayout() == ProjectionSlotLayout.ROW_GROUP_MAJOR && !reader.hasTrxIntentLog()) {
-          directories =
-              new ProjectionDirectoryWindows(metadata.rowGroupCount(), metadata.columnKinds(), maskedRows, number -> {
-                final int from = number * ProjectionDirectoryWindows.WINDOW_SIZE;
-                final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
-                try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
-                  return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
-                      physicalOrder, from, to, !maskedRows);
-                }
-              });
+          directories = new ProjectionDirectoryWindows(metadata.rowGroupCount(), metadata.columnKinds(), number -> {
+            final int from = number * ProjectionDirectoryWindows.WINDOW_SIZE;
+            final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
+            try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
+              return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
+                  physicalOrder, from, to, !maskedRows);
+            }
+          });
         } else {
           final ProjectionIndexHOTStorage.ParallelWalkReaders readers = worker -> {
             try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
@@ -1067,6 +1066,18 @@ public final class ProjectionIndexCatalog {
             System.arraycopy(part, 0, chunks, from, part.length);
           }
           return chunks;
+        }
+      }
+
+      @Override
+      public byte[] fetchTailSegment(final int indexNumber, final long rowGroupId, final byte[] descriptor,
+          final int segmentId) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          return Objects.requireNonNull(
+              ProjectionIndexHOTStorage.readVerifiedColumnSegment(fetchRtx.getStorageEngineReader(), indexNumber,
+                  ProjectionSlotLayout.ROW_GROUP_MAJOR, rowGroupId, descriptor, segmentId,
+                  ProjectionIndexColumnSegmentCodec.expectedSegmentKind(segmentId)),
+              "declared projection tail segment is missing");
         }
       }
 

@@ -78,6 +78,11 @@ public final class ProjectionColumnStore {
   public interface ColumnSegmentFetcher {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
 
+    default byte[] fetchTailSegment(final int indexNumber, final long rowGroupId, final byte[] descriptor,
+        final int segmentId) {
+      throw new IllegalStateException("fetcher does not support deferred projection tails");
+    }
+
     default ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
       throw new IllegalStateException("fetcher does not support persisted projection record lookup");
     }
@@ -727,9 +732,8 @@ public final class ProjectionColumnStore {
     this.directories = bounded == null
         ? List.copyOf(directories)
         : directories;
-    final boolean logical = bounded == null
-        ? !this.directories.isEmpty() && this.directories.getFirst().logicalSlots()
-        : bounded.logicalSlots();
+    final boolean logical =
+        bounded == null && !this.directories.isEmpty() && this.directories.getFirst().logicalSlots();
     if (logical && (indexNumber < 0 || indexNumber >= Constants.INP_REFERENCE_COUNT)) {
       throw new IllegalArgumentException("logical directories require a valid projection index number");
     }
@@ -4133,7 +4137,13 @@ public final class ProjectionColumnStore {
     if (inlineBytes != null) {
       for (int i = 0; i < n; i++) {
         if (inlineBytes[i] != null) {
-          segments[i] = inlineBytes[i];
+          final byte[] inline = inlineBytes[i];
+          if (inline == RowGroupDirectory.DEFERRED_TAIL_SEGMENT) {
+            final RowGroupDirectory directory = directories.get(i);
+            segments[i] = fetcher.fetchTailSegment(indexNumber, directory.rowGroupId(), directory.descriptor(), segId);
+          } else {
+            segments[i] = inline;
+          }
         }
       }
     }
@@ -4555,6 +4565,13 @@ public final class ProjectionColumnStore {
       byte[] segment = out[i];
       if (inlineBytes != null && inlineBytes[i] != null) {
         segment = inlineBytes[i];
+        if (segment == RowGroupDirectory.DEFERRED_TAIL_SEGMENT) {
+          final int leaf = leaves == null
+              ? base + i
+              : leaves[base + i];
+          final RowGroupDirectory directory = directories.get(leaf);
+          segment = fetcher.fetchTailSegment(indexNumber, directory.rowGroupId(), directory.descriptor(), segId);
+        }
         out[i] = segment;
       }
       final int leaf = leaves == null

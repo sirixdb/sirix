@@ -41,6 +41,10 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.budget.WorkCapture;
+import io.sirix.budget.WorkCounter;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -454,7 +458,7 @@ final class ProjectionOpenRowGroupTailTest {
                                               route == 2);
                                         });
           assertNotNull(masked.result(), "an open tail stays lazy in masked directory route " + route);
-          assertTrue(masked.result().getFirst().logicalSlots());
+          assertFalse(masked.result().getFirst().logicalSlots());
           assertTrue(RowGroupDescriptor.isTailed(masked.result().getFirst().descriptor()));
           assertEquals(0, baseReads.get(), "masked directories read no base payload pages");
           assertEquals(0, hashReads.get(), "masked directories read no dictionary hash pages");
@@ -477,6 +481,171 @@ final class ProjectionOpenRowGroupTailTest {
               .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0,
                   "KEYS resolution never assembles the base BODY segments");
         }
+      }
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(VersioningType.class)
+  void coldAllRowsMaskKeepsOrdinaryBodyReadsBatchedWithAnOpenTail(final VersioningType versioningType)
+      throws Exception {
+    final Path databasePath = create(versioningType, "masked-tail-batching");
+    final int groups = 6;
+    final int baseTailRows = 600;
+    final long tailBase = 10L + (groups - 1) * 10_000L;
+    final int baselineRevision;
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        JsonNodeTrx writer = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX);
+      for (int group = 0; group < groups; group++) {
+        final int rows = group == groups - 1
+            ? baseTailRows
+            : ProjectionIndexRowGroupPage.MAX_ROWS;
+        storage.putRowGroupAsColumnSegmentSlots(group + 1,
+            ProjectionIndexColumnSegmentCodec.encodePooled(pageWithRows(10L + group * 10_000L, rows)));
+      }
+      writer.commit();
+      baselineRevision = session.getMostRecentRevisionNumber();
+      final ProjectionIndexRowGroupPage merged = pageWithRows(tailBase, baseTailRows + 1);
+      new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), INDEX).putOpenRowGroupTailAppend(groups,
+          ProjectionIndexColumnSegmentCodec.encodePooled(merged),
+          ProjectionOpenRowGroupTail.encodeRows(KINDS, List.of(tailRow(tailBase, baseTailRows, baseTailRows))), 1,
+          merged.serialize());
+      writer.commit();
+    }
+    for (final boolean tail : new boolean[] {false, true}) {
+      ProjectionIndexCatalog.clearCache();
+      Databases.clearGlobalCaches();
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+          JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(baselineRevision + (tail
+              ? 1
+              : 0))) {
+        final StorageEngineReader storage = reader.getStorageEngineReader();
+        final LongOpenHashSet ordinaryBodies = new LongOpenHashSet(groups - 1);
+        for (int group = 1; group < groups; group++) {
+          final long offset = ProjectionIndexHOTStorage.segmentPageOffset(storage, INDEX,
+              ProjectionIndexHOTStorage.columnSegmentSlotKey(group, BODY_0), 0);
+          assertTrue(offset >= 0, "the ordinary numeric bodies must be referenced pages");
+          ordinaryBodies.add(offset);
+        }
+        final AtomicLong batches = new AtomicLong();
+        final AtomicLong members = new AtomicLong();
+        final AtomicLong points = new AtomicLong();
+        final WorkCounter batchCalls = WorkCounter.alwaysOn("projection.ordinaryBodyBatches",
+            "one side-page batch containing an ordinary leaf BODY", batches::get);
+        final WorkCounter batchMembers = WorkCounter.alwaysOn("projection.ordinaryBodyBatchMembers",
+            "one ordinary leaf BODY requested in a side-page batch", members::get);
+        final WorkCounter pointCalls = WorkCounter.alwaysOn("projection.ordinaryBodyPointReads",
+            "one ordinary leaf BODY requested through an individual side-page read", points::get);
+        final StorageEngineReader counted =
+            (StorageEngineReader) Proxy.newProxyInstance(StorageEngineReader.class.getClassLoader(),
+                new Class<?>[] {StorageEngineReader.class}, (proxy, method, arguments) -> {
+                  if ("readSideOverflowPageBatch".equals(method.getName())) {
+                    int matched = 0;
+                    for (final long offset : (long[]) arguments[0]) {
+                      if (ordinaryBodies.contains(offset)) {
+                        matched++;
+                      }
+                    }
+                    if (matched > 0) {
+                      batches.incrementAndGet();
+                      members.addAndGet(matched);
+                    }
+                  } else if ("readSideOverflowPage".equals(method.getName())
+                      && ordinaryBodies.contains(((PageReference) arguments[0]).getKey())) {
+                    points.incrementAndGet();
+                  }
+                  try {
+                    return method.invoke(storage, arguments);
+                  } catch (final InvocationTargetException failure) {
+                    throw failure.getCause();
+                  }
+                });
+        final int[] order = new int[groups];
+        final long[][] leafKeys = new long[groups][];
+        final long[] expected = new long[48];
+        final LongOpenHashSet allKeys = new LongOpenHashSet();
+        for (int group = 0; group < groups; group++) {
+          order[group] = group + 1;
+          final int rows = group == groups - 1
+              ? baseTailRows + (tail
+                  ? 1
+                  : 0)
+              : ProjectionIndexRowGroupPage.MAX_ROWS;
+          leafKeys[group] = new long[rows];
+          for (int row = 0; row < rows; row++) {
+            final long key = keyAt(10L + group * 10_000L, row);
+            leafKeys[group][row] = key;
+            allKeys.add(key);
+            expected[(int) ageAt(row) - 18]++;
+          }
+        }
+        final long[] sorted = allKeys.toLongArray();
+        Arrays.sort(sorted);
+        final ColumnPredicate[] predicates = {ColumnPredicate.recordKeysIn(sorted, leafKeys)};
+        final long[] keep = {(1L << groups) - 1};
+        final ColumnSegmentFetcher fetcher = new ColumnSegmentFetcher() {
+          @Override
+          public byte[][] fetchAll(final long[] offsets) {
+            return requireNonNull(ProjectionIndexHOTStorage.readSegmentBytesBatch(counted, offsets));
+          }
+
+          @Override
+          public void fetchSlotRange(final int indexNumber, final long[] slots, final int from, final int to,
+              final byte[][] out) {
+            ProjectionIndexHOTStorage.readColumnSlotRange(counted, indexNumber, slots, from, to, out);
+          }
+
+          @Override
+          public byte[] fetchTailSegment(final int indexNumber, final long rowGroupId, final byte[] descriptor,
+              final int segmentId) {
+            return requireNonNull(ProjectionIndexHOTStorage.readVerifiedColumnSegment(counted, indexNumber,
+                ProjectionSlotLayout.ROW_GROUP_MAJOR, rowGroupId, descriptor, segmentId,
+                ProjectionIndexColumnSegmentCodec.expectedSegmentKind(segmentId)));
+          }
+        };
+        final var actual = WorkCapture.of(batchCalls)
+                                      .and(batchMembers)
+                                      .and(pointCalls)
+                                      .and(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                                      .call(() -> {
+                                        final var directories =
+                                            ProjectionIndexHOTStorage.readRowGroupDirectoriesWithoutTailMaterialization(
+                                                counted, INDEX, groups, order, null);
+                                        assertNotNull(directories);
+                                        final ProjectionColumnStore store =
+                                            new ProjectionColumnStore(directories, INDEX);
+                                        final ColumnSlice[][] predicateColumns =
+                                            {store.columnMaskedView(-1, fetcher, keep)};
+                                        final ColumnSlice[] groupColumn = store.columnMaskedView(0, fetcher, keep);
+                                        final NumericGroupAggTable table = new NumericGroupAggTable(0, 64);
+                                        final long[] missing =
+                                            ProjectionIndexByteScan.newGroupAggAcc(0, Long.MAX_VALUE);
+                                        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(store, predicates,
+                                            predicateColumns, null, null, groupColumn, new ColumnSlice[0][], null, 0,
+                                            groups, table, missing, -1, null, null, null, false, null, null);
+                                        assertEquals(0, missing[0]);
+                                        final long[] counts = new long[expected.length];
+                                        for (int bucket = 0; bucket < table.capacity(); bucket++) {
+                                          final long key = table.keyAtBucket(bucket);
+                                          if (key != 0) {
+                                            final int handle = table.accBaseOfBucket(bucket);
+                                            counts[(int) key - 18] =
+                                                table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)];
+                                          }
+                                        }
+                                        return counts;
+                                      });
+        assertArrayEquals(expected, actual.result(), "the all-rows masked groups match the fixture oracle");
+        actual.work()
+              .assertExactly(batchCalls, 1, "ordinary leaves retain one coalesced BODY chain with or without a tail")
+              .assertExactly(batchMembers, groups - 1, "every ordinary BODY uses the same batch")
+              .assertExactly(pointCalls, 0, "no ordinary BODY becomes an individual side-page read")
+              .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, tail
+                  ? 1
+                  : 0, "the appended tail reaches masked directory deferral");
       }
     }
   }

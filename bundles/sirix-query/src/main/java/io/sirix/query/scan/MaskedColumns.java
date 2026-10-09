@@ -8,7 +8,6 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -237,15 +236,4 @@ public final class MaskedColumns {
     return table[slice.stringDictIds()[row]];
   }
 
-  /** The string behind a shared id (resolved through the interner that owns the id space). */
-  public String sharedString(final int id) {
-    return sharedInterner != null
-        ? sharedInterner.string(id)
-        : string(id);
-  }
-
-  /** UTF-8 bytes of an interned string, for callers hashing values. */
-  public byte[] utf8(final int id) {
-    return sharedString(id).getBytes(StandardCharsets.UTF_8);
-  }
 }

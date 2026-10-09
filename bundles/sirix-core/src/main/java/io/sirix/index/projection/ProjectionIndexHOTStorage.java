@@ -2714,6 +2714,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public record RowGroupDirectory(long rowGroupId, byte[] descriptor, int[] columnSegmentIds,
       long[] columnSegmentOffsets, byte @Nullable [] @Nullable [] inlineColumnSegmentBytes, boolean logicalSlots) {
+    static final byte[] DEFERRED_TAIL_SEGMENT = new byte[0];
 
     public RowGroupDirectory(final long rowGroupId, final byte[] descriptor, final int[] columnSegmentIds,
         final long[] columnSegmentOffsets, final byte @Nullable [] @Nullable [] inlineColumnSegmentBytes) {
@@ -2731,10 +2732,6 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           || (inlineColumnSegmentBytes != null && inlineColumnSegmentBytes.length != descriptorEntries)) {
         throw new IllegalArgumentException("projection row-group directory arrays must be index-aligned");
       }
-      final ProjectionSlotLayout logicalLayout =
-          logicalSlots && columnSegmentOffsets[0] >= ProjectionSlotLayout.COLUMN_BASE
-              ? ProjectionSlotLayout.COLUMN_MAJOR
-              : ProjectionSlotLayout.ROW_GROUP_MAJOR;
       for (int i = 0; i < descriptorEntries; i++) {
         final int id = columnSegmentIds[i];
         if (id != RowGroupDescriptor.entryColumnSegmentId(descriptor, i)) {
@@ -2746,9 +2743,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
             : inlineColumnSegmentBytes[i];
         final long offset = columnSegmentOffsets[i];
         if (logicalSlots) {
-          if (inline != null || offset != logicalLayout.segmentSlot(rowGroupId, id)) {
+          if (inline != null || offset != ProjectionSlotLayout.COLUMN_MAJOR.segmentSlot(rowGroupId, id)) {
             throw new IllegalArgumentException("logical directory must name the segment's sole HOT slot");
           }
+          continue;
+        }
+        if (inline == DEFERRED_TAIL_SEGMENT && RowGroupDescriptor.isTailed(descriptor)
+            && offset == Constants.NULL_ID_LONG) {
           continue;
         }
         final boolean hasInline = inline != null;
@@ -2909,20 +2910,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private static RowGroupDirectory logicalColumnDirectory(final RawBlobSlot slot, final byte[] descriptor) {
-    return logicalDirectory(slot.rowGroupId(), descriptor, ProjectionSlotLayout.COLUMN_MAJOR);
-  }
-
-  private static RowGroupDirectory logicalDirectory(final long rowGroupId, final byte[] descriptor,
-      final ProjectionSlotLayout layout) {
     RowGroupDescriptor.validate(descriptor);
     final int count = RowGroupDescriptor.columnSegmentCount(descriptor);
     final int[] ids = new int[count];
     final long[] keys = new long[count];
     for (int entry = 0; entry < count; entry++) {
       ids[entry] = RowGroupDescriptor.entryColumnSegmentId(descriptor, entry);
-      keys[entry] = layout.segmentSlot(rowGroupId, ids[entry]);
+      keys[entry] = ProjectionSlotLayout.COLUMN_MAJOR.segmentSlot(slot.rowGroupId(), ids[entry]);
     }
-    return new RowGroupDirectory(rowGroupId, descriptor, ids, keys, null, true);
+    return new RowGroupDirectory(slot.rowGroupId(), descriptor, ids, keys, null, true);
   }
 
   /**
@@ -2936,10 +2932,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int from, final int to, final byte[][] out) {
     Objects.checkFromToIndex(from, to, slotKeys.length);
     Objects.checkFromToIndex(from, to, out.length);
-    if (reader.hasTrxIntentLog()) {
-      throw new IllegalArgumentException("logical slot fetch requires a committed projection");
+    if (reader.hasTrxIntentLog() || readSlotLayout(reader, indexNumber) != ProjectionSlotLayout.COLUMN_MAJOR) {
+      throw new IllegalArgumentException("logical slot fetch requires a committed column-major projection");
     }
-    final ProjectionSlotLayout layout = readSlotLayout(reader, indexNumber);
+    final ProjectionSlotLayout layout = ProjectionSlotLayout.COLUMN_MAJOR;
     final int length = to - from;
     final Long2IntOpenHashMap positions = new Long2IntOpenHashMap(length);
     positions.defaultReturnValue(-1);
@@ -2961,22 +2957,6 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       sorted[count++] = key;
     }
     if (count == 0) {
-      return;
-    }
-    if (layout == ProjectionSlotLayout.ROW_GROUP_MAJOR) {
-      for (int i = from; i < to; i++) {
-        out[i] = null;
-        if (slotKeys[i] == Constants.NULL_ID_LONG) {
-          continue;
-        }
-        final long rowGroup = layout.rowGroupId(slotKeys[i]);
-        final int segmentId = layout.slotKind(slotKeys[i]) - 1;
-        final byte[] descriptor = readBlob(reader, indexNumber, layout.descriptorSlot(rowGroup));
-        if (descriptor != null) {
-          out[i] = readVerifiedColumnSegment(reader, indexNumber, layout, rowGroup, descriptor, segmentId,
-              ProjectionIndexColumnSegmentCodec.expectedSegmentKind(segmentId));
-        }
-      }
       return;
     }
     Arrays.sort(sorted, 0, count);
@@ -3245,10 +3225,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       recordMaskedTailDeferral();
     }
     for (int leaf = 0; leaf < out.length; leaf++) {
-      final byte[] descriptor = walk.virtualDescriptors[leaf] == null
-          ? out[leaf].descriptor()
-          : walk.virtualDescriptors[leaf];
-      out[leaf] = logicalDirectory(out[leaf].rowGroupId(), descriptor, ProjectionSlotLayout.ROW_GROUP_MAJOR);
+      final byte[] descriptor = walk.virtualDescriptors[leaf];
+      if (descriptor == null) {
+        continue;
+      }
+      final int count = RowGroupDescriptor.columnSegmentCount(descriptor);
+      final int[] ids = new int[count];
+      final long[] offsets = new long[count];
+      final byte[][] segments = new byte[count][];
+      Arrays.fill(offsets, Constants.NULL_ID_LONG);
+      Arrays.fill(segments, RowGroupDirectory.DEFERRED_TAIL_SEGMENT);
+      for (int entry = 0; entry < count; entry++) {
+        ids[entry] = RowGroupDescriptor.entryColumnSegmentId(descriptor, entry);
+      }
+      out[leaf] = new RowGroupDirectory(out[leaf].rowGroupId(), descriptor, ids, offsets, segments);
     }
   }
 

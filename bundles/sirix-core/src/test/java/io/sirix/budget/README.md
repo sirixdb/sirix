@@ -333,6 +333,11 @@ persisted KEYS lookup resolves appended identities without base BODY reads, and 
 admission entirely. `PROJECTION_MASKED_TAIL_DEFERRALS` counts
 those source-level deferrals, while `PROJECTION_TAIL_BODY_READS` observes direct base BODY reads
 that bypass column-chain fills, with an authorized whole-tail read as the positive control.
+`ProjectionOpenRowGroupTailTest.coldAllRowsMaskKeepsOrdinaryBodyReadsBatchedWithAnOpenTail`
+compares cold historical revisions before and after a partial-tail append on all four versioning
+types. It executes an all-row masked grouping and requires one batch containing every ordinary
+numeric BODY, with zero individual reads of those BODY pages; fixture-derived group counts are
+the independent oracle.
 Both use the `sirix.projection.segmentDiag` gate. Correlated dense global-string
 grouping reads only the selected leaf's key and operand bodies; over-budget dictionary-distinct
 and windowed retries decline before whole-leaf fallback. Computed-lane cases prefill cost and
