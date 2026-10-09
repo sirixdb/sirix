@@ -95,6 +95,7 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
         : genericFallback.evaluate(ctx, tuple);
   }
 
+  @SuppressWarnings("ReferenceEquality") // DECLINE is an identity sentinel, not a result value.
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     // Insertion order is outer-major first appearance; the order-by below totally orders the
     // groups, so this order only decides nothing.
