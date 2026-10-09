@@ -18,6 +18,11 @@ import io.brackit.query.jdm.node.NodeFactory;
 import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.UpdateOp;
+import io.brackit.query.update.op.OpType;
+import io.brackit.query.jdm.StructuredItem;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -42,6 +47,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -213,7 +221,25 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   @Override
   public void applyUpdates() {
-    queryContextDelegate.applyUpdates();
+    final UpdateList pending = queryContextDelegate.getUpdateList();
+    if (pending == null || pending.list().isEmpty()) {
+      queryContextDelegate.applyUpdates();
+      return;
+    }
+    boolean hasXmlTargets = false;
+    for (final UpdateOp operation : pending.list()) {
+      if (operation.getTarget() instanceof XmlDBNode) {
+        hasXmlTargets = true;
+        break;
+      }
+    }
+    final List<XmlNodeTrx> xmlWriters;
+    if (hasXmlTargets) {
+      xmlWriters = applyXmlUpdates(pending.list());
+    } else {
+      queryContextDelegate.applyUpdates();
+      xmlWriters = Collections.emptyList();
+    }
 
     if (commitStrategy == CommitStrategy.AUTO) {
       final List<UpdateOp> updateList = queryContextDelegate.getUpdateList() == null
@@ -222,34 +248,85 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
       if (!updateList.isEmpty()) {
         commitJsonTrx(updateList);
-        commitXmlTrx(updateList);
+        commitXmlTrx(xmlWriters);
         updateList.clear();
       }
     }
   }
 
-  private void commitXmlTrx(List<UpdateOp> updateList) {
-    final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
-      if (sequence instanceof XmlDBNode) {
-        return ((XmlDBNode) sequence).getTrx().getResourceSession().getNodeTrx();
+  /** Hold every XML writer through operation application and final text normalization. */
+  private List<XmlNodeTrx> applyXmlUpdates(final List<UpdateOp> operations) {
+    final List<XmlNodeTrx> writers = new ArrayList<>(1);
+    final Map<XmlResourceId, XmlNodeTrx> suppliedWriters = HashMap.newHashMap(1);
+    final Map<XmlResourceId, XmlNodeTrx> writersByResource = HashMap.newHashMap(1);
+    final List<UpdateOp> originals = new ArrayList<>(operations);
+    try {
+      for (final UpdateOp operation : originals) {
+        if (operation.getTarget() instanceof XmlDBNode source) {
+          final XmlNodeReadOnlyTrx reader = source.getTrx();
+          final XmlNodeTrx writer = reader.getResourceSession().getNodeTrx().orElse(null);
+          if (writer != null) {
+            suppliedWriters.putIfAbsent(XmlResourceId.of(reader), writer);
+          }
+        }
       }
+      for (final UpdateOp operation : originals) {
+        if (operation.getTarget() instanceof XmlDBNode source) {
+          final XmlNodeReadOnlyTrx reader = source.getTrx();
+          final XmlResourceSession session = reader.getResourceSession();
+          final XmlResourceId resource = XmlResourceId.of(reader);
+          if (!writersByResource.containsKey(resource)) {
+            final XmlNodeTrx supplied = suppliedWriters.get(resource);
+            final boolean created = supplied == null;
+            final XmlNodeTrx writer = supplied == null
+                ? session.beginNodeTrx()
+                : supplied;
+            writer.beginAtomicOperation();
+            writers.add(writer);
+            writersByResource.put(resource, writer);
+            if (created && reader.getRevisionNumber() < session.getMostRecentRevisionNumber()) {
+              writer.revertTo(reader.getRevisionNumber());
+            }
+          }
+        }
+      }
+      for (int i = 0; i < originals.size(); i++) {
+        final UpdateOp operation = originals.get(i);
+        if (operation.getTarget() instanceof XmlDBNode source) {
+          final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
+          operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
+        }
+      }
+      queryContextDelegate.applyUpdates();
+    } catch (final RuntimeException | Error failure) {
+      for (final XmlNodeTrx writer : writers) {
+        writer.markRollbackOnly(failure);
+      }
+      throw failure;
+    } finally {
+      // Keep original snapshot identities and targets available to the caller after application.
+      operations.clear();
+      operations.addAll(originals);
+      for (int i = writers.size() - 1; i >= 0; i--) {
+        writers.get(i).endAtomicOperation();
+      }
+    }
+    return writers;
+  }
 
-      return Optional.empty();
-    };
+  private record XmlResourceId(long databaseId, long resourceId) {
+    private static XmlResourceId of(final XmlNodeReadOnlyTrx reader) {
+      final ResourceConfiguration configuration = reader.getResourceSession().getResourceConfig();
+      return new XmlResourceId(configuration.getDatabaseId(), configuration.getID());
+    }
+  }
 
-    final var trxIDs = new IntArraySet();
-
-    updateList.stream()
-              .map(UpdateOp::getTarget)
-              .map(mapDBNodeToWtx)
-              .flatMap(Optional::stream)
-              .filter(trx -> trxIDs.add(trx.getId()))
-              .toList()
-              .forEach(trx -> {
-                trx.commit(commitMessage, commitTimestamp);
-                invalidateStatisticsForResource(trx);
-                trx.close();
-              });
+  private void commitXmlTrx(final List<XmlNodeTrx> writers) {
+    for (final XmlNodeTrx writer : writers) {
+      writer.commit(commitMessage, commitTimestamp);
+      invalidateStatisticsForResource(writer);
+      writer.close();
+    }
   }
 
   private void commitJsonTrx(List<UpdateOp> updateList) {
@@ -296,6 +373,34 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   @Override
   public void addPendingUpdate(UpdateOp op) {
     queryContextDelegate.addPendingUpdate(op);
+  }
+
+  /** Private live targets let Brackit normalize the completed writer tree, not a cached revision. */
+  private record XmlNodeUpdate(UpdateOp delegate, XmlDBNode target) implements UpdateOp {
+    @Override
+    public StructuredItem getTarget() {
+      return target;
+    }
+
+    @Override
+    public Object getTargetIdentity() {
+      return delegate.getTargetIdentity();
+    }
+
+    @Override
+    public OpType getType() {
+      return delegate.getType();
+    }
+
+    @Override
+    public void apply() {
+      target.applyUpdate(delegate);
+    }
+
+    @Override
+    public String toString() {
+      return delegate.toString();
+    }
   }
 
   @Override

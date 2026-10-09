@@ -335,6 +335,20 @@ open on both success and failure. Callers retain ownership of readers they suppl
 
 ### Query Updates
 
+XML pending-update lists applied through
+[`SirixQueryContext`](bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java)
+use private writer nodes. Cached revision nodes keep reading their original snapshot,
+including during nested or concurrent queries. Collection aliases identify the same node
+when database, resource, revision and node key match.
+
+Count-based and scheduled auto-commits cannot publish an XML list partway through
+application. Adjacent text nodes are merged and empty text nodes removed after all
+operations have run, before publication. `CommitStrategy.AUTO` commits and closes each
+affected XML writer after successful application; `EXPLICIT` ends application without
+committing. A failed list marks every participating XML writer rollback-only; roll back
+before making further changes or committing. The publication-scope API contract is in
+[`XmlNodeTrx`](bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).
+
 XQuery `insert nodes` preserves the source sequence order at every insertion position:
 `as first into`, `as last into`, plain `into`, `before`, and `after`. For example,
 `insert nodes (<a/>, <b/>) as first into $parent` places `<a/>` before `<b/>`, ahead
@@ -344,8 +358,8 @@ including prefix rebinding and default namespace undeclarations on descendants.
 XQuery `replace value of node $element with $value` replaces the element's children
 with the atomized source text, preserving the element, its attributes and namespace
 bindings. An empty value removes all children. XML-illegal characters are rejected
-before the replacement is queued. Deletes and element-content replacements whose
-targets were already removed by another pending update have no effect.
+before the replacement is queued. XML pending operations whose targets were already
+removed have no effect; their identities still participate in pending-list conflict checks.
 
 JSONiq `insert json $value into $array at position $index` uses zero-based positions
 from `0` through the array length; the length appends, including position `0` for an

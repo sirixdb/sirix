@@ -277,8 +277,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.state = State.RUNNING;
 
     if (!afterCommitDelay.isZero()) {
-      commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null), afterCommitDelay.toMillis(),
-          afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
+      commitScheduler.scheduleWithFixedDelay(() -> runLocked(() -> {
+        if (!isClosed() && rollbackOnlyCause == null) {
+          commit("autoCommit", null);
+        }
+      }), afterCommitDelay.toMillis(), afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
   }
 
@@ -399,6 +402,46 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  /**
+   * An XML pending-update list owns this scope through final text normalization. The public contract
+   * is defined by {@code XmlNodeTrx.beginAtomicOperation()}; the lock excludes timed publication.
+   */
+  public final void beginAtomicOperation() {
+    if (lock != null) {
+      lock.lock();
+    }
+    try {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertRunning();
+      awaitPendingAsyncCommit();
+      if (publicationScopeDepth == 0) {
+        publicationScopeOwner = Thread.currentThread();
+      }
+      publicationScopeDepth++;
+    } catch (final RuntimeException | Error failure) {
+      if (lock != null) {
+        lock.unlock();
+      }
+      throw failure;
+    }
+  }
+
+  @SuppressWarnings("ReferenceEquality") // Scope ownership requires the exact thread instance.
+  public final void endAtomicOperation() {
+    if (publicationScopeDepth == 0 || publicationScopeOwner != Thread.currentThread()) {
+      throw new IllegalStateException("Publication scopes must be balanced on the owning thread");
+    }
+    try {
+      if (--publicationScopeDepth == 0) {
+        publicationScopeOwner = null;
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     nodeReadOnlyTrx.assertNotClosed();
@@ -469,6 +512,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void asyncCommitInternal(final String commitMessage) {
     runLocked(() -> {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertNotRollbackOnly();
+      if (publicationScopeDepth != 0) {
+        throw new SirixUsageException("Commit is not allowed during an atomic operation.");
+      }
       final var preCommitRevision = getRevisionNumber();
 
       state = State.COMMITTING;
@@ -606,6 +654,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {
+      nodeReadOnlyTrx.assertNotClosed();
+      assertNotRollbackOnly();
+      if (publicationScopeDepth != 0) {
+        throw new SirixUsageException("Commit is not allowed during an atomic operation.");
+      }
       final var preCommitRevision = getRevisionNumber();
 
       // Drain the async-commit pipeline first: the synchronous commit below must build on a
@@ -708,16 +761,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * (each running {@link #checkAccessAndCommit()}), and an auto-commit firing between the internal
    * steps would durably persist a structurally inconsistent tree — e.g. a moved subtree already
    * detached from its old position but not yet re-attached (#1062). The counter keeps growing, so the
-   * deferred auto-commit fires on the next top-level mutation once the tree is consistent again.
-   * Guarded by the transaction lock like all mutations; no extra synchronization needed.
+   * deferred auto-commit fires at the next eligible top-level mutation once the tree is consistent
+   * again and any enclosing publication scope has ended. Guarded by the transaction lock like all
+   * mutations; no extra synchronization needed.
    */
   private int compoundOperationDepth;
+
+  private int publicationScopeDepth;
+
+  private @Nullable Thread publicationScopeOwner;
 
   /** Import epochs must own a clean writer so failure cannot discard unrelated mutations. */
   protected final void requireCleanImportEpoch() {
     nodeReadOnlyTrx.assertNotClosed();
     assertRunning();
-    if (modificationCount != 0 || compoundOperationDepth != 0) {
+    if (modificationCount != 0 || compoundOperationDepth != 0 || publicationScopeDepth != 0) {
       throw new IllegalStateException("Identity import requires a clean transaction epoch");
     }
   }
@@ -911,7 +969,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
-    if (compoundOperationDepth != 0) {
+    if (compoundOperationDepth != 0
+        || (publicationScopeDepth != 0 && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
       return false;
     }
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
