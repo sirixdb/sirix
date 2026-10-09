@@ -286,11 +286,13 @@ public class SirixOptimizer extends TopDownOptimizer {
     return true;
   }
 
-  /** Bind a detached cached tree to this analysis; it must not retain the prior module's context. */
+  /**
+   * Bind a detached cached tree to this analysis. A copied target loses any context inherited
+   * from its former parent, so a null context also needs rebinding. reusableTree rejects nested
+   * contexts before caching, making this analysis context valid throughout the target.
+   */
   private static void rebindContexts(final AST node, final StaticContext context) {
-    if (node.getStaticContext() != null) {
-      node.setStaticContext(context);
-    }
+    node.setStaticContext(context);
     for (int i = 0; i < node.getChildCount(); i++) {
       rebindContexts(node.getChild(i), context);
     }

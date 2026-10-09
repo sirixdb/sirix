@@ -1,6 +1,8 @@
 package io.sirix.query;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.AnyURI;
+import io.brackit.query.function.FunctionExpr;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.api.json.JsonNodeTrx.Commit;
 import io.brackit.query.atomic.Int64;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -53,6 +57,32 @@ final class CompiledQueryCacheTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     SequentialPipelineStrategy.setMorselEnabled(false);
+  }
+
+  @Test
+  void sharedTargetsBindFunctionExpressionsToTheNewAnalysisContext() throws Exception {
+    try (final var store = newStore();
+         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+         final var context = SirixQueryContext.createWithJsonStore(store)) {
+      final String text = "declare base-uri 'https://sirix.test/context/'; resolve-uri('value')";
+      final Module fresh = chain.compile(text);
+      final long hits = chain.planCacheHits();
+      final String variant = text + " (: shared optimized target :)";
+      final Module shared = chain.compile(variant);
+      assertTrue(chain.planCacheHits() > hits, "the variant must reuse the optimized target");
+      assertNotSame(fresh.getStaticContext(), shared.getStaticContext());
+
+      final Field staticContext = FunctionExpr.class.getDeclaredField("sctx");
+      staticContext.setAccessible(true);
+      assertSame(fresh.getStaticContext(), staticContext.get(assertInstanceOf(FunctionExpr.class, fresh.getBody())));
+      assertSame(shared.getStaticContext(), staticContext.get(assertInstanceOf(FunctionExpr.class, shared.getBody())),
+          "a detached target must inherit this analysis's context before translation");
+      for (final Module module : List.of(fresh, shared, chain.compile(variant))) {
+        assertEquals("https://sirix.test/context/value",
+            assertInstanceOf(AnyURI.class, new Query(module).execute(context)).stringValue());
+      }
+      assertSame(shared, chain.compile(variant));
+    }
   }
 
   @Test
