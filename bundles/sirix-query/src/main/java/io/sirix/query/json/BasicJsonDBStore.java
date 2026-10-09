@@ -47,6 +47,8 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -85,6 +87,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Mapping sirix databases to collections.
    */
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
+
+  private static final boolean REGISTRY_DIAGNOSTICS = Boolean.getBoolean("sirix.json.registryDiag");
+  private final AtomicInteger nonStockCollections = new AtomicInteger();
+  // Non-null exactly when REGISTRY_DIAGNOSTICS is enabled; both counter users check that gate.
+  private final @Nullable AtomicLong collectionClassifications = REGISTRY_DIAGNOSTICS
+      ? new AtomicLong()
+      : null;
 
   private record CollectionPath(String name, Path path) {
   }
@@ -429,6 +438,26 @@ public final class BasicJsonDBStore implements JsonDBStore {
    */
   public Path getLocation() {
     return location;
+  }
+
+  public boolean hasOnlyStockCollections() {
+    return nonStockCollections.get() == 0;
+  }
+
+  @SuppressWarnings("NullAway")
+  public long getCollectionClassificationCount() {
+    if (!REGISTRY_DIAGNOSTICS) {
+      throw new IllegalStateException("Collection classification diagnostics require sirix.json.registryDiag");
+    }
+    return collectionClassifications.get();
+  }
+
+  @SuppressWarnings("NullAway")
+  private boolean stockCollection(final JsonDBCollection collection) {
+    if (REGISTRY_DIAGNOSTICS) {
+      collectionClassifications.incrementAndGet();
+    }
+    return collection instanceof JsonDBCollectionImpl;
   }
 
   /**
@@ -880,7 +909,22 @@ public final class BasicJsonDBStore implements JsonDBStore {
         new CollectionPath(jsonDBCollection.getName(), database.getDatabaseConfig().getDatabaseFile());
     discardClosedDatabases();
     databases.add(database);
-    collections.put(database, jsonDBCollection);
+    final boolean nonStock = !stockCollection(jsonDBCollection);
+    if (nonStock) {
+      nonStockCollections.incrementAndGet();
+    }
+    final JsonDBCollection previous;
+    try {
+      previous = collections.put(database, jsonDBCollection);
+    } catch (final RuntimeException | Error exception) {
+      if (nonStock) {
+        nonStockCollections.decrementAndGet();
+      }
+      throw exception;
+    }
+    if (previous != null && !stockCollection(previous)) {
+      nonStockCollections.decrementAndGet();
+    }
     collectionPaths.add(collectionPath);
     return this;
   }
@@ -888,13 +932,28 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public JsonDBStore removeDatabase(final Database<JsonResourceSession> database) {
     databases.remove(database);
-    collections.remove(database);
+    removeCollection(database);
     return this;
   }
 
   private void discardClosedDatabases() {
     databases.removeIf(database -> !database.isOpen());
-    collections.keySet().removeIf(database -> !database.isOpen());
+    removeCollections(database -> !database.isOpen());
+  }
+
+  private void removeCollection(final Database<JsonResourceSession> database) {
+    final JsonDBCollection removed = collections.remove(database);
+    if (removed != null && !stockCollection(removed)) {
+      nonStockCollections.decrementAndGet();
+    }
+  }
+
+  private void removeCollections(final Predicate<Database<JsonResourceSession>> predicate) {
+    for (final Database<JsonResourceSession> database : collections.keySet()) {
+      if (predicate.test(database)) {
+        removeCollection(database);
+      }
+    }
   }
 
   @Override
@@ -1043,7 +1102,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
             || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
-        collections.keySet().removeIf(databasePredicate);
+        removeCollections(databasePredicate);
         Databases.removeDatabase(dbConfig.getDatabaseFile());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);

@@ -148,14 +148,14 @@ try (var chain = SirixCompileChain.createWithJsonStore(store);
 
 ### AST Properties — The Communication Channel
 
-Optimization decisions flow between stages via **AST properties**. These are string-keyed values attached to AST nodes. All 40+ property keys are defined as constants in `CostProperties.java` to prevent typos:
+Optimization decisions flow between stages via **AST properties**. These are string-keyed values attached to AST nodes. Cost-based property keys are defined as constants in `CostProperties.java` to prevent typos; other stages own their annotation keys:
 
 ```java
 // CostProperties.java — centralized property key constants
 public static final String PREFER_INDEX = "costBased.preferIndex";       // Boolean
 public static final String INDEX_SCAN_COST = "costBased.indexScanCost";  // Double
 public static final String ESTIMATED_CARDINALITY = "costBased.estimatedCardinality"; // Long
-// ... 37 more keys
+// ... other cost-based property keys
 ```
 
 This is analogous to how HTTP headers carry metadata alongside the request body — the AST carries the query structure, and properties carry optimization metadata alongside it.
@@ -216,9 +216,11 @@ conditions, its work bounds and its disable property.
 
 ### Final Residual Predicate Ordering
 
-`CheapFirstConjunctStage` runs after index matching.
+`CheapFirstConjunctStage` runs after index matching, before `LetMaterializationStage`.
 [performance/cheap-first/README.md](performance/cheap-first/README.md) owns its admission rules,
 disable property, regression coverage and measurement protocol.
+The subsequent stage is described in the
+[let-bound FLWOR reference](LET_MATERIALIZATION_VERIFICATION.md).
 
 ### Why This Order?
 
