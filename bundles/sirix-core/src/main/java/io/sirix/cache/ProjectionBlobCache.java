@@ -181,14 +181,31 @@ public final class ProjectionBlobCache {
   /** A view owns its immutable bytes and descriptors before it can be published. */
   public boolean putView(final Key key, final ProjectionSortedReadView view, final long expectedGeneration) {
     Objects.requireNonNull(key);
+    final long weight = prepareViewWeight(view);
+    return weight >= 0 && publishView(key, view, weight, expectedGeneration);
+  }
+
+  /** Resolve all descriptor/routing work before publishing its fixed, complete charge. */
+  long prepareViewWeight(final ProjectionSortedReadView view) {
     if (!canCache(view)) {
-      return false;
+      return -1;
     }
     view.prepareForCache();
-    if (!canCache(view)) {
+    final long weight = ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes();
+    return weight <= setBudget
+        ? weight
+        : -1;
+  }
+
+  /** Internal callers must obtain the immutable view's charge through {@link #prepareViewWeight}. */
+  boolean publishView(final Key key, final ProjectionSortedReadView view, final long weight,
+      final long expectedGeneration) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(view);
+    if (sets == null || weight < ENTRY_OVERHEAD_BYTES || weight > setBudget) {
       return false;
     }
-    return put(key, null, view, null, ENTRY_OVERHEAD_BYTES + view.retainedSizeBytes(), expectedGeneration);
+    return put(key, null, view, null, weight, expectedGeneration);
   }
 
   private boolean put(final Key key, final byte @Nullable [] verified, final @Nullable ProjectionSortedReadView view,

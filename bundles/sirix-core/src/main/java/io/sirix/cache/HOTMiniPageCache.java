@@ -226,6 +226,7 @@ public final class HOTMiniPageCache {
     private @Nullable Key blobKey;
     private byte @Nullable [] blob;
     private @Nullable ProjectionSortedReadView blobView;
+    private long blobViewWeight;
     private @Nullable ImageSnapshot blobRouting;
     private long blobGeneration;
     private boolean metadataScan;
@@ -349,6 +350,7 @@ public final class HOTMiniPageCache {
       blobKey = null;
       blob = null;
       blobView = null;
+      blobViewWeight = 0;
       blobRouting = null;
       cache = null;
       pageKey = null;
@@ -386,15 +388,20 @@ public final class HOTMiniPageCache {
     /** Same one-entry admission rule, with no copy of an already immutable validated view. */
     public void retainView(final ProjectionBlobCache owner, final Key key, final ProjectionSortedReadView view,
         final long expectedGeneration, final boolean data) {
-      if (finished || admitted || !owner.canCache(view)) {
+      if (finished || admitted || !data && blobCache != null) {
+        return;
+      }
+      final long weight = owner.prepareViewWeight(view);
+      if (weight < 0) {
         return;
       }
       if (data) {
-        admitted = owner.putView(key, view, expectedGeneration);
-      } else if (blobCache == null) {
+        admitted = owner.publishView(key, view, weight, expectedGeneration);
+      } else {
         blobCache = owner;
         blobKey = key;
         blobView = view;
+        blobViewWeight = weight;
         blobGeneration = expectedGeneration;
       }
     }
@@ -456,7 +463,7 @@ public final class HOTMiniPageCache {
           admitted = blobView == null
               ? blobCache.put(Objects.requireNonNull(blobKey), Objects.requireNonNull(blob), blobRouting,
                   blobGeneration)
-              : blobCache.putView(Objects.requireNonNull(blobKey), blobView, blobGeneration);
+              : blobCache.publishView(Objects.requireNonNull(blobKey), blobView, blobViewWeight, blobGeneration);
         }
         if (point && !admitted && cache != null) {
           if (promotionReader != null && cache.claimPointPromotion(Objects.requireNonNull(pageKey), generation,
@@ -483,6 +490,7 @@ public final class HOTMiniPageCache {
         blobKey = null;
         blob = null;
         blobView = null;
+        blobViewWeight = 0;
         blobRouting = null;
         imageOwner = null;
         image = null;

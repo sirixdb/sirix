@@ -18,6 +18,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
@@ -108,6 +109,51 @@ final class ProjectionSortedReadViewTest {
     }
     cache.clear();
     assertEquals(empty, cache.getCurrentWeightBytes());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+  void dataAdmissionWinsAndMetadataWaitsForADataHit(final boolean dataView, final boolean metadataView) {
+    final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
+    final Key dataKey = new Key(1, 2, 3, 4, 5, 6);
+    final Key metadataKey = new Key(1, 2, 3, 4, 5, 7);
+    final ProjectionSortedReadView data = view(true);
+    final ProjectionSortedReadView metadata = view(false);
+    final byte[] rawData = {1, 2, 3};
+    final byte[] rawMetadata = {4, 5, 6};
+    final ReadScope miss = new ReadScope();
+    if (metadataView) {
+      miss.retainView(cache, metadataKey, metadata, cache.generation(), false);
+    } else {
+      miss.retainBlob(cache, metadataKey, rawMetadata, cache.generation(), false);
+    }
+    if (dataView) {
+      miss.retainView(cache, dataKey, data, cache.generation(), true);
+      assertSame(data, cache.getView(dataKey));
+    } else {
+      miss.retainBlob(cache, dataKey, rawData, cache.generation(), true);
+      assertArrayEquals(rawData, cache.get(dataKey));
+    }
+    miss.finish(true);
+    assertNull(cache.get(metadataKey), "a data miss consumes the seek's sole admission");
+
+    final ReadScope hit = new ReadScope();
+    if (metadataView) {
+      hit.retainView(cache, metadataKey, metadata, cache.generation(), false);
+    } else {
+      hit.retainBlob(cache, metadataKey, rawMetadata, cache.generation(), false);
+    }
+    assertNull(cache.get(metadataKey), "metadata stays deferred until the point seek succeeds");
+    hit.finish(true);
+    if (metadataView) {
+      assertSame(metadata, cache.getView(metadataKey));
+    } else {
+      assertArrayEquals(rawMetadata, cache.get(metadataKey));
+    }
+    assertArrayEquals(dataView
+        ? data.copyBytes()
+        : rawData, cache.get(dataKey));
+    assertTrue(cache.getCurrentWeightBytes() <= cache.getMaxWeightBytes());
   }
 
   @Test
@@ -205,6 +251,51 @@ final class ProjectionSortedReadViewTest {
     abandoned.retainBlob(cache, key, header, cache.generation(), false);
     abandoned.finish(false);
     assertEquals(empty, cache.getCurrentWeightBytes());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void selectedDirectoryPreparesRoutingBeforeDeferredPublication(final boolean point) throws IOException {
+    final ResourceConfiguration configuration = ResourceConfiguration.newBuilder("prepared-routing").build();
+    final HOTProjectionImage image;
+    final PageReference reference = new PageReference().setKey(7);
+    final int slots = 16;
+    try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        MemorySegmentBytesOut out = new MemorySegmentBytesOut(16 * 1024)) {
+      for (int i = 0; i < slots; i++) {
+        assertTrue(leaf.put(ByteBuffer.allocate(Long.BYTES).putLong(i).array(), new byte[Long.BYTES]));
+      }
+      leaf.setCompleteDump(true);
+      new PagePersister().serializePage(configuration, out, leaf, SerializationType.DATA);
+      image = HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(out.toByteArray()), reference, configuration);
+    }
+    final long coldBytes = image.retainedSizeBytes();
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    when(reader.getDatabaseId()).thenReturn(1L);
+    when(reader.getResourceId()).thenReturn(2L);
+    when(reader.getRevisionNumber()).thenReturn(3);
+    final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
+    final ReadScope scope = new ReadScope();
+    scope.rememberImage(reader, reference, image, cache.generation());
+    final ProjectionSortedReadView directory =
+        ProjectionSortedReadView.open(view(false).copyBytes(), true, reader, 0, HOTReadIntent.SELECTIVE, scope);
+    final Key key = new Key(1, 2, 7, 0, 3, 10);
+    final long empty = cache.getCurrentWeightBytes();
+    scope.retainView(cache, key, directory, cache.generation(), false);
+    assertEquals(coldBytes + 16 + (long) slots * 2 * Long.BYTES, image.retainedSizeBytes(),
+        "the immutable word directory is prepared before publishing its charge");
+    assertEquals(empty, cache.getCurrentWeightBytes(), "preparation does not admit ambiguous metadata");
+    assertNull(cache.getView(key));
+    scope.finish(point);
+    assertEquals(0, scope.retainedImageBytes());
+    if (point) {
+      assertSame(directory, cache.getView(key));
+      assertTrue(cache.getCurrentWeightBytes() >= empty + directory.retainedSizeBytes());
+    } else {
+      assertNull(cache.getView(key));
+      assertEquals(empty, cache.getCurrentWeightBytes(), "an abandoned seek publishes no metadata");
+    }
+    assertTrue(cache.getCurrentWeightBytes() <= cache.getMaxWeightBytes());
   }
 
   @Test
