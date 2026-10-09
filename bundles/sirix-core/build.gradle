@@ -1,3 +1,5 @@
+import org.gradle.api.GradleException
+
 dependencies {
     api implLibraries.jacksonCore
     api implLibraries.brackit
@@ -123,8 +125,22 @@ artifacts {
 
 test {
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
+    // Partition the existing test task rather than copying its JVM flags, engine configuration,
+    // or diagnostic properties into new tasks. Without this property existing test selection
+    // is unchanged. The same class-file pattern and its complement cover every
+    // current and future test class, including the property test's nested classes.
+    def coreTestLane = providers.gradleProperty('coreTestLane').orNull
+    def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
+    if (coreTestLane == 'hot-property') {
+        include hotPropertyClasses
+    } else if (coreTestLane == 'remaining') {
+        exclude hotPropertyClasses
+    } else if (coreTestLane != null) {
+        throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property or remaining")
+    }
+
     useJUnitPlatform {
-        // The advisory cross-platform CI lanes exclude soak-style suites that cannot fit the
+        // The cross-platform CI lanes exclude soak-style suites that cannot fit the
         // runner budget there; Linux CI runs everything.
         if (project.hasProperty('excludeHeavyTests')) {
             excludeTags 'heavy'

@@ -1346,7 +1346,8 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
 - **Native LZ77 decoder**: C source `bundles/sirix-core/src/main/native/sirix_lz77.c`, entry
   `int sirix_lz77_decode(const uint8_t *input, int input_len, uint8_t *output, int output_len)`, LZ4-block-compatible
   with a `0xFD` marker and varint size; built by the Gradle task `buildNativeLz77` with portable
-  `gcc -O3 … -fPIC -shared` (opt out `-Psirix.nativeLz77.skip`; skipped without gcc) (`bundles/sirix-core/build.gradle:289-372`).
+  `gcc -O3 … -fPIC -shared` (opt out `-Psirix.nativeLz77.skip`; skipped without gcc)
+  (see [`buildNativeLz77` in the core build](../bundles/sirix-core/build.gradle)).
   **The resulting `libsirix_lz77.so` is a build output, ignored by git** (`bundles/sirix-core/.gitignore:7`).
   Java binds it with an unbound constant downcall and `Linker.Option.critical(true)` (heap arrays pinned), extracts the
   library to a content-addressed name under `${java.io.tmpdir}/sirix-native-${user.name}`, and falls back to the Java
