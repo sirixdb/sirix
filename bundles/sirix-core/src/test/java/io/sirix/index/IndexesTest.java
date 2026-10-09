@@ -5,6 +5,7 @@ import io.brackit.query.jdm.Type;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.List;
 import java.util.Set;
@@ -116,5 +117,101 @@ final class IndexesTest {
     indexes.removeIndex(IndexDefs.createNameIdxDef(1, IndexDef.DbType.JSON));
 
     assertFalse(indexes.isDirty());
+  }
+
+  @ParameterizedTest
+  @EnumSource(IndexDef.DbType.class)
+  void acknowledgedPredecessorUpdatesDroppedAndEmptySuccessorBaselines(final IndexDef.DbType dbType) {
+    final IndexDef retained = IndexDefs.createNameIdxDef(0, dbType);
+    final IndexDef dropped = IndexDefs.createNameIdxDef(1, dbType);
+    final Indexes predecessor = new Indexes();
+    predecessor.initFrom(1, List.of(retained, dropped));
+    predecessor.removeIndex(dropped);
+    final Indexes successor = new Indexes();
+    successor.initFrom(1, List.of(retained, dropped));
+    successor.replaceWith(predecessor.getIndexDefs());
+
+    predecessor.markPersisted(2);
+    assertTrue(successor.differsFromPersisted());
+    successor.acknowledgePersisted(predecessor);
+
+    assertEquals(2, successor.catalogueRevision());
+    assertFalse(successor.differsFromPersisted());
+    successor.removeIndex(retained);
+    assertTrue(successor.differsFromPersisted());
+
+    final Indexes empty = new Indexes();
+    empty.replaceWith(successor.getIndexDefs());
+    successor.markPersisted(3);
+    empty.acknowledgePersisted(successor);
+    assertEquals(3, empty.catalogueRevision());
+    assertFalse(empty.differsFromPersisted());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"JSON, false", "JSON, true", "XML, false", "XML, true"})
+  void acknowledgingNumericCoveragePreservesSuccessorEvidence(final IndexDef.DbType dbType,
+      final boolean successorChangesCoverage) {
+    final Indexes predecessor = new Indexes();
+    predecessor.initFrom(1, List.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, dbType)));
+    predecessor.getIndexDef(0, IndexType.CAS).markIncompleteNumericCoverage();
+    final Indexes successor = new Indexes();
+    successor.initFrom(1, List.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, dbType)));
+    successor.replaceWith(predecessor.getIndexDefs());
+    final IndexDef current = successor.getIndexDef(0, IndexType.CAS);
+    if (successorChangesCoverage) {
+      current.markNonNumericValue();
+    }
+
+    predecessor.markPersisted(2);
+    assertTrue(successor.differsFromPersisted());
+    successor.acknowledgePersisted(predecessor);
+
+    assertEquals(2, successor.catalogueRevision());
+    assertFalse(current.hasCompleteNumericCoverage());
+    assertEquals(!successorChangesCoverage, current.hasNumericValuesOnly());
+    assertEquals(successorChangesCoverage, successor.differsFromPersisted());
+    assertTrue(predecessor.getIndexDef(0, IndexType.CAS).hasNumericValuesOnly());
+  }
+
+  @ParameterizedTest
+  @EnumSource(IndexDef.DbType.class)
+  void acknowledgementPreservesSuccessorMembershipChanges(final IndexDef.DbType dbType) {
+    final IndexDef retained = IndexDefs.createNameIdxDef(0, dbType);
+    final IndexDef dropped = IndexDefs.createNameIdxDef(1, dbType);
+    final Indexes predecessor = new Indexes();
+    predecessor.initFrom(1, List.of(retained, dropped));
+    predecessor.removeIndex(dropped);
+    final Indexes successor = new Indexes();
+    successor.replaceWith(predecessor.getIndexDefs());
+    successor.add(IndexDefs.createPathIdxDef(Set.of(), 0, dbType));
+
+    predecessor.markPersisted(2);
+    successor.acknowledgePersisted(predecessor);
+
+    assertNotNull(successor.getIndexDef(0, IndexType.PATH));
+    assertTrue(successor.differsFromPersisted());
+    successor.removeIndex(successor.getIndexDef(0, IndexType.PATH));
+    assertFalse(successor.differsFromPersisted());
+    successor.removeIndex(retained);
+    assertTrue(successor.differsFromPersisted());
+  }
+
+  @ParameterizedTest
+  @EnumSource(IndexDef.DbType.class)
+  void recreatedNumericCoverageIsComparedWithTheAcknowledgedBaseline(final IndexDef.DbType dbType) {
+    final Indexes predecessor = new Indexes();
+    predecessor.initFrom(1, List.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, dbType)));
+    predecessor.getIndexDef(0, IndexType.CAS).markIncompleteNumericCoverage();
+    final Indexes successor = new Indexes();
+    successor.replaceWith(predecessor.getIndexDefs());
+    successor.removeIndex(successor.getIndexDef(0, IndexType.CAS));
+    successor.add(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, dbType));
+
+    predecessor.markPersisted(2);
+    successor.acknowledgePersisted(predecessor);
+
+    assertTrue(successor.getIndexDef(0, IndexType.CAS).hasCompleteNumericCoverage());
+    assertTrue(successor.differsFromPersisted());
   }
 }

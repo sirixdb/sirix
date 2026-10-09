@@ -20,6 +20,7 @@ import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
@@ -476,6 +477,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
   private volatile boolean asyncCommitTerminalFailure;
 
+  private @Nullable Indexes pendingIndexCatalogue;
+
   @Nullable
   static volatile Consumer<String> asyncCommitTestHook;
 
@@ -492,16 +495,31 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   @Override
   public final void awaitPendingAsyncCommit() {
-    asyncCommitPermit.acquireUninterruptibly();
-    asyncCommitPermit.release();
-    final Throwable failure = asyncCommitFailure;
-    if (failure != null) {
-      asyncCommitFailure = null;
-      asyncCommitTerminalFailure = true;
-      throw new SirixIOException("Async commit hardening failed", failure);
+    if (lock != null) {
+      lock.lock();
     }
-    if (asyncCommitTerminalFailure) {
-      throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
+    try {
+      asyncCommitPermit.acquireUninterruptibly();
+      asyncCommitPermit.release();
+      final Throwable failure = asyncCommitFailure;
+      if (failure != null) {
+        pendingIndexCatalogue = null;
+        asyncCommitFailure = null;
+        asyncCommitTerminalFailure = true;
+        throw new SirixIOException("Async commit hardening failed", failure);
+      }
+      if (asyncCommitTerminalFailure) {
+        throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
+      }
+      final Indexes predecessor = pendingIndexCatalogue;
+      if (predecessor != null) {
+        indexController.getIndexes().acknowledgePersisted(predecessor);
+        pendingIndexCatalogue = null;
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
     }
   }
 
@@ -549,6 +567,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       asyncCommitPermit.acquireUninterruptibly();
 
       final StorageEngineWriter committingWriter = storageEngineWriter;
+      final Indexes committingCatalogue = indexController.getIndexes();
       final UberPage pendingUberPage;
       try {
         pendingUberPage = committingWriter.commitWritePages(commitMessage, null, true);
@@ -570,6 +589,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       try {
         reInstantiate(getId(), pendingUberPage.getRevisionNumber(), pendingUberPage);
+        pendingIndexCatalogue = committingCatalogue;
         state = State.RUNNING;
       } catch (final RuntimeException | Error e) {
         // Successor epoch could not be created — harden inline so the committed data survives,

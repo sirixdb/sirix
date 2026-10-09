@@ -123,6 +123,30 @@ public final class Indexes implements Materializable {
     clearDirty();
   }
 
+  public void acknowledgePersisted(final Indexes predecessor) {
+    requireNonNull(predecessor);
+    checkArgument(predecessor != this, "predecessor must be a different catalogue");
+    final IndexDef[] snapshot = predecessor.persisted;
+    persisted = snapshot;
+    catalogueRevision = predecessor.catalogueRevision;
+    for (final IndexDef definition : indexes) {
+      for (final IndexDef persistedDefinition : snapshot) {
+        if (samePersistedState(persistedDefinition, definition)) {
+          definition.clearNumericCoverageDirty();
+          break;
+        }
+      }
+    }
+  }
+
+  @SuppressWarnings("ReferenceEquality")
+  private static boolean samePersistedState(final IndexDef left, final IndexDef right) {
+    return left == right || left.hasSameDefinition(right)
+        && (!left.isCasIndex() || !left.getContentType().isNumeric()
+            || left.hasNumericValuesOnly() == right.hasNumericValuesOnly()
+                && left.hasCompleteNumericCoverage() == right.hasCompleteNumericCoverage());
+  }
+
   /**
    * Whether the definitions differ from the ones in the catalogue file they were loaded from or last
    * serialized to. A commit serializes a catalogue only when this is {@code true} (or when it has to
@@ -142,7 +166,7 @@ public final class Indexes implements Materializable {
       }
       boolean found = false;
       for (final IndexDef persistedDefinition : snapshot) {
-        if (persistedDefinition == definition || persistedDefinition.hasSameDefinition(definition)) {
+        if (samePersistedState(persistedDefinition, definition)) {
           found = true;
           break;
         }
