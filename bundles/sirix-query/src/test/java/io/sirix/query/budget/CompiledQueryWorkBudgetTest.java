@@ -33,6 +33,7 @@ final class CompiledQueryWorkBudgetTest {
   private static final WorkCounter EXPRESSIONS = counter("compile.translationExpressions",
       CompileWorkStats::translatedExpressions);
   private static final List<WorkCounter> PHASES = List.of(PARSES, ANALYSES, OPTIMIZATIONS, TRANSLATIONS);
+  private static final long EXPRESSION_DISPATCH_BUDGET = 20;
 
   @Test
   void repeatsOnlyTranslateFreshExpressionsWithFixedWork() throws Exception {
@@ -51,13 +52,13 @@ final class CompiledQueryWorkBudgetTest {
       for (final WorkCounter phase : PHASES) {
         cold.work().assertBetween(phase, 1, 4, "first compilation must observe live compiler work");
       }
-      cold.work().assertAtLeast(EXPRESSIONS, 1, "recursive translator dispatch must be live");
-      final long expressionWork = cold.work().of(EXPRESSIONS);
+      cold.work().assertExactly(EXPRESSIONS, EXPRESSION_DISPATCH_BUDGET,
+          "the cold control must observe the fixture's live translator work");
       final Query retained = new Query(chain, text);
       for (int repetition = 0; repetition < 5; repetition++) {
         final var repeated = capture.call(() -> evaluate(chain, context, text));
         assertEquals(expected, repeated.result());
-        assertTranslationOnly(repeated.work(), expressionWork);
+        assertTranslationOnly(repeated.work());
         // Warm the retained facade once, then capture a further execution of the same Query.
         retained.serialize(context, new PrintWriter(new StringWriter()));
         final var reused = capture.call(() -> {
@@ -66,17 +67,18 @@ final class CompiledQueryWorkBudgetTest {
           return output.toString();
         });
         assertEquals(expected, reused.result());
-        assertTranslationOnly(reused.work(), expressionWork);
+        assertTranslationOnly(reused.work());
       }
     }
   }
 
-  private static void assertTranslationOnly(final WorkReport work, final long expressions) {
+  private static void assertTranslationOnly(final WorkReport work) {
     for (final WorkCounter phase : List.of(PARSES, ANALYSES, OPTIMIZATIONS)) {
       work.assertExactly(phase, 0, "a repeated plan must skip parser, analyser and optimizer");
     }
     work.assertExactly(TRANSLATIONS, 1, "each execution must perform one fresh translation phase");
-    work.assertExactly(EXPRESSIONS, expressions, "translation work must not grow with repetitions");
+    work.assertExactly(EXPRESSIONS, EXPRESSION_DISPATCH_BUDGET,
+        "translation work must stay within the fixed fixture budget across repetitions");
   }
 
   private static WorkCounter counter(final String name, final LongSupplier reader) {
