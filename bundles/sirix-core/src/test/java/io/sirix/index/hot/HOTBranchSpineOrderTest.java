@@ -93,7 +93,8 @@ final class HOTBranchSpineOrderTest {
     final long referencedBefore = AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES.get();
     final long deltaWritesBefore = HOTIndexWriter.postingDeltaWrites();
 
-    replay(versioningType);
+    // The recorded guard-triggering layout used a 64-change window.
+    replay(versioningType, 256, 64);
 
     // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
     // reaches it.
@@ -107,7 +108,13 @@ final class HOTBranchSpineOrderTest {
     }
   }
 
-  private void replay(final VersioningType versioningType) {
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void productionFoldPolicyPreservesTheCapturedStream(final VersioningType versioningType) {
+    replay(versioningType, PostingDeltas.HOT_CHUNK_BYTES, PostingDeltas.FOLD_BOUND);
+  }
+
+  private void replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound) {
     final List<List<String>> transactions = transactions();
     final Map<ValidTimeKey, Set<Long>> expected = new HashMap<>();
     final Map<Integer, Map<ValidTimeKey, Set<Long>>> checkpoints = new HashMap<>();
@@ -122,7 +129,7 @@ final class HOTBranchSpineOrderTest {
         for (final List<String> ops : transactions) {
           try (JsonNodeTrx wtx = session.beginNodeTrx()) {
             final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
+                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound);
             for (final String op : ops) {
               apply(writer, expected, op);
             }

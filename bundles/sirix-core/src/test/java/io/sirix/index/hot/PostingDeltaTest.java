@@ -24,6 +24,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.roaringbitmap.longlong.LongIterator;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * removals, after a rollback and after a cold reopen — under all four versioning types, and the
  * delta path must actually be taken (source-level counters).
  */
+@Isolated
 final class PostingDeltaTest {
 
   private static final String RESOURCE = "posting-deltas";
@@ -111,7 +113,6 @@ final class PostingDeltaTest {
     snapshots.add(new TreeSet<>()); // revision 0
     final List<Long> insertedObjects = new ArrayList<>();
     final List<Long> insertedKeys = new ArrayList<>();
-    final long writesBefore = HOTIndexWriter.postingDeltaWrites();
     final long foldsBefore = HOTIndexWriter.postingDeltaFolds();
     final long referencedBefore = AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES.get();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
@@ -141,6 +142,8 @@ final class PostingDeltaTest {
         Set<Long> expected = postings(session.getWtxIndexController(trx.getRevisionNumber()), trx);
         assertEquals(BASE_ROWS - BASE_ROWS / 5, expected.size(), "base postings");
         snapshots.add(new TreeSet<>(expected));
+        final long singleWritesBefore = HOTIndexWriter.postingDeltaWrites();
+        final long singleFoldsBefore = HOTIndexWriter.postingDeltaFolds();
         for (int i = 0; i < SINGLE_INSERTS; i++) {
           final long objectKey = insertHot(trx);
           trx.commit();
@@ -151,8 +154,11 @@ final class PostingDeltaTest {
           expected = now;
           snapshots.add(new TreeSet<>(expected));
         }
-        assertTrue(HOTIndexWriter.postingDeltaWrites() - writesBefore >= SINGLE_INSERTS - 3,
-            "the single inserts must take the delta path");
+        assertEquals(SINGLE_INSERTS,
+            HOTIndexWriter.postingDeltaWrites() - singleWritesBefore + HOTIndexWriter.postingDeltaFolds()
+                - singleFoldsBefore,
+            "every single insert must append a delta or apply the change directly during a fold");
+        assertTrue(HOTIndexWriter.postingDeltaWrites() > singleWritesBefore, "single inserts must write deltas");
         assertTrue(HOTIndexWriter.postingDeltaFolds() - foldsBefore >= 2, "at least two folds happened");
         assertTrue(AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES.get() - referencedBefore >= 1,
             "hot folds must store referenced payloads");

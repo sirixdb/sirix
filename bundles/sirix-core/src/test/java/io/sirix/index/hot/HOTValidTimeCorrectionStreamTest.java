@@ -140,7 +140,9 @@ final class HOTValidTimeCorrectionStreamTest {
   void correctionStreamWithPostingDeltasStaysSoundAndExact(final VersioningType versioningType) {
     final long delegatedBefore = AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get();
     final long deltasBefore = HOTIndexWriter.postingDeltaWrites();
-    replayAndVerify(versioningType, true);
+    // This captured stream reaches the spine guard with sixty-three residual delta slots.
+    // The production window is covered separately by the complete deltaGeometries replay.
+    replayAndVerify(versioningType, true, 256, 64);
     assertTrue(HOTIndexWriter.postingDeltaWrites() > deltasBefore, "the stream must write deltas");
     assertTrue(AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get() > delegatedBefore,
         "the stream must reach the branch spine-order delegation");

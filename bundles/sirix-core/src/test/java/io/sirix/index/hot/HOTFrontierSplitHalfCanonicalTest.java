@@ -82,7 +82,8 @@ final class HOTFrontierSplitHalfCanonicalTest {
   void splitHalfWhoseChildStraddlesADroppedColumnIsBuiltCanonically(final VersioningType versioningType) {
     final long recanonicalizedBefore = AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get();
     final long deltaWritesBefore = HOTIndexWriter.postingDeltaWrites();
-    replay(versioningType);
+    // Preserve the captured split geometry independently of the production fold policy.
+    replay(versioningType, 256, 64);
 
     // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
     // reaches it.
@@ -93,7 +94,9 @@ final class HOTFrontierSplitHalfCanonicalTest {
             + " covers the frontier failure");
   }
 
-  private void replay(final VersioningType versioningType) {
+  @ParameterizedTest(name = "{0}: the production fold policy preserves the complete frontier stream")
+  @EnumSource(VersioningType.class)
+  void frontierStreamWithProductionGeometry(final VersioningType versioningType) {
     replay(versioningType, PostingDeltas.HOT_CHUNK_BYTES, PostingDeltas.FOLD_BOUND);
   }
 
