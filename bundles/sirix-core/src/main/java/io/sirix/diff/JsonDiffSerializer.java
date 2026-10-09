@@ -130,12 +130,12 @@ public final class JsonDiffSerializer {
     try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
         final var ownedNewRtx = frozen == null
             ? resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)
-            : null) {
+            : null;
+        final var oldArrayPositions = new ArrayPositionCache(null);
+        final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions)) {
       final JsonNodeReadOnlyTrx newRtx = frozen == null
           ? Objects.requireNonNull(ownedNewRtx)
           : frozen;
-      final var oldArrayPositions = new ArrayPositionCache(null);
-      final var newArrayPositions = new ArrayPositionCache(knownNewArrayPositions);
 
       for (final var diffTuple : diffs) {
         final var diffType = diffTuple.getDiff();
@@ -483,8 +483,9 @@ public final class JsonDiffSerializer {
         pathReader.moveTo(savedPathKey);
       }
     }
-    try (final PathSummaryReader pathReader = resourceSession.openPathSummary(revisionNumber)) {
-      return pathFromSummary(rtx, pathReader, pathNodeKey, cursorOnFusedNamedArray, arrayPositions);
+    try {
+      return pathFromSummary(rtx, arrayPositions.pathSummary(resourceSession, revisionNumber), pathNodeKey,
+          cursorOnFusedNamedArray, arrayPositions);
     } catch (final IllegalStateException e) {
       // Resource may have been closed during concurrent operations or cleanup.
       return null;
@@ -624,7 +625,27 @@ public final class JsonDiffSerializer {
    * method-local and become unreachable when {@code serialize} returns. The new revision may also
    * borrow valid ingest positions for this call, avoiding the walk and fallback allocation entirely.
    */
-  private static final class ArrayPositionCache {
+  private static final class ArrayPositionCache implements AutoCloseable {
+
+    /** Lazily opened once for this revision and closed at the serialization boundary. */
+    private @Nullable PathSummaryReader pathSummary;
+
+    private PathSummaryReader pathSummary(final JsonResourceSession session, final int revision) {
+      PathSummaryReader reader = pathSummary;
+      if (reader == null) {
+        reader = session.openPathSummary(revision);
+        pathSummary = reader;
+      }
+      return reader;
+    }
+
+    @Override
+    public void close() {
+      if (pathSummary != null) {
+        pathSummary.close();
+        pathSummary = null;
+      }
+    }
 
     /** Neither a valid ordinal nor a cached one: {@code Long2IntOpenHashMap}'s miss value. */
     private static final int UNKNOWN_POSITION = -1;
