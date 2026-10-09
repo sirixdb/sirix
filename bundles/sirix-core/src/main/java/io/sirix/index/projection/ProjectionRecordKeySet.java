@@ -161,16 +161,6 @@ public final class ProjectionRecordKeySet {
     return at < sortedKeys.length && sortedKeys[at] <= max;
   }
 
-  /** How many keys of the set lie in {@code [min, max]}. */
-  static int countIn(final long[] sortedKeys, final long min, final long max) {
-    if (min > max || sortedKeys.length == 0) {
-      return 0;
-    }
-    final int from = lowerBound(sortedKeys, min);
-    final int to = upperBound(sortedKeys, max);
-    return Math.max(0, to - from);
-  }
-
   /**
    * AND the membership of each row's record key into {@code mask}: bit {@code row} stays set iff it
    * was set and {@code keys[row]} is in the set. Only the first {@code ceil(rowCount/64)} words are
@@ -231,21 +221,6 @@ public final class ProjectionRecordKeySet {
     while (lo < hi) {
       final int mid = (lo + hi) >>> 1;
       if (sorted[mid] < key) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-    return lo;
-  }
-
-  /** First index whose key is {@code > key}, or {@code length}. */
-  private static int upperBound(final long[] sorted, final long key) {
-    int lo = 0;
-    int hi = sorted.length;
-    while (lo < hi) {
-      final int mid = (lo + hi) >>> 1;
-      if (sorted[mid] <= key) {
         lo = mid + 1;
       } else {
         hi = mid;
