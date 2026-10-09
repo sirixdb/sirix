@@ -32,6 +32,7 @@ public final class ValidTimeIntervalIndex {
 
   private ValidTimeIntervalIndex() {}
 
+  @SuppressWarnings("ArrayRecordComponent") // Carries the resolved keys without copying or value equality.
   public record RoutedKeys(long[] keys, int revision) {
   }
 

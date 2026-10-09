@@ -300,7 +300,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** Whether the order-by specs name every group key (positions {@code 0..keyCount-1}). */
-  private static boolean ordersEveryKey(final int[] orderIndexes, final int keyCount) {
+  private static boolean ordersEveryKey(final int @Nullable [] orderIndexes, final int keyCount) {
     if (orderIndexes == null) {
       return false;
     }

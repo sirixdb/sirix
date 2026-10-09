@@ -329,7 +329,7 @@ public final class ProjectionIndexCatalog {
    *        {@code $doc.b[]}); {@code null} or empty fails closed
    * @return a usable handle, or {@code null}
    */
-  public static ProjectionIndexRegistry.Handle lookupCovering(final ResourceSession<?, ?> session,
+  public static ProjectionIndexRegistry.@Nullable Handle lookupCovering(final ResourceSession<?, ?> session,
       final String resourceKey, final int revision, final String[] sourcePath, final String[] requiredFields) {
     return lookupCovering(session, resourceKey, revision, sourcePath, requiredFields, false);
   }
@@ -633,14 +633,14 @@ public final class ProjectionIndexCatalog {
    * Fail-soft: unusable stores yield {@code null} and query callers fall back. Creation refuses to
    * overwrite the populated tree; replacement requires drop + commit + a fresh tree id.
    */
-  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final int revision,
+  public static ProjectionIndexRegistry.@Nullable Handle load(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
     return load(session, session.getResourceConfig().getResource().toString(), revision, def);
   }
 
   /** {@link #load(ResourceSession, int, IndexDef)} with a precomputed resource key. */
-  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final String resourceKey,
-      final int revision, final IndexDef def) {
+  public static ProjectionIndexRegistry.@Nullable Handle load(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final IndexDef def) {
     return load(session, resourceKey, revision, def, false);
   }
 
@@ -736,9 +736,9 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * Full decode of the projection's persisted leaves. Only reached after a successful metadata probe;
-   * corruption discovered here (truncated leaf list, codec failures) is logged and cached as unusable
-   * for this build.
+   * Load the projection after a successful metadata probe, preferring a column-lazy handle. A masked
+   * request declines if that handle is unavailable, before eager decoding can fetch excluded leaves.
+   * Corruption discovered here is logged and cached as unusable for this build.
    */
   private static ProjectionIndexRegistry.@Nullable Handle decodeRowGroups(final ResourceSession<?, ?> session,
       final int revision, final IndexDef def, final boolean maskedRows) {
@@ -758,9 +758,9 @@ public final class ProjectionIndexCatalog {
    * P5b stage 2: build a COLUMN-LAZY handle from one descriptor walk. Open-tail resolution follows
    * the contract of {@link ProjectionIndexHOTStorage.RowGroupDirectory}. Column kernels consume only
    * their columns' BODY segments (one fresh read transaction per column fill); whole-leaf consumers
-   * materialize through the same assembling read the eager path uses. Returns {@code null} to fall
-   * back to eager decoding (unresolved refs, corrupt walk — the eager path re-surfaces the corruption
-   * through the established fail-soft flow), or {@link #NOT_USABLE} for stale/truncated.
+   * materialize through the same assembling read the eager path uses. Returns {@code null} when the
+   * column-lazy handle is unavailable: ordinary requests fall back to eager decoding; masked requests
+   * decline. Returns {@link #NOT_USABLE} for stale/truncated.
    */
   private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(final ResourceSession<?, ?> session,
       final int revision, final IndexDef def, final StorageEngineReader reader, final boolean maskedRows) {

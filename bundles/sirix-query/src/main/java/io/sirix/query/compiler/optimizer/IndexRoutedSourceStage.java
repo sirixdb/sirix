@@ -116,7 +116,7 @@ public final class IndexRoutedSourceStage implements Stage {
       return false;
     }
     pipeExpr.setProperty(SOURCE_PATH, ARRAY_MEMBERS.clone());
-    pipeExpr.setProperty(ROUTED_SOURCE, Boolean.TRUE);
+    pipeExpr.setProperty(ROUTED_SOURCE, true);
     pipeExpr.setProperty(ROUTED_SOURCE_DATABASE, routed.database());
     pipeExpr.setProperty(ROUTED_SOURCE_RESOURCE, routed.resource());
     pipeExpr.setProperty(ROUTED_SOURCE_TX_TIME, routed.txTime());

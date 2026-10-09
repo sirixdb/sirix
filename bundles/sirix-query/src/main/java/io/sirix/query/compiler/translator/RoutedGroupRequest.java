@@ -28,6 +28,7 @@ import java.util.Objects;
  * — and the serving step that turns the routed source's instants into a revision and a row mask.
  * Shared by the plain and the correlated serving expressions.
  */
+@SuppressWarnings("ArrayRecordComponent") // Shares the compiled request's arrays; no record equality is used.
 record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate, String[] groupFields,
     String[] keyNames, String[] funcs, String[] aggFields, String[] outNames,
     SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes) {
@@ -42,6 +43,7 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
   }
 
   /** The rows an index-routed source denotes: their record keys and the revision they live in. */
+  @SuppressWarnings("ArrayRecordComponent") // Shares resolved keys; no record equality is used.
   record RoutedRows(long[] keys, int revision) {
   }
 

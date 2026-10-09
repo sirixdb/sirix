@@ -61,7 +61,7 @@ public final class ProjectionIndexScan {
      */
     public final long highLit;
     public final boolean boolLit;
-    public final byte[] stringLitBytes; // UTF-8
+    public final byte @Nullable [] stringLitBytes; // UTF-8
 
     /**
      * Per-id verdict bitset over a resource-wide dictionary's id space, or {@code null} for every
@@ -136,7 +136,7 @@ public final class ProjectionIndexScan {
     public final ProjectionRecordKeySet.@Nullable Masks keyMasks;
 
     public ColumnPredicate(final int column, final Op op, final long longLit, final long highLit, final boolean boolLit,
-        final byte[] stringLitBytes) {
+        final byte @Nullable [] stringLitBytes) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, null, 0);
     }
 
@@ -220,13 +220,13 @@ public final class ProjectionIndexScan {
     }
 
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
-        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final boolean boolLit, final byte @Nullable [] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount, null, null);
     }
 
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
-        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final boolean boolLit, final byte @Nullable [] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
         final @Nullable SegmentCellVerdicts segmentCellVerdicts) {
       this(column, op, longLit, highLit, boolLit, stringLitBytes, globalIdVerdict, globalIdVerdictCount,
@@ -234,7 +234,7 @@ public final class ProjectionIndexScan {
     }
 
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
-        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final boolean boolLit, final byte @Nullable [] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
         final @Nullable SegmentCellVerdicts segmentCellVerdicts, final long @Nullable [] sortedKeys,
         final long keySetHash) {
@@ -243,7 +243,7 @@ public final class ProjectionIndexScan {
     }
 
     private ColumnPredicate(final int column, final Op op, final long longLit, final long highLit,
-        final boolean boolLit, final byte[] stringLitBytes, final long @Nullable [] globalIdVerdict,
+        final boolean boolLit, final byte @Nullable [] stringLitBytes, final long @Nullable [] globalIdVerdict,
         final int globalIdVerdictCount, final long @Nullable [] segmentLiteralCells,
         final @Nullable SegmentCellVerdicts segmentCellVerdicts, final long @Nullable [] sortedKeys,
         final long keySetHash, final ProjectionRecordKeySet.@Nullable Masks keyMasks) {

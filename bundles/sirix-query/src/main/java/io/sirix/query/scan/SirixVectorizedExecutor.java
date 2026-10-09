@@ -3066,8 +3066,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * store.
    */
   private static int[] residentColumns(final ProjectionIndexScan.ColumnPredicate[] preds,
-      final ProjectionIndexScan.PredicateTree tree, final int[] groupCols, final int[] aggCols, final int[] keyCondCols,
-      final int[] deferredCols, final int[][] computedOperandCols) {
+      final ProjectionIndexScan.@Nullable PredicateTree tree, final int[] groupCols, final int[] aggCols,
+      final int @Nullable [] keyCondCols, final int[] deferredCols,
+      final int @Nullable [] @Nullable [] computedOperandCols) {
     final IntArrayList out =
         new IntArrayList(preds.length + groupCols.length + aggCols.length + deferredCols.length + 4);
     // The row source's virtual KEYS column stays in the list: the store prices the KEYS chain for it.
@@ -3232,7 +3233,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionColumnStore.ColumnSlice[][] predCols,
       final ProjectionIndexScan.@Nullable PredicateTree tree,
-      final ProjectionColumnStore.ColumnSlice[] @Nullable [] treeCols) {
+      final ProjectionColumnStore.ColumnSlice @Nullable [][] treeCols) {
     if (!"false".equals(System.getProperty("sirix.projection.reuseGroupPredicateSlices"))) {
       // The tree is the complete WHERE when present. A separate conjunctive mask may not be used
       // to narrow an OR branch, so consult only the shape the kernel actually evaluates.
@@ -9249,7 +9250,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * full column set a projection must cover to serve the query. Order/duplicates don't matter:
    * coverage checks are membership tests.
    */
-  private static String[] requiredFields(final String[] primary, final CompiledPredicate cpOrNull) {
+  private static String[] requiredFields(final String[] primary, final @Nullable CompiledPredicate cpOrNull) {
     if (cpOrNull == null || cpOrNull.fieldNames == null || cpOrNull.fieldNames.length == 0) {
       return primary;
     }
@@ -9278,7 +9279,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /** Emergency/A-B switch; normal production serving remains enabled. */
   private static final boolean PROJECTION_SERVING_ENABLED = !Boolean.getBoolean("sirix.projection.serving.disabled");
 
-  private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath, final String[] requiredFields) {
+  private ProjectionIndexRegistry.@Nullable Handle lookupProjection(final String[] sourcePath,
+      final String[] requiredFields) {
     final ProjectionIndexRegistry.Handle resolved = lookupProjectionResolved(sourcePath, requiredFields);
     if (resolved != null && PREFETCH_ALL_SEGMENTS && wtx == null && resolved.columnStoreOrNull() != null
         && !projectionWarmupPool.isShutdown()) {
@@ -9352,12 +9354,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
-  private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
+  private ProjectionIndexRegistry.@Nullable Handle lookupProjectionResolved(final String[] sourcePath,
       final String[] requiredFields) {
     return lookupProjectionResolved(sourcePath, requiredFields, false);
   }
 
-  private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
+  private ProjectionIndexRegistry.@Nullable Handle lookupProjectionResolved(final String[] sourcePath,
       final String[] requiredFields, final boolean maskedRows) {
     if (projectionRegistryKey == null || (maskedRows && wtx != null)) {
       return null;
@@ -14364,9 +14366,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   /**
    * Whether every per-key transform annotation is absent (a bare {@code GROUP BY} on column values).
    */
-  private static boolean anyKPlainKeys(final int keyCount, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondElse, final String[] keyRegexPattern, final long[] keyDivMod,
-      final boolean[] keyStringify) {
+  private static boolean anyKPlainKeys(final int keyCount, final long @Nullable [] keyOffsets,
+      final int @Nullable [] keySubstr, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final long @Nullable [] keyDivMod,
+      final boolean @Nullable [] keyStringify) {
     for (int g = 0; g < keyCount; g++) {
       if (keyOffsets != null && keyOffsets[g] != 0L) {
         return false;
@@ -14890,11 +14893,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * every row: the shape the persisted per-value counts can answer, and the shape
    * {@link #orderCountTiesByKey} orders.
    */
-  private static boolean countDescendingPlainKey(final PredicateNode predicateOrNull, final int keyCount,
-      final String[] funcs, final String[] aggFields, final String[] outNames, final int[] orderIndexes,
-      final boolean[] orderAsc, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final String[] keyCondElse, final String[] keyRegexPattern, final long[] keyDivMod,
-      final boolean[] keyStringify, final long[] having) {
+  private static boolean countDescendingPlainKey(final @Nullable PredicateNode predicateOrNull, final int keyCount,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final int @Nullable [] orderIndexes,
+      final boolean @Nullable [] orderAsc, final long limit, final long @Nullable [] keyOffsets,
+      final int @Nullable [] keySubstr, final String @Nullable [] keyCondFields, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final long @Nullable [] keyDivMod,
+      final boolean @Nullable [] keyStringify, final long @Nullable [] having) {
     return predicateOrNull == null && keyCount == 1 && funcs.length == 1 && "count".equals(funcs[0])
         && aggFields.length == 1 && aggFields[0] == null && outNames.length == 1 && having == null && limit < 0
         && orderIndexes != null && orderIndexes.length == 1 && orderIndexes[0] == 1 && orderAsc != null
@@ -15011,6 +15015,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * evaluated once per kept leaf into a query-local derived column the ordinary kernels sum.
    * </p>
    */
+  @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
   public record GroupRouting(long @Nullable [] rowKeys, ComputedLane @Nullable [] computed) {
     public GroupRouting {
       if (rowKeys != null) {
@@ -15044,6 +15049,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * One grouped computed aggregate operand: a postfix program ({@code ComputedProgram}'s encoding,
    * mirrored by {@code ProjectionIndexByteScan.COMPUTED_*}) over the named NUMERIC_LONG fields.
    */
+  @SuppressWarnings("ArrayRecordComponent") // Compiled program carrier; no record equality is used.
   public record ComputedLane(String[] fields, int[] code, long[] consts) {
     public ComputedLane {
       if (fields == null || fields.length == 0 || code == null || consts == null) {
@@ -18001,11 +18007,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
-  private ServedGroups trySortedGroupTopK(final String[] sourcePath, final PredicateNode predicate,
+  private @Nullable ServedGroups trySortedGroupTopK(final String[] sourcePath, final @Nullable PredicateNode predicate,
       final String[] groupFields, final String[] keyNames, final String[] funcs, final String[] aggFields,
-      final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc, final long limit,
-      final long[] keyOffsets, final int[] keySubstr, final String[] keyCondFields, final String[] keyCondElse,
-      final String[] keyRegexPattern, final long[] keyDivMod, final boolean[] keyStringify, final long[] having) {
+      final String[] outNames, final int @Nullable [] orderIndexes, final boolean @Nullable [] orderAsc,
+      final long limit, final long @Nullable [] keyOffsets, final int @Nullable [] keySubstr,
+      final String @Nullable [] keyCondFields, final String @Nullable [] keyCondElse,
+      final String @Nullable [] keyRegexPattern, final long @Nullable [] keyDivMod,
+      final boolean @Nullable [] keyStringify, final long @Nullable [] having) {
     if (wtx != null || predicate == null || groupFields.length != 1 || funcs.length == 0
         || funcs.length != aggFields.length || funcs.length != outNames.length || limit < 1 || limit > 32
         || having != null || orderIndexes == null || orderIndexes.length != 1 || orderAsc == null
@@ -18854,18 +18862,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
   }
 
-  private ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads, final boolean windowedSlices,
-      final ProjectionColumnStore slicedStore, final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol,
-      final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
-      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
-      final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
-      final ProjectionIndexScan.PredicateTree predTree, final long[] having, final byte[] stringLengthModes,
-      final int[][] globalLengthTables, final boolean cdStringDict, final long globalKeyDictionary,
-      final long sumExactMask, final byte keyDisplay, final ExtremumStrings[] rankStringViews,
-      final int @Nullable [] segmentExtremumCols, final int @Nullable [] segmentLengthCols,
-      final @Nullable Pattern segmentKeyRegex, final @Nullable String segmentKeyRegexReplacement,
-      final ProjectionIndexRegistry.Handle handle, final long groupShapeFp,
-      final ProjectionColumnStore.ColumnSlice @Nullable [][] computedLaneSlices, final long @Nullable [] groupKeep) {
+  @SuppressWarnings("NonApiType") // Keep concrete list access on the existing grouping dispatch path.
+  private @Nullable ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads,
+      final boolean windowedSlices, final ProjectionColumnStore slicedStore,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
+      final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
+      final ArrayList<String> distinctFields, final int eff, final int chunkSize, final GroupOrderPlan orderPlan,
+      final long limit, final int cdBlockIdx, final ProjectionIndexScan.PredicateTree predTree, final long[] having,
+      final byte[] stringLengthModes, final int[][] globalLengthTables, final boolean cdStringDict,
+      final long globalKeyDictionary, final long sumExactMask, final byte keyDisplay,
+      final ExtremumStrings[] rankStringViews, final int @Nullable [] segmentExtremumCols,
+      final int @Nullable [] segmentLengthCols, final @Nullable Pattern segmentKeyRegex,
+      final @Nullable String segmentKeyRegexReplacement, final ProjectionIndexRegistry.Handle handle,
+      final long groupShapeFp, final ProjectionColumnStore.ColumnSlice @Nullable [][] computedLaneSlices,
+      final long @Nullable [] groupKeep) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -19625,7 +19635,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int groupCol, final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
       final GroupOrderPlan orderPlan, final long limit, final long[] having, final long globalKeyDictionary,
-      final DenseGlobalGroupAggTable dense, final ExtremumStrings[] rankStringViews, final long[] groupKeep) {
+      final DenseGlobalGroupAggTable dense, final ExtremumStrings[] rankStringViews,
+      final long @Nullable [] groupKeep) {
     final int rowGroupCount = store.rowGroupCount();
     // Resolve every column ONCE on the calling thread: the slice arrays are immutable and shared,
     // and letting the fan-out race the first fill would multiply the segment I/O by the worker count.
@@ -22048,9 +22059,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * @param keyIsNumeric single NUMERIC_LONG group key — the only key kind with a primitive order
      * @return the resolved plan, or {@code null} when any spec cannot be ordered in-kernel
      */
-    static GroupOrderPlan resolve(final int[] orderIndexes, final boolean[] orderAsc, final boolean[] orderEmptyLeast,
-        final int keyCount, final boolean keyIsNumeric, final String[] funcs, final String[] aggFields,
-        final ArrayList<String> distinctFields, final int cdBlockIdx) {
+    @SuppressWarnings("NonApiType") // Keep concrete list access on the existing grouping dispatch path.
+    static @Nullable GroupOrderPlan resolve(final int[] orderIndexes, final boolean[] orderAsc,
+        final boolean[] orderEmptyLeast, final int keyCount, final boolean keyIsNumeric, final String[] funcs,
+        final String[] aggFields, final ArrayList<String> distinctFields, final int cdBlockIdx) {
       final int n = orderIndexes.length;
       final int[] kinds = new int[n];
       final int[] aggBase = new int[n];

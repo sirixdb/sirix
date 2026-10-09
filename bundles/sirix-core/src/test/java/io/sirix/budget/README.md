@@ -328,10 +328,10 @@ Its sparse cold/warm cases select one row from at least 32 leaves on all four ve
 bound persisted lookup descriptors and KEYS segments to one, and require zero dense row visits.
 Four repeated requests also exclude whole-projection promotion. Cold-reopened open-tail cases
 cover row-group-major tails on all versioning types across grouping, correlation, both join sides,
-and both membership sides. Masked directory admission defers tail BODY assembly until the mask selects the leaf;
-persisted KEYS lookup resolves appended identities without base BODY reads, and empty masks skip
-admission entirely. `PROJECTION_MASKED_TAIL_DEFERRALS` counts
-those source-level deferrals, while `PROJECTION_TAIL_BODY_READS` observes direct base BODY reads
+and both membership sides. Tail resolution follows the
+[maintenance contract](../../../../../../../../docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
+`PROJECTION_MASKED_TAIL_DEFERRALS` counts
+source-level deferrals, while `PROJECTION_TAIL_BODY_READS` observes direct base BODY reads
 that bypass column-chain fills, with an authorized whole-tail read as the positive control.
 `ProjectionOpenRowGroupTailTest.coldAllRowsMaskKeepsOrdinaryBodyReadsBatchedWithAnOpenTail`
 compares cold historical revisions before and after a partial-tail append on all four versioning

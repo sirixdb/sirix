@@ -9,6 +9,7 @@ import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
 import io.brackit.query.jdm.Sequence;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link VectorizedExecutor} that resolves the real, revision-pinned
@@ -255,7 +256,8 @@ public final class RevisionTrackingExecutor implements SirixExecutorProvider {
   }
 
   @Override
-  public Lease acquire(final QueryContext context, final SourceRef source) {
+  @SuppressWarnings("ReferenceEquality") // Revision pins belong to the exact query-context instance.
+  public @Nullable Lease acquire(final QueryContext context, final @Nullable SourceRef source) {
     enterResolution(context);
     SirixVectorizedExecutor executor = null;
     boolean executorAdmitted = false;
@@ -270,7 +272,7 @@ public final class RevisionTrackingExecutor implements SirixExecutorProvider {
       } else {
         executor = current(context);
       }
-      if (executor == null || source != null && !executor.acceptsSource(source, context)) {
+      if (executor == null || (source != null && !executor.acceptsSource(source, context))) {
         unpin(context);
         executionLifecycle.leave();
         return null;

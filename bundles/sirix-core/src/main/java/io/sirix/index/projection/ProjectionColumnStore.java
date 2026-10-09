@@ -4072,6 +4072,7 @@ public final class ProjectionColumnStore {
    * {@code sliceDecoderWillVerify} is only for temporary masked-fill buffers. They must go directly
    * to the checked slice decoders, and must never be published in a raw-byte cache.
    */
+  @SuppressWarnings("ReferenceEquality") // Deferred segments are recognized by marker identity.
   private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind, final boolean optional,
       final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final boolean sliceDecoderWillVerify) {
     final int n = directories.size();
@@ -4510,6 +4511,7 @@ public final class ProjectionColumnStore {
    * fetch arrays are batch-sized instead of {@code leafCount} entries zeroed per call.
    * </p>
    */
+  @SuppressWarnings("ReferenceEquality") // Deferred segments are recognized by marker identity.
   private byte[][] fetchLeafSegments(final int @Nullable [] leaves, final int base, final int len, final int segId,
       final byte segKind, final boolean optional, final ColumnSegmentFetcher fetcher) {
     final long[] offsets = new long[len];

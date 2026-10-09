@@ -2693,8 +2693,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * One live leaf's directory: a descriptor and segment sources for a segment-lazy handle. Untailed
-   * groups capture sources without side-page fetch or assembly; tailed groups supply detached merged
-   * bytes, resolving base payloads only on a merge-memo miss.
+   * groups capture sources without side-page fetch or assembly; ordinary reads of tailed groups
+   * supply detached merged bytes, resolving base payloads only on a merge-memo miss. Masked reads
+   * defer tailed segments until leaf pruning has established demand.
    * {@code columnSegmentIds}/{@code columnSegmentOffsets} are parallel, ascending-id.
    *
    * <p>
@@ -2710,7 +2711,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * referenced; a {@code null} element means that one segment is referenced and its bytes come from
    * the page at {@code columnSegmentOffsets[i]}. A tailed group's carrier contains every merged
    * segment, including payloads above the storage inline threshold; its offsets are
-   * {@link Constants#NULL_ID_LONG} rather than durable addresses.
+   * {@link Constants#NULL_ID_LONG} rather than durable addresses. A deferred tail instead carries
+   * {@link #DEFERRED_TAIL_SEGMENT} in each inline entry with the same absent offsets. This identity
+   * marker must be resolved after pruning, never decoded as segment bytes; ordinary leaves retain
+   * their physical sources and batch fetching.
    */
   public record RowGroupDirectory(long rowGroupId, byte[] descriptor, int[] columnSegmentIds,
       long[] columnSegmentOffsets, byte @Nullable [] @Nullable [] inlineColumnSegmentBytes, boolean logicalSlots) {
@@ -2721,6 +2725,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       this(rowGroupId, descriptor, columnSegmentIds, columnSegmentOffsets, inlineColumnSegmentBytes, false);
     }
 
+    @SuppressWarnings("ReferenceEquality") // Deferred segments are recognized by marker identity.
     public RowGroupDirectory {
       checkRowGroupId(rowGroupId);
       Objects.requireNonNull(descriptor, "descriptor");
@@ -2767,7 +2772,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     /**
      * The captured inline bytes at descriptor ENTRY INDEX {@code entryIndex}, or {@code null} if the
-     * segment slot is referenced (or this directory carries no inline segment slots at all).
+     * segment slot is referenced (or this directory carries no inline segment slots at all). A masked
+     * tail returns {@link #DEFERRED_TAIL_SEGMENT}, which the caller resolves after pruning.
      *
      * <p>
      * Indexed by entry, not searched by id: all three parallel arrays here are filled in

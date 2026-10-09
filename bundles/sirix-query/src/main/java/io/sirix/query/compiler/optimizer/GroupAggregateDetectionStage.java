@@ -30,7 +30,7 @@ import java.util.Set;
  *   return {"dept": $d, "n": count($r), "total": sum($r.age), ...}
  * </pre>
  *
- * i.e. one or more string group keys (gap item 1a widened the original single-key shape; e.g.
+ * i.e. one or more group keys (gap item 1a widened the original single-key shape; e.g.
  * {@code group by $d, $c}) plus any mix of {@code count($r)} and {@code sum|min|max|avg($r.field)}
  * entries. Annotates {@code SIRIX_GROUP_AGG_*} properties on the pipe expression, which
  * {@code SirixPipelineStrategy} consumes to emit a projection-served expression (with the generic
@@ -38,9 +38,9 @@ import java.util.Set;
  *
  * <p>
  * <b>Filter safety.</b> This stage runs AFTER Brackit's detection walker, which annotates
- * {@code VECTORIZED_PREDICATE_TREE} whenever every {@code where} clause is representable. A
- * pipeline with a selection but WITHOUT that annotation must never be served (the filter would be
- * silently dropped) — it declines here.
+ * {@code VECTORIZED_PREDICATE_TREE} whenever every {@code where} clause is representable. Every
+ * selection must have that tree, this stage's chain-aware predicate, or an admitted index-routed
+ * membership filter; otherwise the pipeline declines here so its filter cannot be dropped.
  *
  * <p>
  * Also covers the form every analytical benchmark actually writes, where the aggregate is bound by
@@ -63,11 +63,11 @@ import java.util.Set;
  * be the FIRST record fields, one {@code VariableRef} per group var, each group var exactly once
  * (record field order is part of the serialized answer); aggregate arguments must be a deref chain
  * rooted at the loop variable ({@code $r.field} or {@code $r.a.b.field} — see
- * {@link #loopVarDerefField}) or a pre-group let bound to one; every {@code order by} spec must be
- * a bare variable that the return record EMITS (anything else would have to be recomputed outside
- * the scan) and must follow the group-by — a pre-group {@code order by} reorders rows and so
- * changes which tuple is first in each group, which is the emission order the served path
- * reproduces.
+ * {@link #loopVarDerefField}) or a pre-group let bound to one or to an admitted numeric program.
+ * Computed lets cannot be group keys. Every {@code order by} spec must be a bare variable that the
+ * return record EMITS (anything else would have to be recomputed outside the scan) and must follow
+ * the group-by — a pre-group {@code order by} reorders rows and so changes which tuple is first in
+ * each group, which is the emission order the served path reproduces.
  */
 public final class GroupAggregateDetectionStage implements Stage {
 
@@ -884,6 +884,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (anyRegexKey && (keyCount > 1 || anyKeyTransform || anyCondKey)) {
       return "key: regex transform combined with another key transform or several keys";
     }
+    // All decline checks precede annotation publication; consumers require the flag's complete
+    // companion annotations, including when a correlated stage inspects a synthetic inner pipe.
     if (constMode) {
       if (ownPredicate != null) {
         pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
@@ -892,7 +894,7 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_FIELDS, fields);
       pipeExpr.setProperty(GROUP_AGG_OUT_NAMES, outNames);
       pipeExpr.setProperty(GROUP_AGG_OFFSETS, offsets);
-      pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
+      pipeExpr.setProperty(GROUP_AGG_CONST, true);
       return null;
     }
     if (ownPredicate != null) {
@@ -972,7 +974,7 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_ORDER_ASC, orderAscending);
       pipeExpr.setProperty(GROUP_AGG_ORDER_EMPTY_LEAST, orderEmptyLeastFlags);
     }
-    pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
+    pipeExpr.setProperty(GROUP_AGG, true);
     return null;
   }
 
@@ -1227,6 +1229,7 @@ public final class GroupAggregateDetectionStage implements Stage {
   }
 
   /** A computed pre-group let's program over the loop var's fields. */
+  @SuppressWarnings("ArrayRecordComponent") // Program carrier; array value equality is never used.
   private record ComputedLet(String[] fields, int[] code, long[] consts) {
   }
 

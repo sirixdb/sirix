@@ -202,8 +202,8 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (orderIndexes.isEmpty()) {
       return "row join: no ordering keys";
     }
-    pipe.setProperty(JOIN_GROUP, Boolean.TRUE);
-    pipe.setProperty(ROW_JOIN, Boolean.TRUE);
+    pipe.setProperty(JOIN_GROUP, true);
+    pipe.setProperty(ROW_JOIN, true);
     pipe.setProperty(SIDE_DATABASES, databases);
     pipe.setProperty(SIDE_RESOURCES, resources);
     pipe.setProperty(SIDE_TX_TIMES, txTimes);
@@ -583,7 +583,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         return "order by: does not name every key";
       }
     }
-    pipeExpr.setProperty(JOIN_GROUP, Boolean.TRUE);
+    pipeExpr.setProperty(JOIN_GROUP, true);
     pipeExpr.setProperty(SIDE_DATABASES, databases);
     pipeExpr.setProperty(SIDE_RESOURCES, resources);
     pipeExpr.setProperty(SIDE_TX_TIMES, txTimes);

@@ -98,7 +98,7 @@ public final class SirixGroupAggregateExpr implements Expr {
    * {@link SourceRef.Kind#VARIABLE} ref cannot be judged at compile time, so this expr re-checks the
    * binding at evaluation time and declines to its generic fallback when it is foreign.
    */
-  private final SourceRef sourceRef;
+  private final @Nullable SourceRef sourceRef;
   private final Expr genericFallback;
   /**
    * The index-routed source ({@code jn:open-bitemporal('db','res', T, P)}) this pipeline loops over,
@@ -112,7 +112,7 @@ public final class SirixGroupAggregateExpr implements Expr {
   /** A membership filter over a second routed opener, applied to the row keys before grouping. */
   private final RoutedGroupRequest.@Nullable MembershipFilter membership;
 
-  /** The literal document and the two compiled instant expressions of an index-routed source. */
+  /** A resource and either compiled opener instants or a folded indexed source expression. */
   public record RoutedSource(String database, String resource, @Nullable Expr txTime, Expr validTime,
       @Nullable Expr indexed) {
     public RoutedSource(final String database, final String resource, final Expr txTime, final Expr validTime) {
@@ -134,7 +134,7 @@ public final class SirixGroupAggregateExpr implements Expr {
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
-      final SourceRef sourceRef, final Expr genericFallback) {
+      final @Nullable SourceRef sourceRef, final Expr genericFallback) {
     this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes,
         orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
         keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, decorPos, decorPrefix, decorSuffix,
@@ -149,7 +149,7 @@ public final class SirixGroupAggregateExpr implements Expr {
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
-      final SourceRef sourceRef, final Expr genericFallback, final @Nullable RoutedSource routedSource,
+      final @Nullable SourceRef sourceRef, final Expr genericFallback, final @Nullable RoutedSource routedSource,
       final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes,
       final RoutedGroupRequest.@Nullable MembershipFilter membership) {
     this.routedSource = routedSource;

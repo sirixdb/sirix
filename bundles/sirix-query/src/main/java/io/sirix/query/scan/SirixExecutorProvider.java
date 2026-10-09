@@ -3,6 +3,7 @@ package io.sirix.query.scan;
 import io.brackit.query.QueryContext;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -13,7 +14,8 @@ public interface SirixExecutorProvider extends VectorizedExecutor {
    * Acquires the executor that must serve the complete evaluation, or {@code null} when none is
    * available. The caller must close a non-null lease.
    */
-  Lease acquire(QueryContext context, SourceRef source);
+  @Nullable
+  Lease acquire(QueryContext context, @Nullable SourceRef source);
 
   /** One admitted, revision-stable executor evaluation. */
   final class Lease implements AutoCloseable {

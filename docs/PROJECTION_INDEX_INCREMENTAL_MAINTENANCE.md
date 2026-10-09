@@ -465,9 +465,18 @@ the next append. This bounds reference carry-forward and cold replay even
 when the base columns compress too well to repay hundreds of references.
 
 The tailed descriptor describes the merged group, including its row count,
-zone maps and segment hashes. Single-group reads, batch assembly, directory
-walks and writer segment reads all merge the base with the tail before using
-segment bytes. Cold merges verify the re-encoded descriptor. The writer seeds
+zone maps and segment hashes. Single-group reads, batch assembly, ordinary
+directory walks and writer segment reads merge the base with the tail before
+using segment bytes. Masked catalog admission instead defers only tailed
+directories, including in bounded directory windows: their segment carriers
+retain deferred markers as specified by `RowGroupDirectory`. The column store
+prunes leaves before resolving those markers, so an
+excluded tail reads no base BODY. Ordinary leaves retain their captured inline
+bytes and durable offsets and the coalesced batch-fetch path. A kept tail
+resolves through the verified merge; persisted record lookup can merge its
+KEYS from the base KEYS and appended row blobs without reading base BODY.
+Empty row sources skip catalog admission entirely. Cold merges verify the
+re-encoded descriptor. The writer seeds
 a merge memo with its own encoding after each append, so its next commit can
 reuse those bytes without replaying the tail. Directory and batch routes retain
 structural slot checks but resolve the memo before fetching referenced base
@@ -479,6 +488,9 @@ described in `DISK_FORMAT.md`. Public row and directory reads return detached
 arrays so callers cannot alter the memo; internal maintenance borrows read-only
 bytes. The four-versioning-type tests and matched byte/latency measurements are
 recorded in [the row-tail verification report](PROJECTION_OPEN_ROW_GROUP_TAIL_VERIFICATION.md).
+The [work-budget inventory](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md)
+owns the masked-tail pruning and ordinary-leaf batching regressions and their
+counter contracts.
 
 If either fact is not proven, the new row is classified as an exception. The
 writer must not guess that an absent projection row is a tail append merely

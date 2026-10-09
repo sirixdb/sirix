@@ -396,7 +396,7 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
         return "aggregate: " + func + " cannot be merged across outer tuples";
       }
     }
-    pipeExpr.setProperty(CORRELATED, Boolean.TRUE);
+    pipeExpr.setProperty(CORRELATED, true);
     pipeExpr.setProperty(INNER_PIPE, synthetic);
     pipeExpr.setProperty(OUTER_KEY_EXPRS, outerKeyExprs.toArray(new AST[0]));
     pipeExpr.setProperty(ENTRY_KINDS, entryKinds);

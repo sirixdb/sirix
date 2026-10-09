@@ -59,7 +59,7 @@ promotion. Dense global-string grouping uses the same keep mask. A residency ref
 before operand fills; a later fill-budget refusal retains the mask on re-entry and declines before
 entering a whole-leaf arm.
 
-**Computed lanes.** A pre-group `let $v := $r.a * $r.b` (any `+,-,*` program over the loop var's
+**Computed lanes.** A pre-group `let $v := $r.a * $r.b` (a supported `+,-,*` program over the loop var's
 fields and integer literals, `ComputedProgram`'s encoding) is an aggregate operand `prog:<i>`. The
 executor resolves its operand columns (NUMERIC_LONG, integral, null-free), evaluates the program once
 per kept leaf into a query-local derived column (`ProjectionComputedColumn`; a row missing an operand
@@ -69,12 +69,15 @@ prices every distinct operand and the derived value and presence buffers. Dictio
 packed-substring, windowed and legacy multi-key arms decline computed lanes that they cannot consume.
 Exact arithmetic or decline: an overflow is an
 `ArithmeticException`, which routes the query to the generic pipeline's decimal promotion.
+Computed lets are aggregate operands; grouping by one or using one under constant-only grouping
+retains generic execution.
 
 **`count($let)`.** `count` of a let bound to a field is `fn:count` of the field's values in the
 group — the lane's present count, not the row count — and is emitted from that lane. A grouping
 variable is scalar after grouping; aggregates over it retain the generic pipeline. In-kernel
 ordering on such an entry declines; the wrapper's sort applies the order-by. Constant-key grouping
 uses the same present-count rule for field counts, including double-wrapped counts.
+For a computed let, a row contributes to its count only when every operand is present.
 
 ## Admission
 
@@ -90,6 +93,11 @@ Plain indexed FLWOR point slices fold before aggregate detection. Internal `open
 and `scan-valid-time-index` sources supply their exact key sequences, including endpoint and
 residual checks; unsafe coverage or an unavailable index declines. Both join sides and correlated
 inner groupings use the same source admission.
+
+Literal selector components containing `/` or starting with the reserved `prog:` token decline
+projection admission, including in pre-group predicates; nested dereferences remain distinct path
+steps. Joined and correlated returns must have unique names across the complete emitted record,
+so duplicate names retain the generic `BIT_DUPLICATE_OBJECT_FIELD` error.
 
 Per evaluation the expression evaluates the instants, resolves the document at `T` (the revision
 current at that instant), takes the valid rows' record keys from the valid-time index
@@ -111,11 +119,11 @@ unordered routed grouping stays generic.
 **Correlated grouping** (Q6, Q11; `CorrelatedGroupAggregateDetectionStage`,
 `SirixCorrelatedGroupAggregateExpr`): an outer loop over a small table supplies the opener's
 instants and some group keys. The outer prefix (the outer loop and its selections) runs as an
-ordinary operator chain; per outer tuple the outer keys are evaluated by the interpreter and the
-inner grouping — exactly the plain shape, over a synthetic pipe the stage builds and the plain stages
-annotate — is served from the projection under that tuple's row mask; the groups merge on (outer
-keys, inner keys) with `count` and `sum` added exactly and `min`/`max` compared (an `avg` or a
-distinct count would need the lanes behind the emitted value, and declines). The order-by must name
+ordinary operator chain; per outer tuple the inner grouping — exactly the plain shape, over a
+synthetic pipe the stage builds and the plain stages annotate — is served from the projection under
+that tuple's row mask. Outer keys are evaluated only when the inner grouping contributes a row;
+the groups merge on (outer keys, inner keys) with `count` and `sum` added exactly and `min`/`max`
+compared (an `avg` or a distinct count would need the lanes behind the emitted value, and declines). The order-by must name
 every key. Dependent outer lets retain the generic pipeline because their bindings are not part of
 the separately translated outer-key expressions. Executors are resolved per revision through the chain's per-source resolver; a query
 touching more revisions than the resolver caches re-creates executors as it goes.

@@ -37,8 +37,9 @@ import java.util.Map;
 /**
  * Serving of the CORRELATED index-routed grouping (see
  * {@code CorrelatedGroupAggregateDetectionStage}): the outer prefix runs as an ordinary operator
- * chain; per outer tuple the outer keys are evaluated by the interpreter and the inner grouping is
- * served from the projection under that tuple's row mask; the served groups are merged on (outer
+ * chain; per outer tuple the inner grouping is served from the projection under that tuple's row
+ * mask. The interpreter evaluates outer keys only when that inner grouping contributes a row,
+ * preserving generic evaluation for empty inner sources. The served groups are merged on (outer
  * keys, inner keys) with the mergeable aggregates folded ({@code count} and {@code sum} added
  * exactly, {@code min}/{@code max} compared); the real records are assembled and ordered with
  * Brackit's own {@link Ordering} under the pipeline's order-by, which names every key. Any inner
@@ -204,35 +205,35 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
    */
   private static @Nullable Sequence merge(final String func, final @Nullable Sequence left,
       final @Nullable Sequence right) {
-    switch (func) {
+    return switch (func) {
       case "count", "sum" -> {
         if (left == null) {
-          return right;
+          yield right;
         }
         if (right == null) {
-          return left;
+          yield left;
         }
         if (left instanceof Int64 a && right instanceof Int64 b) {
           try {
-            return new Int64(Math.addExact(a.longValue(), b.longValue()));
+            yield new Int64(Math.addExact(a.longValue(), b.longValue()));
           } catch (final ArithmeticException overflow) {
-            return DECLINE;
+            yield DECLINE;
           }
         }
-        return DECLINE;
+        yield DECLINE;
       }
       case "min", "max" -> {
         if (left == null) {
-          return right;
+          yield right;
         }
         if (right == null) {
-          return left;
+          yield left;
         }
         if (!(left instanceof Atomic a) || !(right instanceof Atomic b)) {
-          return DECLINE;
+          yield DECLINE;
         }
         final int cmp = a.cmp(b);
-        return "min".equals(func)
+        yield "min".equals(func)
             ? (cmp <= 0
                 ? left
                 : right)
@@ -241,9 +242,9 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
                 : right);
       }
       default -> {
-        return DECLINE;
+        yield DECLINE;
       }
-    }
+    };
   }
 
   private Sequence sort(final List<Item> records) throws QueryException {
