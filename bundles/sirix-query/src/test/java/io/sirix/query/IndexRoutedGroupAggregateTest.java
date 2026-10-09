@@ -207,6 +207,47 @@ final class IndexRoutedGroupAggregateTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void correlatedUnsupportedInnerKeysRetainGenericExecution(final VersioningType versioning) throws Exception {
+    buildAdmissionRegressionResources(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String declarations = prolog(T0.toString(), "2024-02-01T00:00:00Z");
+      final String source = "for $e in [{'epoch':1}][] for $c in jn:open-bitemporal('" + DB
+          + "','aliases',$T,$P) let $epoch := $e.epoch, ";
+      final String ordinary =
+          declarations + "[" + source + "$grade := $c.grade, $value := $c.cost * $c.qty group by $epoch,$grade"
+              + " let $n := count($c), $total := sum($value) order by $epoch,$grade"
+              + " return {'epoch':$epoch,'grade':$grade,'n':$n,'total':$total}]";
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      final String expectedOrdinary = run(generic, ctx, ordinary);
+      assertEquals("[{\"epoch\":1,\"grade\":0,\"n\":2,\"total\":18}]", expectedOrdinary);
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "reference stays generic");
+      assertEquals(expectedOrdinary, run(chain, ctx, ordinary));
+      assertEquals(before + 1, SirixVectorizedExecutor.groupAggServedCount(), "supported inner grouping is served");
+      final String[][] shapes = {
+          {"$key := $c.cost * $c.qty group by $epoch,$key let $n := count($c) order by $epoch,$key"
+              + " return {'epoch':$epoch,'key':$key,'n':$n}",
+              "[{\"epoch\":1,\"key\":4,\"n\":1},{\"epoch\":1,\"key\":14,\"n\":1}]"},
+          {"$key := fn:replace($c.vf,'2024','year'), $grade := $c.grade, $value := $c.cost * $c.qty"
+              + " group by $epoch,$key,$grade let $n := count($c), $total := sum($value)"
+              + " order by $epoch,$key,$grade return {'epoch':$epoch,'key':$key,'grade':$grade,'n':$n,'total':$total}",
+              "[{\"epoch\":1,\"key\":\"year-01-01T00:00:00Z\",\"grade\":0,\"n\":2,\"total\":18}]"}};
+      for (final String[] shape : shapes) {
+        final String query = declarations + "[" + source + shape[0] + "]";
+        final long served = SirixVectorizedExecutor.groupAggServedCount();
+        final String expected = run(generic, ctx, query);
+        assertEquals(shape[1], expected);
+        assertEquals(served, SirixVectorizedExecutor.groupAggServedCount(), "reference stays generic");
+        assertEquals(expected, run(chain, ctx, query), shape[0]);
+        assertEquals(served, SirixVectorizedExecutor.groupAggServedCount(), "unsupported inner grouping stays generic");
+      }
+    }
+  }
+
   private void buildAdmissionRegressionResources(final VersioningType versioning) {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));

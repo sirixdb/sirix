@@ -874,8 +874,17 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (constMode && membership != null) {
       return "where: membership filter under constant-only grouping"; // the scalar route reads no row source
     }
+    if (!programs.isEmpty()) {
+      for (final String g : groupFields) {
+        if (g.startsWith(COMPUTED_FIELD_PREFIX)) {
+          return "group by: key bound to a computed let";
+        }
+      }
+    }
+    if (anyRegexKey && (keyCount > 1 || anyKeyTransform || anyCondKey)) {
+      return "key: regex transform combined with another key transform or several keys";
+    }
     if (constMode) {
-      pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       if (ownPredicate != null) {
         pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
       }
@@ -883,9 +892,9 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_FIELDS, fields);
       pipeExpr.setProperty(GROUP_AGG_OUT_NAMES, outNames);
       pipeExpr.setProperty(GROUP_AGG_OFFSETS, offsets);
+      pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       return null;
     }
-    pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     if (ownPredicate != null) {
       pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
     }
@@ -899,11 +908,6 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(MEMBERSHIP_ANTI, membership.anti());
     }
     if (!programs.isEmpty()) {
-      for (final String g : groupFields) {
-        if (g.startsWith(COMPUTED_FIELD_PREFIX)) {
-          return "group by: key bound to a computed let"; // a derived column is an operand, never an identity
-        }
-      }
       final String[][] progFields = new String[programs.size()][];
       final int[][] progCode = new int[programs.size()][];
       final long[][] progConsts = new long[programs.size()][];
@@ -937,11 +941,6 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_KEY_STRINGIFY, keyStringify);
     }
     if (anyRegexKey) {
-      if (keyCount > 1 || anyKeyTransform || anyCondKey) {
-        return "key: regex transform combined with another key transform or several keys"; // the regex route is the
-                                                                                           // single-string-key flat arm
-                                                                                           // only (v1)
-      }
       pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_PATTERN, keyRegexPattern);
       pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_REPL, keyRegexRepl);
     }
@@ -973,6 +972,7 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_ORDER_ASC, orderAscending);
       pipeExpr.setProperty(GROUP_AGG_ORDER_EMPTY_LEAST, orderEmptyLeastFlags);
     }
+    pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     return null;
   }
 
