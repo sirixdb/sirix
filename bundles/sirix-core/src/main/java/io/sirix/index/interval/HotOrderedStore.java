@@ -218,7 +218,7 @@ public final class HotOrderedStore implements OrderedStore {
     private final HOTTrieReader trie;
     private final HOTRangeCursor cursor;
     private final byte[] composite;
-    private final ChunkAccumulator accumulator = new ChunkAccumulator();
+    private final ChunkAccumulator accumulator = ChunkAccumulator.forChunkLookup();
     private long chunkBase;
 
     private PostingChunkCursor(final HOTIndexReader<ValidTimeKey> reader, final PageReference root, final byte[] from,

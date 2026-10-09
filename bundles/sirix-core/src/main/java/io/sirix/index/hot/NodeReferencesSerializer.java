@@ -651,11 +651,11 @@ public final class NodeReferencesSerializer {
   /**
    * Accumulates a lookup's chunk payloads into the cheapest sufficient representation: a sorted
    * {@code long[]} for small packed chunks (the average CAS posting list holds one or two node keys),
-   * spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT}. An owned Roaring payload in
-   * the first zero-based chunk is retained directly, avoiding enumeration for chunk-local counts. The
-   * emitted {@link NodeReferences#ofSortedArray} result costs one right-sized array + one wrapper
-   * instead of a bitmap container tree per lookup — the single largest allocation the read path had
-   * left.
+   * spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT}. Chunk-local callers may retain
+   * an owned Roaring payload directly through {@link #forChunkLookup()}, avoiding enumeration for
+   * cardinality without changing the general lookup's compact-result contract. The emitted
+   * {@link NodeReferences#ofSortedArray} result costs one right-sized array + one wrapper instead of
+   * a bitmap container tree per lookup — the single largest allocation the read path had left.
    *
    * <p>
    * Sortedness precondition: chunks must be appended in ascending composite-key order (the chunk
@@ -666,6 +666,20 @@ public final class NodeReferencesSerializer {
   public static final class ChunkAccumulator {
 
     private static final int COMPACT_LIMIT = 512;
+    private final boolean retainRoaringChunks;
+
+    public ChunkAccumulator() {
+      this(false);
+    }
+
+    private ChunkAccumulator(final boolean retainRoaringChunks) {
+      this.retainRoaringChunks = retainRoaringChunks;
+    }
+
+    /** Chunk-local reads retain decoded bitmaps instead of enumerating their bits for a count. */
+    public static ChunkAccumulator forChunkLookup() {
+      return new ChunkAccumulator(true);
+    }
 
     private long[] keys = new long[8];
     private int count;
@@ -923,9 +937,9 @@ public final class NodeReferencesSerializer {
         if (!chunkBitmap.isEmpty()) {
           requireChunkBit16(chunkBitmap.last());
         }
-        if (high == 0 && count == 0 && bitmap == null) {
-          // Deserialization owns this bitmap. Keep it directly for a chunk-local lookup (or
-          // the first full-key chunk), so cardinality does not enumerate and rebuild its bits.
+        if (retainRoaringChunks && high == 0 && count == 0 && bitmap == null) {
+          // Deserialization owns this bitmap. Keep it directly for a chunk-local lookup,
+          // so cardinality does not enumerate and rebuild its bits.
           bitmap = chunkBitmap;
           return true;
         }
@@ -1000,7 +1014,7 @@ public final class NodeReferencesSerializer {
         if (!chunkBitmap.isEmpty()) {
           requireChunkBit16(chunkBitmap.last());
         }
-        if (high == 0 && count == 0 && bitmap == null) {
+        if (retainRoaringChunks && high == 0 && count == 0 && bitmap == null) {
           bitmap = chunkBitmap;
           return true;
         }

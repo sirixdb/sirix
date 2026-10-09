@@ -772,7 +772,7 @@ class NodeReferencesSerializerTest {
     final byte[] payload = NodeReferencesSerializer.serialize(source);
     final HOTLeafPage leaf = leafWithValue(payload);
     try {
-      final ChunkAccumulator accumulator = new ChunkAccumulator();
+      final ChunkAccumulator accumulator = ChunkAccumulator.forChunkLookup();
       accumulator.addChunk(leaf, leaf.valueRef(0), 0);
       final NodeReferences first = accumulator.toNodeReferencesAndReset();
       assertNotNull(first);
