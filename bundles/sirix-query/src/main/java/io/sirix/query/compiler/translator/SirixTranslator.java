@@ -1,5 +1,7 @@
 package io.sirix.query.compiler.translator;
 
+import io.sirix.query.CompileWorkStats;
+
 import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.access.ResourceConfiguration;
@@ -161,6 +163,7 @@ public class SirixTranslator extends TopDownTranslator {
 
   @Override
   protected Expr anyExpr(AST node) throws QueryException {
+    CompileWorkStats.translatedExpression();
     if (node.getType() == XQExt.HashMembershipJoin) {
       // A marker outside a physical selection (e.g. a subsequently folded expression) remains exact.
       return expr(node.getChild(3), true);

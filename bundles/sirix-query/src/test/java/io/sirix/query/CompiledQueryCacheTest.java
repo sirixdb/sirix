@@ -2,6 +2,7 @@ package io.sirix.query;
 
 import io.brackit.query.Query;
 import io.brackit.query.atomic.AnyURI;
+import io.brackit.query.atomic.Atomic;
 import io.brackit.query.function.FunctionExpr;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.api.json.JsonNodeTrx.Commit;
@@ -81,12 +82,35 @@ final class CompiledQueryCacheTest {
         assertEquals("https://sirix.test/context/value",
             assertInstanceOf(AnyURI.class, new Query(module).execute(context)).stringValue());
       }
-      assertSame(shared, chain.compile(variant));
+      assertNotSame(shared, chain.compile(variant));
     }
   }
 
   @Test
-  void schemaFacadeReturnsTheOriginalBodyAndRevalidatesBeforeEvaluation() {
+  void cachedPlansRecreateTypedDeclarationsAndNamespaceContexts() {
+    try (final var store = newStore();
+         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+         final var context = SirixQueryContext.createWithJsonStore(store)) {
+      final String text = "declare namespace p = 'urn:vars'; declare variable $p:input as xs:integer external;"
+          + " declare variable $p:uri := namespace-uri-from-QName(xs:QName('p:field')); ($p:input + 1, $p:uri)";
+      final Module first = chain.compile(text);
+      final Module second = chain.compile(text);
+      assertNotSame(first.getVariables(), second.getVariables());
+      assertNotSame(first.getVariables().resolve(new QNm("urn:vars", "p", "uri")),
+          second.getVariables().resolve(new QNm("urn:vars", "p", "uri")));
+      for (final Module module : List.of(first, second)) {
+        context.bind(new QNm("urn:vars", "p", "input"), new Int64(10));
+        try (final var iterator = new Query(module).execute(context).iterate()) {
+          assertEquals("11", assertInstanceOf(Atomic.class, iterator.next()).stringValue());
+          assertEquals("urn:vars", assertInstanceOf(Atomic.class, iterator.next()).stringValue());
+        }
+      }
+      assertEquals(1, chain.compiledQueryCount());
+    }
+  }
+
+  @Test
+  void executionFacadeClaimsEachBodyOnceAndRevalidatesBeforeEvaluation() {
     try (final var store = newStore();
          final var chain = SirixCompileChain.createWithJsonStore(store);
          final var context = SirixQueryContext.createWithJsonStore(store)) {
@@ -94,13 +118,14 @@ final class CompiledQueryCacheTest {
       final Module cached = chain.compile(text);
       final var raw = new MainModule();
       raw.setExpr(cached.getBody());
-      final var facade = new SchemaFencedModule(chain, text, PlanCache.indexSchemaVersion(), raw);
+      final var facade = new SchemaFencedModule(chain, text,
+          new CompiledQueryCache.Key(text, PlanCache.indexSchemaVersion(), null, false), raw);
       assertSame(raw.getBody(), facade.getBody(), "schema revalidation must not wrap expression evaluation");
       assertEquals("2 4 6", answer(new Query(facade), context));
       PlanCache.signalIndexSchemaChange();
       assertNotSame(raw.getBody(), facade.getBody(), "a retained module must select a new body after schema change");
       assertEquals("2 4 6", answer(new Query(facade), context));
-      assertSame(chain.compile(text).getBody(), facade.getBody());
+      assertNotSame(facade.getBody(), facade.getBody(), "retained queries need fresh executable objects");
     }
   }
 
@@ -131,7 +156,7 @@ final class CompiledQueryCacheTest {
       assertEquals("12 13 14", answer(new Query(first), context));
       context.bind(new QNm("input"), new Int64(20));
       final Module again = chain.compile(text);
-      assertSame(first, again);
+      assertNotSame(first, again);
       assertEquals("22 23 24", answer(new Query(again), context));
       assertEquals("22 23 24", answer(new Query(first), context));
     }
@@ -144,6 +169,7 @@ final class CompiledQueryCacheTest {
          final var workers = Executors.newFixedThreadPool(8)) {
       final String text = "declare variable $input external; declare variable $derived := $input + 1;"
           + " for $n in 1 to 20 return $derived + $n";
+      final Query retained = new Query(chain, text);
       final var barrier = new CyclicBarrier(8);
       final List<Callable<Module>> tasks = new ArrayList<>(8);
       for (int i = 0; i < 8; i++) {
@@ -161,6 +187,7 @@ final class CompiledQueryCacheTest {
             }
             for (int repetition = 0; repetition < 10; repetition++) {
               assertEquals(expected.toString(), answer(new Query(module), context));
+              assertEquals(expected.toString(), answer(retained, context));
             }
             return module;
           }
@@ -168,7 +195,10 @@ final class CompiledQueryCacheTest {
       }
       final var results = workers.invokeAll(tasks);
       final Module first = results.getFirst().get();
-      for (final var result : results) assertSame(first, result.get());
+      for (int i = 1; i < results.size(); i++) {
+        assertNotSame(first, results.get(i).get());
+        assertNotSame(first.getBody(), results.get(i).get().getBody());
+      }
       assertEquals(1, chain.compiledQueryCount());
     }
   }
@@ -191,7 +221,7 @@ final class CompiledQueryCacheTest {
       assertEquals("6", answer(new Query(b), context));
       assertNotSame(b, other.compile(text));
       context.bind(new QNm("doc"), store.lookup("a").getDocument("r"));
-      assertSame(a, chain.compile(text));
+      assertNotSame(a, chain.compile(text));
       assertEquals("30", answer(new Query(a), context));
     }
   }
@@ -236,7 +266,7 @@ final class CompiledQueryCacheTest {
       final Module changed = chain.compile(text);
       assertNotSame(dropped, changed, "commits can change path-summary routing even without index DDL");
       assertEquals("2 2", answer(new Query(changed), context));
-      assertSame(changed, chain.compile(text));
+      assertNotSame(changed, chain.compile(text));
     }
   }
 
@@ -271,7 +301,7 @@ final class CompiledQueryCacheTest {
         final Module stable = chain.compile(text);
         assertNotSame(raced, stable);
         assertEquals("2", answer(new Query(stable), context));
-        assertSame(stable, chain.compile(text));
+        assertNotSame(stable, chain.compile(text));
       }
     }
   }
@@ -295,25 +325,30 @@ final class CompiledQueryCacheTest {
       final Module morsel = chain.compile("1 + 1");
       assertNotSame(normal, morsel);
       SequentialPipelineStrategy.setMorselEnabled(false);
-      assertSame(normal, chain.compile("1 + 1"));
+      assertNotSame(normal, chain.compile("1 + 1"));
     }
   }
 
   @Test
   void boundedLruCloseAndOversizedQueriesReleaseEntries() {
     try (final var store = newStore(); final var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final Module eldest = chain.compile("1 + 1");
-      final Module fourth = chain.compile("4 + 1");
+      chain.compile("1 + 1");
+      chain.compile("4 + 1");
       for (int i = 2; i <= CompiledQueryCache.MAX_ENTRIES; i++) chain.compile(i + " + 1");
-      final Module second = chain.compile("2 + 1");
-      assertSame(eldest, chain.compile("1 + 1"), "a hit must refresh LRU order");
-      final Module third = chain.compile("3 + 1");
+      chain.compile("2 + 1");
+      long parses = CompileWorkStats.parses();
+      chain.compile("1 + 1");
+      assertEquals(parses, CompileWorkStats.parses(), "a plan hit must refresh LRU order without parsing");
+      chain.compile("3 + 1");
       chain.compile("129 + 1");
       assertEquals(CompiledQueryCache.MAX_ENTRIES, chain.compiledQueryCount());
-      assertSame(eldest, chain.compile("1 + 1"));
-      assertSame(second, chain.compile("2 + 1"));
-      assertSame(third, chain.compile("3 + 1"));
-      assertNotSame(fourth, chain.compile("4 + 1"), "least recently used entry must be evicted");
+      parses = CompileWorkStats.parses();
+      chain.compile("1 + 1");
+      chain.compile("2 + 1");
+      chain.compile("3 + 1");
+      assertEquals(parses, CompileWorkStats.parses(), "the recently touched plans must remain cached");
+      chain.compile("4 + 1");
+      assertEquals(parses + 1, CompileWorkStats.parses(), "the least recently used plan must be recompiled");
       chain.compile("130 + 1");
       assertEquals(CompiledQueryCache.MAX_ENTRIES, chain.compiledQueryCount());
       final String oversized = "1 (:" + "x".repeat(CompiledQueryCache.MAX_QUERY_LENGTH) + ":)";
@@ -369,7 +404,7 @@ final class CompiledQueryCacheTest {
       context.bind(new QNm("input"), new Int64(3));
       assertEquals("4", answer(new Query(function), context));
       context.bind(new QNm("input"), new Int64(9));
-      assertSame(function, chain.compile(local));
+      assertNotSame(function, chain.compile(local));
       assertEquals("10", answer(new Query(function), context));
     }
   }

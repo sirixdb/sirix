@@ -1,7 +1,6 @@
 package io.sirix.query;
 
 import io.brackit.query.compiler.AST;
-import io.brackit.query.module.Module;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 
 import java.util.LinkedHashMap;
@@ -9,8 +8,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Strictly bounded, chain-owned LRU. The chain's compile monitor protects all operations; execution
- * never takes that monitor. Only translated code and immutable source hints are retained, never a
+ * Strictly bounded, chain-owned optimized-plan LRU. The chain's compile monitor protects
+ * plan lookup and translation. Expression evaluation never takes that monitor. Only detached plans and immutable source hints are retained, never an expression,
  * query context, tuple, result or transaction. Prolog values are owned by Brackit's QueryExecution.
  */
 final class CompiledQueryCache {
@@ -23,7 +22,7 @@ final class CompiledQueryCache {
     }
   }
 
-  record Entry(Module module, AST parsed, AST optimized, Mesh mesh) {
+  record Entry(OptimizedQueryPlan plan, AST parsed, AST optimized, Mesh mesh) {
   }
 
   private final Map<Key, Entry> entries = new LinkedHashMap<>(MAX_ENTRIES, 0.75f, true) {

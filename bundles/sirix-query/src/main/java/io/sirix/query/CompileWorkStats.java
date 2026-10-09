@@ -9,6 +9,7 @@ public final class CompileWorkStats {
   private static final AtomicLong ANALYSES = new AtomicLong();
   private static final AtomicLong OPTIMIZATIONS = new AtomicLong();
   private static final AtomicLong TRANSLATIONS = new AtomicLong();
+  private static final AtomicLong TRANSLATED_EXPRESSIONS = new AtomicLong();
 
   private CompileWorkStats() {
     throw new AssertionError("no instances");
@@ -44,5 +45,14 @@ public final class CompileWorkStats {
 
   public static long translations() {
     return TRANSLATIONS.get();
+  }
+
+  /** Actual recursive expression-dispatch work, rather than an AST-size estimate. */
+  public static void translatedExpression() {
+    if (ENABLED) TRANSLATED_EXPRESSIONS.incrementAndGet();
+  }
+
+  public static long translatedExpressions() {
+    return TRANSLATED_EXPRESSIONS.get();
   }
 }

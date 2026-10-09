@@ -6,35 +6,39 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.module.Module;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.module.Variables;
-import io.sirix.query.compiler.optimizer.PlanCache;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Revalidates a retained Query before QueryExecution starts. Returning the original translated
- * body keeps schema checks and dispatch wrappers out of the expression evaluation path.
+ * Claims the initially translated body once. Subsequent executions translate a fresh body from
+ * the fenced plan before QueryExecution starts; no dispatch wrapper enters expression evaluation.
  */
 final class SchemaFencedModule implements Module {
   private final SirixCompileChain chain;
   private final String text;
-  private final long schemaVersion;
+  private final CompiledQueryCache.Key key;
   private final Module delegate;
+  private final AtomicReference<Module> initial;
 
-  SchemaFencedModule(final SirixCompileChain chain, final String text, final long schemaVersion, final Module delegate) {
+  SchemaFencedModule(final SirixCompileChain chain, final String text, final CompiledQueryCache.Key key,
+      final Module delegate) {
     this.chain = Objects.requireNonNull(chain);
     this.text = Objects.requireNonNull(text);
-    this.schemaVersion = schemaVersion;
+    this.key = Objects.requireNonNull(key);
     this.delegate = Objects.requireNonNull(delegate);
+    initial = new AtomicReference<>(delegate);
   }
 
   @Override
   public Expr getBody() {
     Module current = this;
     while (current instanceof SchemaFencedModule fenced) {
-      if (fenced.schemaVersion == PlanCache.indexSchemaVersion()) {
-        return fenced.delegate.getBody();
+      final Module first = fenced.initial.getAndSet(null);
+      if (first != null && fenced.chain.matchesExecutionBinding(fenced.key)) {
+        return first.getBody();
       }
       current = fenced.chain.compile(fenced.text);
     }

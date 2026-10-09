@@ -203,7 +203,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   both versions as a positive control. Full replay record/path counters remain separate diagnostics.
 - `CompileWorkStats` (`sirix-query`, `sirix.query.compileWorkDiag`): parser and analyser
   invocations and optimization/translation targets. `CompiledQueryWorkBudgetTest` requires a
-  nonzero cold compilation and zero work in all four phases for a repeated text on the same chain.
+  nonzero cold compilation, zero parse/analysis/optimization work on repeats, and exactly one
+  translation phase with fixed recursive expression-dispatch work per fresh execution. The
+  PR-specific compiler-cache contract uses fresh executable trees; existing budgets stay unchanged.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
