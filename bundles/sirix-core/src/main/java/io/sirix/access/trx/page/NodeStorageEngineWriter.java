@@ -132,6 +132,7 @@ import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
@@ -4006,7 +4007,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // definitions neither writes a file nor pays its fsync. Reverts publish their represented
       // catalogue even when empty, so later opens cannot inherit the newer catalogue.
       serializeIndexDefinitions(revision);
-      indexController.getIndexes().clearDirty();
 
       final long t3 = timing
           ? System.nanoTime()
@@ -4100,7 +4100,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final boolean neverPersisted =
         indexCatalog.catalogueRevision() == Indexes.NO_CATALOGUE_FILE && !indexCatalog.isEmpty();
     if (reverted || neverPersisted || indexCatalog.differsFromPersisted() || Files.exists(indexes)) {
-      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+      try (final OutputStream out = newOutputStream(indexes, CREATE, TRUNCATE_EXISTING)) {
         indexController.serialize(out);
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
@@ -5997,6 +5997,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
+    storageEngineReader.resourceSession.invalidateIndexCataloguesAfter(revision);
     storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached

@@ -213,20 +213,27 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    */
   static final class DataAllocationDurability {
     private boolean metadataDirty;
+    private boolean dataDirty;
 
     synchronized void markMetadataDirty() {
       metadataDirty = true;
     }
 
-    /** Force now; clear a pending metadata requirement only after a successful metadata force. */
-    synchronized boolean isMetadataDirty() {
-      return metadataDirty;
+    synchronized boolean isDirty() {
+      return dataDirty || metadataDirty;
     }
 
+    /** Force now; clear a pending metadata requirement only after a successful metadata force. */
     synchronized void force(final FileChannel channel, final boolean forceMetadata) throws IOException {
       final boolean metadata = forceMetadata || metadataDirty;
       DATA_FILE_FORCES.increment();
-      channel.force(metadata);
+      try {
+        channel.force(metadata);
+      } catch (final IOException e) {
+        dataDirty = true;
+        throw e;
+      }
+      dataDirty = false;
       if (metadata) {
         metadataDirty = false;
       }
@@ -234,6 +241,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   private final DataAllocationDurability dataAllocationDurability;
+
+  private volatile boolean unforcedDataWrites;
 
   /**
    * Forces of a resource's data file, process-wide. Unconditional: every force is a device round
@@ -250,14 +259,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public static long dataFileForces() {
     return DATA_FILE_FORCES.sum();
   }
-
-  /**
-   * Whether the data channel has been written through this writer since its last force. Every commit
-   * forces the data file before its beacons, and the writer is per transaction, so at close nothing
-   * is normally left to force: skipping the close-time force then saves a device round-trip per
-   * commit.
-   */
-  private volatile boolean unforcedDataWrites;
 
   /**
    * Lazy revision records (requires {@link #preallocatedCommit}). The per-commit 32-byte revision
@@ -437,6 +438,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       RevisionRecordDurability.invalidateFor(revisionsFilePath);
 
+      dataAllocationDurability.markMetadataDirty();
       dataFileChannel.truncate(newSize);
 
       // Also truncate the REVISIONS file to drop records of revisions beyond the target —
@@ -516,9 +518,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     final ByteBuffer slot = ByteBuffer.allocateDirect(IOStorage.BEACON_SLOT_BYTES);
     readFully(dataFileChannel, slot, goodOffset);
     slot.flip();
+    unforcedDataWrites = true;
     writeFully(dataFileChannel, slot, staleOffset);
-    DATA_FILE_FORCES.increment();
-    dataFileChannel.force(false);
+    forceDataFile(false);
   }
 
   @Override
@@ -1226,7 +1228,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // data file before its beacons) has nothing left to make durable, and a fresh allocation that
       // never reached a barrier is remembered by the durability helper, so only a writer with
       // unforced writes or dirty allocation metadata pays the close-time force.
-      if (dataFileChannel != null && (unforcedDataWrites || dataAllocationDurability.isMetadataDirty())) {
+      if (dataFileChannel != null && (unforcedDataWrites || dataAllocationDurability.isDirty())) {
         forceDataFile(metaData);
       }
       if (revisionsFileChannel != null && !lazyRevisionRecords) {
@@ -1313,8 +1315,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
       if (superblockMissing(dataFileChannel)) {
         final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, uuidMsb, uuidLsb);
-        writeFully(dataFileChannel, sb, 0L);
         unforcedDataWrites = true;
+        writeFully(dataFileChannel, sb, 0L);
       }
 
       if (lazyRevisionRecords) {
@@ -1395,13 +1397,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // loses at most one copy; the survivor — the new revision or the prior one — stays valid).
         final ByteBuffer secondary = buffer.duplicate();
         secondary.position(slot).limit(2 * slot);
+        unforcedDataWrites = true;
         writeFully(dataFileChannel, secondary, IOStorage.SECONDARY_BEACON_OFFSET);
         final ByteBuffer primary = buffer.duplicate();
         primary.position(0).limit(slot);
         writeFully(dataFileChannel, primary, IOStorage.PRIMARY_BEACON_OFFSET);
-        DATA_FILE_FORCES.increment();
-        dataFileChannel.force(false);
-        unforcedDataWrites = false;
+        forceDataFile(false);
       } else {
         // ORDERED dual-copy update through the WRITE-THROUGH beacon channel: each write is durable
         // when it returns (O_DSYNC — an FUA write on NVMe, far cheaper than a cache flush), so the
@@ -1717,8 +1718,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private void writeTailLogToSlot(final long slotOffset) throws IOException {
     final long target = slotOffset + IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET;
-    writeFully(dataFileChannel, tailLogWriteBuffer, target);
     unforcedDataWrites = true;
+    writeFully(dataFileChannel, tailLogWriteBuffer, target);
   }
 
   /**
@@ -1770,15 +1771,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final int len = buffer.remaining();
       final long offset = dataFrontier();
       ensureDataCapacity(offset + len);
-      writeFully(dataFileChannel, buffer, offset);
       unforcedDataWrites = true;
+      writeFully(dataFileChannel, buffer, offset);
       dataLogicalEnd = offset + len;
       bufferedBytes.clear();
       return;
     }
     final long offset = Math.max(dataFileChannel.size(), IOStorage.DATA_REGION_START);
-    writeFully(dataFileChannel, buffer, offset);
+    dataAllocationDurability.markMetadataDirty();
     unforcedDataWrites = true;
+    writeFully(dataFileChannel, buffer, offset);
     bufferedBytes.clear();
   }
 
@@ -1861,6 +1863,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       durability = RevisionRecordDurability.forFile(revisionsFilePath, resourceUuidMsb, resourceUuidLsb);
       tailLog = null;
       tailLogView = null;
+      dataAllocationDurability.markMetadataDirty();
       dataFileChannel.truncate(0);
       dataLogicalEnd = -1L;
       dataPreallocEnd = -1L;

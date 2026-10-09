@@ -1,13 +1,16 @@
 package io.sirix.index;
 
 import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Type;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class IndexesTest {
 
@@ -37,6 +40,26 @@ final class IndexesTest {
 
     assertFalse(indexes.isDirty());
     assertFalse(indexes.getIndexDefs().iterator().hasNext());
+  }
+
+  @Test
+  void loadedDefinitionsIsolateNumericEvidenceAcrossControllers() {
+    final IndexDef definition = IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, IndexDef.DbType.JSON);
+    final Indexes first = new Indexes();
+    final Indexes second = new Indexes();
+    first.initFrom(1, List.of(definition));
+    second.initFrom(1, List.of(definition));
+
+    first.getIndexDef(0, IndexType.CAS).markNonNumericValue();
+
+    assertTrue(first.differsFromPersisted());
+    assertTrue(definition.hasNumericValuesOnly());
+    assertTrue(definition.hasCompleteNumericCoverage());
+    assertTrue(second.getIndexDef(0, IndexType.CAS).hasNumericValuesOnly());
+    assertTrue(second.getIndexDef(0, IndexType.CAS).hasCompleteNumericCoverage());
+    assertFalse(second.differsFromPersisted());
+    first.markPersisted(2);
+    assertFalse(first.differsFromPersisted());
   }
 
   @Test

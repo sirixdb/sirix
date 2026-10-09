@@ -1,7 +1,6 @@
 package io.sirix.access.trx.page;
 
 import io.brackit.query.jdm.Type;
-import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
@@ -9,6 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
@@ -18,15 +18,21 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
+import java.util.stream.Stream;
 
+import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * A commit serializes its index catalogue ({@code indexes/<revision>.xml}) only when the
@@ -59,7 +65,7 @@ final class IndexCatalogueUnchangedCommitTest {
   void unchangedCommitsWriteNoFileAndEveryRevisionResolvesAfterReopen() throws Exception {
     final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final java.nio.file.Path indexes;
+    final Path indexes;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
@@ -124,7 +130,7 @@ final class IndexCatalogueUnchangedCommitTest {
   void revertRepublishesTheRepresentedCatalogue() throws Exception {
     final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final java.nio.file.Path indexes;
+    final Path indexes;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
@@ -165,7 +171,7 @@ final class IndexCatalogueUnchangedCommitTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-        final java.nio.file.Path indexes = indexesDirectory(session);
+        final Path indexes = indexesDirectory(session);
         try (final JsonNodeTrx trx = session.beginNodeTrx()) {
           trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
               JsonNodeTrx.Commit.NO);
@@ -176,8 +182,9 @@ final class IndexCatalogueUnchangedCommitTest {
         }
         // A commit of revision 3 that serialized an (empty) catalogue and crashed before its beacon
         // leaves this file behind: revision 3 was never committed, so the file describes nothing.
-        final java.nio.file.Path leftover = indexes.resolve("3.xml");
-        Files.writeString(leftover, "<indexes/>", StandardCharsets.UTF_8);
+        final Path leftover = indexes.resolve("3.xml");
+        final String orphanCatalogue = "<indexes>" + " ".repeat(16_384) + "</indexes>";
+        Files.writeString(leftover, orphanCatalogue, StandardCharsets.UTF_8);
         try (final JsonNodeTrx trx = session.beginNodeTrx()) {
           assertEquals(3, trx.getRevisionNumber());
           assertEquals(1, casDefinitions(session.getWtxIndexController(trx.getRevisionNumber())),
@@ -185,7 +192,7 @@ final class IndexCatalogueUnchangedCommitTest {
           insertObject(trx, "b");
           trx.commit(); // 3: unchanged definitions, but the leftover must not survive as revision 3's catalogue
           assertTrue(Files.exists(leftover), "the committed revision's catalogue file");
-          assertTrue(Files.size(leftover) > "<indexes/>".length(), "the leftover file was kept instead of rewritten");
+          assertTrue(Files.size(leftover) < orphanCatalogue.length(), "the shorter replacement kept orphan bytes");
           assertEquals(1, casDefinitions(session.getRtxIndexController(3)), "CAS definitions at revision 3");
         }
       }
@@ -196,8 +203,173 @@ final class IndexCatalogueUnchangedCommitTest {
     }
   }
 
-  private static java.nio.file.Path indexesDirectory(final JsonResourceSession session) throws IOException {
-    final java.nio.file.Path indexes =
+  @Test
+  void numericCoverageChangesSurviveCommitAndReopen() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"value\":1}]"), JsonNodeTrx.Commit.NO);
+        createNumericCasIndex(session, trx, 0, "/[]/value");
+        trx.commit();
+        assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
+            .hasCompleteNumericCoverage());
+        moveToNumericValue(trx);
+        trx.setNumberValue(1.5);
+        trx.commit();
+        final IndexDef definition = session.getRtxIndexController(2).getIndexes().getIndexDef(0, IndexType.CAS);
+        assertTrue(definition.hasNumericValuesOnly());
+        assertFalse(definition.hasCompleteNumericCoverage());
+        assertTrue(Files.exists(indexesDirectory(session).resolve("2.xml")));
+        trx.commit();
+        assertFalse(Files.exists(indexesDirectory(session).resolve("3.xml")));
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
+          .hasCompleteNumericCoverage());
+      for (int revision = 2; revision <= 3; revision++) {
+        final IndexDef definition = session.getRtxIndexController(revision).getIndexes().getIndexDef(0, IndexType.CAS);
+        assertTrue(definition.hasNumericValuesOnly());
+        assertFalse(definition.hasCompleteNumericCoverage());
+        try (final var reader = session.beginNodeReadOnlyTrx(revision)) {
+          moveToNumericValue(reader);
+          assertEquals(1.5, reader.getNumberValue().doubleValue());
+        }
+      }
+    }
+  }
+
+  @Test
+  void rollbackDoesNotMutateCachedCommittedCoverage() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"value\":1}]"), JsonNodeTrx.Commit.NO);
+        createNumericCasIndex(session, trx, 0, "/[]/value");
+        trx.commit();
+        moveToNumericValue(trx);
+        trx.setNumberValue(1.5);
+        assertFalse(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(0, IndexType.CAS)
+            .hasCompleteNumericCoverage());
+        trx.rollback();
+        assertTrue(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(0, IndexType.CAS)
+            .hasCompleteNumericCoverage());
+        assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
+            .hasCompleteNumericCoverage());
+        moveToNumericValue(trx);
+        assertEquals(1, trx.getNumberValue().intValue());
+        trx.commit();
+        assertFalse(Files.exists(indexesDirectory(session).resolve("2.xml")));
+      }
+    }
+  }
+
+  @Test
+  void initialListingRetainsEveryCataloguePublishedBeforeItsSnapshot() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
+            JsonNodeTrx.Commit.NO);
+        createCasIndex(session, trx, 0);
+        trx.commit();
+        trx.commit();
+        createCasIndex(session, trx, 1);
+        trx.commit();
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeTrx trx = session.beginNodeTrx()) {
+      final Path indexes = indexesDirectory(session);
+      try (final MockedStatic<Files> files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+        files.when(() -> {
+          try (final Stream<Path> ignored = Files.list(indexes)) {
+          }
+        }).thenAnswer(invocation -> {
+          @SuppressWarnings("unchecked")
+          final Stream<Path> listed = (Stream<Path>) invocation.callRealMethod();
+          return listed.onClose(() -> {
+            createCasIndex(session, trx, 2);
+            trx.commit();
+            createCasIndex(session, trx, 3);
+            trx.commit();
+          });
+        });
+        assertEquals(0, casDefinitions(session.getRtxIndexController(0)));
+      }
+      assertEquals(3, casDefinitions(session.getRtxIndexController(4)));
+      assertEquals(4, casDefinitions(session.getRtxIndexController(5)));
+    }
+  }
+
+  @Test
+  void reusedRevisionReloadsItsReplacementCatalogue() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"a\":1,\"b\":2,\"c\":3}]"),
+              JsonNodeTrx.Commit.NO);
+          createNumericCasIndex(session, trx, 0, "/[]/a");
+          trx.commit();
+          createNumericCasIndex(session, trx, 1, "/[]/b");
+          trx.commit();
+          assertCasPath(session, 2, 1, "/[]/b");
+          trx.truncateTo(1);
+        }
+        try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+          assertEquals(2, trx.getRevisionNumber());
+          assertEquals(1, casDefinitions(session.getWtxIndexController(trx.getRevisionNumber())));
+          createNumericCasIndex(session, trx, 1, "/[]/c");
+          trx.commit();
+          assertCasPath(session, 2, 1, "/[]/c");
+          assertEquals(1, casDefinitions(session.getRtxIndexController(1)));
+        }
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertCasPath(session, 2, 1, "/[]/c");
+      assertEquals(1, casDefinitions(session.getRtxIndexController(1)));
+    }
+  }
+
+  private static void moveToNumericValue(final JsonNodeReadOnlyTrx trx) {
+    assertTrue(trx.moveToDocumentRoot() && trx.moveToFirstChild() && trx.moveToFirstChild() && trx.moveToFirstChild());
+    if (!trx.isNumberValue()) {
+      assertTrue(trx.moveToFirstChild());
+    }
+    assertTrue(trx.isNumberValue());
+  }
+
+  private static void createNumericCasIndex(final JsonResourceSession session, final JsonNodeTrx trx,
+      final int number, final String path) {
+    session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
+        Set.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(parse(path, PathParser.Type.JSON)),
+            number, IndexDef.DbType.JSON)), trx);
+  }
+
+  private static void assertCasPath(final JsonResourceSession session, final int revision, final int number,
+      final String path) {
+    assertEquals(Set.of(parse(path, PathParser.Type.JSON)),
+        session.getRtxIndexController(revision).getIndexes().getIndexDef(number, IndexType.CAS).getPaths());
+  }
+
+  private static Path indexesDirectory(final JsonResourceSession session) throws IOException {
+    final Path indexes =
         session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     Files.createDirectories(indexes);
     return indexes;
@@ -206,7 +378,7 @@ final class IndexCatalogueUnchangedCommitTest {
   private static void createCasIndex(final JsonResourceSession session, final JsonNodeTrx trx, final int number) {
     final JsonIndexController controller = session.getWtxIndexController(trx.getRevisionNumber());
     controller.createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.STR,
-        Set.of(Path.parse(CATEGORY_PATH, PathParser.Type.JSON)), number, IndexDef.DbType.JSON)), trx);
+        Set.of(parse(CATEGORY_PATH, PathParser.Type.JSON)), number, IndexDef.DbType.JSON)), trx);
   }
 
   private static void dropCasIndex(final JsonResourceSession session, final JsonNodeTrx trx, final int number) {

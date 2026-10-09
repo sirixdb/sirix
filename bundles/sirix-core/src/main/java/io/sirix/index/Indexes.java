@@ -103,9 +103,11 @@ public final class Indexes implements Materializable {
     requireNonNull(definitions);
     checkArgument(catalogueRevision >= NO_CATALOGUE_FILE, "catalogueRevision must be >= -1!");
     indexes.clear();
-    indexes.addAll(definitions);
+    for (final IndexDef definition : definitions) {
+      indexes.add(requireNonNull(definition).copyForCatalogue());
+    }
     this.catalogueRevision = catalogueRevision;
-    persisted = definitions.toArray(NO_DEFINITIONS);
+    persisted = indexes.toArray(NO_DEFINITIONS);
     dirty = false;
   }
 
@@ -118,7 +120,7 @@ public final class Indexes implements Materializable {
     checkArgument(revision >= 0, "revision must be >= 0!");
     persisted = indexes.toArray(NO_DEFINITIONS);
     catalogueRevision = revision;
-    dirty = false;
+    clearDirty();
   }
 
   /**
@@ -130,7 +132,7 @@ public final class Indexes implements Materializable {
    * @return {@code true} when a commit has to serialize these definitions
    */
   public boolean differsFromPersisted() {
-    if (dirty) {
+    if (isDirty()) {
       return true;
     }
     final IndexDef[] snapshot = persisted;

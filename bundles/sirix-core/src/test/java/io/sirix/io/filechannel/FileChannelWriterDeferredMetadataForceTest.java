@@ -132,6 +132,102 @@ final class FileChannelWriterDeferredMetadataForceTest {
   }
 
   @Test
+  void fullTruncateForcesMetadataOnClose(@TempDir final Path tempDir) throws Exception {
+    final Fixture fixture = fixture(tempDir);
+
+    fixture.writer().truncate();
+    fixture.writer().close();
+
+    assertEquals(List.of(true), dataForces(fixture.events()));
+  }
+
+  @Test
+  void partialPageTailWriteForcesOnClose(@TempDir final Path tempDir) throws Exception {
+    final Fixture fixture = fixture(tempDir);
+    flushUncommittedTail(fixture.writer(), new byte[] {1, 2, 3});
+    fixture.writer().forceAll();
+    fixture.events().clear();
+    final AtomicInteger writes = new AtomicInteger();
+    when(fixture.data().write(any(ByteBuffer.class), anyLong())).thenAnswer(invocation -> {
+      final ByteBuffer source = invocation.getArgument(0);
+      if (writes.getAndIncrement() == 0) {
+        source.position(source.position() + 1);
+        return 1;
+      }
+      throw new IOException("injected partial page-tail write failure");
+    });
+
+    assertThrows(SirixIOException.class, () -> flushUncommittedTail(fixture.writer(), new byte[] {4, 5, 6}));
+    fixture.writer().close();
+
+    assertEquals(List.of(false), dataForces(fixture.events()));
+  }
+
+  @Test
+  void partialBufferedBeaconWriteForcesOnClose(@TempDir final Path tempDir) throws Exception {
+    final Fixture fixture = fixture(tempDir);
+    flushUncommittedTail(fixture.writer(), new byte[] {1, 2, 3});
+    fixture.writer().forceAll();
+    fixture.events().clear();
+    final AtomicBoolean partialBeacon = new AtomicBoolean();
+    when(fixture.data().write(any(ByteBuffer.class), anyLong())).thenAnswer(invocation -> {
+      final ByteBuffer source = invocation.getArgument(0);
+      final long offset = invocation.getArgument(1);
+      if (offset == IOStorage.SECONDARY_BEACON_OFFSET) {
+        source.position(source.position() + 1);
+        partialBeacon.set(true);
+        return 1;
+      }
+      if (partialBeacon.get()) {
+        throw new IOException("injected partial beacon write failure");
+      }
+      final int length = source.remaining();
+      source.position(source.limit());
+      return length;
+    });
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("partial-beacon")
+        .byteHandlerPipeline(new ByteHandlerPipeline()).build();
+    config.resourcePath = tempDir;
+    try (MemorySegmentBytesOut beaconBuffer = new MemorySegmentBytesOut(2 * IOStorage.BEACON_SLOT_BYTES)) {
+      assertThrows(SirixIOException.class,
+          () -> fixture.writer().writeUberPageReference(config, new PageReference(), new UberPage(), beaconBuffer));
+    }
+    assertTrue(partialBeacon.get());
+    fixture.writer().close();
+
+    assertEquals(List.of(false, false), dataForces(fixture.events()));
+  }
+
+  @Test
+  void failedContentForceIsInheritedByTheNextPooledWriter(@TempDir final Path tempDir) throws Exception {
+    final FileChannelWriter.DataAllocationDurability sharedDurability =
+        new FileChannelWriter.DataAllocationDurability();
+    final Fixture first = fixture(tempDir, sharedDurability, () -> {
+    });
+    flushUncommittedTail(first.writer(), new byte[] {1, 2, 3});
+    first.writer().forceAll();
+    first.events().clear();
+    flushUncommittedTail(first.writer(), new byte[] {4, 5, 6});
+    final AtomicBoolean failNextForce = new AtomicBoolean(true);
+    doAnswer(invocation -> {
+      final boolean metadata = invocation.getArgument(0);
+      first.events().add(new Event(ChannelRole.DATA, Operation.FORCE, -1L, 0, metadata));
+      if (failNextForce.getAndSet(false)) {
+        throw new IOException("injected content-force failure");
+      }
+      return null;
+    }).when(first.data()).force(anyBoolean());
+
+    assertThrows(SirixIOException.class, first.writer()::close);
+    final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(), newReader(),
+        first.revisionsFilePath(), sharedDurability, () -> {
+        });
+    successor.close();
+
+    assertEquals(List.of(false, false), dataForces(first.events()));
+  }
+
+  @Test
   void failedCloseForceIsInheritedByTheNextPooledWriter(@TempDir final Path tempDir) throws Exception {
     final AtomicInteger releases = new AtomicInteger();
     final FileChannelWriter.DataAllocationDurability sharedDurability =

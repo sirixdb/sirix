@@ -2693,7 +2693,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         // back to the full rewrite below, exactly as before.
         boolean tailFirst = tailRows != null;
         int tailLabelBytes = tailFirst
-            ? Objects.requireNonNull(edit.oldPage).orderLabelLengthBytes()
+            ? Objects.requireNonNull(edit.oldPage).orderLabelLength()
             : 0;
         while (from < rows) {
           final int targetGroupSize = group < plannedGroups

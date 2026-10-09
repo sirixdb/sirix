@@ -221,16 +221,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * The sorted revisions of every catalogue file of this resource, once any of its sessions has
-   * listed {@code indexes/}, extended by every file their writers serialize since; {@code null} until
-   * listed. See {@link #resolveIndexCatalogueRevision}.
+   * listed {@code indexes/}, extended by every file their writers serialize since.
+   * See {@link #resolveIndexCatalogueRevision}.
    */
-  private final AtomicReference<int[]> knownIndexCatalogueRevisions;
+  private record CatalogueRevisions(int[] revisions, boolean listed) {
+  }
 
-  /**
-   * The greatest revision a writer of this resource serialized a catalogue file for, or
-   * {@link #NO_INDEX_CATALOGUE} while none has.
-   */
-  private final AtomicInteger serializedIndexCatalogueRevision;
+  private final AtomicReference<CatalogueRevisions> knownIndexCatalogueRevisions;
 
   /**
    * The parsed definitions of every catalogue file this resource's sessions have read, by the file's
@@ -322,8 +319,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.user = user;
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
-    knownIndexCatalogueRevisions = new AtomicReference<>();
-    serializedIndexCatalogueRevision = new AtomicInteger(NO_INDEX_CATALOGUE);
+    knownIndexCatalogueRevisions = new AtomicReference<>(new CatalogueRevisions(EMPTY_INT_ARRAY, false));
     parsedIndexCatalogues = new ConcurrentHashMap<>();
     pool = new AtomicReference<>();
 
@@ -361,7 +357,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
     knownIndexCatalogueRevisions = sharedSession.knownIndexCatalogueRevisions;
-    serializedIndexCatalogueRevision = sharedSession.serializedIndexCatalogueRevision;
     parsedIndexCatalogues = sharedSession.parsedIndexCatalogues;
     revisionEpochTracker = sharedSession.revisionEpochTracker;
     trxIDCounter = sharedSession.trxIDCounter;
@@ -524,16 +519,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * next commit of that revision number.
    */
   private int resolveIndexCatalogueRevision(final Path indexesDir, final int revision) {
-    final int[] known = knownIndexCatalogueRevisions.get();
-    if (known != null) {
-      return greatestAtOrBelow(known, revision);
+    final CatalogueRevisions known = knownIndexCatalogueRevisions.get();
+    if (known.listed()) {
+      return greatestAtOrBelow(known.revisions(), revision);
     }
     if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
       return revision;
     }
     // The newest file a writer of this resource serialized is the greatest one at or below any later
     // revision: every file written since the sessions opened is reported, and nothing else writes.
-    final int serialized = serializedIndexCatalogueRevision.get();
+    final int[] reported = known.revisions();
+    final int serialized = reported.length == 0
+        ? NO_INDEX_CATALOGUE
+        : reported[reported.length - 1];
     if (serialized != NO_INDEX_CATALOGUE && serialized <= revision) {
       return serialized;
     }
@@ -591,18 +589,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         throw new SirixIOException("Index definitions couldn't be listed!", e);
       }
     }
-    // A catalogue serialized while this listing ran may be missing from it, but its writer reported
-    // it, so the union loses nothing; a file reported after the publication below is merged by
-    // recordSerializedIndexCatalogueRevision.
-    final int serialized = serializedIndexCatalogueRevision.get();
-    if (serialized != NO_INDEX_CATALOGUE) {
-      revisions.add(serialized);
-    }
     final int[] sorted = revisions.stream().mapToInt(Integer::intValue).distinct().sorted().toArray();
-    final int[] published = knownIndexCatalogueRevisions.updateAndGet(current -> current == null
-        ? sorted
-        : mergeSorted(current, sorted));
-    return published;
+    return knownIndexCatalogueRevisions.updateAndGet(
+        current -> new CatalogueRevisions(mergeSorted(current.revisions(), sorted), true)).revisions();
   }
 
   /** Sorted union of two sorted arrays without duplicates. */
@@ -631,12 +620,28 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public void recordSerializedIndexCatalogueRevision(final int revision) {
     checkArgument(revision >= 0, "revision must be >= 0!");
     INDEX_CATALOGUE_FILES_WRITTEN.increment();
-    serializedIndexCatalogueRevision.accumulateAndGet(revision, Math::max);
-    knownIndexCatalogueRevisions.updateAndGet(
-        current -> current == null || greatestAtOrBelow(current, revision) == revision
-            ? current
-            : mergeSorted(current, new int[] {revision}));
+    if (parsedIndexCatalogues.remove(revision) != null) {
+      invalidateIndexControllers(revision);
+    }
+    knownIndexCatalogueRevisions.updateAndGet(current -> greatestAtOrBelow(current.revisions(), revision) == revision
+        ? current
+        : new CatalogueRevisions(mergeSorted(current.revisions(), new int[] {revision}), current.listed()));
   }
+
+  @Override
+  public void invalidateIndexCataloguesAfter(final int revision) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    parsedIndexCatalogues.keySet().removeIf(catalogueRevision -> catalogueRevision > revision);
+    knownIndexCatalogueRevisions.updateAndGet(current -> {
+      final int[] revisions = current.revisions();
+      int retained = Arrays.binarySearch(revisions, revision);
+      retained = retained >= 0 ? retained + 1 : -retained - 1;
+      return new CatalogueRevisions(Arrays.copyOf(revisions, retained), current.listed());
+    });
+    invalidateIndexControllers(revision + 1);
+  }
+
+  protected abstract void invalidateIndexControllers(int firstRevision);
 
   /**
    * Number of index-catalogue directory listings since the JVM started.
@@ -774,6 +779,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           resourceConfig.getResource(), writer.getClass().getSimpleName());
       return;
     }
+    invalidateIndexCataloguesAfter(lastCommittedRev);
     writer.truncateTo(lastCommittedRev);
     // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
     // commit may already sit in the warm global caches under those offsets (caches survive
