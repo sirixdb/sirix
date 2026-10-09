@@ -137,7 +137,7 @@ public final class IndexRoutedSourceStage implements Stage {
         || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI())) {
       return null;
     }
-    final boolean opener = isOpener(expression, source, fn);
+    final boolean opener = isOpener(source, fn);
     final boolean slice = isSlice(source, fn);
     final boolean scan = isScan(source, fn);
     if (!opener && !slice && !scan) {
@@ -187,9 +187,8 @@ public final class IndexRoutedSourceStage implements Stage {
         && doc.getChildCount() <= 3;
   }
 
-  private static boolean isOpener(final AST expression, final AST source, final QNm fn) {
-    return expression.getType() != XQ.ParenthesizedExpr && "open-bitemporal".equals(fn.getLocalName())
-        && source.getChildCount() == 4;
+  private static boolean isOpener(final AST source, final QNm fn) {
+    return "open-bitemporal".equals(fn.getLocalName()) && source.getChildCount() == 4;
   }
 
   private static boolean isSlice(final AST source, final QNm fn) {

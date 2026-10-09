@@ -1,6 +1,7 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.Stage;
@@ -52,8 +53,6 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
   public static final String INNER_PIPE = "SIRIX_CORR_INNER_PIPE";
   /** {@code AST[]}: the outer key expressions, in outer-key order. */
   public static final String OUTER_KEY_EXPRS = "SIRIX_CORR_OUTER_KEY_EXPRS";
-  /** {@code String[]}: the outer keys' record entry names. */
-  public static final String OUTER_KEY_NAMES = "SIRIX_CORR_OUTER_KEY_NAMES";
   /**
    * {@code int[]} per real record entry: {@code >= 0} the outer key index, {@code < 0} the synthetic
    * record's entry {@code -(value + 1)} (an inner key or an aggregate).
@@ -357,12 +356,11 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
     final List<AST> syntheticAggEntries = new ArrayList<>();
     final List<QNm> entryVars = new ArrayList<>(entries);
     final List<AST> outerKeyExprs = new ArrayList<>();
-    final List<String> outerKeyNames = new ArrayList<>();
     final Set<QNm> seenOuter = new HashSet<>();
     final Set<QNm> seenInner = new HashSet<>();
     final String entryDecline =
         groupedEntries(returnExpr, entries, entryKinds, outerLets, outerLetVars, outerKeyVars, innerKeyVars, postVars,
-            syntheticKeyEntries, syntheticAggEntries, entryVars, outerKeyExprs, outerKeyNames, seenOuter, seenInner);
+            syntheticKeyEntries, syntheticAggEntries, entryVars, outerKeyExprs, seenOuter, seenInner);
     if (entryDecline != null) {
       return entryDecline;
     }
@@ -401,7 +399,6 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(CORRELATED, Boolean.TRUE);
     pipeExpr.setProperty(INNER_PIPE, synthetic);
     pipeExpr.setProperty(OUTER_KEY_EXPRS, outerKeyExprs.toArray(new AST[0]));
-    pipeExpr.setProperty(OUTER_KEY_NAMES, outerKeyNames.toArray(new String[0]));
     pipeExpr.setProperty(ENTRY_KINDS, entryKinds);
     pipeExpr.setProperty(ORDER_INDEXES, orderIndexes);
     final boolean[] asc = new boolean[orderIndexes.length];
@@ -469,11 +466,18 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
       final List<AST> outerLets, final List<QNm> outerLetVars, final List<QNm> outerKeyVars,
       final List<QNm> innerKeyVars, final List<QNm> postVars, final List<AST> syntheticKeyEntries,
       final List<AST> syntheticAggEntries, final List<QNm> entryVars, final List<AST> outerKeyExprs,
-      final List<String> outerKeyNames, final Set<QNm> seenOuter, final Set<QNm> seenInner) {
+      final Set<QNm> seenOuter, final Set<QNm> seenInner) {
+    final Set<String> names = new HashSet<>(entries);
     for (int i = 0; i < entries; i++) {
       final AST entry = returnExpr.getChild(i);
       if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2 || entry.getChild(0).getType() != XQ.Str) {
         return "return: entry is not a named field";
+      }
+      final String name = entry.getChild(0).getValue() instanceof Str str
+          ? str.stringValue()
+          : String.valueOf(entry.getChild(0).getValue());
+      if (!names.add(name)) {
+        return "return: duplicate output field name";
       }
       final AST value = entry.getChild(1);
       if (value.getType() != XQ.VariableRef || !(value.getValue() instanceof QNm var)) {
@@ -486,7 +490,6 @@ public final class CorrelatedGroupAggregateDetectionStage implements Stage {
         }
         entryKinds[i] = outerKeyExprs.size();
         outerKeyExprs.add(outerLets.get(outerLetVars.indexOf(var)).getChild(1));
-        outerKeyNames.add(entry.getChild(0).getValue().toString());
       } else if (innerKeyVars.contains(var)) {
         if (!seenInner.add(var)) {
           return "return: inner key emitted twice";

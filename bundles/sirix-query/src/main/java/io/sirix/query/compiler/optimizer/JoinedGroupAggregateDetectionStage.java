@@ -673,6 +673,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       final List<QNm> entryVars, final List<SideLet> lets, final List<QNm> keyVars, final List<QNm> postVars,
       final List<Integer> keySides, final List<String> keyFields, final List<String> keyNames,
       final List<Integer> aggAt, final List<String> aggNames, final Set<QNm> seenKeys) {
+    final Set<String> names = new HashSet<>(entries);
     for (int i = 0; i < entries; i++) {
       final AST entry = record.getChild(i);
       if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2 || entry.getChild(0).getType() != XQ.Str) {
@@ -681,6 +682,9 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       final String name = entry.getChild(0).getValue() instanceof Str str
           ? str.stringValue()
           : String.valueOf(entry.getChild(0).getValue());
+      if (!names.add(name)) {
+        return "return: duplicate output field name";
+      }
       final AST value = entry.getChild(1);
       if (value.getType() != XQ.VariableRef || !(value.getValue() instanceof QNm var)) {
         return "return: entry value is not a variable reference";

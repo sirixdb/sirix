@@ -150,20 +150,18 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       final Expr generic) throws QueryException {
     final AST innerPipe = (AST) node.getProperty(CorrelatedGroupAggregateDetectionStage.INNER_PIPE);
     final AST[] outerKeyAsts = (AST[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_EXPRS);
-    final String[] outerKeyNames = (String[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_NAMES);
     final int[] entryKinds = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ENTRY_KINDS);
     final int[] orderIndexes = (int[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_INDEXES);
     final boolean[] orderAsc = (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_ASC);
     final boolean[] orderEmptyLeast =
         (boolean[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.ORDER_EMPTY_LEAST);
-    if (innerPipe == null || outerKeyAsts == null || outerKeyNames == null || entryKinds == null || orderIndexes == null
-        || orderAsc == null || orderEmptyLeast == null || outerKeyNames.length != outerKeyAsts.length
-        || orderAsc.length != orderIndexes.length || orderEmptyLeast.length != orderIndexes.length
-        || !(compiler instanceof SirixTranslator translator)) {
+    if (innerPipe == null || outerKeyAsts == null || entryKinds == null || orderIndexes == null || orderAsc == null
+        || orderEmptyLeast == null || orderAsc.length != orderIndexes.length
+        || orderEmptyLeast.length != orderIndexes.length || !(compiler instanceof SirixTranslator translator)) {
       return null;
     }
-    return compileCorrelated(node, compiler, translator, executor, generic, innerPipe, outerKeyAsts, outerKeyNames,
-        entryKinds, orderIndexes, orderAsc, orderEmptyLeast);
+    return compileCorrelated(node, compiler, translator, executor, generic, innerPipe, outerKeyAsts, entryKinds,
+        orderIndexes, orderAsc, orderEmptyLeast);
   }
 
   /** The joined serving expression, or {@code null} when the annotations are not this strategy's. */
@@ -613,8 +611,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
 
   private @Nullable Expr compileCorrelated(final AST node, final Compiler compiler, final SirixTranslator translator,
       final SirixExecutorProvider executor, final Expr generic, final AST innerPipe, final AST[] outerKeyAsts,
-      final String[] outerKeyNames, final int[] entryKinds, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast) throws QueryException {
+      final int[] entryKinds, final int[] orderIndexes, final boolean[] orderAsc, final boolean[] orderEmptyLeast)
+      throws QueryException {
     final RoutedGroupRequest inner = routedGroupRequest(innerPipe);
     final String database = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_DATABASE);
     final String resource = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
@@ -651,8 +649,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     } finally {
       translator.unbindTo(initialBindings);
     }
-    return new SirixCorrelatedGroupAggregateExpr(executor, outer, outerKeyExprs, outerKeyNames, routed, inner,
-        entryKinds, entryNames, orderIndexes, orderAsc, orderEmptyLeast, generic);
+    return new SirixCorrelatedGroupAggregateExpr(executor, outer, outerKeyExprs, routed, inner, entryKinds, entryNames,
+        orderIndexes, orderAsc, orderEmptyLeast, generic);
   }
 
   private static Expr groupedFields(final AST node, final Compiler compiler, final Expr generic,

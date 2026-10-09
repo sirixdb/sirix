@@ -357,6 +357,9 @@ public final class GroupAggregateDetectionStage implements Stage {
             }
             continue;
           }
+          if (!supportedSelectorComponents(current.getChild(0))) {
+            return "where: unsupported projection selector component";
+          }
           // A membership filter over an index-routed opener is served as a row-key subtraction
           // (or intersection) before grouping — never as a predicate the kernels evaluate.
           if (current.getChild(0).getType() == XQExt.HashMembershipJoin) {
@@ -1004,6 +1007,18 @@ public final class GroupAggregateDetectionStage implements Stage {
     return name + '[' + rendered + ']';
   }
 
+  private static boolean supportedSelectorComponents(final AST expr) {
+    if (expr.getType() == XQ.DerefExpr && (expr.getChildCount() < 2 || ComputedProgram.derefStepName(expr) == null)) {
+      return false;
+    }
+    for (int i = 0; i < expr.getChildCount(); i++) {
+      if (!supportedSelectorComponents(expr.getChild(i))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * Build a chain-aware {@link PredicateNode} for one {@code where} expression.
    *
@@ -1260,7 +1275,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     final String outerField = loopVarDerefField(node.getChild(2), loopVar);
     if (outerField == null || !(node.getProperty(HashMembershipStage.FIELD) instanceof QNm innerField)
-        || innerField.getLocalName().indexOf('/') >= 0) {
+        || innerField.getLocalName().indexOf('/') >= 0 || innerField.getLocalName().startsWith(COMPUTED_FIELD_PREFIX)) {
       return null;
     }
     return new MembershipFilter(database, resource, txTime, validTime, innerField.getLocalName(), outerField,
@@ -1878,7 +1893,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (depthLeft <= 0 || expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
       return null;
     }
-    final String field = derefStepName(expr);
+    final String field = ComputedProgram.derefStepName(expr);
     if (field == null) {
       return null;
     }
@@ -1892,26 +1907,6 @@ public final class GroupAggregateDetectionStage implements Stage {
     return prefix == null
         ? null
         : prefix + '/' + field;
-  }
-
-  /** The field name a single deref step selects, or {@code null} when it is not a literal key. */
-  private static @Nullable String derefStepName(final AST deref) {
-    final AST selector = deref.getChild(deref.getChildCount() - 1);
-    if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
-      return null;
-    }
-    final Object name = selector.getValue();
-    final String local;
-    if (name instanceof QNm qnm) {
-      local = qnm.getLocalName();
-    } else if (name instanceof String s) {
-      local = s;
-    } else {
-      return null;
-    }
-    return local == null || local.indexOf('/') >= 0
-        ? null
-        : local;
   }
 
   /** First child of a binding node is the typed variable binding; its first child names the var. */

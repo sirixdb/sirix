@@ -67,9 +67,9 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
   }
 
   public SirixCorrelatedGroupAggregateExpr(final SirixExecutorProvider executorProvider, final Operator outer,
-      final Expr[] outerKeyExprs, final String[] outerKeyNames, final SirixGroupAggregateExpr.RoutedSource routed,
-      final RoutedGroupRequest inner, final int[] entryKinds, final String[] entryNames, final int[] orderIndexes,
-      final boolean[] orderAsc, final boolean[] orderEmptyLeast, final Expr genericFallback) {
+      final Expr[] outerKeyExprs, final SirixGroupAggregateExpr.RoutedSource routed, final RoutedGroupRequest inner,
+      final int[] entryKinds, final String[] entryNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final Expr genericFallback) {
     this.executorProvider = executorProvider;
     this.outer = outer;
     this.outerKeyExprs = outerKeyExprs;

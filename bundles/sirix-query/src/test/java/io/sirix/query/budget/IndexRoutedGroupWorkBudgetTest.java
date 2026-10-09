@@ -120,6 +120,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       doReturn(cursor).when(observed).getTrx();
       doReturn(observed).when(collection).getDocument(eq(RES), any(Instant.class));
       try (var ctx = SirixQueryContext.createWithJsonStore(observedStore);
+          var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(observedStore);
           var chain = SirixCompileChain.createWithJsonStore(observedStore)) {
         final String prolog = "declare variable $T := xs:dateTime('2024-02-01T00:00:00Z');\n"
             + "declare variable $P := xs:dateTime('2024-06-01T00:00:00Z');\n";
@@ -136,7 +137,7 @@ final class IndexRoutedGroupWorkBudgetTest {
         // valid rows, one cursor move each.
         final WorkCapture.Captured<String> generic =
             WorkCapture.of(QueryWorkCounters.ROUTES)
-                       .call(() -> run(chain, ctx, prolog + body.replace("SRC", "(" + source + ")")));
+                       .call(() -> run(referenceChain, ctx, prolog + body.replace("SRC", source)));
         verify(cursor, atLeast(VALID_ROWS)).moveTo(anyLong());
         generic.work().assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "the reference takes the generic route");
         clearInvocations(cursor);
@@ -175,6 +176,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     build(true);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
+        var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final String query =
           """
@@ -193,9 +195,7 @@ final class IndexRoutedGroupWorkBudgetTest {
             .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the reordered source is served")
             .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
                 "only the leaf with the selected row supplies key and operand bodies");
-      final String reference = query.replace("in jn:open-bitemporal(", "in (jn:open-bitemporal(")
-                                    .replace("'2024-06-01T00:00:00Z'))", "'2024-06-01T00:00:00Z')))");
-      assertEquals(run(chain, ctx, reference), routed.result());
+      assertEquals(run(referenceChain, ctx, query), routed.result());
     }
   }
 
@@ -206,6 +206,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     build(true, rows, versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
+        var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
           + "xs:dateTime('2024-06-01T00:00:00Z'))";
@@ -232,7 +233,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
                   "repeated masked requests fetch only the selected key and operands");
       }
-      assertEquals(run(chain, ctx, query.replace(source, "(" + source + ")")), run(chain, ctx, query));
+      assertEquals(run(referenceChain, ctx, query), run(chain, ctx, query));
       final var document = store.lookup(DB).getDocument(RES);
       final var session = document.getTrx().getResourceSession();
       final int revision = document.getTrx().getRevisionNumber();
@@ -277,13 +278,14 @@ final class IndexRoutedGroupWorkBudgetTest {
       build(true, ROWS, versioning);
       try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
           var ctx = SirixQueryContext.createWithJsonStore(store);
+          var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
           var chain = SirixCompileChain.createWithJsonStore(store)) {
         final String source =
             "jn:open-bitemporal('budgetrt','contracts',xs:dateTime($e.ts)," + "xs:dateTime('2024-06-01T00:00:00Z'))";
         final String query = "for $e in [{\"epoch\":0,\"ts\":\"2024-02-01T00:00:00Z\"}][] for $c in " + source
             + " let $epoch := $e.epoch, $until := $c.vt, $cost := $c.cost group by $epoch, $until"
             + " let $total := sum($cost) order by $epoch, $until return {'epoch':$epoch,'until':$until,'total':$total}";
-        final String expected = run(chain, ctx, query.replace(source, "(" + source + ")"));
+        final String expected = run(referenceChain, ctx, query);
         assertEquals("{\"epoch\":0,\"until\":\"2025-01-01T00:00:00Z\",\"total\":1100}", expected);
         for (int repeat = 0; repeat < 4; repeat++) {
           final WorkCapture.Captured<String> result = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
@@ -294,6 +296,86 @@ final class IndexRoutedGroupWorkBudgetTest {
                 .assertExactly(QueryWorkCounters.GROUP_DENSE, 1, "the correlated inner grouping takes the dense arm")
                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 2,
                     "only the selected leaf supplies the global key and cost");
+        }
+      }
+    } finally {
+      restoreProperty("sirix.projection.globalDict", previous);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void cappedCompositeMasksDeclineBeforeWholeLeafMaterialization(final VersioningType versioning) throws Exception {
+    final String previous = System.getProperty("sirix.projection.globalDict");
+    System.setProperty("sirix.projection.globalDict", "never");
+    try {
+      build(true, ROWS, versioning);
+      try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+          var ctx = SirixQueryContext.createWithJsonStore(store);
+          var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var document = store.lookup(DB).getDocument(RES);
+        final var session = document.getTrx().getResourceSession();
+        final int revision = document.getTrx().getRevisionNumber();
+        final var handle = ProjectionIndexCatalog.lookupCovering(session,
+            session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"}, new String[] {"cost"});
+        assertNotNull(handle);
+        final var columns = handle.columnStoreOrNull();
+        assertNotNull(columns);
+        final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+        final long[] keys = {columns.recordKeysMasked(fetcher, new long[] {2L})[1][0]};
+        final var executor = new SirixVectorizedExecutor(session, revision, 1);
+        try {
+          for (final String[] fields : new String[][] {{"grade", "sid"}, {"vf", "vt"}}) {
+            final boolean dictionary = fields[0].equals("vf");
+            if (dictionary) {
+              assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+                  handle.columnKindOf(handle.columnOf(fields[0])));
+              assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
+                  handle.columnKindOf(handle.columnOf(fields[1])));
+            }
+            final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
+                + "xs:dateTime('2024-06-01T00:00:00Z'))";
+            final String body = "for $c in " + source + " let $k1 := $c." + fields[0] + ", $k2 := $c." + fields[1]
+                + ", $cost := $c.cost group by $k1,$k2 let $total := sum($cost) order by $k1,$k2"
+                + " return {'k1':$k1,'k2':$k2,'total':$total}";
+            final String query = "subsequence(" + body + ",1,10)";
+            final String expected = run(referenceChain, ctx, query);
+            assertEquals(dictionary
+                ? "{\"k1\":\"2024-01-01T00:00:00Z\",\"k2\":\"2025-01-01T00:00:00Z\",\"total\":1100}"
+                : "{\"k1\":0,\"k2\":6,\"total\":1100}", expected);
+            for (int repeat = 0; repeat < 4; repeat++) {
+              final WorkCapture.Captured<ServedGroups> direct =
+                  WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                             .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                             .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                             .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, fields,
+                                 new String[] {"k1", "k2"}, new String[] {"sum"}, new String[] {"cost"},
+                                 new String[] {"total"}, new int[] {0, 1}, new boolean[] {true, true},
+                                 new boolean[] {true, true}, 10L, null, null, null, null, null, null, null, null, null,
+                                 null, new GroupRouting(keys, null)));
+              assertNull(direct.result());
+              direct.work()
+                    .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
+                        "decline precedes whole-leaf fetches")
+                    .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "capped composite mask declines")
+                    .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0,
+                        "decline is an ordinary route decision");
+              final WorkCapture.Captured<String> fallback = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                                                       .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                                                                       .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                                       .call(() -> run(chain, ctx, query));
+              assertEquals(expected, fallback.result());
+              fallback.work()
+                      .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
+                          "fallback fetches no projection bodies")
+                      .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "compiled capped mask declines")
+                      .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "generic fallback supplies the result");
+              assertFalse(handle.payloadsMaterialized());
+            }
+          }
+        } finally {
+          executor.close();
         }
       }
     } finally {
@@ -356,6 +438,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
+        var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var document = store.lookup(DB).getDocument(RES);
       final var session = document.getTrx().getResourceSession();
@@ -407,7 +490,7 @@ final class IndexRoutedGroupWorkBudgetTest {
           + "xs:dateTime('2024-06-01T00:00:00Z'))";
       final String query = "for $c in " + source + " let $grade := $c.grade group by $grade"
           + " order by $grade return {'grade':$grade,'n':sum($c.cost)}";
-      final String expected = run(chain, ctx, query.replace(source, "(" + source + ")"));
+      final String expected = run(referenceChain, ctx, query);
       assertEquals("{\"grade\":0,\"n\":1100}", expected);
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);

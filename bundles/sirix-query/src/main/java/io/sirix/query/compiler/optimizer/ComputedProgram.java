@@ -163,6 +163,10 @@ public final class ComputedProgram {
     if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue())) {
       return null;
     }
+    return derefStepName(expr);
+  }
+
+  static @Nullable String derefStepName(final AST expr) {
     final AST selector = expr.getChild(expr.getChildCount() - 1);
     if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
       return null;
@@ -177,7 +181,8 @@ public final class ComputedProgram {
       return null;
     }
     return local == null || local.indexOf('/') >= 0
-        ? null
-        : local;
+        || local.startsWith(GroupAggregateDetectionStage.COMPUTED_FIELD_PREFIX)
+            ? null
+            : local;
   }
 }

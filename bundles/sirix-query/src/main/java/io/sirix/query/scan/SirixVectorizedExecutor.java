@@ -16233,6 +16233,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final List<byte[]> armPayloads;
       if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced && !compositeSlicedArm
           && !packedSlicedArm) {
+        if (routing != null && routing.rowKeys() != null) {
+          return declineGroupAgg("masked rows require an eligible sliced execution arm");
+        }
         armPayloads = leafPayloadsOrNull(handle);
         if (armPayloads == null) {
           return declineGroupAgg("leaf payloads unavailable for an unported arm");
