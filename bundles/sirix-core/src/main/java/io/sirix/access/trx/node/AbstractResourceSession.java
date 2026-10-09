@@ -31,6 +31,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -67,6 +68,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
@@ -144,14 +146,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /** Shared zero-length array for {@link java.util.Collection#toArray(Object[])} of futures. */
   private static final CompletableFuture<?>[] EMPTY_FUTURES = new CompletableFuture[0];
 
-  /** {@link #listedIndexCatalogueRevision} while this session has not listed {@code indexes/}. */
-  private static final int INDEX_CATALOGUE_NOT_LISTED = -2;
-
   /** The catalogue revision of a revision with no index catalogue at or below it. */
   private static final int NO_INDEX_CATALOGUE = -1;
 
   /** Listings of {@code indexes/} taken by {@link #listIndexCatalogueRevisions}, process-wide. */
   private static final LongAdder INDEX_CATALOGUE_DIRECTORY_LISTINGS = new LongAdder();
+
+  /**
+   * Catalogue files written and reported through {@link #recordSerializedIndexCatalogueRevision},
+   * process-wide.
+   */
+  private static final LongAdder INDEX_CATALOGUE_FILES_WRITTEN = new LongAdder();
 
   /** Drops one database's entries from the global revision-info cache. */
   public static void invalidateRevisionInfoCache(final long databaseId) {
@@ -215,17 +220,25 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final AtomicReference<ObjectPool<StorageEngineReader>> pool;
 
   /**
-   * The greatest revision a catalogue file existed for when any session of this resource last listed
-   * {@code indexes/}: {@link #INDEX_CATALOGUE_NOT_LISTED} until it has, {@link #NO_INDEX_CATALOGUE}
-   * when the directory held none. See {@link #resolveIndexCatalogueRevision}.
+   * The sorted revisions of every catalogue file of this resource, once any of its sessions has
+   * listed {@code indexes/}, extended by every file their writers serialize since; {@code null} until
+   * listed. See {@link #resolveIndexCatalogueRevision}.
    */
-  private final AtomicInteger listedIndexCatalogueRevision;
+  private final AtomicReference<int[]> knownIndexCatalogueRevisions;
 
   /**
    * The greatest revision a writer of this resource serialized a catalogue file for, or
    * {@link #NO_INDEX_CATALOGUE} while none has.
    */
   private final AtomicInteger serializedIndexCatalogueRevision;
+
+  /**
+   * The parsed definitions of every catalogue file this resource's sessions have read, by the file's
+   * revision. A catalogue file is immutable once its revision is committed, and every writer of the
+   * resource re-instantiates its controller on every commit from the same file, so parsing the file
+   * once per JVM instead of twice per commit is exact. Shared between the handles of one resource.
+   */
+  private final ConcurrentMap<Integer, List<IndexDef>> parsedIndexCatalogues;
 
   /**
    * Determines if session was closed.
@@ -309,8 +322,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.user = user;
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
-    listedIndexCatalogueRevision = new AtomicInteger(INDEX_CATALOGUE_NOT_LISTED);
+    knownIndexCatalogueRevisions = new AtomicReference<>();
     serializedIndexCatalogueRevision = new AtomicInteger(NO_INDEX_CATALOGUE);
+    parsedIndexCatalogues = new ConcurrentHashMap<>();
     pool = new AtomicReference<>();
 
     // Use GLOBAL epoch tracker (shared across all databases/resources)
@@ -346,8 +360,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     commitLock = sharedSession.commitLock;
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
-    listedIndexCatalogueRevision = sharedSession.listedIndexCatalogueRevision;
+    knownIndexCatalogueRevisions = sharedSession.knownIndexCatalogueRevisions;
     serializedIndexCatalogueRevision = sharedSession.serializedIndexCatalogueRevision;
+    parsedIndexCatalogues = sharedSession.parsedIndexCatalogues;
     revisionEpochTracker = sharedSession.revisionEpochTracker;
     trxIDCounter = sharedSession.trxIDCounter;
     nodeTrxMap = new ConcurrentHashMap<>();
@@ -415,24 +430,56 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void restoreIndexCatalogue(final int revision, final Indexes indexes) {
     checkArgument(revision >= 0, "revision must be >= 0!");
-    requireNonNull(indexes).reset();
-    loadIndexCatalogue(revision, indexes);
+    // loadIndexCatalogue replaces the definitions with the resolved file's, or resets them when there
+    // is none; a controller that already holds exactly that file's definitions is left alone, which
+    // is the common case: the writer's controller was created for its prospective revision from the
+    // same file a moment earlier.
+    loadIndexCatalogue(revision, requireNonNull(indexes));
   }
 
   private void loadIndexCatalogue(final int revision, final Indexes indexes) {
     // Writer rebinding restores the represented revision without truncating later catalogues.
     final Path indexesDir =
         getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
-    final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, revision);
+    // A writer asks for the revision it is about to create. No committed catalogue can be newer than
+    // the most recent revision, so the lookup is clamped to it: the prospective revision's own file
+    // is never consulted (it can only be the leftover of a commit of that number that was never
+    // acknowledged), and the writer's definitions are restored from its represented revision by
+    // StorageEngineWriterFactory anyway.
+    final int committedRevision = Math.max(0, Math.min(revision, getMostRecentRevisionNumber()));
+    final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, committedRevision);
     if (catalogueRevision == NO_INDEX_CATALOGUE) {
+      indexes.reset();
       return; // no definitions were serialized at or below the requested revision
     }
+    if (indexes.catalogueRevision() == catalogueRevision && !indexes.differsFromPersisted()) {
+      return; // already holds exactly that file's definitions
+    }
+    indexes.initFrom(catalogueRevision, parsedIndexCatalogue(indexesDir, catalogueRevision));
+  }
 
+  /**
+   * The definitions of the catalogue file {@code catalogueRevision}, parsed once per resource and
+   * JVM. The file is immutable once its revision is committed, and only committed revisions' files
+   * are resolved, so a cached parse is exact; the {@link IndexDef} instances are immutable after
+   * parsing.
+   */
+  private List<IndexDef> parsedIndexCatalogue(final Path indexesDir, final int catalogueRevision) {
+    final List<IndexDef> cached = parsedIndexCatalogues.get(catalogueRevision);
+    if (cached != null) {
+      return cached;
+    }
+    final Indexes parsed = new Indexes();
     try (final InputStream in = new FileInputStream(indexesDir.resolve(catalogueRevision + ".xml").toFile())) {
-      indexes.init(IndexController.deserialize(in).getFirstChild());
+      parsed.init(IndexController.deserialize(in).getFirstChild());
     } catch (IOException | DocumentException | SirixException e) {
       throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }
+    final List<IndexDef> definitions = List.copyOf(parsed.getIndexDefsInOrder());
+    final List<IndexDef> raced = parsedIndexCatalogues.putIfAbsent(catalogueRevision, definitions);
+    return raced != null
+        ? raced
+        : definitions;
   }
 
   /**
@@ -441,25 +488,27 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * {@link #NO_INDEX_CATALOGUE}.
    *
    * <p>
-   * Writer creation resolves its prospective revision's controller and restores the catalogue at its
-   * represented revision; every commit re-instantiates the writer. Answering each lookup from the
-   * directory costs one {@code readdir} over every catalogue ever written, and a commit with
-   * definitions writes one: O(revisions) per commit, O(revisions²) over a commit-per-operation load
-   * (measured at 0.68 µs per catalogue file, 78 % of the commit's CPU after 21,000 revisions). So the
-   * directory is consulted last:
+   * A commit writes a catalogue file only when it changed the definitions (or re-publishes the
+   * represented catalogue after a revert), so the directory holds one file per catalogue change, not
+   * one per revision, and most revisions resolve to an earlier revision's file. Writer creation
+   * resolves its prospective revision's controller and restores the catalogue at its represented
+   * revision; every commit re-instantiates the writer. Answering each lookup from the directory would
+   * cost one {@code readdir} per commit (measured at 0.68 µs per catalogue file, 78 % of the commit's
+   * CPU after 21,000 revisions when every commit still wrote one). So the directory is listed at most
+   * once per resource and process:
    * <ol>
+   * <li>what this resource's sessions know. Once one has listed the directory, the sorted revisions
+   * of every catalogue file are shared by all of them and extended by every file their writers
+   * serialize since, and every lookup is answered from that array without file-system access;</li>
    * <li>the requested revision's own file, one {@code stat}: an exact answer for a revision that
    * committed definitions;</li>
-   * <li>what this resource's sessions know. Once one has listed the directory, the greatest catalogue
-   * revision is the greater of that listing's and of what their writers serialized since, and a
-   * request at or above it resolves to it without further file-system access. This also answers every
-   * writer of a resource that has no catalogue at all;</li>
+   * <li>the newest file a writer of these sessions serialized, when it is at or below the requested
+   * revision: nothing else writes catalogue files, so no file can lie between them;</li>
    * <li>the previous revision's file: the first writer of a session, one more {@code stat};</li>
-   * <li>one directory listing, which establishes (2) for all sessions sharing this resource.</li>
+   * <li>one directory listing, which establishes (1) for all sessions sharing this resource.</li>
    * </ol>
-   * Each step returns what the listing would return. (1) is the greatest revision the request admits,
-   * and (3) the greatest one left once (1) has missed. (2) holds because every catalogue file this
-   * resource's writers create is reported through
+   * Each step returns what the listing would return. (1) and (3) hold because every catalogue file
+   * this resource's writers create is reported through
    * {@link #recordSerializedIndexCatalogueRevision(int)} as soon as it is durable, and nothing
    * removes one under an open session ({@code Database.removeResource} refuses while a session is
    * registered; a restore only fills an empty directory).
@@ -469,36 +518,62 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * until the last handle closes, refusing another process's open. Handles at the same canonical path
    * share one database backend. Their user sessions share storage, the committed uber-page, catalogue
    * knowledge and the resource's {@code WriteLocksRegistry} semaphore. Every writer therefore
-   * publishes into the same view and records into the same catalogue state. The own-file probe stays
-   * first: it is the exact answer when present, including for an old revision whose catalogue
-   * predates this resource's current state.
+   * publishes into the same view and records into the same catalogue state. Only committed revisions
+   * are looked up ({@link #loadIndexCatalogue} clamps a writer's prospective revision), so a file
+   * left behind by a commit that was never acknowledged is never consulted and is overwritten by the
+   * next commit of that revision number.
    */
   private int resolveIndexCatalogueRevision(final Path indexesDir, final int revision) {
+    final int[] known = knownIndexCatalogueRevisions.get();
+    if (known != null) {
+      return greatestAtOrBelow(known, revision);
+    }
     if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
       return revision;
     }
-    final int listed = listedIndexCatalogueRevision.get();
-    if (listed != INDEX_CATALOGUE_NOT_LISTED) {
-      final int newest = Math.max(listed, serializedIndexCatalogueRevision.get());
-      if (newest <= revision) {
-        return newest;
-      }
+    // The newest file a writer of this resource serialized is the greatest one at or below any later
+    // revision: every file written since the sessions opened is reported, and nothing else writes.
+    final int serialized = serializedIndexCatalogueRevision.get();
+    if (serialized != NO_INDEX_CATALOGUE && serialized <= revision) {
+      return serialized;
     }
     if (revision > 0 && Files.exists(indexesDir.resolve((revision - 1) + ".xml"))) {
       return revision - 1;
     }
-    return listIndexCatalogueRevisions(indexesDir, revision);
+    return greatestAtOrBelow(listIndexCatalogueRevisions(indexesDir), revision);
   }
 
   /**
-   * ONE directory listing picking the most recent definitions at or below the requested revision, and
-   * remembering the most recent ones overall. The code before it probed revision, revision-1, ..., 0
-   * with one {@code Files.exists} each: O(revision) {@code access()} syscalls PER CONTROLLER CREATION
-   * (measured: 50 MILLION calls building a 10k-revision resource with no indexes).
+   * The greatest revision of a sorted array at or below {@code revision}, or
+   * {@link #NO_INDEX_CATALOGUE}.
    */
-  private int listIndexCatalogueRevisions(final Path indexesDir, final int revision) {
-    int atOrBelowRevision = NO_INDEX_CATALOGUE;
-    int newest = NO_INDEX_CATALOGUE;
+  private static int greatestAtOrBelow(final int[] sortedRevisions, final int revision) {
+    int low = 0;
+    int high = sortedRevisions.length - 1;
+    int found = NO_INDEX_CATALOGUE;
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+      if (sortedRevisions[mid] <= revision) {
+        found = sortedRevisions[mid];
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * ONE directory listing, remembering every catalogue file's revision for all sessions of this
+   * resource, so that no later lookup touches the file system. The code before it probed revision,
+   * revision-1, ..., 0 with one {@code Files.exists} each: O(revision) {@code access()} syscalls PER
+   * CONTROLLER CREATION (measured: 50 MILLION calls building a 10k-revision resource with no
+   * indexes).
+   *
+   * @return the sorted revisions of all catalogue files
+   */
+  private int[] listIndexCatalogueRevisions(final Path indexesDir) {
+    final List<Integer> revisions = new ArrayList<>();
     if (Files.isDirectory(indexesDir)) {
       INDEX_CATALOGUE_DIRECTORY_LISTINGS.increment();
       try (final var children = Files.list(indexesDir)) {
@@ -506,13 +581,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           final String name = it.next().getFileName().toString();
           if (name.endsWith(".xml")) {
             try {
-              final int fileRevision = Integer.parseInt(name.substring(0, name.length() - 4));
-              if (fileRevision > newest) {
-                newest = fileRevision;
-              }
-              if (fileRevision <= revision && fileRevision > atOrBelowRevision) {
-                atOrBelowRevision = fileRevision;
-              }
+              revisions.add(Integer.parseInt(name.substring(0, name.length() - 4)));
             } catch (final NumberFormatException ignored) {
               // foreign file in the indexes directory — not ours to interpret
             }
@@ -522,17 +591,51 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         throw new SirixIOException("Index definitions couldn't be listed!", e);
       }
     }
-    // A catalogue serialized while this listing ran may be missing from it, but its writer reports
-    // it and the resolution takes the greater of the two, so publishing the listing's own maximum
-    // loses nothing.
-    listedIndexCatalogueRevision.set(newest);
-    return atOrBelowRevision;
+    // A catalogue serialized while this listing ran may be missing from it, but its writer reported
+    // it, so the union loses nothing; a file reported after the publication below is merged by
+    // recordSerializedIndexCatalogueRevision.
+    final int serialized = serializedIndexCatalogueRevision.get();
+    if (serialized != NO_INDEX_CATALOGUE) {
+      revisions.add(serialized);
+    }
+    final int[] sorted = revisions.stream().mapToInt(Integer::intValue).distinct().sorted().toArray();
+    final int[] published = knownIndexCatalogueRevisions.updateAndGet(current -> current == null
+        ? sorted
+        : mergeSorted(current, sorted));
+    return published;
+  }
+
+  /** Sorted union of two sorted arrays without duplicates. */
+  private static int[] mergeSorted(final int[] left, final int[] right) {
+    final int[] merged = new int[left.length + right.length];
+    int l = 0;
+    int r = 0;
+    int n = 0;
+    while (l < left.length || r < right.length) {
+      final int next;
+      if (r >= right.length || (l < left.length && left[l] <= right[r])) {
+        next = left[l++];
+      } else {
+        next = right[r++];
+      }
+      if (n == 0 || merged[n - 1] != next) {
+        merged[n++] = next;
+      }
+    }
+    return n == merged.length
+        ? merged
+        : Arrays.copyOf(merged, n);
   }
 
   @Override
   public void recordSerializedIndexCatalogueRevision(final int revision) {
     checkArgument(revision >= 0, "revision must be >= 0!");
+    INDEX_CATALOGUE_FILES_WRITTEN.increment();
     serializedIndexCatalogueRevision.accumulateAndGet(revision, Math::max);
+    knownIndexCatalogueRevisions.updateAndGet(
+        current -> current == null || greatestAtOrBelow(current, revision) == revision
+            ? current
+            : mergeSorted(current, new int[] {revision}));
   }
 
   /**
@@ -547,6 +650,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   public static long indexCatalogueDirectoryListings() {
     return INDEX_CATALOGUE_DIRECTORY_LISTINGS.sum();
+  }
+
+  /**
+   * Number of index-catalogue files written since the JVM started, every one reported by the writer
+   * that created it. Unconditional for the same reason as the listings: each event is a file
+   * creation, an XML materialization and a metadata fsync on the commit path, and the counter is what
+   * lets a test see that a commit which did not change its definitions wrote no catalogue.
+   */
+  public static long indexCatalogueFilesWritten() {
+    return INDEX_CATALOGUE_FILES_WRITTEN.sum();
   }
 
   public Reader createReader() {

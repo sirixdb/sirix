@@ -6,6 +6,33 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **A commit serializes its index catalogue only when the definitions changed.** Every explicit
+  commit of a resource with indexes wrote `indexes/<revision>.xml` (an XML materialization, a file
+  creation and a metadata fsync, 2.4 ms of a 10 ms twenty-record commit on a laptop NVMe) although
+  the catalogue of a revision is the newest file at or below it. Now only a commit that created or
+  dropped an index, re-publishes the represented catalogue after a revert, or finds a leftover file
+  of an unacknowledged commit of its revision number writes one; the drop of the last index still
+  writes its empty catalogue. A resource's sessions remember every catalogue file they listed or
+  wrote (one listing per resource and process at most, where the previous design remembered only
+  the newest file and could list again for older revisions), parse each file once instead of twice
+  per commit, and a writer's lookup is clamped to the most recent committed revision, so the
+  leftover file of a crashed commit is never consulted. The on-disk layout of `indexes/` is
+  unchanged except that unchanged revisions have no file. Guarded by the
+  `IndexCatalogueResolutionWorkBudgetTest` work budget (`catalogue.filesWritten`) and
+  `IndexCatalogueUnchangedCommitTest`.
+- **Appending rows to a projection's open row group no longer re-extracts the leaf.** The open-row-group
+  tail path extracted every row of the touched leaf from the document into a fresh page only to prove
+  the persisted prefix unchanged before appending the new rows (O(leaf) record reads per commit: 11,848
+  record visits for 4 appended rows on a 600-row leaf). The persisted rows of a tail-eligible leaf are
+  untouched by construction, so only the appended rows are extracted now (204 visits), bounded by the
+  persisted page's order-label capacity, with the full rewrite as the fallback. Guarded by
+  `ProjectionTailAppendWorkBudgetTest` (`replay.recordVisits`).
+- **Closing a committed writer no longer forces the data file.** Every commit re-instantiates its
+  writer, and closing the committed one forced the data file once more although the commit had already
+  forced everything the writer wrote (its write-ahead barrier, then the beacon flush): one device round
+  trip per commit for nothing. A writer with no unforced writes and no dirty allocation metadata now
+  closes without a force (`FileChannelWriter`). Guarded by `CommitReinstantiationWorkBudgetTest`
+  (`io.dataFileForces`).
 - **Open projection row-group tails** — append-only commits retain base column segments
   and store new rows as referenced side pages. Every reader resolves the merged group;
   completion and other edits fold it atomically. A bounded writer-seeded merge memo

@@ -1052,7 +1052,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │      │   │   ├── sirix.data            ◄── Page data (append-only)          │
 │      │   │   └── sirix.revisions       ◄── Revision offset index            │
 │      │   ├── indexes/                  ◄── Index definitions                │
-│      │   │   └── <revision>.xml        ◄── One catalogue per revision       │
+│      │   │   └── <revision>.xml        ◄── One catalogue per change         │
 │      │   ├── log/                      ◄── Transaction intent log           │
 │      │   │   └── .commit               ◄── Commit marker file               │
 │      │   ├── encryption/               ◄── Resource encryption keys         │

@@ -40,22 +40,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * directory.
  *
  * <p>
- * The catalogue of a revision is the newest {@code indexes/<revision>.xml} at or below it, and a
- * commit with definitions writes one, so the directory holds about one file per revision. A writer
- * asks for the revision it is about to create, whose file cannot exist, once per commit. Answering
- * that from a directory listing is work proportional to the number of revisions on every commit; a
- * one-operation-per-commit load spent 78 % of its commit CPU there after 21,000 revisions. The
- * definitions come out the same either way, so only the listing count tells the routes apart.
+ * The catalogue of a revision is the newest {@code indexes/<revision>.xml} at or below it. A commit
+ * writes one only when it changed the definitions (an index created or dropped, or the represented
+ * catalogue re-published after a revert): every other commit saves the file creation, the XML
+ * materialization and the metadata fsync, so the directory holds one file per catalogue change and
+ * most revisions have none of their own. A writer asks for the revision it is about to create once
+ * per commit. Answering that from a directory listing is work proportional to the number of
+ * catalogue files on every commit; when every commit still wrote one, a one-operation-per-commit
+ * load spent 78 % of its commit CPU there after 21,000 revisions. The definitions come out the same
+ * either way, so only the listing and file counts tell the routes apart.
  *
  * <p>
- * Measured on these fixtures: a session lists once when it cannot know better, at its first
- * transaction on a resource without a catalogue or at the first revision whose own and previous
- * catalogue are both missing, and its commits never list: 0 in the 12 commits of the first session,
- * 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the directory,
- * as before, lists 12, 13 and 4 times there. Without the session's own knowledge the commits of a
- * resource that has no catalogue, or emptied it, list: 4 and 6. Without the previous-revision probe
- * the first writer of a reopened session lists, and so does a reader of a revision whose
- * predecessor's catalogue exists: the readers' capture reads 4 instead of at most 3.
+ * Measured on these fixtures: a session lists at most once, when it cannot know better (at its
+ * first transaction on a resource without a catalogue, or at the first lookup whose own and
+ * previous revision both have no file), remembers every file it saw and every file written since,
+ * and never lists again: 0 in the 12 commits of the first session, 1 in the 6 commits of the
+ * reopened one (its first commit's successor writer resolves revision 13, which has no file, nor
+ * has 12), 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the
+ * directory lists 12, 6, 13 and 4 times there. The files written are 3 in the first session
+ * (revisions 3, 8 and 11), 1 in the reopened one (the drop at 15) and 0 afterwards; writing one per
+ * commit with definitions, as before, writes 9, 3 and 0.
  *
  * <p>
  * A session that answers from what it remembers can also answer <em>wrongly</em>, which a listing
@@ -78,7 +82,9 @@ final class IndexCatalogueResolutionWorkBudgetTest {
 
   private static final WorkCounter LISTINGS = EngineWorkCounters.INDEX_CATALOGUE_LISTINGS;
 
-  private static final WorkCapture CAPTURE = WorkCapture.of(LISTINGS);
+  private static final WorkCounter FILES = EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN;
+
+  private static final WorkCapture CAPTURE = WorkCapture.of(LISTINGS).and(FILES);
 
   @BeforeEach
   void setUp() {
@@ -119,7 +125,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
             createCasIndex(session, trx, 0);
             trx.commit(); // 3: the first catalogue
             expected[3] = 1;
-            for (int i = 0; i < 4; i++) { // 4..7: data commits, one catalogue each
+            for (int i = 0; i < 4; i++) { // 4..7: data commits, no catalogue file
               insertObject(trx, "c" + i);
               trx.commit();
               expected[4 + i] = 1;
@@ -144,13 +150,15 @@ final class IndexCatalogueResolutionWorkBudgetTest {
           });
           commits.assertZero(LISTINGS,
               "a commit listed the index-catalogue directory to resolve its writer's catalogue");
+          // The creation (3), the drop (8) and the re-creation (11) each write a file; the nine
+          // commits that left the definitions as they were write none.
+          commits.assertExactly(FILES, 3, "a commit that did not change the definitions wrote a catalogue file");
         }
 
-        // Revisions 1, 2 and 10 have neither their own catalogue nor their predecessor's: reading
-        // them is the listing's remaining job, and it is what proves the counter counts.
+        // The first writer's listing told the session every catalogue file there is, and every file
+        // written since was reported to it: readers never touch the directory.
         CAPTURE.run(() -> assertDefinitions(session, expected, 12))
-               .assertBetween(LISTINGS, 1, 3,
-                   "readers listed the catalogue directory for a revision whose own or previous catalogue exists");
+               .assertZero(LISTINGS, "readers listed the catalogue directory although the session knows every file");
       }
     }
 
@@ -163,33 +171,39 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         writerAfterReopen.work()
                          .assertZero(LISTINGS,
                              "the first writer of a session listed the directory although the previous revision has a catalogue");
-        final WorkReport commits = CAPTURE.run(() -> {
+        // This session has never listed the directory. Commit 13 writes no catalogue file, and the
+        // writer it re-instantiates for revision 14 resolves revision 13, which has neither its own
+        // file nor its predecessor's: it cannot know better than to list, once; from then on the
+        // session knows every file and never lists again.
+        final WorkReport firstCommit = CAPTURE.run(() -> {
           insertObject(trx, "g");
-          trx.commit(); // 13
+          trx.commit(); // 13: no catalogue file
           expected[13] = 1;
+        });
+        firstCommit.assertExactly(LISTINGS, 1,
+            "the writer after the first revision without a catalogue did not establish every file by one listing");
+        firstCommit.assertZero(FILES, "a commit that did not change the definitions wrote a catalogue file");
+        final WorkReport secondCommit = CAPTURE.run(() -> {
           insertObject(trx, "h");
-          trx.commit(); // 14
+          trx.commit(); // 14: no catalogue file
           expected[14] = 1;
+        });
+        secondCommit.assertZero(LISTINGS, "a commit after the session's one listing listed the directory again");
+        secondCommit.assertZero(FILES, "a commit that did not change the definitions wrote a catalogue file");
+        final WorkReport laterCommits = CAPTURE.run(() -> {
           dropCasIndex(session, trx, 1);
           trx.commit(); // 15: the empty catalogue of the drop
-        });
-        commits.assertZero(LISTINGS, "a commit after a reopen listed the index-catalogue directory");
-
-        // This session has never listed the directory, so the first revision with neither its own
-        // catalogue nor its predecessor's makes it list, once; from then on it knows.
-        final WorkReport firstGap = CAPTURE.run(() -> {
           insertObject(trx, "i");
           trx.commit(); // 16: no catalogue file
-        });
-        firstGap.assertExactly(LISTINGS, 1,
-            "the writer after the first revision without a catalogue did not establish the newest one by one listing");
-        final WorkReport laterGaps = CAPTURE.run(() -> {
           insertObject(trx, "j");
           trx.commit(); // 17: no catalogue file
           insertObject(trx, "k");
           trx.commit(); // 18: no catalogue file
         });
-        laterGaps.assertZero(LISTINGS, "a resource whose catalogue was emptied listed its directory on every commit");
+        laterCommits.assertZero(LISTINGS,
+            "a resource whose catalogue was emptied listed its directory on every commit");
+        laterCommits.assertExactly(FILES, 1,
+            "the drop of the last index did not write its empty catalogue, or an unchanged commit wrote one");
       }
       assertDefinitions(session, expected, 18);
     }
@@ -211,6 +225,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
           trx.commit(); // 20
         });
         commits.assertZero(LISTINGS, "a resource whose catalogue was emptied listed its directory on every commit");
+        commits.assertZero(FILES, "a commit of a resource without definitions wrote a catalogue file");
       }
       assertDefinitions(session, expected, 20);
     }
@@ -254,6 +269,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         });
         lastRevision = trx.getRevisionNumber() - 1;
         load.assertZero(LISTINGS, "an auto-committing load listed the index-catalogue directory");
+        load.assertZero(FILES, "an auto-committing load wrote catalogue files for unchanged definitions");
 
         final var indexes =
             session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
@@ -372,6 +388,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         }
       });
       commits.assertZero(LISTINGS, "an XML commit listed the index-catalogue directory");
+      commits.assertZero(FILES, "an XML commit that did not change the definitions wrote a catalogue file");
 
       for (int revision = 1; revision <= 5; revision++) {
         final XmlIndexController reader = session.getRtxIndexController(revision);

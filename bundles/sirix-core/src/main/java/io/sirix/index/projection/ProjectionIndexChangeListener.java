@@ -2684,6 +2684,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         final ArrayList<ProjectionOpenRowGroupTail.Row> tailRows = tailEligible
             ? new ArrayList<>(rows - priorRows)
             : null;
+        // Tail-first: the persisted rows of a tail-eligible leaf are untouched by construction (no
+        // removal, every insertion at the end, no column-only update pending for this leaf), so only
+        // the appended rows are extracted from the document; the prefix is not re-read to prove what
+        // the dirty set already guarantees. A leaf holds up to MAX_ROWS rows of every column, so that
+        // proof cost O(leaf) record reads per commit however few rows were appended. The persisted
+        // page's label capacity bounds the appended labels; a row the tail format cannot carry falls
+        // back to the full rewrite below, exactly as before.
+        boolean tailFirst = tailRows != null;
+        int tailLabelBytes = tailFirst
+            ? Objects.requireNonNull(edit.oldPage).orderLabelLengthBytes()
+            : 0;
         while (from < rows) {
           final int targetGroupSize = group < plannedGroups
               ? smallerGroupSize + (group < largerGroups
@@ -2693,9 +2704,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
           page.setGlobalDictionaries(globalDictionaries);
           int appendedRows = 0;
+          if (tailFirst) {
+            from = priorRows;
+          }
           while (from < rows && appendedRows < targetGroupSize) {
             final long key = edit.recordKeys.getLong(from);
             final byte[] orderLabel = edit.orderLabels.get(from);
+            if (tailFirst) {
+              final int appendBytes = ProjectionIndexRowGroupPage.orderLabelAppendBytes(orderLabel);
+              if (orderLabel.length > ProjectionOpenRowGroupTail.MAX_ROW_ORDER_LABEL_BYTES
+                  || tailLabelBytes + appendBytes > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+                break; // the full rewrite below decides what the leaf can take
+              }
+              tailLabelBytes += appendBytes;
+            }
             if (!page.canAppendOrderLabel(orderLabel)) {
               if (appendedRows == 0) {
                 return false;
@@ -2718,12 +2740,19 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             from++;
             appendedRows++;
           }
+          if (tailFirst && (from < rows || tailRows.size() != rows - priorRows)) {
+            // A row the tail format cannot carry: rebuild the leaf from the document, prefix included.
+            tailFirst = false;
+            tailRows.clear();
+            from = 0;
+            continue;
+          }
           final int physicalSlot = group == 0
               ? edit.slot
               : fences.allocateSlot();
           boolean tailAppended = false;
           if (tailRows != null && group == 0 && from == rows && tailRows.size() == rows - priorRows
-              && page.rowsEqualPrefix(edit.oldPage, priorRows)) {
+              && (tailFirst || page.rowsEqualPrefix(edit.oldPage, priorRows))) {
             // The persisted rows are untouched: replay the new rows onto the hydrated page — the very
             // construction every reader repeats — and publish its encoding as the tailed descriptor.
             final ProjectionIndexRowGroupPage merged = Objects.requireNonNull(edit.oldPage);

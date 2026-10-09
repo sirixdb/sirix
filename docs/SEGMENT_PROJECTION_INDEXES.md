@@ -135,7 +135,7 @@ with (`core/index/IndexDef.java:225-246`):
   satisfied them. Those literals are gone from the declaration and from the persisted catalogue; the
   same queries are now served as a prefix range over a view of every row (§6.1, §7.2).
 
-Definitions are persisted in the per-revision catalogue `<resource>/indexes/<revision>.xml`
+Definitions are persisted in the catalogue `<resource>/indexes/<revision>.xml` of the revision that changed them
 (`trx/NodeStorageEngineWriter.java:4075-4080`; XML elements `IndexDef.java:56-62`, `:292-301`,
 `:442-461`: one `keyColumn column="N"` child of `projectionSort` per key column, in order).
 

@@ -653,6 +653,16 @@ public final class ProjectionIndexRowGroupPage {
     return Arrays.copyOfRange(orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1]);
   }
 
+  /** Bytes the order labels of this page's rows occupy, against {@code MAX_ORDER_LABEL_BYTES}. */
+  int orderLabelLengthBytes() {
+    return orderLabelLength;
+  }
+
+  /** The label bytes one appended row adds to {@link #orderLabelBytes()}. */
+  static int orderLabelAppendBytes(final byte[] label) {
+    return Math.max(label.length, Integer.BYTES);
+  }
+
   boolean canAppendOrderLabel(final byte[] label) {
     if (label == null || label.length == 0) {
       throw new IllegalArgumentException("projection order label must not be empty");

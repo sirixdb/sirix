@@ -13,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -47,6 +48,20 @@ public final class Indexes implements Materializable {
    */
   private volatile boolean dirty;
 
+  /** {@link #catalogueRevision()} while these definitions have no catalogue file. */
+  public static final int NO_CATALOGUE_FILE = -1;
+
+  private static final IndexDef[] NO_DEFINITIONS = new IndexDef[0];
+
+  /**
+   * Revision of the {@code indexes/<revision>.xml} file these definitions were loaded from or last
+   * serialized to, or {@link #NO_CATALOGUE_FILE}.
+   */
+  private volatile int catalogueRevision = NO_CATALOGUE_FILE;
+
+  /** The definitions as they are in that file, so a commit can tell whether anything changed. */
+  private volatile IndexDef[] persisted = NO_DEFINITIONS;
+
   public Indexes() {
     indexes = new CopyOnWriteArraySet<>();
   }
@@ -57,6 +72,84 @@ public final class Indexes implements Materializable {
    */
   public Set<IndexDef> getIndexDefs() {
     return new HashSet<>(indexes);
+  }
+
+  /** The definitions in their catalogued order (the order they were created or loaded in). */
+  public List<IndexDef> getIndexDefsInOrder() {
+    return new ArrayList<>(indexes);
+  }
+
+  public boolean isEmpty() {
+    return indexes.isEmpty();
+  }
+
+  /**
+   * @return the revision of the catalogue file these definitions are persisted in, or
+   *         {@link #NO_CATALOGUE_FILE}
+   */
+  public int catalogueRevision() {
+    return catalogueRevision;
+  }
+
+  /**
+   * Replaces the definitions with the ones of the catalogue file {@code catalogueRevision}, as loaded
+   * from it (or from a cache of its parse). Loading is not a mutation: the definitions are not dirty
+   * and do not differ from what is persisted.
+   *
+   * @param catalogueRevision the revision of the file, or {@link #NO_CATALOGUE_FILE}
+   * @param definitions the file's definitions in catalogued order
+   */
+  public void initFrom(final int catalogueRevision, final List<IndexDef> definitions) {
+    requireNonNull(definitions);
+    checkArgument(catalogueRevision >= NO_CATALOGUE_FILE, "catalogueRevision must be >= -1!");
+    indexes.clear();
+    indexes.addAll(definitions);
+    this.catalogueRevision = catalogueRevision;
+    persisted = definitions.toArray(NO_DEFINITIONS);
+    dirty = false;
+  }
+
+  /**
+   * Records that the current definitions were serialized to the catalogue file of {@code revision}.
+   *
+   * @param revision the revision whose catalogue file now holds exactly these definitions
+   */
+  public void markPersisted(final int revision) {
+    checkArgument(revision >= 0, "revision must be >= 0!");
+    persisted = indexes.toArray(NO_DEFINITIONS);
+    catalogueRevision = revision;
+    dirty = false;
+  }
+
+  /**
+   * Whether the definitions differ from the ones in the catalogue file they were loaded from or last
+   * serialized to. A commit serializes a catalogue only when this is {@code true} (or when it has to
+   * re-publish the represented catalogue after a revert), so an unchanged catalogue costs a commit
+   * neither a file nor an fsync.
+   *
+   * @return {@code true} when a commit has to serialize these definitions
+   */
+  public boolean differsFromPersisted() {
+    if (dirty) {
+      return true;
+    }
+    final IndexDef[] snapshot = persisted;
+    if (snapshot.length != indexes.size()) {
+      return true;
+    }
+    for (final IndexDef definition : indexes) {
+      boolean found = false;
+      for (final IndexDef persistedDefinition : snapshot) {
+        if (persistedDefinition == definition || persistedDefinition.hasSameDefinition(definition)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -112,6 +205,7 @@ public final class Indexes implements Materializable {
 
     indexes.clear();
     indexes.addAll(restoredIndexes);
+    persisted = restoredIndexes.toArray(NO_DEFINITIONS);
     // Loading from disk is not a mutation — clear dirty flag.
     dirty = false;
   }
@@ -119,6 +213,8 @@ public final class Indexes implements Materializable {
   /** Reset a cached controller to the persisted empty-catalogue state. */
   public void reset() {
     indexes.clear();
+    catalogueRevision = NO_CATALOGUE_FILE;
+    persisted = NO_DEFINITIONS;
     dirty = false;
   }
 

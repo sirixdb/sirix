@@ -6,6 +6,7 @@ package io.sirix.budget;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
@@ -83,6 +84,13 @@ public final class EngineWorkCounters {
 
   // ===== Batched page reads (FILE_CHANNEL) ==================================
 
+  /**
+   * Forces of data files: a durable commit's write-ahead barrier and its beacon flush, and nothing
+   * else on the commit path (a writer closed after its commit has nothing left to force).
+   */
+  public static final WorkCounter DATA_FILE_FORCES = WorkCounter.alwaysOn("io.dataFileForces",
+      "one force (fdatasync or fsync) of a resource's data file", FileChannelWriter::dataFileForces);
+
   /** Coalesced runs: near-adjacent pages of one batch read with two positional reads in total. */
   public static final WorkCounter READ_RUNS = WorkCounter.alwaysOn("read.coalescedRuns",
       "one coalesced run of near-adjacent pages: a span read plus the last page's body", FileChannelReader::runCount);
@@ -148,12 +156,20 @@ public final class EngineWorkCounters {
 
   /**
    * Listings of a resource's {@code indexes/} directory. The directory holds one catalogue file per
-   * commit that had definitions, so a writer that resolves its catalogue by listing it does work
-   * proportional to the number of revisions, on every commit.
+   * catalogue change, and a session that resolves a catalogue by listing it reads every one of them;
+   * a writer that did so on every commit did work proportional to the number of catalogue files.
    */
   public static final WorkCounter INDEX_CATALOGUE_LISTINGS =
       WorkCounter.alwaysOn("catalogue.directoryListings", "one listing of a resource's index-catalogue directory",
           AbstractResourceSession::indexCatalogueDirectoryListings);
+
+  /**
+   * Catalogue files written ({@code indexes/<revision>.xml}). Each one is a file creation, an XML
+   * materialization and a metadata fsync on the commit path, so a commit that did not change its
+   * definitions must write none.
+   */
+  public static final WorkCounter INDEX_CATALOGUE_FILES_WRITTEN = WorkCounter.alwaysOn("catalogue.filesWritten",
+      "one index-catalogue file written by a commit", AbstractResourceSession::indexCatalogueFilesWritten);
 
   // ===== Identity replay and source diff bookkeeping =======================
 
