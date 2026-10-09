@@ -171,9 +171,31 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
+    final long[][] keys = new long[2][];
+    final int[] revisions = new int[2];
+    for (int side = 0; side < 2; side++) {
+      final Side spec = sides[side];
+      if (spec.routed() != null) {
+        final RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, spec.routed());
+        if (rows == null) {
+          return decline("side " + side + " has no routed rows");
+        }
+        if (rows.keys().length == 0) {
+          if (side == 1 && sides[0].routed() == null) {
+            return decline("an empty inner mask requires the ordinary outer source evaluation");
+          }
+          SirixVectorizedExecutor.noteJoinGroupServed();
+          return new ItemSequence();
+        }
+        keys[side] = rows.keys();
+        revisions[side] = rows.revision();
+      } else {
+        revisions[side] = spec.revision();
+      }
+    }
     final MaskedColumns[] columns = new MaskedColumns[2];
     for (int side = 0; side < 2; side++) {
-      columns[side] = columns(ctx, tuple, side);
+      columns[side] = columns(ctx, side, keys[side], revisions[side]);
       if (columns[side] == null) {
         return decline("side " + side + " has no masked columns");
       }
@@ -208,22 +230,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   /** One side's masked columns: the routed rows or every row of the literal document. */
-  private @Nullable MaskedColumns columns(final QueryContext ctx, final Tuple tuple, final int side)
-      throws QueryException {
+  private @Nullable MaskedColumns columns(final QueryContext ctx, final int side, final long @Nullable [] keys,
+      final int revision) {
     final Side spec = sides[side];
-    final long[] keys;
-    final int revision;
-    if (spec.routed() != null) {
-      final RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, spec.routed());
-      if (rows == null) {
-        return null;
-      }
-      keys = rows.keys();
-      revision = rows.revision();
-    } else {
-      keys = null;
-      revision = spec.revision();
-    }
     final SirixExecutorProvider.Lease lease =
         executorProvider.acquire(ctx, SourceRef.document(spec.database(), spec.resource(), revision));
     if (lease == null) {

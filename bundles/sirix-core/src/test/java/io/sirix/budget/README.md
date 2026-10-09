@@ -326,7 +326,14 @@ for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY se
 as well as pruning, with zero column fills for an empty source.
 Its sparse cold/warm cases select one row from at least 32 leaves on all four versioning types,
 bound persisted lookup descriptors and KEYS segments to one, and require zero dense row visits.
-Four repeated requests also exclude whole-projection promotion. Correlated dense global-string
+Four repeated requests also exclude whole-projection promotion. Cold-reopened open-tail cases
+cover row-group-major tails on all versioning types across grouping, correlation, both join sides,
+and both membership sides. Masked directory admission defers tail BODY assembly until the mask selects the leaf;
+persisted KEYS lookup resolves appended identities without base BODY reads, and empty masks skip
+admission entirely. `PROJECTION_MASKED_TAIL_DEFERRALS` counts
+those source-level deferrals, while `PROJECTION_TAIL_BODY_READS` observes direct base BODY reads
+that bypass column-chain fills, with an authorized whole-tail read as the positive control.
+Both use the `sirix.projection.segmentDiag` gate. Correlated dense global-string
 grouping reads only the selected leaf's key and operand bodies; over-budget dictionary-distinct
 and windowed retries decline before whole-leaf fallback. Computed-lane cases prefill cost and
 group columns and require a single residency decision before fetching qty when either qty or

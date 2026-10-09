@@ -40,6 +40,8 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.budget.WorkCapture;
+import io.sirix.budget.EngineWorkCounters;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -306,7 +308,7 @@ final class ProjectionOpenRowGroupTailTest {
 
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)
-  void memoHitsSkipBasePayloadsAndColdRoutesSkipDictionaryHashes(final VersioningType versioningType) {
+  void memoHitsSkipBasePayloadsAndColdRoutesSkipDictionaryHashes(final VersioningType versioningType) throws Exception {
     final Path databasePath = create(versioningType, "memo-read-work");
     final int groups = 512;
     final byte[] otherRaw = pageWithRows(2_000_000L, 5).serialize();
@@ -421,6 +423,59 @@ final class ProjectionOpenRowGroupTailTest {
                 : 0, baseReads.get(), "base payload reads for route " + route + ", cold=" + cold);
             assertEquals(0, hashReads.get(), "raw assembly never consumes base dictionary hashes");
           }
+        }
+        for (int maskedRoute = 0; maskedRoute < routes - 2; maskedRoute++) {
+          ProjectionOpenRowGroupTail.clearCacheForTesting();
+          final AtomicInteger baseReads = new AtomicInteger();
+          final AtomicInteger hashReads = new AtomicInteger();
+          final AtomicInteger workers = new AtomicInteger();
+          final StorageEngineReader counted =
+              countPayloadReads(storage, baseOffsets, hashesOffset, baseReads, hashReads);
+          final int route = maskedRoute;
+          final var masked = WorkCapture.of(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                                        .and(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                                        .call(() -> {
+                                          if (route == 1) {
+                                            return Arrays.asList(ProjectionIndexHOTStorage.readDirectoryWindow(counted,
+                                                INDEX, new int[] {1, groups}, 0, 2, false));
+                                          }
+                                          return ProjectionIndexHOTStorage.readRowGroupDirectoriesWithoutTailMaterialization(
+                                              counted, INDEX, groups, physicalOrder, route == 0
+                                                  ? null
+                                                  : worker -> {
+                                                    try (JsonNodeReadOnlyTrx workerTrx =
+                                                        session.beginNodeReadOnlyTrx(revision)) {
+                                                      worker.accept(
+                                                          countPayloadReads(workerTrx.getStorageEngineReader(),
+                                                              baseOffsets, hashesOffset, baseReads, hashReads));
+                                                      workers.incrementAndGet();
+                                                    }
+                                                  },
+                                              route == 2);
+                                        });
+          assertNotNull(masked.result(), "an open tail stays lazy in masked directory route " + route);
+          assertTrue(masked.result().getFirst().logicalSlots());
+          assertTrue(RowGroupDescriptor.isTailed(masked.result().getFirst().descriptor()));
+          assertEquals(0, baseReads.get(), "masked directories read no base payload pages");
+          assertEquals(0, hashReads.get(), "masked directories read no dictionary hash pages");
+          if (route == 2) {
+            assertTrue(workers.get() > 0, "masked admission runs through the parallel directory walk");
+          }
+          masked.work()
+                .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, 1,
+                    "serial, windowed and parallel admission all observe the open tail")
+                .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0,
+                    "masked admission never starts tail BODY hydration");
+          final var keys =
+              WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                         .call(() -> ProjectionIndexHOTStorage.readVerifiedColumnSegment(counted, INDEX,
+                             ProjectionSlotLayout.ROW_GROUP_MAJOR, 1, masked.result().getFirst().descriptor(),
+                             ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+                             ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS));
+          assertArrayEquals(expectedEncoded.segments()[0], keys.result(), "tail KEYS match the full encoding");
+          keys.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0,
+                  "KEYS resolution never assembles the base BODY segments");
         }
       }
     }

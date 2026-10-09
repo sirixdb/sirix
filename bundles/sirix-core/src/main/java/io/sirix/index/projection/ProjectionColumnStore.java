@@ -727,8 +727,9 @@ public final class ProjectionColumnStore {
     this.directories = bounded == null
         ? List.copyOf(directories)
         : directories;
-    final boolean logical =
-        bounded == null && !this.directories.isEmpty() && this.directories.getFirst().logicalSlots();
+    final boolean logical = bounded == null
+        ? !this.directories.isEmpty() && this.directories.getFirst().logicalSlots()
+        : bounded.logicalSlots();
     if (logical && (indexNumber < 0 || indexNumber >= Constants.INP_REFERENCE_COUNT)) {
       throw new IllegalArgumentException("logical directories require a valid projection index number");
     }

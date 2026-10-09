@@ -9354,7 +9354,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
       final String[] requiredFields) {
-    if (projectionRegistryKey == null) {
+    return lookupProjectionResolved(sourcePath, requiredFields, false);
+  }
+
+  private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
+      final String[] requiredFields, final boolean maskedRows) {
+    if (projectionRegistryKey == null || (maskedRows && wtx != null)) {
       return null;
     }
     if (wtx != null) {
@@ -9369,7 +9374,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           wtxIndexController().openProjectionIndex(wtx.getStorageEngineWriter(), sourcePath, requiredFields));
       return out[0];
     }
-    return ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields);
+    return maskedRows
+        ? ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields,
+            true)
+        : ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields);
   }
 
   private static @Nullable MaskedColumns maskedColumnsDecline(final String why) {
@@ -9387,11 +9395,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
       final String[] fields) {
+    if (rowKeys != null && rowKeys.length == 0) {
+      return maskedColumnsDecline("empty row mask");
+    }
     try {
       if (!sourcePathIsPresent(sourcePath) || projectionRegistryKey == null || !anyProjectionAvailable()) {
         return maskedColumnsDecline("no projection for the source path");
       }
-      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, fields);
+      final ProjectionIndexRegistry.Handle handle = rowKeys == null
+          ? lookupProjection(sourcePath, fields)
+          : lookupProjectionResolved(sourcePath, fields, true);
       if (handle == null) {
         return maskedColumnsDecline("no projection covers " + Arrays.toString(fields));
       }
@@ -15170,8 +15183,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return serveScalarValueCounts(counts, keyNames[0], outNames[0], keyStringify != null && keyStringify[0]);
         }
       }
-      final ProjectionIndexRegistry.Handle handle =
-          lookupProjection(sourcePath, requiredFields(required.toArray(new String[0]), cp));
+      final ProjectionIndexRegistry.Handle handle = routing != null && routing.rowKeys() != null
+          ? lookupProjectionResolved(sourcePath, requiredFields(required.toArray(new String[0]), cp), true)
+          : lookupProjection(sourcePath, requiredFields(required.toArray(new String[0]), cp));
       if (handle == null) {
         return declineGroupAgg("no projection covers the source path and required fields");
       }
@@ -30726,11 +30740,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
       final byte[] kinds) {
-    if (rowKeys != null && rowKeys.length == 0) {
-      final int leaves = store.rowGroupCount();
-      return new MaskedColumns(store, new long[leaves][], new long[leaves][],
-          new ProjectionColumnStore.ColumnSlice[cols.length][leaves], kinds, 0);
-    }
     final int[] residency = Arrays.copyOf(cols, cols.length + 1);
     residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
     if (!store.columnsFitWithinBudget(residency, -1)) {

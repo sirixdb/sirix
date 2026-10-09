@@ -24,18 +24,29 @@ final class ProjectionDirectoryWindows extends AbstractList<RowGroupDirectory> i
   }
 
   private final int rowGroups;
+  private final boolean logicalSlots;
   private final byte[] columnKinds;
   private final IntFunction<RowGroupDirectory[]> loader;
   private final AtomicReferenceArray<Window> windows = new AtomicReferenceArray<>(CACHE_WINDOWS);
 
   ProjectionDirectoryWindows(final int rowGroups, final byte[] columnKinds,
       final IntFunction<RowGroupDirectory[]> loader) {
+    this(rowGroups, columnKinds, false, loader);
+  }
+
+  ProjectionDirectoryWindows(final int rowGroups, final byte[] columnKinds, final boolean logicalSlots,
+      final IntFunction<RowGroupDirectory[]> loader) {
+    this.logicalSlots = logicalSlots;
     if (rowGroups < 0 || rowGroups > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
       throw new IllegalArgumentException("rowGroups out of range: " + rowGroups);
     }
     this.rowGroups = rowGroups;
     this.columnKinds = Objects.requireNonNull(columnKinds, "columnKinds").clone();
     this.loader = Objects.requireNonNull(loader, "loader");
+  }
+
+  boolean logicalSlots() {
+    return logicalSlots;
   }
 
   byte[] columnKinds() {

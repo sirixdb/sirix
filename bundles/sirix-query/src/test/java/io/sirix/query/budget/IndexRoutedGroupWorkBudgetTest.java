@@ -16,6 +16,10 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.FillBudgetExceededException;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.index.projection.ProjectionSlotLayout;
+import io.sirix.index.projection.RowGroupDescriptor;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
@@ -497,6 +501,9 @@ final class IndexRoutedGroupWorkBudgetTest {
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
                .thenReturn(observedHandle);
+        catalog.when(
+            () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
+               .thenReturn(observedHandle);
         catalog.when(() -> ProjectionIndexCatalog.columnSegmentFetcher(session, revision)).thenReturn(observedFetcher);
         for (int repeat = 0; repeat < 4; repeat++) {
           bodyRequests.set(0);
@@ -549,6 +556,9 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
+               .thenReturn(observedHandle);
+        catalog.when(
+            () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
                .thenReturn(observedHandle);
         for (int repeat = 0; repeat < 4; repeat++) {
           clearInvocations(refusing);
@@ -608,6 +618,9 @@ final class IndexRoutedGroupWorkBudgetTest {
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
                .thenReturn(observedHandle);
+        catalog.when(
+            () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
+               .thenReturn(observedHandle);
         for (final long remainder : new long[] {qtyBytes - 1, qtyBytes + derivedBytes - 1}) {
           ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained + remainder);
           clearInvocations(observedColumns);
@@ -636,6 +649,231 @@ final class IndexRoutedGroupWorkBudgetTest {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
         executor.close();
       }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void coldOpenTailPrunesBeforeExcludedBodyReads(final VersioningType versioning) throws Exception {
+    final long tailKey = buildOpenTail(versioning);
+    final String main = tailSource(RES, "2024-06-01T00:00:00Z");
+    final String partner = tailSource("suppliers", "2024-06-01T00:00:00Z");
+    final String empty = tailSource(RES, "2030-01-01T00:00:00Z");
+    final String group =
+        " let $grade := $a.grade, $qty := $a.qty, $cost := $a.cost group by $grade let $n := count($qty), $total := sum($cost)"
+            + " order by $grade return {'grade':$grade,'n':$n,'total':$total}";
+    final String[] queries = {"for $a in " + main + group,
+        "for $e in [{'epoch':1,'ts':'2024-02-01T00:00:00Z'}][] for $a in "
+            + main.replace("xs:dateTime('2024-02-01T00:00:00Z')", "xs:dateTime($e.ts)")
+            + " let $epoch := $e.epoch, $grade := $a.grade, $qty := $a.qty, $cost := $a.cost group by $epoch,$grade"
+            + " let $n := count($qty), $total := sum($cost) order by $epoch,$grade"
+            + " return {'epoch':$epoch,'grade':$grade,'n':$n,'total':$total}",
+        "for $a in " + main + " for $b in " + partner + " where $a.id eq $b.id" + group,
+        "for $b in " + partner + " for $a in " + main + " where $a.id eq $b.id" + group,
+        "let $new := " + main + " for $a in " + partner + " where exists(for $b in $new where $b.id eq $a.id return $b)"
+            + " let $region := $a.region, $tier := $a.tier group by $region order by $region return {'region':$region,'n':count($tier)}",
+        "let $new := " + partner + " for $a in " + main + " where exists(for $b in $new where $b.id eq $a.id return $b)"
+            + group,
+        "let $new := " + partner + " for $a in " + main
+            + " where empty(for $b in $new where $b.tier eq $a.id return $b)" + group,
+        "let $new := " + empty + " for $a in " + main + " where empty(for $b in $new where $b.id eq $a.id return $b)"
+            + group};
+    for (final String query : queries) {
+      clearColdProjectionState();
+      try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+          var ctx = SirixQueryContext.createWithJsonStore(store);
+          var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final String expected = run(generic, ctx, query);
+        final long joins = SirixVectorizedExecutor.joinGroupServedCount();
+        final WorkCapture.Captured<String> actual = WorkCapture.of(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                                                               .and(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                                                               .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                               .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                                                               .call(() -> run(chain, ctx, query));
+        assertEquals(expected, actual.result(), query);
+        assertEquals(1, (SirixVectorizedExecutor.joinGroupServedCount() - joins)
+            + actual.work().of(QueryWorkCounters.GROUP_AGGREGATES), query);
+        actual.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, 1,
+                  query + " reaches the open-tail directory boundary")
+              .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0,
+                  "the excluded tail's base BODY segments are never read")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "admission declines without an arm failure");
+      }
+    }
+    clearColdProjectionState();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build()) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final int index = session.getRtxIndexController(revision)
+                               .getIndexes()
+                               .getIndexDefs()
+                               .stream()
+                               .filter(def -> def.isProjectionIndex())
+                               .findFirst()
+                               .orElseThrow()
+                               .getID();
+      final var reader = document.getTrx().getStorageEngineReader();
+      final var metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, index));
+      assertNotNull(metadata);
+      assertEquals(ProjectionSlotLayout.ROW_GROUP_MAJOR, metadata.slotLayout());
+      assertEquals(3, metadata.rowGroupCount());
+      final byte[] descriptor = ProjectionIndexHOTStorage.readBlob(reader, index, 3L << 16);
+      assertTrue(RowGroupDescriptor.isTailed(descriptor), "the reopened last leaf has an appended row tail");
+      final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final var keys = WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                                  .and(EngineWorkCounters.PROJECTION_LOOKUP_KEYS)
+                                  .call(() -> fetcher.recordKeyMasks(index, new long[] {tailKey}));
+      assertTrue(keys.result().physicalSlots().contains(3));
+      keys.work()
+          .assertExactly(EngineWorkCounters.PROJECTION_LOOKUP_KEYS, 1,
+              "persisted KEYS lookup resolves the appended tail identity")
+          .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0, "KEYS lookup reads no BODY segments");
+      final var positive =
+          WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                     .call(() -> ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, index, 3));
+      assertNotNull(positive.result());
+      assertEquals(ROWS - 2 * ProjectionIndexRowGroupPage.MAX_ROWS + 1,
+          ProjectionIndexRowGroupPage.deserialize(positive.result()).getRowCount());
+      positive.work()
+              .assertBetween(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 1, 8,
+                  "an authorized whole-tail read is visible at the storage source");
+      assertNotNull(ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+          revision, new String[] {"[]"}, new String[] {"cost"}));
+      final var masked = WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                                    .and(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                                    .call(() -> ProjectionIndexCatalog.lookupCovering(session,
+                                        session.getResourceConfig().getResource().toString(), revision,
+                                        new String[] {"[]"}, new String[] {"cost"}, true));
+      assertNotNull(masked.result(), "masked admission retains lazy tail payloads despite an unmasked cache entry");
+      masked.work()
+            .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, 1,
+                "masked admission still defers the tail")
+            .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0, "masked admission reads no tail body");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void emptyMasksSkipEveryOpenTailLookup(final VersioningType versioning) throws Exception {
+    buildOpenTail(versioning);
+    final String main = tailSource(RES, "2024-06-01T00:00:00Z");
+    final String empty = tailSource(RES, "2030-01-01T00:00:00Z");
+    final String group = " let $grade := $a.grade, $qty := $a.qty group by $grade let $n := count($qty) order by $grade"
+        + " return {'grade':$grade,'n':$n}";
+    final String[] queries = {"for $a in " + empty + group,
+        "for $e in [{'epoch':1,'ts':'2024-02-01T00:00:00Z'}][] for $a in "
+            + empty.replace("xs:dateTime('2024-02-01T00:00:00Z')", "xs:dateTime($e.ts)")
+            + " let $epoch := $e.epoch, $grade := $a.grade, $qty := $a.qty group by $epoch,$grade"
+            + " let $n := count($qty) order by $epoch,$grade return {'epoch':$epoch,'grade':$grade,'n':$n}",
+        "for $a in " + empty + " for $b in " + main + " where $a.id eq $b.id" + group,
+        "for $a in " + main + " for $b in " + empty + " where $a.id eq $b.id" + group,
+        "let $new := " + main + " for $a in " + empty + " where exists(for $b in $new where $b.id eq $a.id return $b)"
+            + group,
+        "let $new := " + empty + " for $a in " + main + " where exists(for $b in $new where $b.id eq $a.id return $b)"
+            + group};
+    for (final String query : queries) {
+      clearColdProjectionState();
+      try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+          var ctx = SirixQueryContext.createWithJsonStore(store);
+          var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+          var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final String expected = run(generic, ctx, query);
+        assertEquals("", expected);
+        final long catalog = ProjectionIndexCatalog.servedCount();
+        final long joins = SirixVectorizedExecutor.joinGroupServedCount();
+        final var actual = WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                                      .and(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                                      .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                      .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                      .call(() -> run(chain, ctx, query));
+        assertEquals(expected, actual.result());
+        assertEquals(catalog, ProjectionIndexCatalog.servedCount(), "empty masks make no handle lookup");
+        assertEquals(1, (SirixVectorizedExecutor.joinGroupServedCount() - joins)
+            + actual.work().of(QueryWorkCounters.GROUP_AGGREGATES), "the empty result stays routed: " + query);
+        actual.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, 0, "no tail admission is attempted")
+              .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0, "no tail body is read")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "no column fill is attempted");
+      }
+    }
+    clearColdProjectionState();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build()) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var executor =
+          new SirixVectorizedExecutor(document.getResourceSession(), document.getTrx().getRevisionNumber(), 1);
+      try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
+        assertNull(executor.maskedColumns(new String[] {"[]"}, new long[0], new String[] {"cost"}));
+        catalog.verify(() -> ProjectionIndexCatalog.lookupCovering(any(), anyString(), anyInt(), any(), any()),
+            never());
+        catalog.verify(
+            () -> ProjectionIndexCatalog.lookupCovering(any(), anyString(), anyInt(), any(), any(), anyBoolean()),
+            never());
+      } finally {
+        executor.close();
+      }
+    }
+  }
+
+  private static String tailSource(final String resource, final String valid) {
+    return "jn:open-bitemporal('" + DB + "','" + resource + "',xs:dateTime('2024-02-01T00:00:00Z'),xs:dateTime('"
+        + valid + "'))";
+  }
+
+  private static void clearColdProjectionState() {
+    ProjectionIndexCatalog.clearCache();
+    ProjectionIndexRegistry.clear();
+    Databases.clearGlobalCaches();
+  }
+
+  private long buildOpenTail(final VersioningType versioning) {
+    final String previousLayout = System.setProperty("sirix.projection.columnMajorSlots", "false");
+    final String previousDictionary = System.setProperty("sirix.projection.globalDict", "never");
+    final Path databasePath = directory.resolve(DB);
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      for (final String resource : new String[] {RES, "suppliers"}) {
+        database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                     .validTimePaths("vf", "vt")
+                                                     .customCommitTimestamps(true)
+                                                     .buildPathSummary(true)
+                                                     .versioningApproach(versioning)
+                                                     .storeDiffs(false)
+                                                     .build());
+        try (var session = database.beginResourceSession(resource); var wtx = session.beginNodeTrx()) {
+          final String input = resource.equals(RES)
+              ? rows(true, ROWS)
+              : """
+                  [{"id":1001,"region":0,"tier":1,
+                    "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+                  """;
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(input), JsonNodeTrx.Commit.NO);
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
+          BitemporalProjections.declare(session, wtx, resource);
+          wtx.commit("E0", Instant.parse("2024-01-15T00:00:00Z"));
+        }
+      }
+      try (var session = database.beginResourceSession(RES); var wtx = session.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("""
+            {"id":2601,"sid":0,"cost":1,"qty":1,"grade":0,
+             "vf":"2024-01-01T00:00:00Z","vt":"2024-02-01T00:00:00Z"}
+            """), JsonNodeTrx.Commit.NO);
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToLastChild();
+        final long key = wtx.getNodeKey();
+        wtx.commit("E1", Instant.parse("2024-01-16T00:00:00Z"));
+        return key;
+      }
+    } finally {
+      restoreProperty("sirix.projection.columnMajorSlots", previousLayout);
+      restoreProperty("sirix.projection.globalDict", previousDictionary);
     }
   }
 

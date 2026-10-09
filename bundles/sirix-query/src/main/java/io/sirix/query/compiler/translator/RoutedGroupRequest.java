@@ -110,6 +110,14 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
     if (inner == null) {
       return null;
     }
+    if (main.keys().length == 0) {
+      return main;
+    }
+    if (inner.keys().length == 0) {
+      return filter.anti()
+          ? main
+          : new RoutedRows(inner.keys(), main.revision());
+    }
     final LongOpenHashSet values;
     final SirixExecutorProvider.Lease innerLease = executorProvider.acquire(ctx,
         SourceRef.document(filter.source().database(), filter.source().resource(), inner.revision()));
