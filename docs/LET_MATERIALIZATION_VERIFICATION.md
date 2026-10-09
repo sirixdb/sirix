@@ -182,3 +182,24 @@ Logs: `build/let-materialize/full-tests.log` (full core), `full-query-final.log`
 query), `final-targeted-green.log`, `q3-benchmark-final.log` and `final-budgets.log`. The final
 budget invocation also passes `:sirix-query:spotlessCheck`. No no-mistakes pipeline was started
 during implementation: the committed branch is handed off to firstmate before that stage.
+
+## Post-main-merge validation (2026-10-09)
+
+Main was merged with all budget inventory rows retained. The merged runtime includes runtime-revision
+CAS routing and XML publication changes. Fresh compilation, focused materialization tests, Q3 and
+query budgets, runtime-revision CAS tests, mixed valid-time mutations and bitemporal integration
+checks passed: **450 tests**, five skipped, zero failures or errors. Core work budgets also passed:
+**229 tests**, zero skips, failures or errors. Query `spotlessCheck` passed. No budget bounds changed.
+
+The SH1 Q3 A/B probe was rerun on that rebuilt runtime, using the same private database and oracle,
+five warmups and nine measured runs per variant, and alternating order. All **28 runs** were
+oracle-exact. Warm medians were **225.246 ms** with materialization disabled and **74.319 ms**
+enabled (**3.03x**). The [samples](../bundles/sirix-query/bench/bitemporal/evidence/let-materialization-2026-10-09/q3-samples.tsv)
+and [metadata](../bundles/sirix-query/bench/bitemporal/evidence/let-materialization-2026-10-09/metadata.txt)
+record this separate measurement; the historical October 6 results above remain unchanged.
+
+All build, test and benchmark JVMs used the memory/lock limiter. The initially empty private Maven
+repository was `build/let-materialize/m2-postmerge-private`; the resolved published Brackit snapshot
+was `1.0-alpha10-20261008.110148-96`, SHA-1
+`218ea254a0e7d9c65841fdf98a1a19501c37dab4`. Test forks used a 2 GiB maximum heap.
+Local logs and regression XML are retained under `build/let-materialize/postmerge-*`.
