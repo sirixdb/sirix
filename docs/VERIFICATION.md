@@ -126,6 +126,9 @@ in CI via the `Deep verification` workflow.
                            -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
                            -Dhot.diag.validationDump=true
 
+# Compile-cache correctness (bindings, index create/drop, retained Query, concurrency and LRU)
+./gradlew :sirix-query:test --tests 'io.sirix.query.CompiledQueryCacheTest'
+
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \

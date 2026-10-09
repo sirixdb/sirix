@@ -2059,7 +2059,8 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 `[io] segBatch` line; e.g. `query/compiler/optimizer/GroupAggregateDetectionStage.java:211`, `SVE:14616-14618`,
 `proj/ProjectionIndexCatalog.java:581`, `proj/ProjectionIndexHOTStorage.java:3699-3712`), `sirix.projection.fillDiag`,
 `sirix.projection.bulkDiag`, `sirix.segBuildDiag`, `sirix.projection.verifyDirectAssembly` (parity check),
-`sirix.hft.telemetry`, `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
+`sirix.hft.telemetry`, `sirix.query.compileWorkDiag` (parser/analyser/optimizer/translator
+invocations; repeated compiled-query hits perform zero in all four), `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
 `sirix.chunkedBody.diag`, `sirix.projection.groupPasses.planDiag`, `sirix.debug.ast`.
 Valid-time interval/posting references emitted, posting lookups, and compressed posting chunks read
 are gated by `sirix.validTime.scanDiag` in `HotOrderedStore` and cataloged with their requirements in the

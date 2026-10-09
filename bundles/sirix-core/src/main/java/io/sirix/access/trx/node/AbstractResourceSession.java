@@ -32,6 +32,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
+import io.sirix.index.IndexSchemaVersion;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
@@ -1400,6 +1401,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     lastCommittedUberPage.set(requireNonNull(page));
+    IndexSchemaVersion.changed();
   }
 
   @Override

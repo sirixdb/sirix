@@ -201,6 +201,9 @@ maintains, so a budget quotes the same numbers an investigation would:
   listener while reconstructing bounds. It shares the `sirix.replay.workDiag` gate and counts scans
   of old and final objects. Unrelated identity edits require zero; a direct bound update must scan
   both versions as a positive control. Full replay record/path counters remain separate diagnostics.
+- `CompileWorkStats` (`sirix-query`, `sirix.query.compileWorkDiag`): parser and analyser
+  invocations and optimization/translation targets. `CompiledQueryWorkBudgetTest` requires a
+  nonzero cold compilation and zero work in all four phases for a repeated text on the same chain.
 - `QueryWorkCounters` (`sirix-query`): the served-route counters, named as the benchmark runners
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of

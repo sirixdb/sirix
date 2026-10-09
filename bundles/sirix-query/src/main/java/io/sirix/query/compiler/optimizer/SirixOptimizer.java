@@ -65,6 +65,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
   private final PlanCache planCache;
+  private final String cacheNamespace;
+  private final boolean contextScoped;
+  private final boolean cacheTargets;
   private final Set<Class<? extends Stage>> disabledStages = new HashSet<>(4);
   private final Mesh mesh;
   private final CostBasedStage costBasedStage;
@@ -75,6 +78,18 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
       final PlanCache planCache) {
+    this(options, nodeStore, jsonItemStore, planCache, null);
+  }
+
+  /** Cache namespace includes the complete prolog and target slot when supplied by a compile chain. */
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
+      final PlanCache planCache, final String cacheNamespace) {
+    this(options, nodeStore, jsonItemStore, planCache, cacheNamespace, true);
+  }
+
+  /** Disable target caching for bindings whose translated state cannot be reused safely. */
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
+      final PlanCache planCache, final String cacheNamespace, final boolean cacheTargets) {
     // `true`: this backend DECOMPOSES predicates. SirixVectorizedExecutor answers a cross-field
     // disjunction by inclusion-exclusion and a negation by complement, anchoring each branch on its
     // OWN field, so it never depends on one field's slots enumerating every candidate record — the
@@ -87,6 +102,9 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
     this.planCache = planCache;
+    this.contextScoped = cacheNamespace == null;
+    this.cacheTargets = cacheTargets;
+    this.cacheNamespace = cacheTargets ? (cacheNamespace == null ? "" : cacheNamespace) + "/options=" + options : "";
     // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
     // equality key and keep single-side predicates on their own side. Brackit's stages are private
     // classes, so the slot is found by name; without join detection there is nothing to prefer, and
@@ -176,16 +194,12 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   @Override
   public AST optimize(StaticContext sctx, AST ast) {
-    // Include index schema version in cache key so that plans are invalidated
-    // when indexes are created or dropped (prevents stale index/scan decisions).
-    final String queryText = ast.toString();
-    final String cacheKey = queryText != null
-        ? queryText + "@v" + PlanCache.indexSchemaVersion()
-        : null;
+    final long version = PlanCache.indexSchemaVersion();
+    final String cacheKey = cacheTargets && reusableTree(ast, sctx) ? cacheKey(ast) : null;
     if (cacheKey != null) {
-      final AST cached = planCache.get(cacheKey);
+      final AST cached = planCache.get(cacheKey, contextScoped ? sctx : null);
       if (cached != null) {
-        // PlanCache.get() already returns a deep copy — no need to copy again.
+        rebindContexts(cached, sctx);
         return cached;
       }
     }
@@ -220,11 +234,66 @@ public class SirixOptimizer extends TopDownOptimizer {
     final AST optimized = current;
 
     // Cache a deep copy so the caller's subsequent mutations don't corrupt the entry.
-    if (cacheKey != null) {
-      planCache.put(cacheKey, optimized.copyTree());
+    if (cacheKey != null && version == PlanCache.indexSchemaVersion()) {
+      planCache.put(cacheKey, contextScoped ? sctx : null, optimized.copyTree());
     }
 
     return optimized;
+  }
+
+  /** Full target identity; AST.toString() is only a root label and collides for different queries. */
+  String cacheKey(final AST ast) {
+    final StringBuilder key = new StringBuilder(256);
+    key.append(cacheNamespace).append('/');
+    appendTreeKey(ast, key);
+    disabledStages.stream().map(Class::getName).sorted().forEach(name -> key.append('/').append(name));
+    return key.append("@v").append(PlanCache.indexSchemaVersion()).toString();
+  }
+
+  /** Canonical full syntax tree identity, including the prolog; parser comments are absent. */
+  public static String queryFingerprint(final AST ast) {
+    final StringBuilder key = new StringBuilder(256);
+    appendTreeKey(ast, key);
+    return key.toString();
+  }
+
+  private static void appendTreeKey(final AST node, final StringBuilder key) {
+    final Object value = node.getValue();
+    final String text = value instanceof QNm name
+        ? name.getNamespaceURI() + ':' + name.getLocalName()
+        : String.valueOf(value);
+    key.append('(').append(node.getType()).append(':');
+    if (value != null) {
+      key.append(value.getClass().getName());
+    }
+    key.append(':').append(text.length()).append(':').append(text);
+    for (int i = 0; i < node.getChildCount(); i++) {
+      appendTreeKey(node.getChild(i), key);
+    }
+    key.append(')');
+  }
+
+  /** Nested static contexts and inline functions contain identities belonging to one analysis. */
+  private static boolean reusableTree(final AST node, final StaticContext context) {
+    if ((node.getStaticContext() != null && node.getStaticContext() != context) || node.getProperty("udf") != null) {
+      return false;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (!reusableTree(node.getChild(i), context)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Bind a detached cached tree to this analysis; it must not retain the prior module's context. */
+  private static void rebindContexts(final AST node, final StaticContext context) {
+    if (node.getStaticContext() != null) {
+      node.setStaticContext(context);
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      rebindContexts(node.getChild(i), context);
+    }
   }
 
   /**

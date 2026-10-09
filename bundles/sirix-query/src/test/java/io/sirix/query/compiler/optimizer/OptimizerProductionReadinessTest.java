@@ -159,21 +159,16 @@ final class OptimizerProductionReadinessTest {
     ast.addChild(new AST(XQ.ForBind, null));
 
     // Pre-populate cache with the key that optimize() would generate
-    final String cacheKey = ast.toString() + "@v" + PlanCache.indexSchemaVersion();
+    final String cacheKey = optimizer.cacheKey(ast);
     final var cachedResult = new AST(XQ.FlowrExpr, null);
     cachedResult.setProperty("fromCache", true);
     planCache.put(cacheKey, cachedResult);
 
-    final long start = System.nanoTime();
     final AST result = optimizer.optimize(null, ast);
-    final long elapsed = System.nanoTime() - start;
 
     assertNotNull(result, "Optimizer should return cached plan");
     assertEquals(true, result.getProperty("fromCache"),
         "Should return the cached plan");
-    // Cache hit should be instant — well under 100ms
-    assertTrue(elapsed < 100_000_000L,
-        "Cache hit should complete in <100ms, took " + (elapsed / 1_000_000) + "ms");
     assertEquals(1, planCache.hits(), "Should record one cache hit");
   }
 
@@ -188,12 +183,9 @@ final class OptimizerProductionReadinessTest {
     cachedAst.setProperty("marker", "cached-plan");
 
     // The cache key includes the schema version.
-    final String queryText = cachedAst.toString();
-    final String cacheKey = queryText + "@v" + PlanCache.indexSchemaVersion();
-    planCache.put(cacheKey, cachedAst);
-
-    // Build an optimizer that uses this plan cache.
     final var optimizer = new SirixOptimizer(null, null, null, planCache);
+    final String cacheKey = optimizer.cacheKey(cachedAst);
+    planCache.put(cacheKey, cachedAst);
 
     // Build an input AST that produces the same toString() as the cached one.
     final var inputAst = new AST(XQ.FlowrExpr, null);

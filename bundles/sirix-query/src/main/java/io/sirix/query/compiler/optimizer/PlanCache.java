@@ -1,10 +1,11 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.compiler.AST;
+import io.brackit.query.module.StaticContext;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import io.sirix.index.IndexSchemaVersion;
 
 /**
  * LRU cache for optimized query plans (ASTs).
@@ -13,11 +14,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * pattern hits the optimizer again, the cached AST is returned immediately,
  * bypassing the full 10-stage optimization pipeline.</p>
  *
- * <p>Template key: the raw query string. For parameterized queries, callers
- * should normalize constants to produce a stable template (e.g., replace
- * literal values with placeholders). For now, exact query string matching
- * is used — this captures the common case of repeated identical queries
- * (dashboards, monitoring, etc.).</p>
+ * <p>The optimizer supplies the complete query/prolog and target identity, plus the core schema
+ * version. AST.toString() is only a node label and must never be used as a query identity. Each
+ * Sirix compile chain owns one cache, so store bindings cannot leak between chains.</p>
  *
  * <p>Thread-safety: all access is synchronized. The cache is used during
  * query optimization which is inherently sequential per-query, so
@@ -36,32 +35,36 @@ public final class PlanCache {
   public static final int DEFAULT_MAX_SIZE = 128;
 
   /**
-   * Global index schema version. Incremented whenever indexes are created or dropped.
-   * Used by the optimizer to detect stale cached plans — when the version changes,
-   * all plans cached under the previous version become cache misses.
-   *
-   * <p>Static because index changes affect all optimizer instances in the JVM.</p>
-   */
-  private static final AtomicLong INDEX_SCHEMA_VERSION = new AtomicLong(0);
-
-  /**
    * Signal that the index schema has changed (index created, dropped, or modified).
    * All plan caches will produce misses for plans cached before this call.
    *
    * <p>Call this from index-modifying operations (jn:create-cas-index, etc.).</p>
    */
   public static void signalIndexSchemaChange() {
-    INDEX_SCHEMA_VERSION.incrementAndGet();
+    IndexSchemaVersion.changed();
   }
 
   /**
    * Get the current index schema version. Used to build version-aware cache keys.
    */
   public static long indexSchemaVersion() {
-    return INDEX_SCHEMA_VERSION.get();
+    return IndexSchemaVersion.current();
   }
 
-  private final Map<String, AST> cache;
+  /** Reference identity fences targets whose caller cannot supply the owning prolog. */
+  private record CacheKey(String text, StaticContext context) {
+    @Override
+    public boolean equals(final Object other) {
+      return other instanceof CacheKey key && text.equals(key.text) && context == key.context;
+    }
+
+    @Override
+    public int hashCode() {
+      return 31 * text.hashCode() + System.identityHashCode(context);
+    }
+  }
+
+  private final Map<CacheKey, AST> cache;
   private long hits;
   private long misses;
 
@@ -75,7 +78,7 @@ public final class PlanCache {
     }
     this.cache = new LinkedHashMap<>(maxSize, 0.75f, true) {
       @Override
-      protected boolean removeEldestEntry(Map.Entry<String, AST> eldest) {
+      protected boolean removeEldestEntry(Map.Entry<CacheKey, AST> eldest) {
         return size() > maxSize;
       }
     };
@@ -92,7 +95,12 @@ public final class PlanCache {
    * @return a deep copy of the cached AST, or {@code null} if not found
    */
   public synchronized AST get(String queryTemplate) {
-    final AST cached = cache.get(queryTemplate);
+    return get(queryTemplate, null);
+  }
+
+  /** Lookup scoped to one analysis when no full-query namespace is supplied by the caller. */
+  synchronized AST get(final String queryTemplate, final StaticContext context) {
+    final AST cached = queryTemplate == null ? null : cache.get(new CacheKey(queryTemplate, context));
     if (cached != null) {
       hits++;
       return cached.copyTree();
@@ -108,8 +116,12 @@ public final class PlanCache {
    * @param optimizedAst  the optimized AST to cache
    */
   public synchronized void put(String queryTemplate, AST optimizedAst) {
+    put(queryTemplate, null, optimizedAst);
+  }
+
+  synchronized void put(final String queryTemplate, final StaticContext context, final AST optimizedAst) {
     if (queryTemplate != null && optimizedAst != null) {
-      cache.put(queryTemplate, optimizedAst);
+      cache.put(new CacheKey(queryTemplate, context), optimizedAst);
     }
   }
 
@@ -117,7 +129,7 @@ public final class PlanCache {
    * Remove a cached plan.
    */
   public synchronized void invalidate(String queryTemplate) {
-    cache.remove(queryTemplate);
+    cache.keySet().removeIf(key -> key.text.equals(queryTemplate));
   }
 
   /**

@@ -3,6 +3,8 @@ package io.sirix.query.compiler.translator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.api.Axis;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -57,7 +59,29 @@ class DerefDescendantExpr implements Expr {
   /**
    * Map with PCR <=> matching nodes.
    */
-  private final Map<Long, PathData> filterMap;
+  private final ThreadLocal<PathMatches> filterMap = ThreadLocal.withInitial(PathMatches::new);
+
+  /** Worker-owned path matches; a PCR alone does not identify a resource, revision or field. */
+  private static final class PathMatches {
+    private final Long2ObjectMap<PathData> byPath = new Long2ObjectOpenHashMap<>(64);
+    private long database;
+    private long resource;
+    private int revision;
+    private String field;
+
+    Long2ObjectMap<PathData> forSource(final JsonNodeReadOnlyTrx trx, final String name) {
+      final var configuration = trx.getResourceSession().getResourceConfig();
+      if (database != configuration.getDatabaseId() || resource != configuration.getID()
+          || revision != trx.getRevisionNumber() || !name.equals(field)) {
+        byPath.clear();
+        database = configuration.getDatabaseId();
+        resource = configuration.getID();
+        revision = trx.getRevisionNumber();
+        field = name;
+      }
+      return byPath;
+    }
+  }
 
   private final Expr context;
   private final Expr field;
@@ -65,7 +89,7 @@ class DerefDescendantExpr implements Expr {
   public DerefDescendantExpr(Expr context, Expr field) {
     this.context = context;
     this.field = field;
-    filterMap = new HashMap<>();
+
   }
 
   @Override
@@ -137,7 +161,8 @@ class DerefDescendantExpr implements Expr {
         } else {
           pcr = rtx.getPathNodeKey();
         }
-        final PathData data = filterMap.get(pcr);
+        final Long2ObjectMap<PathData> matchesByPath = filterMap.get().forSource(rtx, recordFieldAsString);
+        final PathData data = matchesByPath.get(pcr);
         BitSet matches = data == null
             ? null
             : data.matchingPathNodeKeys;
@@ -153,7 +178,7 @@ class DerefDescendantExpr implements Expr {
             final int level = startLevel + 1;
             final QNm name = new QNm(recordFieldAsString);
             matches = reader.match(name, level);
-            filterMap.put(pcr, new PathData(matches, startLevel));
+            matchesByPath.put(pcr, new PathData(matches, startLevel));
           }
           // No matches.
           if (matches.cardinality() == 0) {

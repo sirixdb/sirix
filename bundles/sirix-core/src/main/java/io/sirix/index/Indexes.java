@@ -110,6 +110,9 @@ public final class Indexes implements Materializable {
       }
     }
 
+    if (!indexes.isEmpty()) {
+      IndexSchemaVersion.changed();
+    }
     indexes.clear();
     indexes.addAll(restoredIndexes);
     // Loading from disk is not a mutation — clear dirty flag.
@@ -118,6 +121,9 @@ public final class Indexes implements Materializable {
 
   /** Reset a cached controller to the persisted empty-catalogue state. */
   public void reset() {
+    if (!indexes.isEmpty()) {
+      IndexSchemaVersion.changed();
+    }
     indexes.clear();
     dirty = false;
   }
@@ -132,6 +138,9 @@ public final class Indexes implements Materializable {
    */
   public void replaceWith(final Set<IndexDef> definitions) {
     requireNonNull(definitions);
+    if (!indexes.equals(definitions)) {
+      IndexSchemaVersion.changed();
+    }
     indexes.retainAll(definitions);
     if (indexes.size() != definitions.size()) {
       for (final IndexDef definition : definitions) {
@@ -178,6 +187,7 @@ public final class Indexes implements Materializable {
   public void add(IndexDef indexDefinition) {
     if (indexes.add(indexDefinition)) {
       dirty = true;
+      IndexSchemaVersion.changed();
     }
   }
 
@@ -195,6 +205,7 @@ public final class Indexes implements Materializable {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
     if (indexes.removeIf(indexDef -> indexDef.getID() == indexID)) {
       dirty = true;
+      IndexSchemaVersion.changed();
     }
   }
 
@@ -207,6 +218,7 @@ public final class Indexes implements Materializable {
     requireNonNull(indexDef);
     if (indexes.remove(indexDef)) {
       dirty = true;
+      IndexSchemaVersion.changed();
     }
   }
 

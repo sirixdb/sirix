@@ -1,6 +1,11 @@
 package io.sirix.query;
 
 import java.util.Map;
+import java.util.Objects;
+
+import io.brackit.query.Query;
+import io.brackit.query.compiler.XQ;
+import io.sirix.query.compiler.optimizer.PlanCache;
 
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
@@ -26,6 +31,7 @@ import io.brackit.query.compiler.translator.BlockPipelineStrategy;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.Translator;
 import io.brackit.query.module.Module;
+import io.brackit.query.module.MainModule;
 import io.brackit.query.util.Cfg;
 
 /**
@@ -79,6 +85,17 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   /** The last optimizer instance, retained to access the Mesh after compilation. */
   private SirixOptimizer lastOptimizer;
+
+  private final PlanCache planCache = new PlanCache();
+  private final CompiledQueryCache compiledQueries = new CompiledQueryCache();
+  private CompiledQueryCache.Entry lastCompilation;
+  private long cacheSchemaVersion = PlanCache.indexSchemaVersion();
+  private StoreBoundExecutorCache.DocumentSource planHint;
+  private boolean planMorsel;
+  private boolean sharePlans;
+  private boolean cacheableModule;
+  private String compilingQuery;
+  private int targetSlot;
 
   /**
    * Optional per-chain {@link SirixVectorizedExecutor}. When non-null, {@link #compile} installs it
@@ -427,8 +444,67 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     return exec;
   }
 
+  /**
+   * Compile once per text, schema fence, document hint and pipeline mode on this chain. Compilation
+   * misses are serialized because the resolver, optimizer diagnostics and Brackit's analysis are
+   * mutable. Executions use independent contexts and QueryExecution state and do not take this lock.
+   * An explicitly registered executor is caller-owned mutable binding state, so it bypasses both
+   * caches. Modules importing external code also bypass caching: their text cannot version that code.
+   */
   @Override
-  public Module compile(final String query) throws QueryException {
+  public synchronized Module compile(final String query) throws QueryException {
+    Objects.requireNonNull(query, "query");
+    if (closed) {
+      throw new IllegalStateException("Compile chain is closed");
+    }
+    final long schemaVersion = PlanCache.indexSchemaVersion();
+    if (schemaVersion != cacheSchemaVersion) {
+      compiledQueries.clear();
+      planCache.clear();
+      cacheSchemaVersion = schemaVersion;
+    }
+    final StoreBoundExecutorCache.DocumentSource hint = storeBoundExecutors == null ? null : BoundDocumentHint.peek();
+    final boolean morsel = SequentialPipelineStrategy.isMorselEnabled();
+    if (!Objects.equals(planHint, hint) || planMorsel != morsel) {
+      planCache.clear();
+      planHint = hint;
+      planMorsel = morsel;
+    }
+    final boolean eligible = query.length() <= CompiledQueryCache.MAX_QUERY_LENGTH
+        && SequentialPipelineStrategy.getVectorizedExecutor() == null && !Query.DEBUG;
+    final CompiledQueryCache.Key key = eligible ? new CompiledQueryCache.Key(query, schemaVersion, hint, morsel) : null;
+    if (key != null) {
+      final CompiledQueryCache.Entry cached = compiledQueries.get(key);
+      if (cached != null) {
+        lastCompilation = cached;
+        lastOptimizer = null;
+        return cached.module();
+      }
+    }
+    compilingQuery = query;
+    targetSlot = 0;
+    sharePlans = eligible;
+    cacheableModule = true;
+    lastOptimizer = null;
+    try {
+      final Module module = compileWithExecutor(query);
+      if (key != null && cacheableModule && module instanceof MainModule main && main.getBody() != null) {
+        main.setExpr(new SchemaFencedExpr(this, query, schemaVersion, main.getBody()));
+      }
+      if (key != null && cacheableModule && schemaVersion == PlanCache.indexSchemaVersion()) {
+        compiledQueries.put(key, lastCompilation);
+      } else {
+        // Diagnostics need syntax trees, not the translated code's caller-owned executor graph.
+        lastCompilation = new CompiledQueryCache.Entry(null, lastCompilation.parsed(), lastCompilation.optimized(),
+            lastCompilation.mesh());
+      }
+      return module;
+    } finally {
+      compilingQuery = null;
+    }
+  }
+
+  private Module compileWithExecutor(final String query) {
     if (autoExecutorSession != null) {
       // Install the per-thread executor for the compile call. Brackit's
       // SequentialPipelineStrategy.tryVectorizedExpr prefers this over the
@@ -443,7 +519,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       SequentialPipelineStrategy.setThreadVectorizedExecutor(
           new RevisionTrackingExecutor(this::ensureAutoExecutor, executorLifecycle));
       try {
-        return super.compile(query);
+        return compileUncached(query);
       } finally {
         SequentialPipelineStrategy.clearThreadVectorizedExecutor();
       }
@@ -451,15 +527,69 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (storeBoundExecutors == null || SequentialPipelineStrategy.getVectorizedExecutor() != null) {
       // Auto-wiring off, or the caller registered an executor of their own — theirs wins, and
       // clearing the thread-local afterwards would throw away a registration we did not make.
-      return super.compile(query);
+      return compileUncached(query);
     }
     // Nothing was registered, so whatever is on the thread-local when we return is ours to remove.
     // The executor itself is installed by parse(), which is where the query first exists as a tree.
     try {
-      return super.compile(query);
+      return compileUncached(query);
     } finally {
       SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     }
+  }
+
+  /** Delegate misses to Brackit's pipeline; keep detached diagnostics for cache hits. */
+  private Module compileUncached(final String query) {
+    final Module module = super.compile(query);
+    lastCompilation = new CompiledQueryCache.Entry(module, super.getParsedAST(), super.getOptimizedAST(),
+        lastOptimizer == null ? null : lastOptimizer.getMesh());
+    return module;
+  }
+
+  private void checkCacheability(final AST node) {
+    final int type = node.getType();
+    if (type == XQ.LibraryModule || type == XQ.ModuleImport || type == XQ.SchemaImport) {
+      cacheableModule = false;
+      sharePlans = false;
+    } else if (type == XQ.FunctionDecl) {
+      // Optimized AST annotations can refer to functions belonging to a particular analysis.
+      sharePlans = false;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      checkCacheability(node.getChild(i));
+    }
+  }
+
+  @Override
+  public synchronized AST getParsedAST() {
+    return lastCompilation == null ? null : lastCompilation.parsed().copyTree();
+  }
+
+  @Override
+  public synchronized AST getOptimizedAST() {
+    return lastCompilation == null ? null : lastCompilation.optimized().copyTree();
+  }
+
+  @Override
+  public synchronized String getPlanAsJSON(final PlanStage stage) {
+    Objects.requireNonNull(stage, "stage");
+    if (lastCompilation == null) {
+      return stage == PlanStage.BOTH ? "{\"parsed\":null,\"optimized\":null}" : null;
+    }
+    return switch (stage) {
+      case PARSED -> lastCompilation.parsed().toJSON();
+      case OPTIMIZED -> lastCompilation.optimized().toJSON();
+      case BOTH -> "{\"parsed\":" + lastCompilation.parsed().toJSON() + ",\"optimized\":"
+          + lastCompilation.optimized().toJSON() + '}';
+    };
+  }
+
+  synchronized int compiledQueryCount() {
+    return compiledQueries.size();
+  }
+
+  synchronized long planCacheHits() {
+    return planCache.hits();
   }
 
   /**
@@ -475,7 +605,14 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    */
   @Override
   protected AST parse(final String query) throws QueryException {
+    CompileWorkStats.parsed();
     final AST ast = super.parse(query);
+    checkCacheability(ast);
+    if (sharePlans) {
+      compilingQuery = SirixOptimizer.queryFingerprint(ast);
+    }
+    // CompileChain enters its single Analyzer immediately after this successful parse hook.
+    CompileWorkStats.analysed();
     if (storeBoundExecutors == null || SequentialPipelineStrategy.getVectorizedExecutor() != null) {
       return ast;
     }
@@ -509,6 +646,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   @Override
   protected Translator getTranslator(Map<QNm, Str> options) {
+    CompileWorkStats.translated();
     if (parallel) {
       final BlockPipelineStrategy strategy = new BlockPipelineStrategy();
       strategy.setOrdered(ordered);
@@ -519,10 +657,12 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   @Override
   protected Optimizer getOptimizer(Map<QNm, Str> options) {
+    CompileWorkStats.optimized();
     if (!OPTIMIZE) {
       return super.getOptimizer(options);
     }
-    lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore);
+    lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore, planCache,
+        sharePlans ? compilingQuery + "/target=" + targetSlot++ : "", sharePlans);
     return lastOptimizer;
   }
 
@@ -536,10 +676,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    *
    * @return the Mesh, or null if optimization was disabled or no compilation happened
    */
-  public Mesh getMesh() {
-    return lastOptimizer != null
-        ? lastOptimizer.getMesh()
-        : null;
+  public synchronized Mesh getMesh() {
+    return lastCompilation == null ? null : lastCompilation.mesh();
   }
 
   /**
@@ -548,7 +686,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * stored in {@link io.sirix.query.compiler.optimizer.stats.StatisticsCatalog} and benefit
    * subsequent queries.
    */
-  public void collectPendingHistograms() {
+  public synchronized void collectPendingHistograms() {
     if (lastOptimizer != null) {
       lastOptimizer.collectPendingHistograms();
     }
@@ -564,6 +702,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
         return;
       }
       closed = true;
+      compiledQueries.clear();
+      planCache.clear();
+      lastCompilation = null;
+      lastOptimizer = null;
     }
     // One fence covers cached, current and already-evicted executors. It rejects work reaching a
     // retired inline executor after terminal close and drains top-level calls admitted beforehand.

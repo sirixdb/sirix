@@ -1,6 +1,7 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.compiler.AST;
+import io.brackit.query.module.MainModule;
 import io.brackit.query.compiler.XQ;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,18 @@ final class PlanCacheTest {
   @BeforeEach
   void setUp() {
     cache = new PlanCache(4); // small capacity for testing LRU eviction
+  }
+
+  @Test
+  void analysisScopesCannotShareTargetsWithoutTheirProlog() {
+    final var first = new MainModule().getStaticContext();
+    final var second = new MainModule().getStaticContext();
+    final AST plan = new AST(XQ.Int, 1);
+    cache.put("same body", first, plan);
+    assertNull(cache.get("same body", second));
+    assertNotNull(cache.get("same body", first));
+    cache.invalidate("same body");
+    assertNull(cache.get("same body", first));
   }
 
   @Test
