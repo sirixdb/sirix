@@ -3,10 +3,13 @@ package io.sirix.index;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Type;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -60,6 +63,46 @@ final class IndexesTest {
     assertFalse(second.differsFromPersisted());
     first.markPersisted(2);
     assertFalse(first.differsFromPersisted());
+  }
+
+  @Test
+  void creatingAndDroppingAnIndexLeavesThePersistedEmptyCatalogueUnchanged() {
+    final Indexes indexes = new Indexes();
+    indexes.initFrom(1, List.of());
+    final IndexDef definition = IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, IndexDef.DbType.JSON);
+
+    indexes.add(definition);
+    indexes.removeIndex(definition);
+
+    assertTrue(indexes.isEmpty());
+    assertFalse(indexes.differsFromPersisted());
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = IndexDef.DbType.class)
+  void equivalentRecreatedDefinitionsLeaveThePersistedCatalogueUnchanged(final IndexDef.DbType dbType) {
+    final Indexes indexes = new Indexes();
+    indexes.initFrom(1, List.of(IndexDefs.createCASIdxDef(false, Type.STR, Set.of(), 0, dbType)));
+
+    indexes.removeIndex(indexes.getIndexDef(0, IndexType.CAS));
+    indexes.add(IndexDefs.createCASIdxDef(false, Type.STR, Set.of(), 0, dbType));
+
+    assertEquals(1, indexes.getNrOfIndexDefsWithType(IndexType.CAS));
+    assertFalse(indexes.differsFromPersisted());
+  }
+
+  @Test
+  void numericCoverageRemainsDirtyAfterUnrelatedStructuralChangesAreUndone() {
+    final Indexes indexes = new Indexes();
+    indexes.initFrom(1, List.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(), 0, IndexDef.DbType.JSON)));
+    final IndexDef temporary = IndexDefs.createNameIdxDef(1, IndexDef.DbType.JSON);
+
+    indexes.getIndexDef(0, IndexType.CAS).markIncompleteNumericCoverage();
+    indexes.add(temporary);
+    indexes.removeIndex(temporary);
+
+    assertEquals(1, indexes.getNrOfIndexDefsWithType(IndexType.CAS));
+    assertTrue(indexes.differsFromPersisted());
   }
 
   @Test

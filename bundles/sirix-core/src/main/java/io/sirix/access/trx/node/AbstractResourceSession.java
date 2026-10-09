@@ -441,11 +441,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // is never consulted (it can only be the leftover of a commit of that number that was never
     // acknowledged), and the writer's definitions are restored from its represented revision by
     // StorageEngineWriterFactory anyway.
-    final int committedRevision = Math.max(0, Math.min(revision, getMostRecentRevisionNumber()));
+    final int mostRecentRevision = getMostRecentRevisionNumber();
+    final int committedRevision = Math.max(0, Math.min(revision, mostRecentRevision));
     final int catalogueRevision = resolveIndexCatalogueRevision(indexesDir, committedRevision);
     if (catalogueRevision == NO_INDEX_CATALOGUE) {
       indexes.reset();
       return; // no definitions were serialized at or below the requested revision
+    }
+    if (committedRevision == mostRecentRevision) {
+      rememberIndexCatalogueRevision(catalogueRevision);
     }
     if (indexes.catalogueRevision() == catalogueRevision && !indexes.differsFromPersisted()) {
       return; // already holds exactly that file's definitions
@@ -497,8 +501,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * serialize since, and every lookup is answered from that array without file-system access;</li>
    * <li>the requested revision's own file, one {@code stat}: an exact answer for a revision that
    * committed definitions;</li>
-   * <li>the newest file a writer of these sessions serialized, when it is at or below the requested
-   * revision: nothing else writes catalogue files, so no file can lie between them;</li>
+   * <li>the newest catalogue resolved at the latest committed revision or serialized by a writer,
+   * when it is at or below the requested revision;</li>
    * <li>the previous revision's file: the first writer of a session, one more {@code stat};</li>
    * <li>one directory listing, which establishes (1) for all sessions sharing this resource.</li>
    * </ol>
@@ -526,14 +530,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (Files.exists(indexesDir.resolve(revision + ".xml"))) {
       return revision;
     }
-    // The newest file a writer of this resource serialized is the greatest one at or below any later
-    // revision: every file written since the sessions opened is reported, and nothing else writes.
-    final int[] reported = known.revisions();
-    final int serialized = reported.length == 0
+    final int[] remembered = known.revisions();
+    final int latest = remembered.length == 0
         ? NO_INDEX_CATALOGUE
-        : reported[reported.length - 1];
-    if (serialized != NO_INDEX_CATALOGUE && serialized <= revision) {
-      return serialized;
+        : remembered[remembered.length - 1];
+    if (latest != NO_INDEX_CATALOGUE && latest <= revision) {
+      return latest;
     }
     if (revision > 0 && Files.exists(indexesDir.resolve((revision - 1) + ".xml"))) {
       return revision - 1;
@@ -622,6 +624,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     INDEX_CATALOGUE_FILES_WRITTEN.increment();
     if (parsedIndexCatalogues.remove(revision) != null) {
       invalidateIndexControllers(revision);
+    }
+    rememberIndexCatalogueRevision(revision);
+  }
+
+  private void rememberIndexCatalogueRevision(final int revision) {
+    if (greatestAtOrBelow(knownIndexCatalogueRevisions.get().revisions(), revision) == revision) {
+      return;
     }
     knownIndexCatalogueRevisions.updateAndGet(current -> greatestAtOrBelow(current.revisions(), revision) == revision
         ? current

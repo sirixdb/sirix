@@ -22,11 +22,14 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Files;
 import java.util.Set;
@@ -54,9 +57,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Measured on these fixtures: a session lists at most once, when it cannot know better (at its
  * first transaction on a resource without a catalogue, or at the first lookup whose own and
  * previous revision both have no file), remembers every file it saw and every file written since,
- * and never lists again: 0 in the 12 commits of the first session, 1 in the 6 commits of the
- * reopened one (its first commit's successor writer resolves revision 13, which has no file, nor
- * has 12), 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the
+ * and never lists during a commit: 0 in the 12 commits of the first session, 0 in the 6 commits
+ * of the reopened one, 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the
  * directory lists 12, 6, 13 and 4 times there. The files written are 3 in the first session
  * (revisions 3, 8 and 11), 1 in the reopened one (the drop at 15) and 0 afterwards; writing one per
  * commit with definitions, as before, writes 9, 3 and 0.
@@ -171,24 +173,20 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         writerAfterReopen.work()
                          .assertZero(LISTINGS,
                              "the first writer of a session listed the directory although the previous revision has a catalogue");
-        // This session has never listed the directory. Commit 13 writes no catalogue file, and the
-        // writer it re-instantiates for revision 14 resolves revision 13, which has neither its own
-        // file nor its predecessor's: it cannot know better than to list, once; from then on the
-        // session knows every file and never lists again.
         final WorkReport firstCommit = CAPTURE.run(() -> {
           insertObject(trx, "g");
           trx.commit(); // 13: no catalogue file
           expected[13] = 1;
         });
-        firstCommit.assertExactly(LISTINGS, 1,
-            "the writer after the first revision without a catalogue did not establish every file by one listing");
+        firstCommit.assertZero(LISTINGS,
+            "the first commit after reopen forgot the catalogue resolved at writer creation");
         firstCommit.assertZero(FILES, "a commit that did not change the definitions wrote a catalogue file");
         final WorkReport secondCommit = CAPTURE.run(() -> {
           insertObject(trx, "h");
           trx.commit(); // 14: no catalogue file
           expected[14] = 1;
         });
-        secondCommit.assertZero(LISTINGS, "a commit after the session's one listing listed the directory again");
+        secondCommit.assertZero(LISTINGS, "a later commit forgot the catalogue resolved at writer creation");
         secondCommit.assertZero(FILES, "a commit that did not change the definitions wrote a catalogue file");
         final WorkReport laterCommits = CAPTURE.run(() -> {
           dropCasIndex(session, trx, 1);
@@ -235,6 +233,134 @@ final class IndexCatalogueResolutionWorkBudgetTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       assertDefinitions(session, expected, 20);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"11, false", "12, false", "13, false", "11, true", "12, true", "13, true"})
+  void reopenedJsonWriterRetainsResolvedCatalogueForSuccessors(final int committedRevision,
+      final boolean historicalLookupFirst) throws Exception {
+    final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
+            JsonNodeTrx.Commit.NO);
+        for (int revision = 1; revision <= committedRevision; revision++) {
+          if (revision == 3 || revision == 11) {
+            createCasIndex(session, trx, revision == 3 ? 0 : 1);
+          }
+          trx.commit();
+        }
+        final var indexes = session.getResourceConfig().getResource()
+            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+        assertTrue(Files.exists(indexes.resolve("11.xml")));
+        assertFalse(Files.exists(indexes.resolve("12.xml")));
+        assertFalse(Files.exists(indexes.resolve("13.xml")));
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertEquals(committedRevision, session.getMostRecentRevisionNumber());
+      if (historicalLookupFirst) {
+        assertEquals(1, casDefinitions(session.getRtxIndexController(3)));
+      }
+      final WorkCapture.Captured<JsonNodeTrx> writer = CAPTURE.call(() -> session.beginNodeTrx());
+      writer.work().assertExactly(LISTINGS, committedRevision == 13 ? 1 : 0,
+          "the reopened writer did not resolve the newest committed catalogue by the expected route");
+      try (final JsonNodeTrx trx = writer.result()) {
+        assertEquals(2, casDefinitions(session.getWtxIndexController(trx.getRevisionNumber())));
+        final WorkReport commits = CAPTURE.run(() -> {
+          trx.commit();
+          trx.commit();
+        });
+        commits.assertZero(LISTINGS, "successor writers forgot the committed catalogue resolved after reopen");
+        commits.assertZero(FILES, "unchanged commits wrote catalogue files after reopen");
+        assertEquals(2, casDefinitions(session.getRtxIndexController(committedRevision + 2)));
+        assertEquals(1, casDefinitions(session.getRtxIndexController(3)));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"11, false", "12, false", "13, false", "11, true", "12, true", "13, true"})
+  void reopenedXmlWriterRetainsResolvedCatalogueForSuccessors(final int committedRevision,
+      final boolean historicalLookupFirst) throws Exception {
+    final var databasePath = XmlTestHelper.PATHS.PATH1.getFile();
+    Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+          final XmlNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertElementAsFirstChild(new QNm("root"));
+        for (int revision = 1; revision <= committedRevision; revision++) {
+          if (revision == 3 || revision == 11) {
+            session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
+                Set.of(IndexDefs.createNameIdxDef(revision == 3 ? 0 : 1, IndexDef.DbType.XML)), trx);
+          }
+          trx.commit();
+        }
+      }
+    }
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath);
+        final XmlResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertEquals(committedRevision, session.getMostRecentRevisionNumber());
+      if (historicalLookupFirst) {
+        assertEquals(1, session.getRtxIndexController(3).getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+      }
+      final WorkCapture.Captured<XmlNodeTrx> writer = CAPTURE.call(() -> session.beginNodeTrx());
+      writer.work().assertExactly(LISTINGS, committedRevision == 13 ? 1 : 0,
+          "the reopened XML writer did not resolve the newest committed catalogue by the expected route");
+      try (final XmlNodeTrx trx = writer.result()) {
+        assertEquals(2, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes()
+            .getNrOfIndexDefsWithType(IndexType.NAME));
+        final WorkReport commits = CAPTURE.run(() -> {
+          trx.commit();
+          trx.commit();
+        });
+        commits.assertZero(LISTINGS, "XML successor writers forgot the catalogue resolved after reopen");
+        commits.assertZero(FILES, "unchanged XML commits wrote catalogue files after reopen");
+        assertEquals(2, session.getRtxIndexController(committedRevision + 2).getIndexes()
+            .getNrOfIndexDefsWithType(IndexType.NAME));
+        assertEquals(1, session.getRtxIndexController(3).getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+      }
+    }
+  }
+
+  @Test
+  void netUnchangedCatalogueWritesNoFileAndPaysNoExtraBarrier() throws Exception {
+    final var databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
+            JsonNodeTrx.Commit.NO);
+        createCasIndex(session, trx, 0);
+        trx.commit();
+        dropCasIndex(session, trx, 0);
+        trx.commit();
+        createCasIndex(session, trx, 1);
+        dropCasIndex(session, trx, 1);
+        final WorkReport commit = CAPTURE.and(EngineWorkCounters.DATA_FILE_FORCES).run(trx::commit);
+        commit.assertZero(FILES, "an unchanged empty catalogue paid for a file and its metadata fsync");
+        commit.assertZero(LISTINGS, "an unchanged empty catalogue listed the directory");
+        commit.assertBetween(EngineWorkCounters.DATA_FILE_FORCES, 1, 2,
+            "an unchanged catalogue added a barrier to the commit's data durability protocol");
+        final var indexes = session.getResourceConfig().getResource()
+            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+        assertFalse(Files.exists(indexes.resolve("3.xml")));
+        assertEquals(0, casDefinitions(session.getRtxIndexController(3)));
+        CAPTURE.and(EngineWorkCounters.DATA_FILE_FORCES).run(trx::close)
+            .assertZero(EngineWorkCounters.DATA_FILE_FORCES, "closing the committed writer added a force");
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertEquals(0, casDefinitions(session.getRtxIndexController(3)));
     }
   }
 

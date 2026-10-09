@@ -132,14 +132,14 @@ public final class Indexes implements Materializable {
    * @return {@code true} when a commit has to serialize these definitions
    */
   public boolean differsFromPersisted() {
-    if (isDirty()) {
-      return true;
-    }
     final IndexDef[] snapshot = persisted;
     if (snapshot.length != indexes.size()) {
       return true;
     }
     for (final IndexDef definition : indexes) {
+      if (definition.isNumericCoverageDirty()) {
+        return true;
+      }
       boolean found = false;
       for (final IndexDef persistedDefinition : snapshot) {
         if (persistedDefinition == definition || persistedDefinition.hasSameDefinition(definition)) {
