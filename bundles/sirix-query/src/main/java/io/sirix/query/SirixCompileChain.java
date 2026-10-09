@@ -487,10 +487,12 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     cacheableModule = true;
     lastOptimizer = null;
     try {
-      final Module module = compileWithExecutor(query);
-      if (key != null && cacheableModule && module instanceof MainModule main && main.getBody() != null) {
-        main.setExpr(new SchemaFencedExpr(this, query, schemaVersion, main.getBody()));
-      }
+      final Module compiled = compileWithExecutor(query);
+      final Module module = key != null && cacheableModule && compiled instanceof MainModule && compiled.getBody() != null
+          ? new SchemaFencedModule(this, query, schemaVersion, compiled)
+          : compiled;
+      lastCompilation = new CompiledQueryCache.Entry(module, lastCompilation.parsed(), lastCompilation.optimized(),
+          lastCompilation.mesh());
       if (key != null && cacheableModule && schemaVersion == PlanCache.indexSchemaVersion()) {
         compiledQueries.put(key, lastCompilation);
       } else {

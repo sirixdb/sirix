@@ -25,8 +25,10 @@ restoration. Revision publication also advances it because document paths, resou
 reverted catalog can change routing. This is conservative: an unrelated resource commit also
 invalidates a chain's caches. The next compilation releases the old generation; close releases
 both caches. Compilation that overlaps a version change is never published into the cache. A
-retained query eligible for translated caching checks the version at evaluation entry and recompiles when necessary, so removed
-indexes are not reused by an already prepared query.
+retained query eligible for translated caching checks the version in `Module.getBody()`, before
+`QueryExecution` starts and recompiles when necessary, so removed
+indexes are not reused by an already prepared query. The returned body is the original translated
+expression, with no schema wrapper in the evaluation path.
 
 Compiler misses delegate to Brackit's original compiler pipeline. Bypassed compilations retain
 syntax diagnostics without retaining their translated module or caller-owned executor graph.

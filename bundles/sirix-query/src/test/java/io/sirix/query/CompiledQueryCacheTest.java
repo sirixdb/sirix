@@ -9,6 +9,7 @@ import io.brackit.query.compiler.CompileChain.PlanStage;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.module.Module;
+import io.brackit.query.module.MainModule;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
@@ -52,6 +53,25 @@ final class CompiledQueryCacheTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     SequentialPipelineStrategy.setMorselEnabled(false);
+  }
+
+  @Test
+  void schemaFacadeReturnsTheOriginalBodyAndRevalidatesBeforeEvaluation() {
+    try (final var store = newStore();
+         final var chain = SirixCompileChain.createWithJsonStore(store);
+         final var context = SirixQueryContext.createWithJsonStore(store)) {
+      final String text = "for $n in 1 to 3 return $n + $n";
+      final Module cached = chain.compile(text);
+      final var raw = new MainModule();
+      raw.setExpr(cached.getBody());
+      final var facade = new SchemaFencedModule(chain, text, PlanCache.indexSchemaVersion(), raw);
+      assertSame(raw.getBody(), facade.getBody(), "schema revalidation must not wrap expression evaluation");
+      assertEquals("2 4 6", answer(new Query(facade), context));
+      PlanCache.signalIndexSchemaChange();
+      assertNotSame(raw.getBody(), facade.getBody(), "a retained module must select a new body after schema change");
+      assertEquals("2 4 6", answer(new Query(facade), context));
+      assertSame(chain.compile(text).getBody(), facade.getBody());
+    }
   }
 
   @Test
