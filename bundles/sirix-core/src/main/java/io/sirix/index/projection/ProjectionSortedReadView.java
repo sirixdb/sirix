@@ -20,12 +20,16 @@ public final class ProjectionSortedReadView {
   private final ProjectionSortedLeaf leaf;
   private final @Nullable ProjectionSortedDirectoryNode directory;
   private final @Nullable ImageSnapshot routing;
+  private final long retainedMetadataBytes;
 
   private ProjectionSortedReadView(final ProjectionSortedLeaf leaf,
       final @Nullable ProjectionSortedDirectoryNode directory, final @Nullable ImageSnapshot routing) {
     this.leaf = leaf;
     this.directory = directory;
     this.routing = routing;
+    retainedMetadataBytes = 48 + leaf.retainedSizeBytes() + (directory == null
+        ? 0
+        : directory.retainedMetadataBytes());
   }
 
   static ProjectionSortedReadView open(final byte[] verified, final boolean directory, final StorageEngineReader reader,
@@ -72,11 +76,8 @@ public final class ProjectionSortedReadView {
 
   /** Conservative object headers, references, aligned arrays and descriptor metadata. */
   public long retainedSizeBytes() {
-    return 40 + leaf.retainedSizeBytes() + (directory == null
+    return retainedMetadataBytes + (routing == null
         ? 0
-        : directory.retainedMetadataBytes())
-        + (routing == null
-            ? 0
-            : routing.retainedSizeBytes());
+        : routing.retainedSizeBytes());
   }
 }

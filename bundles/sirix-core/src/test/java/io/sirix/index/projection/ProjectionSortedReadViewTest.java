@@ -82,9 +82,10 @@ final class ProjectionSortedReadViewTest {
     assertArrayEquals(original, view.copyBytes());
   }
 
-  @Test
-  void cacheAccountsViewsAndFencesDeferredPublicationAcrossReuse() {
-    final ProjectionSortedReadView view = view(false);
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void cacheAccountsViewsAndFencesDeferredPublicationAcrossReuse(final boolean columnar) {
+    final ProjectionSortedReadView view = view(columnar);
     final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
     final Key key = new Key(1, 2, 3, 4, 5, 6);
     final long empty = cache.getCurrentWeightBytes();
