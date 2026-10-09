@@ -202,7 +202,8 @@ maintains, so a budget quotes the same numbers an investigation would:
   of old and final objects. Unrelated identity edits require zero; a direct bound update must scan
   both versions as a positive control. Full replay record/path counters remain separate diagnostics.
 - `CompileWorkStats` (`sirix-query`, `sirix.query.compileWorkDiag`): parser and analyser
-  invocations and optimization/translation targets. `CompiledQueryWorkBudgetTest` requires a
+  invocations, optimization target calls, translation phases and actual recursive expression
+  dispatches. `CompiledQueryWorkBudgetTest` requires a
   nonzero cold compilation, zero parse/analysis/optimization work on repeats, and exactly one
   translation phase with fixed recursive expression-dispatch work per fresh execution. The
   PR-specific compiler-cache contract uses fresh executable trees; existing budgets stay unchanged.
