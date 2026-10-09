@@ -3,6 +3,8 @@ package io.sirix.query;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -10,6 +12,8 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
 import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -26,7 +30,9 @@ import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
+import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -57,6 +63,160 @@ final class IndexRoutedGroupAggregateTest {
 
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void literalSelectorsNeverAliasNestedProjectionColumns(final VersioningType versioning) throws Exception {
+    buildAdmissionRegressionResources(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String opener = "jn:open-bitemporal('" + DB + "','aliases',$T,$P)";
+      final String declarations = prolog(T0.toString(), "2024-02-01T00:00:00Z");
+      final String pair = "for $a in " + opener + " for $b in " + opener + " where $a.id eq $b.id";
+      final String grouped = pair + " let $grade := $a.grade, $v := $a.cost group by $grade"
+          + " let $total := sum($v) order by $grade return {'grade':$grade,'v':$total}";
+      final String rows = pair + " order by $a.id return {'id':$a.id,'v':$a.cost}";
+      final long joined = SirixVectorizedExecutor.joinGroupServedCount();
+      assertEquals(run(generic, ctx, declarations + grouped), run(chain, ctx, declarations + grouped));
+      assertEquals(joined + 1, SirixVectorizedExecutor.joinGroupServedCount(), "ordinary joined grouping is served");
+      assertEquals(run(generic, ctx, declarations + rows), run(chain, ctx, declarations + rows));
+      assertEquals(joined + 2, SirixVectorizedExecutor.joinGroupServedCount(), "ordinary row join is served");
+      for (final String side : new String[] {"$a", "$b"}) {
+        final String literal = side + ".\"a/b\"";
+        final String opposite = side.equals("$a")
+            ? "$b"
+            : "$a";
+        final String joinCondition = literal + " eq " + opposite + ".cost";
+        final String reported = grouped.replace("$v := $a.cost", "$v := " + literal);
+        assertEquals("{\"grade\":0,\"v\":9}", run(generic, ctx, declarations + reported));
+        for (final String body : new String[] {reported, grouped.replace("$grade := $a.grade", "$grade := " + literal),
+            grouped.replace("$v := $a.cost", "$v := " + literal + " * " + side + ".qty"),
+            grouped.replace("$v := $a.cost", "$v := " + side + ".qty * " + literal),
+            grouped.replace("$a.id eq $b.id", joinCondition), rows.replace("$a.id eq $b.id", joinCondition),
+            rows.replace("'v':$a.cost", "'v':" + literal), rows.replace("order by $a.id", "order by " + literal),
+            rows.replace(" order by", " and " + literal + " eq " + opposite + ".cost order by"),
+            rows.replace(" order by", " and " + literal + " ne " + opposite + ".cost order by")}) {
+          final String query = declarations + body;
+          final long before = SirixVectorizedExecutor.joinGroupServedCount();
+          assertEquals(run(generic, ctx, query), run(chain, ctx, query), body);
+          assertEquals(before, SirixVectorizedExecutor.joinGroupServedCount(),
+              "literal join selector declines: " + body);
+        }
+      }
+      final String single =
+          "for $a in " + opener + " let $grade := $a.grade, $v := $a.cost * $a.qty group by $grade order by $grade"
+              + " return {'grade':$grade,'v':sum($v)}";
+      final long groupedBefore = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(run(generic, ctx, declarations + single), run(chain, ctx, declarations + single));
+      assertEquals(groupedBefore + 1, SirixVectorizedExecutor.groupAggServedCount(),
+          "ordinary computed grouping is served");
+      for (final String body : new String[] {single.replace("$a.cost", "$a.\"a/b\""),
+          single.replace("$a.qty", "$a.\"a/b\""),
+          single.replace("$grade := $a.grade", "$grade := $a.id").replace("sum($v)", "sum($a.\"a/b\" * $a.qty)")}) {
+        final long before = SirixVectorizedExecutor.groupAggServedCount();
+        assertEquals(run(generic, ctx, declarations + body), run(chain, ctx, declarations + body));
+        assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "literal computed operand declines");
+      }
+      for (final String quantifier : new String[] {"exists", "empty"}) {
+        for (final String comparison : new String[] {"$b.\"a/b\" eq $a.cost", "$a.cost eq $b.\"a/b\"",
+            "$b.cost eq $a.\"a/b\"", "$a.\"a/b\" eq $b.cost"}) {
+          final String body = "let $new := " + opener + " for $a in " + opener + " where " + quantifier
+              + "(for $b in $new where " + comparison + " return $b)"
+              + " let $grade := $a.grade, $v := $a.cost group by $grade order by $grade"
+              + " return {'grade':$grade,'v':sum($v)}";
+          final long before = SirixVectorizedExecutor.groupAggServedCount();
+          assertEquals(run(generic, ctx, declarations + body), run(chain, ctx, declarations + body), body);
+          assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "literal membership selector declines");
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void correlatedKeysAreEvaluatedOnlyForContributingOuterRows(final VersioningType versioning) throws Exception {
+    buildAdmissionRegressionResources(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      for (final String resource : new String[] {"aliases", "empty"}) {
+        for (final String badField : new String[] {"epoch", "bucket"}) {
+          final String opener = "jn:open-bitemporal('" + DB + "','" + resource + "',$T,xs:dateTime($e.ts))";
+          final String driver = "[{\"epoch\":1,\"bucket\":2,\"ts\":\"2025-01-01T00:00:00Z\"}]".replace("\"" + badField
+              + "\":" + (badField.equals("epoch")
+                  ? 1
+                  : 2),
+              "\"" + badField + "\":\"bad\"");
+          final String body = "for $e in DRIVER[] for $c in SRC"
+              + " let $epoch := xs:integer($e.epoch), $bucket := xs:integer($e.bucket), $grade := $c.grade"
+              + " group by $epoch,$bucket,$grade let $n := count($c) order by $epoch,$bucket,$grade"
+              + " return {'epoch':$epoch,'bucket':$bucket,'grade':$grade,'n':$n}";
+          final String declarations = prolog(T0.toString(), "2024-02-01T00:00:00Z");
+          final String query = declarations + body.replace("DRIVER", driver).replace("SRC", opener);
+          final long before = SirixVectorizedExecutor.groupAggServedCount();
+          assertEquals("", run(generic, ctx, query));
+          assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "empty reference stays generic");
+          assertEquals("", run(chain, ctx, query));
+          assertEquals(before + 1, SirixVectorizedExecutor.groupAggServedCount(),
+              "empty correlated grouping is served");
+          if (resource.equals("aliases")) {
+            final String mixedDriver =
+                driver.substring(0, driver.length() - 1) + ",{\"epoch\":1,\"bucket\":2,\"ts\":\"2024-02-01T00:00:00Z\"}"
+                    + ",{\"epoch\":1,\"bucket\":2,\"ts\":\"2024-02-01T00:00:00Z\"}]";
+            final String mixed = declarations + body.replace("DRIVER", mixedDriver).replace("SRC", opener);
+            final long mixedBefore = SirixVectorizedExecutor.groupAggServedCount();
+            final String expected = run(generic, ctx, mixed);
+            assertEquals("{\"epoch\":1,\"bucket\":2,\"grade\":0,\"n\":4}", expected);
+            assertEquals(expected, run(chain, ctx, mixed));
+            assertEquals(mixedBefore + 3, SirixVectorizedExecutor.groupAggServedCount(),
+                "empty and contributing tuples are served");
+          }
+        }
+      }
+    }
+  }
+
+  private void buildAdmissionRegressionResources(final VersioningType versioning) {
+    final Path databasePath = directory.resolve(DB);
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      for (final String resource : new String[] {"aliases", "empty"}) {
+        database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                     .validTimePaths("vf", "vt")
+                                                     .customCommitTimestamps(true)
+                                                     .buildPathSummary(true)
+                                                     .versioningApproach(versioning)
+                                                     .storeDiffs(false)
+                                                     .build());
+        try (JsonResourceSession session = database.beginResourceSession(resource);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final String json = resource.equals("empty")
+              ? "[]"
+              : """
+                  [{"id":1,"grade":0,"cost":7,"qty":2,"a/b":7,"a":{"b":3},
+                    "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+                   {"id":2,"grade":0,"cost":2,"qty":2,"a/b":2,"a":{"b":4},
+                    "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+                  """;
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
+          final var paths = List.of(parse("/[]/id", PathParser.Type.JSON), parse("/[]/grade", PathParser.Type.JSON),
+              parse("/[]/cost", PathParser.Type.JSON), parse("/[]/qty", PathParser.Type.JSON),
+              parse("/[]/a/b", PathParser.Type.JSON), parse("/[]/vf", PathParser.Type.JSON),
+              parse("/[]/vt", PathParser.Type.JSON));
+          final IndexDef projection = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON), paths,
+              List.of(Type.LON, Type.LON, Type.LON, Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+          session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(projection), wtx);
+          wtx.commit("S0", T0);
+        }
+      }
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)

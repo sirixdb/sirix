@@ -1259,7 +1259,8 @@ public final class GroupAggregateDetectionStage implements Stage {
       return null;
     }
     final String outerField = loopVarDerefField(node.getChild(2), loopVar);
-    if (outerField == null || !(node.getProperty(HashMembershipStage.FIELD) instanceof QNm innerField)) {
+    if (outerField == null || !(node.getProperty(HashMembershipStage.FIELD) instanceof QNm innerField)
+        || innerField.getLocalName().indexOf('/') >= 0) {
       return null;
     }
     return new MembershipFilter(database, resource, txTime, validTime, innerField.getLocalName(), outerField,

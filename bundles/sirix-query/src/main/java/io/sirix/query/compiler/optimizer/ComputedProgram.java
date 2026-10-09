@@ -168,11 +168,16 @@ public final class ComputedProgram {
       return null;
     }
     final Object name = selector.getValue();
+    final String local;
     if (name instanceof QNm qnm) {
-      return qnm.getLocalName();
+      local = qnm.getLocalName();
+    } else if (name instanceof String s) {
+      local = s;
+    } else {
+      return null;
     }
-    return name instanceof String s
-        ? s
-        : null;
+    return local == null || local.indexOf('/') >= 0
+        ? null
+        : local;
   }
 }

@@ -271,10 +271,10 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     }
     final int count = ne.size();
     for (int i = 1; i <= 2; i++) {
-      final int side = derefField(node.getChild(i), vars[0]) == null
+      final int side = ComputedProgram.loopVarDerefField(node.getChild(i), vars[0]) == null
           ? 1
           : 0;
-      final String field = derefField(node.getChild(i), vars[side]);
+      final String field = ComputedProgram.loopVarDerefField(node.getChild(i), vars[side]);
       if (field == null) {
         return false;
       }
@@ -337,27 +337,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     return -1;
   }
 
-  private static @Nullable String derefField(final AST expr, final QNm var) {
-    if (expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
-      return null;
-    }
-    final AST base = expr.getChild(0);
-    if (base.getType() != XQ.VariableRef || !var.equals(base.getValue())) {
-      return null;
-    }
-    final AST selector = expr.getChild(expr.getChildCount() - 1);
-    if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
-      return null;
-    }
-    final Object name = selector.getValue();
-    if (name instanceof QNm qnm) {
-      return qnm.getLocalName();
-    }
-    return name instanceof String s
-        ? s
-        : null;
-  }
-
   private static @Nullable QNm bindingVarName(final AST bindNode) {
     if (bindNode.getChildCount() < 1 || bindNode.getChild(0).getChildCount() < 1) {
       return null;
@@ -403,7 +382,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (sourceDecline != null) {
       return sourceDecline;
     }
-    joinFields[side] = derefField(forBind.getChild(2).getChild(0), vars[side]);
+    joinFields[side] = ComputedProgram.loopVarDerefField(forBind.getChild(2).getChild(0), vars[side]);
     if (joinFields[side] == null) {
       return "join: key is not a direct field of the loop var";
     }
@@ -456,7 +435,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     }
     boolean admitted = false;
     for (int side = 0; side < 2 && !admitted; side++) {
-      final String field = derefField(bound, vars[side]);
+      final String field = ComputedProgram.loopVarDerefField(bound, vars[side]);
       if (field != null) {
         lets.add(new SideLet(letVar, side, field));
         admitted = true;
@@ -738,10 +717,10 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       if (keyNames[i] == null || !names.add(keyNames[i])) {
         return "row join: output names must be distinct literals";
       }
-      keySides[i] = derefField(entry.getChild(1), vars[0]) == null
+      keySides[i] = ComputedProgram.loopVarDerefField(entry.getChild(1), vars[0]) == null
           ? 1
           : 0;
-      keyFields[i] = derefField(entry.getChild(1), vars[keySides[i]]);
+      keyFields[i] = ComputedProgram.loopVarDerefField(entry.getChild(1), vars[keySides[i]]);
       if (keyFields[i] == null) {
         return "row join: output is not a direct field";
       }
@@ -760,7 +739,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       }
       int at = -1;
       for (int field = 0; field < count; field++) {
-        if (keyFields[field].equals(derefField(spec.getChild(0), vars[keySides[field]]))) {
+        if (keyFields[field].equals(ComputedProgram.loopVarDerefField(spec.getChild(0), vars[keySides[field]]))) {
           at = field;
           break;
         }

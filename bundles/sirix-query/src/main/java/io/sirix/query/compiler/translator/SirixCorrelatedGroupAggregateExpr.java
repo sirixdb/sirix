@@ -103,25 +103,29 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
     cursor.open(ctx);
     try {
       for (Tuple outerTuple = cursor.next(ctx); outerTuple != null; outerTuple = cursor.next(ctx)) {
-        final Atomic[] outerKeys = new Atomic[outerKeyExprs.length];
-        for (int k = 0; k < outerKeys.length; k++) {
-          final Item item = outerKeyExprs[k].evaluateToItem(ctx, outerTuple);
-          if (item == null) {
-            outerKeys[k] = null;
-            continue;
-          }
-          final Atomic normalised = normalise(item);
-          if (normalised == null) {
-            return decline("outer key kind " + item.getClass().getSimpleName());
-          }
-          outerKeys[k] = normalised;
-        }
         final SirixVectorizedExecutor.ServedGroups served = inner.serve(executorProvider, ctx, outerTuple, routed);
         if (served == null) {
           return decline("inner grouping not served for an outer tuple");
         }
         try (final Iter iter = served.groups().iterate()) {
-          for (Item item = iter.next(); item != null; item = iter.next()) {
+          final Item first = iter.next();
+          if (first == null) {
+            continue;
+          }
+          final Atomic[] outerKeys = new Atomic[outerKeyExprs.length];
+          for (int k = 0; k < outerKeys.length; k++) {
+            final Item item = outerKeyExprs[k].evaluateToItem(ctx, outerTuple);
+            if (item == null) {
+              outerKeys[k] = null;
+              continue;
+            }
+            final Atomic normalised = normalise(item);
+            if (normalised == null) {
+              return decline("outer key kind " + item.getClass().getSimpleName());
+            }
+            outerKeys[k] = normalised;
+          }
+          for (Item item = first; item != null; item = iter.next()) {
             if (!(item instanceof final Object record) || record.len() != innerKeyCount + funcs.length) {
               return decline("served record shape");
             }
