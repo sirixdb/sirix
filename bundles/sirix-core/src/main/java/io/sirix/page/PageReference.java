@@ -95,6 +95,9 @@ public final class PageReference {
   /** Unique resource ID to distinguish pages from different resources in global BufferManager. */
   private long resourceId = Constants.NULL_ID_LONG;
 
+  /** Runtime-only discriminator for committed index-root cache entries; never serialized. */
+  private int cacheRevision = Constants.NULL_ID_INT;
+
   /** XXH3-64 of the referenced page fragment. Valid only when {@link #pageHashPresent} is true. */
   private long pageHash;
 
@@ -142,6 +145,7 @@ public final class PageReference {
     key = reference.key;
     databaseId = reference.databaseId;
     resourceId = reference.resourceId;
+    cacheRevision = reference.cacheRevision;
     pageHash = reference.pageHash;
     pageHashPresent = reference.pageHashPresent;
     // Preserve the shared immutable empty sentinel. The overwhelmingly common reference has no
@@ -702,6 +706,9 @@ public final class PageReference {
       h = 31 * h + (int) (resourceId ^ (resourceId >>> 32));
       h = 31 * h + logKey;
       h = 31 * h + (int) (key ^ (key >>> 32));
+      if (cacheRevision != Constants.NULL_ID_INT) {
+        h = 31 * h + cacheRevision;
+      }
       hash = h;
     }
     return hash;
@@ -711,9 +718,24 @@ public final class PageReference {
   public boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
       return otherPageRef.databaseId == databaseId && otherPageRef.resourceId == resourceId
-          && otherPageRef.logKey == logKey && otherPageRef.key == key;
+          && otherPageRef.logKey == logKey && otherPageRef.key == key && otherPageRef.cacheRevision == cacheRevision;
     }
     return false;
+  }
+
+  /** Make a detached cache key without changing the reference used by the page reader or writer. */
+  public PageReference revisionCacheKey(final int revision) {
+    if (revision < 0) {
+      throw new IllegalArgumentException("revision must be nonnegative: " + revision);
+    }
+    final PageReference copy = new PageReference(this);
+    copy.cacheRevision = revision;
+    copy.hash = 0;
+    return copy;
+  }
+
+  public boolean isRevisionCacheKey() {
+    return cacheRevision != Constants.NULL_ID_INT;
   }
 
   /** Store a present checksum without allocating. */

@@ -14,7 +14,6 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.Evidence;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
-import it.unimi.dsi.fastutil.longs.LongArrays;
 
 import org.jspecify.annotations.Nullable;
 
@@ -57,14 +56,8 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   private long[] candidates() {
     if (candidates == null) {
-      final var closed = ValidTimeIntervalIndex.closedCandidates(document, instant, indexId);
-      if (closed.isEmpty()) {
-        candidates = LongArrays.EMPTY_ARRAY;
-        return candidates;
-      }
-      evidence = ValidTimeIntervalIndex.readEvidence(document, indexId, closed);
-      candidates =
-          ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
+      evidence = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId);
+      candidates = evidence.keys();
     }
     return candidates;
   }
@@ -105,6 +98,9 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   long[] matchingKeys() {
     final long[] keys = candidates();
+    if (exactPoint && residual == null && evidence != null && evidence.unverified().isEmpty()) {
+      return keys;
+    }
     final long[] matches = new long[keys.length];
     int count = 0;
     for (final long key : keys) {
@@ -128,6 +124,9 @@ final class ValidTimeKeySequence extends AbstractSequence {
       return null;
     }
     final long[] keys = candidates();
+    if (evidence != null && evidence.unverified().isEmpty()) {
+      return new Int64(keys.length);
+    }
     // Only key-exact matches can supply cardinality without constructing or verifying objects.
     for (final long key : keys) {
       if (needsVerification(key)) {

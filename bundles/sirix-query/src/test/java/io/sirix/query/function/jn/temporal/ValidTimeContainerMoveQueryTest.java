@@ -45,7 +45,7 @@ final class ValidTimeContainerMoveQueryTest {
   private static final String POINT = "xs:dateTime('2024-01-01T00:00:00Z')";
   private static final Instant INSTANT = Instant.parse("2024-01-01T00:00:00Z");
   private static final WorkCapture POSTINGS = WorkCapture.of(EngineWorkCounters.VALID_TIME_POSTING_REFS,
-      EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS);
+      EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS);
 
   @TempDir
   Path directory;
@@ -220,10 +220,16 @@ final class ValidTimeContainerMoveQueryTest {
     capture.work()
            .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
                "moved-array membership and duplicate verification must not enumerate posting references")
-           .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
-               "the moved candidates require one membership and one verification chunk probe")
-           .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 1, 2,
-               "only the moved candidates' compressed membership and verification chunks may be read");
+           .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, expected.length == 0
+               ? 1
+               : 2, "an absent membership chunk must skip verification; members require both probes")
+           .assertBetween(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, expected.length == 0
+               ? 0
+               : 1,
+               expected.length == 0
+                   ? 1
+                   : 2,
+               "empty moved arrays may read one membership tombstone; members read only their own chunks");
     assertArrayEquals(expected, ValidTimeIntervalIndex.keys(document, INSTANT, true));
     final Sequence sequence = requireNonNull(ValidTimeIntervalIndex.sequence(document, INSTANT,
         requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig()), false, false));

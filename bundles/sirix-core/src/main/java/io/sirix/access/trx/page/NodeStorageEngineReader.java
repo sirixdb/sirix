@@ -1633,10 +1633,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * otherwise {@code null}, and the caller resolves it the long way through {@link #namePage()}.
    *
    * <p>
-   * Worth the detour because the long way is not cheap once per transaction: {@link NamePage} is on
-   * {@code PageCache}'s index-root exclusion list, so {@link #namePage()} READS AND DESERIALIZES it
-   * every time. That exclusion is correct and must stay — sharing one index-root instance would let a
-   * time-travel read of revision N follow revision N+1's root — but its consequence is that
+   * Index roots use revision-scoped page-cache keys. This dictionary shortcut additionally avoids
+   * loading the metadata page on a warm dictionary hit. Without either cache,
    * {@code NamePage.jsonObjectKeys} starts null in every transaction, and the first name a serializer
    * emits pays for the page underneath it.
    *
@@ -1717,7 +1715,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public NamePage getNamePage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (NamePage) getPage(revisionRoot.getNamePageReference());
+    return (NamePage) getIndexRootPage(revisionRoot, revisionRoot.getNamePageReference());
   }
 
   /**
@@ -1740,31 +1738,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference());
+    return (PathSummaryPage) getIndexRootPage(revisionRoot, revisionRoot.getPathSummaryPageReference());
   }
 
   @Override
   public PathPage getPathPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (PathPage) getPage(revisionRoot.getPathPageReference());
+    return (PathPage) getIndexRootPage(revisionRoot, revisionRoot.getPathPageReference());
   }
 
   @Override
   public CASPage getCASPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (CASPage) getPage(revisionRoot.getCASPageReference());
+    return (CASPage) getIndexRootPage(revisionRoot, revisionRoot.getCASPageReference());
   }
 
   @Override
   public DeweyIDPage getDeweyIDPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
+    return (DeweyIDPage) getIndexRootPage(revisionRoot, revisionRoot.getDeweyIdPageReference());
   }
 
   @Override
   public VectorPage getVectorPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (VectorPage) getPage(revisionRoot.getVectorPageReference());
+    return (VectorPage) getIndexRootPage(revisionRoot, revisionRoot.getVectorPageReference());
   }
 
   @Override
@@ -1777,7 +1775,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       ref.setPage(fresh);
       return fresh;
     }
-    return (ProjectionIndexPage) getPage(ref);
+    return (ProjectionIndexPage) getIndexRootPage(revisionRoot, ref);
   }
 
   @Override
@@ -1790,7 +1788,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       ref.setPage(fresh);
       return fresh;
     }
-    return (ValidTimeIndexPage) getPage(ref);
+    return (ValidTimeIndexPage) getIndexRootPage(revisionRoot, ref);
   }
 
   @Override
@@ -1806,6 +1804,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private Page getPage(final PageReference reference) {
     var page = loadPage(reference);
+    reference.setPage(page);
+    return page;
+  }
+
+  /** Committed index metadata is isolated by revision; TIL-backed reads never enter this cache. */
+  private Page getIndexRootPage(final RevisionRootPage revisionRoot, final PageReference reference) {
+    if (trxIntentLog != null || reference.getKey() == Constants.NULL_ID_LONG || databaseId == 0) {
+      return getPage(reference);
+    }
+    final Page swizzled = reference.getPage();
+    if (swizzled != null) {
+      return swizzled;
+    }
+    final PageReference cacheKey = reference.revisionCacheKey(revisionRoot.getRevision());
+    final Page page = resourceBufferManager.getPageCache().get(cacheKey, (_, _) -> {
+      return pageReader.read(reference, resourceConfig);
+    });
     reference.setPage(page);
     return page;
   }

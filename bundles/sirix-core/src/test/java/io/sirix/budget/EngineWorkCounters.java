@@ -5,8 +5,10 @@ package io.sirix.budget;
 
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.cache.PageCache;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
@@ -46,6 +48,19 @@ public final class EngineWorkCounters {
   public static final WorkCounter VALID_TIME_POSTING_CHUNKS = WorkCounter.gated("validTime.postingChunks",
       "one compressed posting chunk read without enumerating its references", HotOrderedStore::postingChunksRead,
       "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter VALID_TIME_MASK_HITS = WorkCounter.gated("validTime.maskHits",
+      "one immutable companion posting mask served from the session revision cache", ValidTimeReadCache::maskHits,
+      "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter VALID_TIME_EVIDENCE_VISITS = WorkCounter.gated("validTime.evidenceVisits",
+      "one companion posting chunk decoded or immutable mask served from the revision cache",
+      () -> HotOrderedStore.postingChunksRead() + ValidTimeReadCache.maskHits(), "-Dsirix.validTime.scanDiag=true",
+      HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter INDEX_ROOT_LOADS =
+      WorkCounter.gated("index.rootLoads", "one index root page loaded on a metadata cache miss",
+          PageCache::indexRootLoads, "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
 
   // ===== HOT leaf pages =====================================================
 

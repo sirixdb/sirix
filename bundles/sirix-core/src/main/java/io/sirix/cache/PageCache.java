@@ -4,6 +4,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
+import io.sirix.index.interval.HotOrderedStore;
+import java.util.concurrent.atomic.LongAdder;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -29,6 +31,12 @@ import java.util.function.BiFunction;
 public final class PageCache implements Cache<PageReference, Page> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
+
+  private static final LongAdder INDEX_ROOT_LOADS = new LongAdder();
+
+  public static long indexRootLoads() {
+    return INDEX_ROOT_LOADS.sum();
+  }
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
@@ -76,13 +84,11 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Legacy constructor accepting a byte budget. The byte input is ignored — the
-   * eviction policy is now count-based ({@link #DEFAULT_MAX_ENTRIES}, override
-   * via {@value #MAX_ENTRIES_PROPERTY}). Kept so existing call sites (e.g.
-   * {@code BufferManagerImpl}) compile without change.
+   * Legacy constructor accepting a byte budget. The byte input is ignored — the eviction policy is
+   * now count-based ({@link #DEFAULT_MAX_ENTRIES}, override via {@value #MAX_ENTRIES_PROPERTY}). Kept
+   * so existing call sites (e.g. {@code BufferManagerImpl}) compile without change.
    *
-   * @param maxWeight legacy byte budget — ignored. Set the system property to
-   *     change the cap.
+   * @param maxWeight legacy byte budget — ignored. Set the system property to change the cap.
    */
   public PageCache(final long maxWeight) {
     this(resolveMaxEntries(maxWeight));
@@ -120,7 +126,9 @@ public final class PageCache implements Cache<PageReference, Page> {
   @Override
   public void putIfAbsent(PageReference key, Page value) {
     assert !(value instanceof KeyValueLeafPage) || !value.isClosed();
-    cache.asMap().putIfAbsent(key, value);
+    if (isCacheablePageType(key, value)) {
+      cache.asMap().putIfAbsent(key, value);
+    }
   }
 
   @Override
@@ -146,33 +154,41 @@ public final class PageCache implements Cache<PageReference, Page> {
       }
       final Page page = mappingFunction.apply(k, v);
       computed[0] = page;
-      return isCacheablePageType(page) ? page : null;
+      if (HotOrderedStore.scanDiagnosticsEnabled() && isIndexRootPage(page)) {
+        INDEX_ROOT_LOADS.increment();
+      }
+      return isCacheablePageType(k, page)
+          ? page
+          : null;
     });
-    return cached != null ? cached : computed[0];
+    return cached != null
+        ? cached
+        : computed[0];
   }
 
   /**
-   * The revision root and its index-root children are per-revision mutable metadata that must not
-   * be shared via this cache — ONE policy consulted by both {@link #put} and the compute path of
-   * {@link #get(PageReference, BiFunction)}.
+   * Index roots are admitted only under detached revision-scoped keys. Writer-backed loads use
+   * ordinary keys and stay private. All admission routes consult this same policy.
    */
-  private static boolean isCacheablePageType(final Page page) {
-    return page != null && !(page instanceof RevisionRootPage) && !isIndexRootPage(page);
+  private static boolean isCacheablePageType(final PageReference key, final Page page) {
+    return page != null && !(page instanceof RevisionRootPage) && (!isIndexRootPage(page) || key.isRevisionCacheKey());
   }
 
   /**
    * Whether the page is one of the {@link RevisionRootPage}'s direct children whose OWN references
    * are the roots of the per-revision index trees.
    *
-   * <p>These are not merely "mutable". Index creation decides whether a tree already exists by
-   * probing whether the corresponding slot carries a key, so one shared instance makes a writer
-   * observe another transaction's half-built root and skip creating its own — surfacing far away as
-   * an index that silently lacks entries. On the read side, sharing one instance across revisions
-   * lets a time-travel read of revision N follow revision N+1's index root and see entries that did
-   * not exist yet.
+   * <p>
+   * These are not merely "mutable". Index creation decides whether a tree already exists by probing
+   * whether the corresponding slot carries a key, so one shared instance makes a writer observe
+   * another transaction's half-built root and skip creating its own — surfacing far away as an index
+   * that silently lacks entries. On the read side, sharing one instance across revisions lets a
+   * time-travel read of revision N follow revision N+1's index root and see entries that did not
+   * exist yet.
    *
-   * <p>The list must stay in step with {@code RevisionRootPage}'s {@code *_REFERENCE_OFFSET} slots:
-   * a new index type added there and forgotten here is silently mis-shared.
+   * <p>
+   * The list must stay in step with {@code RevisionRootPage}'s {@code *_REFERENCE_OFFSET} slots: a
+   * new index type added there and forgotten here is silently mis-shared.
    */
   private static boolean isIndexRootPage(final Page page) {
     return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof CASPage
@@ -186,11 +202,10 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Evict all HOTLeafPages from the cache under memory pressure. Called by the
-   * allocator's PressureListener when off-heap budget is exhausted — HOTLeafPages
-   * each hold a 65 KB MemorySegment that counts against the global budget. The
-   * removal listener fires synchronously on invalidate, closing each page and
-   * returning its slot to the allocator.
+   * Evict all HOTLeafPages from the cache under memory pressure. Called by the allocator's
+   * PressureListener when off-heap budget is exhausted — HOTLeafPages each hold a 65 KB MemorySegment
+   * that counts against the global budget. The removal listener fires synchronously on invalidate,
+   * closing each page and returning its slot to the allocator.
    */
   public void evictHOTLeafPages() {
     for (final var entry : cache.asMap().entrySet()) {
@@ -217,7 +232,7 @@ public final class PageCache implements Cache<PageReference, Page> {
           "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
 
-    if (isCacheablePageType(value)) {
+    if (isCacheablePageType(key, value)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
       cache.put(key, value);
     }
@@ -225,7 +240,7 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    cache.putAll(map);
+    map.forEach(this::put);
   }
 
   @Override

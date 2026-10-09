@@ -33,6 +33,8 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.interval.ValidTimeReadCache;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -54,6 +56,11 @@ import java.util.concurrent.TimeUnit;
  */
 public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AutoCloseable {
+
+  /** Optional scratch-reader cache; custom sessions may use uncached readers. */
+  default @Nullable ValidTimeReadCache getValidTimeReadCache() {
+    return null;
+  }
 
   /**
    * Get the resource path.

@@ -167,6 +167,43 @@ public final class RelationalIntervalTree {
     }
   }
 
+  /**
+   * One chunk-wise stab. Exclusive-end ties are delivered with a verification flag: rounding an
+   * inexact end down to x must not suppress a true match. The consumer intersects those chunks with
+   * the revision's verification bitmap before emitting keys. Non-exact query instants use the closed
+   * traversal and verify their candidates against the original fields.
+   */
+  public void stabChunks(final long x, final boolean strictEnd, final PostingChunkConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x > maxValue) {
+      return;
+    }
+    final long exclusiveEnd = strictEnd
+        ? x
+        : -1;
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node == x) {
+        if (strictEnd) {
+          upper.scanChunks(node, x, maxValue, exclusiveEnd, out);
+        } else {
+          lower.scanChunks(node, MIN_VALUE, maxValue, -1, out);
+        }
+        return;
+      }
+      final long half = 1L << (level - 1);
+      if (x < node) {
+        lower.scanChunks(node, MIN_VALUE, x, -1, out);
+        node -= half;
+      } else {
+        upper.scanChunks(node, x, maxValue, exclusiveEnd, out);
+        node += half;
+      }
+      level--;
+    }
+  }
+
   /** Stream intervals starting at {@code x}; useful for removing a strict lower-bound tie. */
   public void startingAt(final long x, final LongConsumer out) {
     Objects.requireNonNull(out);
@@ -178,6 +215,29 @@ public final class RelationalIntervalTree {
     while (true) {
       if (node >= x) {
         lower.scan(node, x, x, out);
+      }
+      if (node == x) {
+        return;
+      }
+      final long half = 1L << (level - 1);
+      node += x < node
+          ? -half
+          : half;
+      level--;
+    }
+  }
+
+  /** Stream the compressed chunks of intervals starting exactly at x. */
+  public void startingAtChunks(final long x, final PostingChunkConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x > maxValue) {
+      return;
+    }
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node >= x) {
+        lower.scanChunks(node, x, x, -1, out);
       }
       if (node == x) {
         return;

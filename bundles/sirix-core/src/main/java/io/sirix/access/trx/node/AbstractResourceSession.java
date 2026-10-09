@@ -33,6 +33,7 @@ import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -78,6 +79,25 @@ import static java.util.Objects.requireNonNull;
 @SuppressWarnings("ConstantValue")
 public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
+
+  private volatile @Nullable ValidTimeReadCache validTimeReadCache;
+
+  @Override
+  public final ValidTimeReadCache getValidTimeReadCache() {
+    assertNotClosed();
+    ValidTimeReadCache cache = validTimeReadCache;
+    if (cache == null) {
+      synchronized (this) {
+        assertNotClosed();
+        cache = validTimeReadCache;
+        if (cache == null) {
+          cache = new ValidTimeReadCache();
+          validTimeReadCache = cache;
+        }
+      }
+    }
+    return cache;
+  }
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceSession.class);
 
@@ -1179,6 +1199,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
+      final ValidTimeReadCache cache = validTimeReadCache;
+      if (cache != null) {
+        cache.clear();
+      }
       // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
       // They continue running, managed by BufferManager lifecycle
 

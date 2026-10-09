@@ -38,6 +38,12 @@ public interface OrderedStore {
    */
   void scan(long forkNode, long endpointLo, long endpointHi, LongConsumer out);
 
+  /** Scan compressed postings, flagging ties at an exclusive end before expansion. */
+  default void scanChunks(long forkNode, long endpointLo, long endpointHi, long exclusiveEnd,
+      PostingChunkConsumer out) {
+    throw new UnsupportedOperationException("This store does not expose posting chunks");
+  }
+
   /** Stream every stored key/reference pair in one ordered-store scan. */
   void forEachRef(LongConsumer out);
 }
