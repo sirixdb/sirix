@@ -291,7 +291,7 @@ VALIDTIME prefixes remain fixed at 17 bytes.
 For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
 changes. Each delta is `baseKey || suffix_BE4`, where
 `suffix = 0x80000000 | (sequence << 1) | removal`. Its payload contains exactly one low-16 posting
-bit. It sorts after its base and before the next chunk. The 64th effective change folds the prior 63
+bit. It sorts after its base and before the next chunk. The 16th effective change folds the prior 15
 deltas plus that operation in memory, replaces the base once, and tombstones the old delta
 slots. Subsequent changes reuse sequence slots. Duplicate additions and absent removals write
 nothing. Higher chunk indices retain direct updates; they cannot be confused with suffixes because

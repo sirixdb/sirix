@@ -16,6 +16,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -32,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The selective RI-tree shortcuts must see the same postings as the logical HOT scan. */
+@Isolated
 final class HotOrderedStorePostingTest {
   private static final String RESOURCE = "posting-shortcuts";
   private static final long FORK = 3;
@@ -63,8 +65,9 @@ final class HotOrderedStorePostingTest {
     final Path databasePath = directory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     final Set<Long> left = new TreeSet<>();
-    final Set<Long> right = Set.of((1L << 16) | 141);
+    final Set<Long> right = Set.of((1L << 16) | 138);
     final long deltasBefore = HOTIndexWriter.postingDeltaWrites();
+    final long foldsBefore = HOTIndexWriter.postingDeltaFolds();
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(
           ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(versioning).storeDiffs(false).build()));
@@ -73,7 +76,8 @@ final class HotOrderedStorePostingTest {
         final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(trx.getStorageEngineWriter(),
             ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, 0);
         for (int chunk = 0; chunk < 2; chunk++) {
-          for (int i = 0; i < 48; i++) {
+          // A 32-posting packed base is hot; fifteen more postings remain pending before a fold.
+          for (int i = 0; i < 47; i++) {
             final long key = ((long) chunk << 16) | (i * 3L);
             writer.indexNodeKey(LEFT, key);
             left.add(key);
@@ -83,6 +87,7 @@ final class HotOrderedStorePostingTest {
           writer.indexNodeKey(RIGHT, key);
         }
         assertTrue(HOTIndexWriter.postingDeltaWrites() > deltasBefore);
+        assertEquals(foldsBefore, HOTIndexWriter.postingDeltaFolds(), "fixture must retain pending deltas");
         final Snapshot snapshot = new Snapshot(left, right);
         assertStores(trx.getStorageEngineWriter(), snapshot);
         trx.commit();

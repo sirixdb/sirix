@@ -35,8 +35,11 @@ public final class PostingDeltas {
   /** Largest delta sequence number: 7 bits. */
   public static final int MAX_SEQ = 127;
 
-  /** Effective changes per fold, including the operation applied directly during the fold. */
-  public static final int FOLD_BOUND = 64;
+  /**
+   * Effective changes per fold, including the operation applied directly during the fold. A short
+   * window limits the physical delta slots and leaf fragments read for hot posting chunks.
+   */
+  public static final int FOLD_BOUND = 16;
 
   /**
    * A chunk payload at least this long makes its postings "hot": further changes are written as
