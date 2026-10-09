@@ -9419,33 +9419,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         cols[i] = col;
         kinds[i] = kind;
       }
-      if (rowKeys != null && rowKeys.length == 0) {
-        final int leaves = store.rowGroupCount();
-        return new MaskedColumns(store, new long[leaves][], new long[leaves][],
-            new ProjectionColumnStore.ColumnSlice[fields.length][leaves], kinds, 0);
-      }
-      final int[] residency = Arrays.copyOf(cols, cols.length + 1);
-      residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
-      if (!store.columnsFitWithinBudget(residency, -1)) {
-        return maskedColumnsDecline("columns do not fit the residency budget");
-      }
-      final ProjectionIndexScan.ColumnPredicate[] preds = rowKeys == null
-          ? new ProjectionIndexScan.ColumnPredicate[0]
-          : new ProjectionIndexScan.ColumnPredicate[] {
-              ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys, store, fetcher)};
-      final long[] keep = preds.length == 0
-          ? null
-          : ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
-      final ProjectionColumnStore.ColumnSlice[][] predCols =
-          ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher, keep);
-      final int leaves = store.rowGroupCount();
-      final long[][] rowMasks = new long[leaves][];
-      final long rows = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, null, null, 0, leaves, rowMasks);
-      final ProjectionColumnStore.ColumnSlice[][] slices = new ProjectionColumnStore.ColumnSlice[fields.length][];
-      for (int i = 0; i < fields.length; i++) {
-        slices[i] = store.columnMaskedView(cols[i], fetcher, keep);
-      }
-      return new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
+      return readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
     } catch (final RuntimeException e) {
       failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
       return null;
@@ -30745,4 +30719,37 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       workerPoolThreadIds.clear();
     }
   }
+
+  private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
+      final byte[] kinds) {
+    if (rowKeys != null && rowKeys.length == 0) {
+      final int leaves = store.rowGroupCount();
+      return new MaskedColumns(store, new long[leaves][], new long[leaves][],
+          new ProjectionColumnStore.ColumnSlice[cols.length][leaves], kinds, 0);
+    }
+    final int[] residency = Arrays.copyOf(cols, cols.length + 1);
+    residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
+    if (!store.columnsFitWithinBudget(residency, -1)) {
+      return maskedColumnsDecline("columns do not fit the residency budget");
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds = rowKeys == null
+        ? new ProjectionIndexScan.ColumnPredicate[0]
+        : new ProjectionIndexScan.ColumnPredicate[] {
+            ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys, store, fetcher)};
+    final long[] keep = preds.length == 0
+        ? null
+        : ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
+    final ProjectionColumnStore.ColumnSlice[][] predCols =
+        ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher, keep);
+    final int leaves = store.rowGroupCount();
+    final long[][] rowMasks = new long[leaves][];
+    final long rows = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, null, null, 0, leaves, rowMasks);
+    final ProjectionColumnStore.ColumnSlice[][] slices = new ProjectionColumnStore.ColumnSlice[cols.length][];
+    for (int i = 0; i < cols.length; i++) {
+      slices[i] = store.columnMaskedView(cols[i], fetcher, keep);
+    }
+    return new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
+  }
+
 }

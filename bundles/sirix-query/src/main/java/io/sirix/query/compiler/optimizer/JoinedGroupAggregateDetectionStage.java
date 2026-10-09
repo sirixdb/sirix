@@ -137,30 +137,10 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final String[] joinFields = new String[2];
     final QNm[] vars = new QNm[2];
     for (int side = 0; side < 2; side++) {
-      final AST branch = join.getChild(side);
-      if (branch.getType() != XQ.Start || branch.getChildCount() != 1) {
-        return "join: branch is not a Start";
-      }
-      final AST forBind = branch.getChild(0);
-      if (forBind.getType() != XQ.ForBind || forBind.getChildCount() != 3
-          || forBind.getChild(0).getType() != XQ.TypedVariableBinding
-          || forBind.getChild(1).getType() == XQ.AllowingEmpty
-          || forBind.getChild(1).getType() == XQ.TypedVariableBinding || forBind.getChild(2).getType() != XQ.End
-          || forBind.getChild(2).getChildCount() != 1) {
-        return "join: branch is not a single plain for";
-      }
-      vars[side] = bindingVarName(forBind);
-      if (vars[side] == null) {
-        return "join: loop variable is not a name";
-      }
-      final String sourceDecline =
-          source(forBind.getChild(1), side, databases, resources, txTimes, validTimes, revisions, indexed);
-      if (sourceDecline != null) {
-        return sourceDecline;
-      }
-      joinFields[side] = derefField(forBind.getChild(2).getChild(0), vars[side]);
-      if (joinFields[side] == null) {
-        return "join: key is not a direct field of the loop var";
+      final String decline =
+          joinBranch(join, side, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed);
+      if (decline != null) {
+        return decline;
       }
     }
     if (vars[0].equals(vars[1])) {
@@ -171,246 +151,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (rowDecline == null) {
       return null;
     }
-    final AST post = join.getChild(2);
-    if (post.getType() != XQ.Start || post.getChildCount() != 1 || post.getChild(0).getType() != XQ.End) {
-      return "join: post-join operators";
-    }
-    // The continuation: pre-group lets, group by, post-group lets, order by, return.
-    final List<SideLet> lets = new ArrayList<>();
-    final List<Integer> progSides = new ArrayList<>();
-    final List<String[]> progFields = new ArrayList<>();
-    final List<int[]> progCode = new ArrayList<>();
-    final List<long[]> progConsts = new ArrayList<>();
-    AST current = join.getChild(3);
-    while (current != null && current.getType() == XQ.LetBind) {
-      final QNm letVar = bindingVarName(current);
-      if (letVar == null || letVar.equals(vars[0]) || letVar.equals(vars[1]) || indexOf(lets, letVar) >= 0) {
-        return "let: variable shadows a loop var or an earlier binding";
-      }
-      AST bound = current.getChild(1);
-      while (bound.getType() == XQ.ParenthesizedExpr && bound.getChildCount() == 1) {
-        bound = bound.getChild(0);
-      }
-      boolean admitted = false;
-      for (int side = 0; side < 2 && !admitted; side++) {
-        final String field = derefField(bound, vars[side]);
-        if (field != null) {
-          lets.add(new SideLet(letVar, side, field));
-          admitted = true;
-        } else if (bound.getType() == XQ.ArithmeticExpr) {
-          final List<String> fields = new ArrayList<>(4);
-          final ComputedProgram.Program program = ComputedProgram.build(bound, vars[side], fields);
-          if (program != null && !fields.isEmpty()) {
-            lets.add(new SideLet(letVar, side, COMPUTED_PREFIX + progSides.size()));
-            progSides.add(side);
-            progFields.add(fields.toArray(new String[0]));
-            progCode.add(program.code());
-            progConsts.add(program.consts());
-            admitted = true;
-          }
-        }
-      }
-      if (!admitted) {
-        return "let: not a field or a program over one side";
-      }
-      current = current.getLastChild();
-    }
-    if (current == null || current.getType() != XQ.GroupBy) {
-      return "pipeline: no group-by";
-    }
-    final List<QNm> keyVars = new ArrayList<>();
-    for (int i = 0; i < current.getChildCount(); i++) {
-      final AST spec = current.getChild(i);
-      if (spec.getType() != XQ.GroupBySpec) {
-        continue;
-      }
-      if (spec.getChildCount() < 1 || spec.getChild(0).getType() != XQ.VariableRef
-          || !(spec.getChild(0).getValue() instanceof QNm var)) {
-        return "group by: spec is not a bare variable reference";
-      }
-      final int at = indexOf(lets, var);
-      if (at < 0 || lets.get(at).field().startsWith(COMPUTED_PREFIX) || keyVars.contains(var)) {
-        return "group by: key is not a plain pre-group field, or duplicated";
-      }
-      keyVars.add(var);
-    }
-    if (keyVars.isEmpty()) {
-      return "group by: no key";
-    }
-    if (keyVars.size() > Long.SIZE) {
-      return "group by: too many keys for the missing-value mask";
-    }
-    final List<QNm> postVars = new ArrayList<>();
-    final List<String> postFuncs = new ArrayList<>();
-    final List<Integer> postSides = new ArrayList<>();
-    final List<String> postFields = new ArrayList<>();
-    current = current.getLastChild();
-    while (current != null && current.getType() == XQ.LetBind) {
-      final QNm var = bindingVarName(current);
-      if (var == null || indexOf(lets, var) >= 0 || postVars.contains(var)) {
-        return "post-group let: shadows an earlier binding";
-      }
-      final AST call = current.getChild(1);
-      if (call.getType() != XQ.FunctionCall || call.getChildCount() != 1 || !(call.getValue() instanceof QNm fn)
-          || !FUNCS.contains(fn.getLocalName()) || !builtin(fn)) {
-        return "post-group let: not count/sum/min/max";
-      }
-      final AST arg = call.getChild(0);
-      if (arg.getType() != XQ.VariableRef || !(arg.getValue() instanceof QNm argVar)) {
-        return "post-group let: argument is not a variable";
-      }
-      if (keyVars.contains(argVar)) {
-        return "post-group let: grouping variables are scalar values";
-      }
-      final String func = fn.getLocalName();
-      if (argVar.equals(vars[0]) || argVar.equals(vars[1])) {
-        if (!"count".equals(func)) {
-          return "post-group let: value function over a loop var";
-        }
-        postSides.add(-1);
-        postFields.add(null);
-      } else {
-        final int at = indexOf(lets, argVar);
-        if (at < 0) {
-          return "post-group let: argument is not a pre-group let";
-        }
-        postSides.add(lets.get(at).side());
-        postFields.add(lets.get(at).field());
-      }
-      postVars.add(var);
-      postFuncs.add(func);
-      current = current.getLastChild();
-    }
-    if (current == null || current.getType() != XQ.OrderBy) {
-      return "order by: absent";
-    }
-    final List<QNm> orderVars = new ArrayList<>();
-    final List<Boolean> orderAsc = new ArrayList<>();
-    final List<Boolean> orderEmptyLeast = new ArrayList<>();
-    for (int i = 0; i < current.getChildCount(); i++) {
-      final AST spec = current.getChild(i);
-      if (spec.getType() != XQ.OrderBySpec) {
-        continue;
-      }
-      if (spec.getChildCount() < 1 || spec.getChild(0).getType() != XQ.VariableRef
-          || !(spec.getChild(0).getValue() instanceof QNm orderVar)) {
-        return "order by: key is not a bare variable reference";
-      }
-      boolean asc = true;
-      boolean emptyLeast = true;
-      for (int m = 1; m < spec.getChildCount(); m++) {
-        final AST modifier = spec.getChild(m);
-        if (modifier.getType() == XQ.OrderByKind) {
-          asc = modifier.getChild(0).getType() == XQ.ASCENDING;
-        } else if (modifier.getType() == XQ.OrderByEmptyMode) {
-          emptyLeast = modifier.getChild(0).getType() == XQ.LEAST;
-        } else {
-          return "order by: unsupported modifier";
-        }
-      }
-      orderVars.add(orderVar);
-      orderAsc.add(asc);
-      orderEmptyLeast.add(emptyLeast);
-    }
-    current = current.getLastChild();
-    if (current == null || current.getType() != XQ.End || current.getChildCount() != 1
-        || current.getChild(0).getType() != XQ.ObjectConstructor) {
-      return "return: not an object constructor";
-    }
-    final AST record = current.getChild(0);
-    final int entries = record.getChildCount();
-    final int[] entryKinds = new int[entries];
-    final List<QNm> entryVars = new ArrayList<>(entries);
-    final List<Integer> keySides = new ArrayList<>();
-    final List<String> keyFields = new ArrayList<>();
-    final List<String> keyNames = new ArrayList<>();
-    final List<Integer> aggAt = new ArrayList<>();
-    final List<String> aggNames = new ArrayList<>();
-    final Set<QNm> seenKeys = new HashSet<>();
-    for (int i = 0; i < entries; i++) {
-      final AST entry = record.getChild(i);
-      if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2 || entry.getChild(0).getType() != XQ.Str) {
-        return "return: entry is not a named field";
-      }
-      final String name = entry.getChild(0).getValue() instanceof Str str
-          ? str.stringValue()
-          : String.valueOf(entry.getChild(0).getValue());
-      final AST value = entry.getChild(1);
-      if (value.getType() != XQ.VariableRef || !(value.getValue() instanceof QNm var)) {
-        return "return: entry value is not a variable reference";
-      }
-      entryVars.add(var);
-      if (keyVars.contains(var)) {
-        if (!seenKeys.add(var)) {
-          return "return: key emitted twice";
-        }
-        final SideLet let = lets.get(indexOf(lets, var));
-        entryKinds[i] = keySides.size();
-        keySides.add(let.side());
-        keyFields.add(let.field());
-        keyNames.add(name);
-      } else if (postVars.contains(var)) {
-        entryKinds[i] = -(aggAt.size() + 1);
-        aggAt.add(postVars.indexOf(var));
-        aggNames.add(name);
-      } else {
-        return "return: entry is neither a key nor a post-group aggregate";
-      }
-    }
-    if (seenKeys.size() != keyVars.size()) {
-      return "return: record does not echo every key";
-    }
-    final int[] orderIndexes = new int[orderVars.size()];
-    for (int i = 0; i < orderIndexes.length; i++) {
-      final int at = entryVars.indexOf(orderVars.get(i));
-      if (at < 0) {
-        return "order by: sorts on a value the record does not emit";
-      }
-      orderIndexes[i] = at;
-    }
-    for (final QNm key : keyVars) {
-      if (!orderVars.contains(key)) {
-        return "order by: does not name every key";
-      }
-    }
-    pipeExpr.setProperty(JOIN_GROUP, Boolean.TRUE);
-    pipeExpr.setProperty(SIDE_DATABASES, databases);
-    pipeExpr.setProperty(SIDE_RESOURCES, resources);
-    pipeExpr.setProperty(SIDE_TX_TIMES, txTimes);
-    pipeExpr.setProperty(SIDE_VALID_TIMES, validTimes);
-    pipeExpr.setProperty(SIDE_SOURCE_EXPRS, indexed);
-    pipeExpr.setProperty(SIDE_REVISIONS, revisions);
-    pipeExpr.setProperty(JOIN_FIELDS, joinFields);
-    pipeExpr.setProperty(KEY_SIDES, keySides.stream().mapToInt(Integer::intValue).toArray());
-    pipeExpr.setProperty(KEY_FIELDS, keyFields.toArray(new String[0]));
-    pipeExpr.setProperty(KEY_NAMES, keyNames.toArray(new String[0]));
-    final String[] aggFuncs = new String[aggAt.size()];
-    final int[] aggSides = new int[aggAt.size()];
-    final String[] aggFields = new String[aggAt.size()];
-    for (int i = 0; i < aggAt.size(); i++) {
-      aggFuncs[i] = postFuncs.get(aggAt.get(i));
-      aggSides[i] = postSides.get(aggAt.get(i));
-      aggFields[i] = postFields.get(aggAt.get(i));
-    }
-    pipeExpr.setProperty(AGG_FUNCS, aggFuncs);
-    pipeExpr.setProperty(AGG_SIDES, aggSides);
-    pipeExpr.setProperty(AGG_FIELDS, aggFields);
-    pipeExpr.setProperty(AGG_NAMES, aggNames.toArray(new String[0]));
-    pipeExpr.setProperty(PROG_SIDES, progSides.stream().mapToInt(Integer::intValue).toArray());
-    pipeExpr.setProperty(PROG_FIELDS, progFields.toArray(new String[0][]));
-    pipeExpr.setProperty(PROG_CODE, progCode.toArray(new int[0][]));
-    pipeExpr.setProperty(PROG_CONSTS, progConsts.toArray(new long[0][]));
-    pipeExpr.setProperty(ENTRY_KINDS, entryKinds);
-    pipeExpr.setProperty(ORDER_INDEXES, orderIndexes);
-    final boolean[] asc = new boolean[orderIndexes.length];
-    final boolean[] emptyLeast = new boolean[orderIndexes.length];
-    for (int i = 0; i < orderIndexes.length; i++) {
-      asc[i] = orderAsc.get(i);
-      emptyLeast[i] = orderEmptyLeast.get(i);
-    }
-    pipeExpr.setProperty(ORDER_ASC, asc);
-    pipeExpr.setProperty(ORDER_EMPTY_LEAST, emptyLeast);
-    return null;
+    return groupedJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed);
   }
 
   private static @Nullable String rowJoin(final AST pipe, final AST join, final QNm[] vars, final String[] databases,
@@ -428,33 +169,19 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       return "row join: post chain is not a Start";
     }
     AST tail = post.getChild(0);
-    while (tail.getType() == XQ.Selection && tail.getChildCount() == 2) {
-      final boolean previous = !residualCode.isEmpty();
-      if (!residual(tail.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
-        return "row join: unsupported residual";
-      }
-      if (previous) {
-        residualCode.add(-1);
-      }
-      tail = tail.getLastChild();
+    tail = residualSelections(tail, vars, residualSides, residualFields, residualNe, residualCode);
+    if (tail == null) {
+      return "row join: unsupported residual";
     }
     if (tail.getType() != XQ.End) {
       return "row join: unsupported post chain";
     }
     AST current = join.getChild(3);
-    while (current.getType() == XQ.Selection && current.getChildCount() == 2) {
-      final boolean previous = !residualCode.isEmpty();
-      if (!residual(current.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
-        return "row join: unsupported residual";
-      }
-      if (previous) {
-        residualCode.add(-1);
-      }
-      current = current.getLastChild();
+    current = residualSelections(current, vars, residualSides, residualFields, residualNe, residualCode);
+    if (current == null) {
+      return "row join: unsupported residual";
     }
-    if (current.getType() != XQ.OrderBy || current.getLastChild().getType() != XQ.End
-        || current.getLastChild().getChildCount() != 1
-        || current.getLastChild().getChild(0).getType() != XQ.ObjectConstructor) {
+    if (!orderedRowRecord(current)) {
       return "row join: requires ordered row records";
     }
     final AST record = current.getLastChild().getChild(0);
@@ -464,57 +191,16 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final String[] keyNames = new String[count];
     final int[] entryKinds = new int[count];
     final Set<String> names = new HashSet<>();
-    for (int i = 0; i < count; i++) {
-      final AST entry = record.getChild(i);
-      if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2) {
-        return "row join: unsupported output entry";
-      }
-      keyNames[i] = stringLiteral(entry.getChild(0));
-      if (keyNames[i] == null || !names.add(keyNames[i])) {
-        return "row join: output names must be distinct literals";
-      }
-      keySides[i] = derefField(entry.getChild(1), vars[0]) == null
-          ? 1
-          : 0;
-      keyFields[i] = derefField(entry.getChild(1), vars[keySides[i]]);
-      if (keyFields[i] == null) {
-        return "row join: output is not a direct field";
-      }
-      entryKinds[i] = i;
+    final String entryDecline = rowEntries(record, count, vars, keySides, keyFields, keyNames, entryKinds, names);
+    if (entryDecline != null) {
+      return entryDecline;
     }
     final List<Integer> orderIndexes = new ArrayList<>();
     final List<Boolean> orderAsc = new ArrayList<>();
     final List<Boolean> emptyLeast = new ArrayList<>();
-    for (int i = 0; i < current.getChildCount() - 1; i++) {
-      final AST spec = current.getChild(i);
-      if (spec.getType() != XQ.OrderBySpec || spec.getChildCount() < 1) {
-        return "row join: unsupported ordering";
-      }
-      int at = -1;
-      for (int field = 0; field < count; field++) {
-        if (keyFields[field].equals(derefField(spec.getChild(0), vars[keySides[field]]))) {
-          at = field;
-          break;
-        }
-      }
-      if (at < 0) {
-        return "row join: ordering field is not emitted";
-      }
-      boolean ascending = true;
-      boolean least = true;
-      for (int m = 1; m < spec.getChildCount(); m++) {
-        final AST modifier = spec.getChild(m);
-        if (modifier.getType() == XQ.OrderByKind) {
-          ascending = modifier.getChild(0).getType() == XQ.ASCENDING;
-        } else if (modifier.getType() == XQ.OrderByEmptyMode) {
-          least = modifier.getChild(0).getType() == XQ.LEAST;
-        } else {
-          return "row join: unsupported ordering modifier";
-        }
-      }
-      orderIndexes.add(at);
-      orderAsc.add(ascending);
-      emptyLeast.add(least);
+    final String orderDecline = rowOrder(current, vars, count, keyFields, keySides, orderIndexes, orderAsc, emptyLeast);
+    if (orderDecline != null) {
+      return orderDecline;
     }
     if (orderIndexes.isEmpty()) {
       return "row join: no ordering keys";
@@ -566,7 +252,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     while (node.getType() == XQ.ParenthesizedExpr && node.getChildCount() == 1) {
       node = node.getChild(0);
     }
-    if ((node.getType() == XQ.AndExpr || node.getType() == XQ.OrExpr) && node.getChildCount() == 2) {
+    if (booleanResidual(node)) {
       if (!residual(node.getChild(0), vars, sides, fields, ne, code)
           || !residual(node.getChild(1), vars, sides, fields, ne, code)) {
         return false;
@@ -580,7 +266,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       return false;
     }
     final int op = node.getChild(0).getType();
-    if (op != XQ.ValueCompEQ && op != XQ.GeneralCompEQ && op != XQ.ValueCompNE && op != XQ.GeneralCompNE) {
+    if (!equalityComparison(op)) {
       return false;
     }
     final int count = ne.size();
@@ -615,8 +301,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     }
     AST call = source;
     boolean members = false;
-    if (call.getType() == XQ.ArrayAccess && call.getChildCount() == 2 && call.getChild(1).getType() == XQ.SequenceExpr
-        && call.getChild(1).getChildCount() == 0) {
+    if (arrayMembers(call)) {
       // jn:doc('db','res')[]: the array members, which the openers yield directly.
       members = true;
       call = call.getChild(0);
@@ -633,19 +318,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       if (databases[side] == null || resources[side] == null) {
         return "join: dynamic database or resource";
       }
-      if (call.getChildCount() == 3) {
-        final Object revision = call.getChild(2).getType() == XQ.Int
-            ? call.getChild(2).getValue()
-            : null;
-        if (!(revision instanceof IntNumeric number) || number.longValue() < 0
-            || number.longValue() > Integer.MAX_VALUE) {
-          return "join: dynamic revision";
-        }
-        revisions[side] = (int) number.longValue();
-      } else {
-        revisions[side] = -1;
-      }
-      return null;
+      return documentRevision(call, side, revisions);
     }
     return "join: source is neither an opener nor a literal document";
   }
@@ -706,4 +379,466 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         ? s
         : null;
   }
+
+  private static @Nullable String joinBranch(final AST join, final int side, final QNm[] vars, final String[] databases,
+      final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
+      final String[] joinFields, final AST[] indexed) {
+    final AST branch = join.getChild(side);
+    if (branch.getType() != XQ.Start || branch.getChildCount() != 1) {
+      return "join: branch is not a Start";
+    }
+    final AST forBind = branch.getChild(0);
+    if (forBind.getType() != XQ.ForBind || forBind.getChildCount() != 3
+        || forBind.getChild(0).getType() != XQ.TypedVariableBinding || forBind.getChild(1).getType() == XQ.AllowingEmpty
+        || forBind.getChild(1).getType() == XQ.TypedVariableBinding || forBind.getChild(2).getType() != XQ.End
+        || forBind.getChild(2).getChildCount() != 1) {
+      return "join: branch is not a single plain for";
+    }
+    vars[side] = bindingVarName(forBind);
+    if (vars[side] == null) {
+      return "join: loop variable is not a name";
+    }
+    final String sourceDecline =
+        source(forBind.getChild(1), side, databases, resources, txTimes, validTimes, revisions, indexed);
+    if (sourceDecline != null) {
+      return sourceDecline;
+    }
+    joinFields[side] = derefField(forBind.getChild(2).getChild(0), vars[side]);
+    if (joinFields[side] == null) {
+      return "join: key is not a direct field of the loop var";
+    }
+    return null;
+  }
+
+  private static @Nullable String groupedJoin(final AST pipeExpr, final AST join, final QNm[] vars,
+      final String[] databases, final String[] resources, final AST[] txTimes, final AST[] validTimes,
+      final int[] revisions, final String[] joinFields, final AST[] indexed) {
+    final AST post = join.getChild(2);
+    if (post.getType() != XQ.Start || post.getChildCount() != 1 || post.getChild(0).getType() != XQ.End) {
+      return "join: post-join operators";
+    }
+    // The continuation: pre-group lets, group by, post-group lets, order by, return.
+    final List<SideLet> lets = new ArrayList<>();
+    final List<Integer> progSides = new ArrayList<>();
+    final List<String[]> progFields = new ArrayList<>();
+    final List<int[]> progCode = new ArrayList<>();
+    final List<long[]> progConsts = new ArrayList<>();
+    AST current = join.getChild(3);
+    while (current != null && current.getType() == XQ.LetBind) {
+      final String decline = preGroupLet(current, vars, lets, progSides, progFields, progCode, progConsts);
+      if (decline != null) {
+        return decline;
+      }
+      current = current.getLastChild();
+    }
+    if (current == null || current.getType() != XQ.GroupBy) {
+      return "pipeline: no group-by";
+    }
+    final List<QNm> keyVars = new ArrayList<>();
+    final String keyDecline = groupingKeys(current, lets, keyVars);
+    if (keyDecline != null) {
+      return keyDecline;
+    }
+    return groupedAggregates(pipeExpr, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed,
+        current, lets, keyVars, progSides, progFields, progCode, progConsts);
+  }
+
+  private static @Nullable String preGroupLet(final AST current, final QNm[] vars, final List<SideLet> lets,
+      final List<Integer> progSides, final List<String[]> progFields, final List<int[]> progCode,
+      final List<long[]> progConsts) {
+    final QNm letVar = bindingVarName(current);
+    if (letVar == null || letVar.equals(vars[0]) || letVar.equals(vars[1]) || indexOf(lets, letVar) >= 0) {
+      return "let: variable shadows a loop var or an earlier binding";
+    }
+    AST bound = current.getChild(1);
+    while (bound.getType() == XQ.ParenthesizedExpr && bound.getChildCount() == 1) {
+      bound = bound.getChild(0);
+    }
+    boolean admitted = false;
+    for (int side = 0; side < 2 && !admitted; side++) {
+      final String field = derefField(bound, vars[side]);
+      if (field != null) {
+        lets.add(new SideLet(letVar, side, field));
+        admitted = true;
+      } else if (bound.getType() == XQ.ArithmeticExpr) {
+        final List<String> fields = new ArrayList<>(4);
+        final ComputedProgram.Program program = ComputedProgram.build(bound, vars[side], fields);
+        if (program != null && !fields.isEmpty()) {
+          lets.add(new SideLet(letVar, side, COMPUTED_PREFIX + progSides.size()));
+          progSides.add(side);
+          progFields.add(fields.toArray(new String[0]));
+          progCode.add(program.code());
+          progConsts.add(program.consts());
+          admitted = true;
+        }
+      }
+    }
+    if (!admitted) {
+      return "let: not a field or a program over one side";
+    }
+    return null;
+  }
+
+  private static @Nullable String groupingKeys(final AST current, final List<SideLet> lets, final List<QNm> keyVars) {
+    for (int i = 0; i < current.getChildCount(); i++) {
+      final AST spec = current.getChild(i);
+      if (spec.getType() != XQ.GroupBySpec) {
+        continue;
+      }
+      if (spec.getChildCount() < 1 || spec.getChild(0).getType() != XQ.VariableRef
+          || !(spec.getChild(0).getValue() instanceof QNm var)) {
+        return "group by: spec is not a bare variable reference";
+      }
+      final int at = indexOf(lets, var);
+      if (at < 0 || lets.get(at).field().startsWith(COMPUTED_PREFIX) || keyVars.contains(var)) {
+        return "group by: key is not a plain pre-group field, or duplicated";
+      }
+      keyVars.add(var);
+    }
+    if (keyVars.isEmpty()) {
+      return "group by: no key";
+    }
+    if (keyVars.size() > Long.SIZE) {
+      return "group by: too many keys for the missing-value mask";
+    }
+    return null;
+  }
+
+  private static @Nullable String groupedAggregates(final AST pipeExpr, final QNm[] vars, final String[] databases,
+      final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
+      final String[] joinFields, final AST[] indexed, final AST group, final List<SideLet> lets,
+      final List<QNm> keyVars, final List<Integer> progSides, final List<String[]> progFields,
+      final List<int[]> progCode, final List<long[]> progConsts) {
+    AST current = group;
+    final List<QNm> postVars = new ArrayList<>();
+    final List<String> postFuncs = new ArrayList<>();
+    final List<Integer> postSides = new ArrayList<>();
+    final List<String> postFields = new ArrayList<>();
+    current = current.getLastChild();
+    while (current != null && current.getType() == XQ.LetBind) {
+      final String decline = postGroupLet(current, vars, lets, keyVars, postVars, postFuncs, postSides, postFields);
+      if (decline != null) {
+        return decline;
+      }
+      current = current.getLastChild();
+    }
+    if (current == null || current.getType() != XQ.OrderBy) {
+      return "order by: absent";
+    }
+    final List<QNm> orderVars = new ArrayList<>();
+    final List<Boolean> orderAsc = new ArrayList<>();
+    final List<Boolean> orderEmptyLeast = new ArrayList<>();
+    final String orderDecline = groupedOrder(current, orderVars, orderAsc, orderEmptyLeast);
+    if (orderDecline != null) {
+      return orderDecline;
+    }
+    return groupedReturn(pipeExpr, databases, resources, txTimes, validTimes, revisions, joinFields, indexed, current,
+        lets, keyVars, postVars, postFuncs, postSides, postFields, orderVars, orderAsc, orderEmptyLeast, progSides,
+        progFields, progCode, progConsts);
+  }
+
+  private static @Nullable String groupedOrder(final AST current, final List<QNm> orderVars,
+      final List<Boolean> orderAsc, final List<Boolean> orderEmptyLeast) {
+    for (int i = 0; i < current.getChildCount(); i++) {
+      final AST spec = current.getChild(i);
+      if (spec.getType() != XQ.OrderBySpec) {
+        continue;
+      }
+      if (spec.getChildCount() < 1 || spec.getChild(0).getType() != XQ.VariableRef
+          || !(spec.getChild(0).getValue() instanceof QNm orderVar)) {
+        return "order by: key is not a bare variable reference";
+      }
+      boolean asc = true;
+      boolean emptyLeast = true;
+      for (int m = 1; m < spec.getChildCount(); m++) {
+        final AST modifier = spec.getChild(m);
+        if (modifier.getType() == XQ.OrderByKind) {
+          asc = modifier.getChild(0).getType() == XQ.ASCENDING;
+        } else if (modifier.getType() == XQ.OrderByEmptyMode) {
+          emptyLeast = modifier.getChild(0).getType() == XQ.LEAST;
+        } else {
+          return "order by: unsupported modifier";
+        }
+      }
+      orderVars.add(orderVar);
+      orderAsc.add(asc);
+      orderEmptyLeast.add(emptyLeast);
+    }
+    return null;
+  }
+
+  private static @Nullable String groupedReturn(final AST pipeExpr, final String[] databases, final String[] resources,
+      final AST[] txTimes, final AST[] validTimes, final int[] revisions, final String[] joinFields,
+      final AST[] indexed, final AST order, final List<SideLet> lets, final List<QNm> keyVars, final List<QNm> postVars,
+      final List<String> postFuncs, final List<Integer> postSides, final List<String> postFields,
+      final List<QNm> orderVars, final List<Boolean> orderAsc, final List<Boolean> orderEmptyLeast,
+      final List<Integer> progSides, final List<String[]> progFields, final List<int[]> progCode,
+      final List<long[]> progConsts) {
+    AST current = order;
+    current = current.getLastChild();
+    if (current == null || current.getType() != XQ.End || current.getChildCount() != 1
+        || current.getChild(0).getType() != XQ.ObjectConstructor) {
+      return "return: not an object constructor";
+    }
+    final AST record = current.getChild(0);
+    final int entries = record.getChildCount();
+    final int[] entryKinds = new int[entries];
+    final List<QNm> entryVars = new ArrayList<>(entries);
+    final List<Integer> keySides = new ArrayList<>();
+    final List<String> keyFields = new ArrayList<>();
+    final List<String> keyNames = new ArrayList<>();
+    final List<Integer> aggAt = new ArrayList<>();
+    final List<String> aggNames = new ArrayList<>();
+    final Set<QNm> seenKeys = new HashSet<>();
+    final String entryDecline = groupedEntries(record, entries, entryKinds, entryVars, lets, keyVars, postVars,
+        keySides, keyFields, keyNames, aggAt, aggNames, seenKeys);
+    if (entryDecline != null) {
+      return entryDecline;
+    }
+    if (seenKeys.size() != keyVars.size()) {
+      return "return: record does not echo every key";
+    }
+    final int[] orderIndexes = new int[orderVars.size()];
+    for (int i = 0; i < orderIndexes.length; i++) {
+      final int at = entryVars.indexOf(orderVars.get(i));
+      if (at < 0) {
+        return "order by: sorts on a value the record does not emit";
+      }
+      orderIndexes[i] = at;
+    }
+    for (final QNm key : keyVars) {
+      if (!orderVars.contains(key)) {
+        return "order by: does not name every key";
+      }
+    }
+    pipeExpr.setProperty(JOIN_GROUP, Boolean.TRUE);
+    pipeExpr.setProperty(SIDE_DATABASES, databases);
+    pipeExpr.setProperty(SIDE_RESOURCES, resources);
+    pipeExpr.setProperty(SIDE_TX_TIMES, txTimes);
+    pipeExpr.setProperty(SIDE_VALID_TIMES, validTimes);
+    pipeExpr.setProperty(SIDE_SOURCE_EXPRS, indexed);
+    pipeExpr.setProperty(SIDE_REVISIONS, revisions);
+    pipeExpr.setProperty(JOIN_FIELDS, joinFields);
+    pipeExpr.setProperty(KEY_SIDES, keySides.stream().mapToInt(Integer::intValue).toArray());
+    pipeExpr.setProperty(KEY_FIELDS, keyFields.toArray(new String[0]));
+    pipeExpr.setProperty(KEY_NAMES, keyNames.toArray(new String[0]));
+    final String[] aggFuncs = new String[aggAt.size()];
+    final int[] aggSides = new int[aggAt.size()];
+    final String[] aggFields = new String[aggAt.size()];
+    for (int i = 0; i < aggAt.size(); i++) {
+      aggFuncs[i] = postFuncs.get(aggAt.get(i));
+      aggSides[i] = postSides.get(aggAt.get(i));
+      aggFields[i] = postFields.get(aggAt.get(i));
+    }
+    pipeExpr.setProperty(AGG_FUNCS, aggFuncs);
+    pipeExpr.setProperty(AGG_SIDES, aggSides);
+    pipeExpr.setProperty(AGG_FIELDS, aggFields);
+    pipeExpr.setProperty(AGG_NAMES, aggNames.toArray(new String[0]));
+    pipeExpr.setProperty(PROG_SIDES, progSides.stream().mapToInt(Integer::intValue).toArray());
+    pipeExpr.setProperty(PROG_FIELDS, progFields.toArray(new String[0][]));
+    pipeExpr.setProperty(PROG_CODE, progCode.toArray(new int[0][]));
+    pipeExpr.setProperty(PROG_CONSTS, progConsts.toArray(new long[0][]));
+    pipeExpr.setProperty(ENTRY_KINDS, entryKinds);
+    pipeExpr.setProperty(ORDER_INDEXES, orderIndexes);
+    final boolean[] asc = new boolean[orderIndexes.length];
+    final boolean[] emptyLeast = new boolean[orderIndexes.length];
+    for (int i = 0; i < orderIndexes.length; i++) {
+      asc[i] = orderAsc.get(i);
+      emptyLeast[i] = orderEmptyLeast.get(i);
+    }
+    pipeExpr.setProperty(ORDER_ASC, asc);
+    pipeExpr.setProperty(ORDER_EMPTY_LEAST, emptyLeast);
+    return null;
+  }
+
+  private static @Nullable String postGroupLet(final AST current, final QNm[] vars, final List<SideLet> lets,
+      final List<QNm> keyVars, final List<QNm> postVars, final List<String> postFuncs, final List<Integer> postSides,
+      final List<String> postFields) {
+    final QNm var = bindingVarName(current);
+    if (var == null || indexOf(lets, var) >= 0 || postVars.contains(var)) {
+      return "post-group let: shadows an earlier binding";
+    }
+    final AST call = current.getChild(1);
+    if (!unaryFunction(call) || !(call.getValue() instanceof QNm fn) || !FUNCS.contains(fn.getLocalName())
+        || !builtin(fn)) {
+      return "post-group let: not count/sum/min/max";
+    }
+    final AST arg = call.getChild(0);
+    if (arg.getType() != XQ.VariableRef || !(arg.getValue() instanceof QNm argVar)) {
+      return "post-group let: argument is not a variable";
+    }
+    if (keyVars.contains(argVar)) {
+      return "post-group let: grouping variables are scalar values";
+    }
+    final String func = fn.getLocalName();
+    if (argVar.equals(vars[0]) || argVar.equals(vars[1])) {
+      if (!"count".equals(func)) {
+        return "post-group let: value function over a loop var";
+      }
+      postSides.add(-1);
+      postFields.add(null);
+    } else {
+      final int at = indexOf(lets, argVar);
+      if (at < 0) {
+        return "post-group let: argument is not a pre-group let";
+      }
+      postSides.add(lets.get(at).side());
+      postFields.add(lets.get(at).field());
+    }
+    postVars.add(var);
+    postFuncs.add(func);
+    return null;
+  }
+
+  private static @Nullable String groupedEntries(final AST record, final int entries, final int[] entryKinds,
+      final List<QNm> entryVars, final List<SideLet> lets, final List<QNm> keyVars, final List<QNm> postVars,
+      final List<Integer> keySides, final List<String> keyFields, final List<String> keyNames,
+      final List<Integer> aggAt, final List<String> aggNames, final Set<QNm> seenKeys) {
+    for (int i = 0; i < entries; i++) {
+      final AST entry = record.getChild(i);
+      if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2 || entry.getChild(0).getType() != XQ.Str) {
+        return "return: entry is not a named field";
+      }
+      final String name = entry.getChild(0).getValue() instanceof Str str
+          ? str.stringValue()
+          : String.valueOf(entry.getChild(0).getValue());
+      final AST value = entry.getChild(1);
+      if (value.getType() != XQ.VariableRef || !(value.getValue() instanceof QNm var)) {
+        return "return: entry value is not a variable reference";
+      }
+      entryVars.add(var);
+      if (keyVars.contains(var)) {
+        if (!seenKeys.add(var)) {
+          return "return: key emitted twice";
+        }
+        final SideLet let = lets.get(indexOf(lets, var));
+        entryKinds[i] = keySides.size();
+        keySides.add(let.side());
+        keyFields.add(let.field());
+        keyNames.add(name);
+      } else if (postVars.contains(var)) {
+        entryKinds[i] = -(aggAt.size() + 1);
+        aggAt.add(postVars.indexOf(var));
+        aggNames.add(name);
+      } else {
+        return "return: entry is neither a key nor a post-group aggregate";
+      }
+    }
+    return null;
+  }
+
+  private static @Nullable String rowEntries(final AST record, final int count, final QNm[] vars, final int[] keySides,
+      final String[] keyFields, final String[] keyNames, final int[] entryKinds, final Set<String> names) {
+    for (int i = 0; i < count; i++) {
+      final AST entry = record.getChild(i);
+      if (entry.getType() != XQ.KeyValueField || entry.getChildCount() != 2) {
+        return "row join: unsupported output entry";
+      }
+      keyNames[i] = stringLiteral(entry.getChild(0));
+      if (keyNames[i] == null || !names.add(keyNames[i])) {
+        return "row join: output names must be distinct literals";
+      }
+      keySides[i] = derefField(entry.getChild(1), vars[0]) == null
+          ? 1
+          : 0;
+      keyFields[i] = derefField(entry.getChild(1), vars[keySides[i]]);
+      if (keyFields[i] == null) {
+        return "row join: output is not a direct field";
+      }
+      entryKinds[i] = i;
+    }
+    return null;
+  }
+
+  private static @Nullable String rowOrder(final AST current, final QNm[] vars, final int count,
+      final String[] keyFields, final int[] keySides, final List<Integer> orderIndexes, final List<Boolean> orderAsc,
+      final List<Boolean> emptyLeast) {
+    for (int i = 0; i < current.getChildCount() - 1; i++) {
+      final AST spec = current.getChild(i);
+      if (spec.getType() != XQ.OrderBySpec || spec.getChildCount() < 1) {
+        return "row join: unsupported ordering";
+      }
+      int at = -1;
+      for (int field = 0; field < count; field++) {
+        if (keyFields[field].equals(derefField(spec.getChild(0), vars[keySides[field]]))) {
+          at = field;
+          break;
+        }
+      }
+      if (at < 0) {
+        return "row join: ordering field is not emitted";
+      }
+      boolean ascending = true;
+      boolean least = true;
+      for (int m = 1; m < spec.getChildCount(); m++) {
+        final AST modifier = spec.getChild(m);
+        if (modifier.getType() == XQ.OrderByKind) {
+          ascending = modifier.getChild(0).getType() == XQ.ASCENDING;
+        } else if (modifier.getType() == XQ.OrderByEmptyMode) {
+          least = modifier.getChild(0).getType() == XQ.LEAST;
+        } else {
+          return "row join: unsupported ordering modifier";
+        }
+      }
+      orderIndexes.add(at);
+      orderAsc.add(ascending);
+      emptyLeast.add(least);
+    }
+    return null;
+  }
+
+  private static boolean equalityComparison(final int op) {
+    return !(op != XQ.ValueCompEQ && op != XQ.GeneralCompEQ && op != XQ.ValueCompNE && op != XQ.GeneralCompNE);
+  }
+
+  private static @Nullable String documentRevision(final AST call, final int side, final int[] revisions) {
+    if (call.getChildCount() == 3) {
+      final Object revision = call.getChild(2).getType() == XQ.Int
+          ? call.getChild(2).getValue()
+          : null;
+      if (!(revision instanceof IntNumeric number) || number.longValue() < 0
+          || number.longValue() > Integer.MAX_VALUE) {
+        return "join: dynamic revision";
+      }
+      revisions[side] = (int) number.longValue();
+    } else {
+      revisions[side] = -1;
+    }
+    return null;
+  }
+
+  private static @Nullable AST residualSelections(AST tail, final QNm[] vars, final List<Integer> residualSides,
+      final List<String> residualFields, final List<Boolean> residualNe, final List<Integer> residualCode) {
+    while (tail.getType() == XQ.Selection && tail.getChildCount() == 2) {
+      final boolean previous = !residualCode.isEmpty();
+      if (!residual(tail.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
+        return null;
+      }
+      if (previous) {
+        residualCode.add(-1);
+      }
+      tail = tail.getLastChild();
+    }
+    return tail;
+  }
+
+  private static boolean booleanResidual(final AST node) {
+    return (node.getType() == XQ.AndExpr || node.getType() == XQ.OrExpr) && node.getChildCount() == 2;
+  }
+
+  private static boolean arrayMembers(final AST call) {
+    return call.getType() == XQ.ArrayAccess && call.getChildCount() == 2
+        && call.getChild(1).getType() == XQ.SequenceExpr && call.getChild(1).getChildCount() == 0;
+  }
+
+  private static boolean unaryFunction(final AST call) {
+    return call.getType() == XQ.FunctionCall && call.getChildCount() == 1;
+  }
+
+  private static boolean orderedRowRecord(final AST current) {
+    return !(current.getType() != XQ.OrderBy || current.getLastChild().getType() != XQ.End
+        || current.getLastChild().getChildCount() != 1
+        || current.getLastChild().getChild(0).getType() != XQ.ObjectConstructor);
+  }
+
 }

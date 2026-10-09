@@ -137,38 +137,19 @@ public final class IndexRoutedSourceStage implements Stage {
         || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI())) {
       return null;
     }
-    final String local = fn.getLocalName();
-    final boolean opener =
-        expression.getType() != XQ.ParenthesizedExpr && "open-bitemporal".equals(local) && source.getChildCount() == 4;
-    final boolean slice = OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(fn)
-        && source.checkProperty(OpenBitemporal.INTERNAL_SLICE) && source.getChildCount() == 7;
-    final boolean scan = ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(fn) && (source.getChildCount() == 2
-        || (source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)));
+    final boolean opener = isOpener(expression, source, fn);
+    final boolean slice = isSlice(source, fn);
+    final boolean scan = isScan(source, fn);
     if (!opener && !slice && !scan) {
       return null;
     }
     final AST doc = scan
         ? source.getChild(0)
         : source;
-    if (scan && (doc.getType() != XQ.FunctionCall || !(doc.getValue() instanceof QNm docFn)
-        || !JSONFun.JSON_NSURI.equals(docFn.getNamespaceURI())
-        || !("doc".equals(docFn.getLocalName()) || "open".equals(docFn.getLocalName())) || doc.getChildCount() < 2
-        || doc.getChildCount() > 3)) {
+    if (scan && !isDocumentCall(doc)) {
       return null;
     }
-    final String database = stringLiteral(doc.getChild(0));
-    final String resource = stringLiteral(doc.getChild(1));
-    return database == null || resource == null
-        ? null
-        : new Source(database, resource, scan
-            ? null
-            : source.getChild(2),
-            source.getChild(scan
-                ? 1
-                : 3),
-            opener
-                ? null
-                : source);
+    return resolvedSource(source, doc, scan, opener);
   }
 
   private static @Nullable String stringLiteral(final AST node) {
@@ -198,4 +179,44 @@ public final class IndexRoutedSourceStage implements Stage {
     }
     return false;
   }
+
+  private static boolean isDocumentCall(final AST doc) {
+    return doc.getType() == XQ.FunctionCall && doc.getValue() instanceof QNm docFn
+        && JSONFun.JSON_NSURI.equals(docFn.getNamespaceURI())
+        && ("doc".equals(docFn.getLocalName()) || "open".equals(docFn.getLocalName())) && doc.getChildCount() >= 2
+        && doc.getChildCount() <= 3;
+  }
+
+  private static boolean isOpener(final AST expression, final AST source, final QNm fn) {
+    return expression.getType() != XQ.ParenthesizedExpr && "open-bitemporal".equals(fn.getLocalName())
+        && source.getChildCount() == 4;
+  }
+
+  private static boolean isSlice(final AST source, final QNm fn) {
+    return OpenBitemporal.OPEN_BITEMPORAL_SLICE.equals(fn) && source.checkProperty(OpenBitemporal.INTERNAL_SLICE)
+        && source.getChildCount() == 7;
+  }
+
+  private static boolean isScan(final AST source, final QNm fn) {
+    return ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(fn) && (source.getChildCount() == 2
+        || (source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)));
+  }
+
+  private static @Nullable Source resolvedSource(final AST source, final AST doc, final boolean scan,
+      final boolean opener) {
+    final String database = stringLiteral(doc.getChild(0));
+    final String resource = stringLiteral(doc.getChild(1));
+    return database == null || resource == null
+        ? null
+        : new Source(database, resource, scan
+            ? null
+            : source.getChild(2),
+            source.getChild(scan
+                ? 1
+                : 3),
+            opener
+                ? null
+                : source);
+  }
+
 }

@@ -178,107 +178,8 @@ final class IndexRoutedGroupAggregateTest {
       final BasicJsonDBStore store, final List<String> txTimes, final List<String> validTimes) throws Exception {
     final String smallSource = "jn:open-bitemporal('" + DB + "','small-a',$T,$P)";
     final String smallProlog = prolog(txTimes.get(1), validTimes.get(1));
-    final String countSource = "jn:doc('" + DB + "','counts')[]";
-    for (final String aggregate : new String[] {"count($q)", "xs:double(count($q))"}) {
-      for (final boolean postGroup : new boolean[] {false, true}) {
-        final String query = "for $c in " + countSource + " let $g := 1, $q := $c.qty group by $g" + (postGroup
-            ? " let $n := " + aggregate
-            : "") + " return {'n':"
-            + (postGroup
-                ? "$n"
-                : aggregate)
-            + ",'rows':count($c)}";
-        final long before = SirixVectorizedExecutor.constGroupAggServedCount();
-        final String expected = run(chain, ctx, query.replace(countSource, "(" + countSource + ")"));
-        if (aggregate.equals("count($q)")) {
-          assertEquals("{\"n\":1,\"rows\":2}", expected);
-        }
-        assertEquals(before, SirixVectorizedExecutor.constGroupAggServedCount(), "constant reference stays generic");
-        assertEquals(expected, run(chain, ctx, query));
-        assertEquals(before + 1, SirixVectorizedExecutor.constGroupAggServedCount(), "constant field count is served");
-      }
-    }
-    for (final String aggregate : new String[] {"count($grade)", "sum($grade)"}) {
-      final String query = smallProlog + "for $c in " + smallSource
-          + " let $grade := $c.grade group by $grade order by $grade return {'grade':$grade,'n':" + aggregate + "}";
-      final long before = SirixVectorizedExecutor.groupAggServedCount();
-      assertEquals(aggregate.startsWith("count")
-          ? "{\"grade\":7,\"n\":1}"
-          : "{\"grade\":7,\"n\":7}", run(chain, ctx, query));
-      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
-      final String postLet =
-          query.replace(" order by", " let $n := " + aggregate + " order by").replace("'n':" + aggregate, "'n':$n");
-      assertEquals(run(chain, ctx, query), run(chain, ctx, postLet));
-      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
-    }
-    for (final String key : new String[] {"$c.vf", "substring($c.vf,1,16)"}) {
-      final String query = smallProlog + "for $c in " + smallSource + " let $k := " + key
-          + ", $v := $c.cost * $c.qty group by $k order by $k return {'k':$k,'v':sum($v)}";
-      final long before = SirixVectorizedExecutor.groupAggServedCount();
-      assertEquals(run(chain, ctx, query.replace(smallSource, "(" + smallSource + ")")), run(chain, ctx, query));
-      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "unwired derived string lane declines");
-    }
-    final String positional = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + DB
-        + "','suppliers')[0] where $c.sid eq $s.id"
-        + " let $grade := $c.grade, $v := $c.cost group by $grade let $n := count($v) order by $grade"
-        + " return {'grade':$grade,'n':$n}";
-    final long joined = SirixVectorizedExecutor.joinGroupServedCount();
-    assertEquals(run(chain, ctx, positional.replace(smallSource, "(" + smallSource + ")")),
-        run(chain, ctx, positional));
-    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
-    final String scalarJoin = positional.replace("[0]", "[]").replace("count($v)", "count($grade)");
-    assertEquals("{\"grade\":7,\"n\":1}", run(chain, ctx, scalarJoin));
-    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
-    assertEquals("{\"grade\":7,\"n\":7}", run(chain, ctx, scalarJoin.replace("count($grade)", "sum($grade)")));
-    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
-    for (final int width : new int[] {Long.SIZE, Long.SIZE + 1}) {
-      final StringBuilder bindings = new StringBuilder();
-      final StringBuilder keys = new StringBuilder();
-      final StringBuilder returned = new StringBuilder();
-      for (int key = 0; key < width; key++) {
-        if (key > 0) {
-          bindings.append(',');
-          keys.append(',');
-          returned.append(',');
-        }
-        bindings.append("$k")
-                .append(key)
-                .append(" := ")
-                .append(key == Long.SIZE
-                    ? "$s.region"
-                    : "$c.grade");
-        keys.append("$k").append(key);
-        returned.append('\'')
-                .append(key == 0
-                    ? "grade"
-                    : "k" + key)
-                .append("':$k")
-                .append(key);
-      }
-      final String wide = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + GAP_DB
-          + "','suppliers')[] where $c.qty eq $s.id let " + bindings + " group by " + keys
-          + " let $n := count($c) order by " + keys + " return {" + returned + ",'n':$n}";
-      final long beforeWide = SirixVectorizedExecutor.joinGroupServedCount();
-      final String expected = run(chain, ctx, wide.replace(smallSource, "(" + smallSource + ")"));
-      assertTrue(expected.startsWith("{\"grade\":7,"));
-      assertTrue(expected.endsWith("\"n\":2}"));
-      assertEquals(expected, run(chain, ctx, wide));
-      assertEquals(beforeWide + (width == Long.SIZE
-          ? 1
-          : 0), SirixVectorizedExecutor.joinGroupServedCount(), "joined key-mask width " + width);
-    }
-    final String correction = "for $a in " + source().replace("$T", "xs:dateTime('" + txTimes.get(0) + "')")
-        + " for $b in " + source().replace("$T", "xs:dateTime('" + txTimes.get(4) + "')")
-        + " where $a.id eq $b.id and ($a.cost ne $b.cost or $a.qty ne $b.qty) order by $a.id"
-        + " return {'id':$a.id,'old_cost':$a.cost,'new_cost':$b.cost,'old_qty':$a.qty,'new_qty':$b.qty}";
-    for (final String valid : validTimes) {
-      final String query = prolog(txTimes.get(0), valid) + correction;
-      final String reference =
-          query.replace("in jn:open-bitemporal(", "in (jn:open-bitemporal(").replace(",$P)", ",$P))");
-      final long served = SirixVectorizedExecutor.joinGroupServedCount();
-      assertEquals(run(chain, ctx, reference), run(chain, ctx, query));
-      assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(), "Q4 row join is served");
-    }
+    fieldAggregateRegressions(chain, ctx, smallSource, smallProlog);
+    joinRegressions(chain, ctx, smallSource, smallProlog, txTimes, validTimes);
     for (final String tx : txTimes) {
       for (final String valid : validTimes) {
         final String doc = "jn:open('" + DB + "','" + RES + "',$T)[]";
@@ -819,4 +720,115 @@ final class IndexRoutedGroupAggregateTest {
         .append("\"}");
     return json.toString();
   }
+
+  private static void fieldAggregateRegressions(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final String smallSource, final String smallProlog) throws Exception {
+    final String countSource = "jn:doc('" + DB + "','counts')[]";
+    for (final String aggregate : new String[] {"count($q)", "xs:double(count($q))"}) {
+      for (final boolean postGroup : new boolean[] {false, true}) {
+        final String query = "for $c in " + countSource + " let $g := 1, $q := $c.qty group by $g" + (postGroup
+            ? " let $n := " + aggregate
+            : "") + " return {'n':"
+            + (postGroup
+                ? "$n"
+                : aggregate)
+            + ",'rows':count($c)}";
+        final long before = SirixVectorizedExecutor.constGroupAggServedCount();
+        final String expected = run(chain, ctx, query.replace(countSource, "(" + countSource + ")"));
+        if (aggregate.equals("count($q)")) {
+          assertEquals("{\"n\":1,\"rows\":2}", expected);
+        }
+        assertEquals(before, SirixVectorizedExecutor.constGroupAggServedCount(), "constant reference stays generic");
+        assertEquals(expected, run(chain, ctx, query));
+        assertEquals(before + 1, SirixVectorizedExecutor.constGroupAggServedCount(), "constant field count is served");
+      }
+    }
+    for (final String aggregate : new String[] {"count($grade)", "sum($grade)"}) {
+      final String query = smallProlog + "for $c in " + smallSource
+          + " let $grade := $c.grade group by $grade order by $grade return {'grade':$grade,'n':" + aggregate + "}";
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(aggregate.startsWith("count")
+          ? "{\"grade\":7,\"n\":1}"
+          : "{\"grade\":7,\"n\":7}", run(chain, ctx, query));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
+      final String postLet =
+          query.replace(" order by", " let $n := " + aggregate + " order by").replace("'n':" + aggregate, "'n':$n");
+      assertEquals(run(chain, ctx, query), run(chain, ctx, postLet));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount());
+    }
+    for (final String key : new String[] {"$c.vf", "substring($c.vf,1,16)"}) {
+      final String query = smallProlog + "for $c in " + smallSource + " let $k := " + key
+          + ", $v := $c.cost * $c.qty group by $k order by $k return {'k':$k,'v':sum($v)}";
+      final long before = SirixVectorizedExecutor.groupAggServedCount();
+      assertEquals(run(chain, ctx, query.replace(smallSource, "(" + smallSource + ")")), run(chain, ctx, query));
+      assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(), "unwired derived string lane declines");
+    }
+  }
+
+  private static void joinRegressions(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final String smallSource, final String smallProlog, final List<String> txTimes, final List<String> validTimes)
+      throws Exception {
+    final String positional = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + DB
+        + "','suppliers')[0] where $c.sid eq $s.id"
+        + " let $grade := $c.grade, $v := $c.cost group by $grade let $n := count($v) order by $grade"
+        + " return {'grade':$grade,'n':$n}";
+    final long joined = SirixVectorizedExecutor.joinGroupServedCount();
+    assertEquals(run(chain, ctx, positional.replace(smallSource, "(" + smallSource + ")")),
+        run(chain, ctx, positional));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    final String scalarJoin = positional.replace("[0]", "[]").replace("count($v)", "count($grade)");
+    assertEquals("{\"grade\":7,\"n\":1}", run(chain, ctx, scalarJoin));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    assertEquals("{\"grade\":7,\"n\":7}", run(chain, ctx, scalarJoin.replace("count($grade)", "sum($grade)")));
+    assertEquals(joined, SirixVectorizedExecutor.joinGroupServedCount());
+    for (final int width : new int[] {Long.SIZE, Long.SIZE + 1}) {
+      final StringBuilder bindings = new StringBuilder();
+      final StringBuilder keys = new StringBuilder();
+      final StringBuilder returned = new StringBuilder();
+      for (int key = 0; key < width; key++) {
+        if (key > 0) {
+          bindings.append(',');
+          keys.append(',');
+          returned.append(',');
+        }
+        bindings.append("$k")
+                .append(key)
+                .append(" := ")
+                .append(key == Long.SIZE
+                    ? "$s.region"
+                    : "$c.grade");
+        keys.append("$k").append(key);
+        returned.append('\'')
+                .append(key == 0
+                    ? "grade"
+                    : "k" + key)
+                .append("':$k")
+                .append(key);
+      }
+      final String wide = smallProlog + "for $c in " + smallSource + " for $s in jn:doc('" + GAP_DB
+          + "','suppliers')[] where $c.qty eq $s.id let " + bindings + " group by " + keys
+          + " let $n := count($c) order by " + keys + " return {" + returned + ",'n':$n}";
+      final long beforeWide = SirixVectorizedExecutor.joinGroupServedCount();
+      final String expected = run(chain, ctx, wide.replace(smallSource, "(" + smallSource + ")"));
+      assertTrue(expected.startsWith("{\"grade\":7,"));
+      assertTrue(expected.endsWith("\"n\":2}"));
+      assertEquals(expected, run(chain, ctx, wide));
+      assertEquals(beforeWide + (width == Long.SIZE
+          ? 1
+          : 0), SirixVectorizedExecutor.joinGroupServedCount(), "joined key-mask width " + width);
+    }
+    final String correction = "for $a in " + source().replace("$T", "xs:dateTime('" + txTimes.get(0) + "')")
+        + " for $b in " + source().replace("$T", "xs:dateTime('" + txTimes.get(4) + "')")
+        + " where $a.id eq $b.id and ($a.cost ne $b.cost or $a.qty ne $b.qty) order by $a.id"
+        + " return {'id':$a.id,'old_cost':$a.cost,'new_cost':$b.cost,'old_qty':$a.qty,'new_qty':$b.qty}";
+    for (final String valid : validTimes) {
+      final String query = prolog(txTimes.get(0), valid) + correction;
+      final String reference =
+          query.replace("in jn:open-bitemporal(", "in (jn:open-bitemporal(").replace(",$P)", ",$P))");
+      final long served = SirixVectorizedExecutor.joinGroupServedCount();
+      assertEquals(run(chain, ctx, reference), run(chain, ctx, query));
+      assertEquals(served + 1, SirixVectorizedExecutor.joinGroupServedCount(), "Q4 row join is served");
+    }
+  }
+
 }

@@ -2298,27 +2298,8 @@ public final class ProjectionColumnScan {
    */
   private static int pruneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
       final ColumnSegmentFetcher fetcher) {
-    final int n = store.leafCount();
     if (p.isRecordKeySet()) {
-      final long[] sortedKeys = p.sortedKeys;
-      final ProjectionRecordKeySet.Masks masks = p.keyMasks == null
-          ? store.recordKeyMasks(sortedKeys, fetcher)
-          : p.keyMasks;
-      int dropped = 0;
-      for (int i = 0; i < n; i++) {
-        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
-          continue;
-        }
-        if (!masks.physicalSlots().contains(store.physicalSlot(i))) {
-          keep[i >>> 6] &= ~(1L << (i & 63));
-          dropped++;
-        }
-      }
-      if (DIAG) {
-        System.err.println("[prune] record-key set of " + sortedKeys.length + " keys: dropped=" + dropped + " of " + n);
-      }
-      LEAVES_PRUNED.add(dropped);
-      return dropped;
+      return pruneRecordKeyLeaves(store, p, keep, fetcher);
     }
     final byte kind = store.columnKind(p.column);
     // A segment-scoped EQ/NE arrives resolved to one literal cell per segment; its zone holds packed
@@ -2328,33 +2309,7 @@ public final class ProjectionColumnScan {
     final boolean segmentLiteral =
         ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind) && p.segmentLiteralCells != null;
     if ((zonePrunableKind(kind) || segmentLiteral) && p.stringLitBytes == null) {
-      // The memoized zone mirrors: built once per column from the descriptors, then every predicate
-      // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
-      // descriptor binary search per leaf.
-      final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(p.column);
-      int dropped = 0;
-      int noEvidence = 0;
-      for (int i = 0; i < n; i++) {
-        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
-          continue;
-        }
-        if (!zone.known(i)) {
-          noEvidence++;
-          continue; // no descriptor evidence — keep
-        }
-        final long min = zone.min(i);
-        final long max = zone.max(i);
-        if (min > max || zoneSkip(p, min, max)) {
-          keep[i >>> 6] &= ~(1L << (i & 63));
-          dropped++;
-        }
-      }
-      if (DIAG) {
-        System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
-            + " noEvidence=" + noEvidence);
-      }
-      LEAVES_PRUNED.add(dropped);
-      return dropped;
+      return pruneZoneLeaves(store, p, keep, kind);
     }
     if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
         && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
@@ -3547,6 +3502,62 @@ public final class ProjectionColumnScan {
     } else {
       evalBoolean(slice.boolWords(), stride, p.boolLit, presence, dst);
     }
+  }
+
+  private static int pruneRecordKeyLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
+      final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    final long[] sortedKeys = p.sortedKeys;
+    final ProjectionRecordKeySet.Masks masks = p.keyMasks == null
+        ? store.recordKeyMasks(sortedKeys, fetcher)
+        : p.keyMasks;
+    int dropped = 0;
+    for (int i = 0; i < n; i++) {
+      if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+        continue;
+      }
+      if (!masks.physicalSlots().contains(store.physicalSlot(i))) {
+        keep[i >>> 6] &= ~(1L << (i & 63));
+        dropped++;
+      }
+    }
+    if (DIAG) {
+      System.err.println("[prune] record-key set of " + sortedKeys.length + " keys: dropped=" + dropped + " of " + n);
+    }
+    LEAVES_PRUNED.add(dropped);
+    return dropped;
+  }
+
+  private static int pruneZoneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
+      final byte kind) {
+    final int n = store.leafCount();
+    // The memoized zone mirrors: built once per column from the descriptors, then every predicate
+    // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
+    // descriptor binary search per leaf.
+    final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(p.column);
+    int dropped = 0;
+    int noEvidence = 0;
+    for (int i = 0; i < n; i++) {
+      if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+        continue;
+      }
+      if (!zone.known(i)) {
+        noEvidence++;
+        continue; // no descriptor evidence — keep
+      }
+      final long min = zone.min(i);
+      final long max = zone.max(i);
+      if (min > max || zoneSkip(p, min, max)) {
+        keep[i >>> 6] &= ~(1L << (i & 63));
+        dropped++;
+      }
+    }
+    if (DIAG) {
+      System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
+          + " noEvidence=" + noEvidence);
+    }
+    LEAVES_PRUNED.add(dropped);
+    return dropped;
   }
 
 }

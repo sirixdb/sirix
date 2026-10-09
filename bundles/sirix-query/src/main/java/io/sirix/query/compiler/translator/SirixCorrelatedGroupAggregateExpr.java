@@ -94,7 +94,6 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
         : genericFallback.evaluate(ctx, tuple);
   }
 
-  @SuppressWarnings("ReferenceEquality") // DECLINE is an identity sentinel, not a result value.
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     // Insertion order is outer-major first appearance; the order-by below totally orders the
     // groups, so this order only decides nothing.
@@ -126,32 +125,9 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
             if (!(item instanceof final Object record) || record.len() != innerKeyCount + funcs.length) {
               return decline("served record shape");
             }
-            final Atomic[] key = Arrays.copyOf(outerKeys, outerKeys.length + innerKeyCount);
-            for (int k = 0; k < innerKeyCount; k++) {
-              final Sequence component = record.value(k);
-              if (component == null) {
-                key[outerKeys.length + k] = null;
-              } else if (component instanceof Int64 || component instanceof Int32 || component instanceof Str) {
-                key[outerKeys.length + k] = (Atomic) component;
-              } else {
-                return decline("inner key kind " + component.getClass().getSimpleName());
-              }
-            }
-            final GroupKey groupKey = new GroupKey(key);
-            final Sequence[] existing = groups.get(groupKey);
-            if (existing == null) {
-              final Sequence[] fresh = new Sequence[funcs.length];
-              for (int a = 0; a < funcs.length; a++) {
-                fresh[a] = record.value(innerKeyCount + a);
-              }
-              groups.put(groupKey, fresh);
-            } else {
-              for (int a = 0; a < funcs.length; a++) {
-                existing[a] = merge(funcs[a], existing[a], record.value(innerKeyCount + a));
-                if (existing[a] == DECLINE) {
-                  return decline("aggregate merge of " + funcs[a]);
-                }
-              }
+            final String mergeDecline = mergeRecord(record, outerKeys, funcs, groups);
+            if (mergeDecline != null) {
+              return decline(mergeDecline);
             }
           }
         }
@@ -373,4 +349,38 @@ public final class SirixCorrelatedGroupAggregateExpr implements Expr {
       return true;
     }
   }
+
+  @SuppressWarnings("ReferenceEquality") // DECLINE is an identity sentinel, not a result value.
+  private @Nullable String mergeRecord(final Object record, final Atomic[] outerKeys, final String[] funcs,
+      final Map<GroupKey, Sequence[]> groups) {
+    final Atomic[] key = Arrays.copyOf(outerKeys, outerKeys.length + innerKeyCount);
+    for (int k = 0; k < innerKeyCount; k++) {
+      final Sequence component = record.value(k);
+      if (component == null) {
+        key[outerKeys.length + k] = null;
+      } else if (component instanceof Int64 || component instanceof Int32 || component instanceof Str) {
+        key[outerKeys.length + k] = (Atomic) component;
+      } else {
+        return "inner key kind " + component.getClass().getSimpleName();
+      }
+    }
+    final GroupKey groupKey = new GroupKey(key);
+    final Sequence[] existing = groups.get(groupKey);
+    if (existing == null) {
+      final Sequence[] fresh = new Sequence[funcs.length];
+      for (int a = 0; a < funcs.length; a++) {
+        fresh[a] = record.value(innerKeyCount + a);
+      }
+      groups.put(groupKey, fresh);
+    } else {
+      for (int a = 0; a < funcs.length; a++) {
+        existing[a] = merge(funcs[a], existing[a], record.value(innerKeyCount + a));
+        if (existing[a] == DECLINE) {
+          return "aggregate merge of " + funcs[a];
+        }
+      }
+    }
+    return null;
+  }
+
 }

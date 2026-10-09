@@ -189,22 +189,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       stringKeys[k] = c.isString(keySlots[k]);
     }
-    for (int a = 0; a < aggFields.length; a++) {
-      if (aggSlots[a] >= 0 && !columns[aggSides[a]].isLong(aggSlots[a])) {
-        return decline("aggregate operand " + aggFields[a] + " is not a long column");
-      }
-    }
-    for (int p = 0; p < progSlots.length; p++) {
-      for (final int slot : progSlots[p]) {
-        if (!columns[progSides[p]].isLong(slot)) {
-          return decline("program operand is not a long column");
-        }
-      }
-    }
-    for (int i = 0; i < residualSlots.length; i++) {
-      if (!columns[residualSides[i]].isLong(residualSlots[i])) {
-        return decline("residual operand is not a long column");
-      }
+    final String invalid = invalidOperands(columns);
+    if (invalid != null) {
+      return decline(invalid);
     }
     // Hash the smaller side; string ids of both sides live in the build side's interner.
     final int build = columns[0].rows() <= columns[1].rows()
@@ -286,43 +273,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final Long2IntOpenHashMap firstRow =
         new Long2IntOpenHashMap((int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()));
     firstRow.defaultReturnValue(-1);
-    int[] nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
-    // BUILD: every admitted row with a present join key, chained per key value.
-    for (int leaf = 0; leaf < buildColumns.leafCount(); leaf++) {
-      final long[] mask = buildColumns.rowMask(leaf);
-      if (mask == null) {
-        continue;
-      }
-      for (int w = 0; w < mask.length; w++) {
-        long word = mask[w];
-        final int rowBase = w << 6;
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final int row = rowBase + bit;
-          if (!buildColumns.present(0, leaf, row)) {
-            continue; // a missing join key matches nothing
-          }
-          final long joinKey = buildColumns.longValue(0, leaf, row);
-          final int at = buildRows.add(buildColumns.recordKey(leaf, row));
-          if (at == nextRow.length) {
-            nextRow = Arrays.copyOf(nextRow, nextRow.length << 1);
-          }
-          for (int f = 0; f < buildFieldCount; f++) {
-            final boolean present = buildColumns.present(f, leaf, row);
-            buildRows.present[at * buildFieldCount + f] = present;
-            if (present) {
-              buildRows.values[at * buildFieldCount + f] = buildColumns.isString(f)
-                  ? buildColumns.stringId(f, leaf, row)
-                  : buildColumns.longValue(f, leaf, row);
-            }
-          }
-          final int head = firstRow.get(joinKey);
-          nextRow[at] = head;
-          firstRow.put(joinKey, at);
-        }
-      }
-    }
+    final int[] nextRow = build(buildColumns, buildFieldCount, buildRows, firstRow);
     // PROBE: every admitted row, every matching build row, one pair folded into its group.
     final int keyCount = keyFields.length;
     final int aggCount = aggFuncs.length;
@@ -367,123 +318,19 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           if (at < 0) {
             continue;
           }
-          for (int f = 0; f < probeFieldCount; f++) {
-            probePresent[f] = probeColumns.present(f, leaf, row);
-            if (probePresent[f]) {
-              probeValues[f] = probeColumns.isString(f)
-                  ? probeColumns.sharedStringId(f, leaf, row)
-                  : probeColumns.longValue(f, leaf, row);
-            }
-          }
+          readProbeRow(probeColumns, leaf, row, probeFieldCount, probeValues, probePresent);
           for (; at >= 0; at = nextRow[at]) {
             if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack)) {
               continue;
             }
             if (rowOrdering != null) {
-              final Sequence[] values = new Sequence[keyCount];
-              for (int k = 0; k < keyCount; k++) {
-                final boolean fromBuild = keySides[k] == buildSide;
-                final int cell = at * buildFieldCount + keySlots[k];
-                final boolean present = fromBuild
-                    ? buildRows.present[cell]
-                    : probePresent[keySlots[k]];
-                if (present) {
-                  final long value = fromBuild
-                      ? buildRows.values[cell]
-                      : probeValues[keySlots[k]];
-                  values[k] = stringKeys[k]
-                      ? new Str(buildColumns.string((int) value))
-                      : new Int64(value);
-                }
-              }
-              final Sequence[] orderKeys = new Sequence[orderIndexes.length + 2];
-              for (int k = 0; k < orderIndexes.length; k++) {
-                orderKeys[k] = values[orderIndexes[k]];
-              }
-              orderKeys[orderIndexes.length + buildSide] = new Int64(buildRows.recordKeys[at]);
-              orderKeys[orderIndexes.length + probeSide] = new Int64(probeColumns.recordKey(leaf, row));
-              rowOrdering.add(orderKeys, new TupleImpl(new ArrayObject(outputNames, values)));
+              emitRow(keyCount, buildSide, probeSide, buildFieldCount, buildRows, at, probeValues, probePresent,
+                  stringKeys, buildColumns, probeColumns, leaf, row, rowOrdering);
               emittedRows++;
               continue;
             }
-            // The group key of this pair.
-            long missing = 0L;
-            for (int k = 0; k < keyCount; k++) {
-              final boolean fromBuild = keySides[k] == buildSide;
-              final int slot = keySlots[k];
-              final boolean present = fromBuild
-                  ? buildRows.present[at * buildFieldCount + slot]
-                  : probePresent[slot];
-              if (!present) {
-                missing |= 1L << k;
-                keyComponents[k] = 0L;
-              } else {
-                keyComponents[k] = fromBuild
-                    ? buildRows.values[at * buildFieldCount + slot]
-                    : probeValues[slot];
-              }
-            }
-            keyComponents[keyCount] = missing;
-            probeKey.rehash();
-            long[] acc = groups.get(probeKey);
-            if (acc == null) {
-              acc = new long[accWidth];
-              for (int a = 0; a < aggCount; a++) {
-                acc[1 + 4 * a + 2] = Long.MAX_VALUE;
-                acc[1 + 4 * a + 3] = Long.MIN_VALUE;
-              }
-              groups.put(new GroupKey(keyComponents.clone()), acc);
-            }
-            acc[0]++;
-            for (int a = 0; a < aggCount; a++) {
-              final int base = 1 + 4 * a;
-              final String field = aggFields[a];
-              if (field == null) {
-                continue; // a pair count reads acc[0]
-              }
-              final boolean fromBuild = aggSides[a] == buildSide;
-              final long v;
-              if (field.startsWith(COMPUTED_PREFIX)) {
-                final int program = Integer.parseInt(field.substring(COMPUTED_PREFIX.length()));
-                boolean allPresent = true;
-                for (int o = 0; o < progSlots[program].length; o++) {
-                  final int slot = progSlots[program][o];
-                  final boolean present = fromBuild
-                      ? buildRows.present[at * buildFieldCount + slot]
-                      : probePresent[slot];
-                  if (!present) {
-                    allPresent = false;
-                    break;
-                  }
-                  operands[o] = fromBuild
-                      ? buildRows.values[at * buildFieldCount + slot]
-                      : probeValues[slot];
-                }
-                if (!allPresent) {
-                  continue;
-                }
-                v = ProjectionComputedColumn.run(progCode[program], progConsts[program], operands, stack);
-              } else {
-                final int slot = aggSlots[a];
-                final boolean present = fromBuild
-                    ? buildRows.present[at * buildFieldCount + slot]
-                    : probePresent[slot];
-                if (!present) {
-                  continue;
-                }
-                v = fromBuild
-                    ? buildRows.values[at * buildFieldCount + slot]
-                    : probeValues[slot];
-              }
-              acc[base]++;
-              acc[base + 1] = Math.addExact(acc[base + 1], v);
-              if (v < acc[base + 2]) {
-                acc[base + 2] = v;
-              }
-              if (v > acc[base + 3]) {
-                acc[base + 3] = v;
-              }
-            }
+            foldPair(keyCount, aggCount, accWidth, buildSide, buildFieldCount, buildRows, at, probeValues, probePresent,
+                keyComponents, probeKey, groups, operands, stack);
           }
         }
       }
@@ -642,4 +489,211 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       return other instanceof GroupKey that && Arrays.equals(components, that.components);
     }
   }
+
+  private static int[] build(final MaskedColumns buildColumns, final int buildFieldCount, final BuildRows buildRows,
+      final Long2IntOpenHashMap firstRow) {
+    int[] nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
+    // BUILD: every admitted row with a present join key, chained per key value.
+    for (int leaf = 0; leaf < buildColumns.leafCount(); leaf++) {
+      final long[] mask = buildColumns.rowMask(leaf);
+      if (mask == null) {
+        continue;
+      }
+      for (int w = 0; w < mask.length; w++) {
+        long word = mask[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int row = rowBase + bit;
+          if (!buildColumns.present(0, leaf, row)) {
+            continue; // a missing join key matches nothing
+          }
+          final long joinKey = buildColumns.longValue(0, leaf, row);
+          final int at = buildRows.add(buildColumns.recordKey(leaf, row));
+          if (at == nextRow.length) {
+            nextRow = Arrays.copyOf(nextRow, nextRow.length << 1);
+          }
+          for (int f = 0; f < buildFieldCount; f++) {
+            final boolean present = buildColumns.present(f, leaf, row);
+            buildRows.present[at * buildFieldCount + f] = present;
+            if (present) {
+              buildRows.values[at * buildFieldCount + f] = buildColumns.isString(f)
+                  ? buildColumns.stringId(f, leaf, row)
+                  : buildColumns.longValue(f, leaf, row);
+            }
+          }
+          final int head = firstRow.get(joinKey);
+          nextRow[at] = head;
+          firstRow.put(joinKey, at);
+        }
+      }
+    }
+    return nextRow;
+  }
+
+  private static void readProbeRow(final MaskedColumns probeColumns, final int leaf, final int row,
+      final int probeFieldCount, final long[] probeValues, final boolean[] probePresent) {
+    for (int f = 0; f < probeFieldCount; f++) {
+      probePresent[f] = probeColumns.present(f, leaf, row);
+      if (probePresent[f]) {
+        probeValues[f] = probeColumns.isString(f)
+            ? probeColumns.sharedStringId(f, leaf, row)
+            : probeColumns.longValue(f, leaf, row);
+      }
+    }
+  }
+
+  private void emitRow(final int keyCount, final int buildSide, final int probeSide, final int buildFieldCount,
+      final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] probePresent,
+      final boolean[] stringKeys, final MaskedColumns buildColumns, final MaskedColumns probeColumns, final int leaf,
+      final int row, final Ordering rowOrdering) {
+    final Sequence[] values = new Sequence[keyCount];
+    for (int k = 0; k < keyCount; k++) {
+      final boolean fromBuild = keySides[k] == buildSide;
+      final int cell = at * buildFieldCount + keySlots[k];
+      final boolean present = fromBuild
+          ? buildRows.present[cell]
+          : probePresent[keySlots[k]];
+      if (present) {
+        final long value = fromBuild
+            ? buildRows.values[cell]
+            : probeValues[keySlots[k]];
+        values[k] = stringKeys[k]
+            ? new Str(buildColumns.string((int) value))
+            : new Int64(value);
+      }
+    }
+    final Sequence[] orderKeys = new Sequence[orderIndexes.length + 2];
+    for (int k = 0; k < orderIndexes.length; k++) {
+      orderKeys[k] = values[orderIndexes[k]];
+    }
+    orderKeys[orderIndexes.length + buildSide] = new Int64(buildRows.recordKeys[at]);
+    orderKeys[orderIndexes.length + probeSide] = new Int64(probeColumns.recordKey(leaf, row));
+    rowOrdering.add(orderKeys, new TupleImpl(new ArrayObject(outputNames, values)));
+  }
+
+  private void foldPair(final int keyCount, final int aggCount, final int accWidth, final int buildSide,
+      final int buildFieldCount, final BuildRows buildRows, final int at, final long[] probeValues,
+      final boolean[] probePresent, final long[] keyComponents, final GroupKey probeKey,
+      final Map<GroupKey, long[]> groups, final long[] operands, final long[] stack) {
+    // The group key of this pair.
+    pairKey(keyCount, buildSide, buildFieldCount, buildRows, at, probeValues, probePresent, keyComponents);
+    probeKey.rehash();
+    long[] acc = groups.get(probeKey);
+    if (acc == null) {
+      acc = new long[accWidth];
+      for (int a = 0; a < aggCount; a++) {
+        acc[1 + 4 * a + 2] = Long.MAX_VALUE;
+        acc[1 + 4 * a + 3] = Long.MIN_VALUE;
+      }
+      groups.put(new GroupKey(keyComponents.clone()), acc);
+    }
+    acc[0]++;
+    foldAggregates(aggCount, buildSide, buildFieldCount, buildRows, at, probeValues, probePresent, acc, operands,
+        stack);
+  }
+
+  private void pairKey(final int keyCount, final int buildSide, final int buildFieldCount, final BuildRows buildRows,
+      final int at, final long[] probeValues, final boolean[] probePresent, final long[] keyComponents) {
+    long missing = 0L;
+    for (int k = 0; k < keyCount; k++) {
+      final boolean fromBuild = keySides[k] == buildSide;
+      final int slot = keySlots[k];
+      final boolean present = fromBuild
+          ? buildRows.present[at * buildFieldCount + slot]
+          : probePresent[slot];
+      if (!present) {
+        missing |= 1L << k;
+        keyComponents[k] = 0L;
+      } else {
+        keyComponents[k] = fromBuild
+            ? buildRows.values[at * buildFieldCount + slot]
+            : probeValues[slot];
+      }
+    }
+    keyComponents[keyCount] = missing;
+  }
+
+  private void foldAggregates(final int aggCount, final int buildSide, final int buildFieldCount,
+      final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] probePresent, final long[] acc,
+      final long[] operands, final long[] stack) {
+    for (int a = 0; a < aggCount; a++) {
+      final int base = 1 + 4 * a;
+      final String field = aggFields[a];
+      if (field == null) {
+        continue; // a pair count reads acc[0]
+      }
+      final boolean fromBuild = aggSides[a] == buildSide;
+      final long v;
+      if (field.startsWith(COMPUTED_PREFIX)) {
+        final int program = Integer.parseInt(field.substring(COMPUTED_PREFIX.length()));
+        if (!programOperands(program, fromBuild, buildFieldCount, buildRows, at, probeValues, probePresent, operands)) {
+          continue;
+        }
+        v = ProjectionComputedColumn.run(progCode[program], progConsts[program], operands, stack);
+      } else {
+        final int slot = aggSlots[a];
+        final boolean present = fromBuild
+            ? buildRows.present[at * buildFieldCount + slot]
+            : probePresent[slot];
+        if (!present) {
+          continue;
+        }
+        v = fromBuild
+            ? buildRows.values[at * buildFieldCount + slot]
+            : probeValues[slot];
+      }
+      acc[base]++;
+      acc[base + 1] = Math.addExact(acc[base + 1], v);
+      if (v < acc[base + 2]) {
+        acc[base + 2] = v;
+      }
+      if (v > acc[base + 3]) {
+        acc[base + 3] = v;
+      }
+    }
+  }
+
+  private boolean programOperands(final int program, final boolean fromBuild, final int buildFieldCount,
+      final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] probePresent,
+      final long[] operands) {
+    boolean allPresent = true;
+    for (int o = 0; o < progSlots[program].length; o++) {
+      final int slot = progSlots[program][o];
+      final boolean present = fromBuild
+          ? buildRows.present[at * buildFieldCount + slot]
+          : probePresent[slot];
+      if (!present) {
+        allPresent = false;
+        break;
+      }
+      operands[o] = fromBuild
+          ? buildRows.values[at * buildFieldCount + slot]
+          : probeValues[slot];
+    }
+    return allPresent;
+  }
+
+  private @Nullable String invalidOperands(final MaskedColumns[] columns) {
+    for (int a = 0; a < aggFields.length; a++) {
+      if (aggSlots[a] >= 0 && !columns[aggSides[a]].isLong(aggSlots[a])) {
+        return "aggregate operand " + aggFields[a] + " is not a long column";
+      }
+    }
+    for (int p = 0; p < progSlots.length; p++) {
+      for (final int slot : progSlots[p]) {
+        if (!columns[progSides[p]].isLong(slot)) {
+          return "program operand is not a long column";
+        }
+      }
+    }
+    for (int i = 0; i < residualSlots.length; i++) {
+      if (!columns[residualSides[i]].isLong(residualSlots[i])) {
+        return "residual operand is not a long column";
+      }
+    }
+    return null;
+  }
+
 }

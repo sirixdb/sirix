@@ -2854,14 +2854,7 @@ public final class ProjectionColumnStore {
         continue;
       }
       counted[col] = true;
-      final long priced;
-      if (col == identityColumn) {
-        priced = columnIdentityFilled(col)
-            ? 0L
-            : incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
-      } else {
-        priced = incrementalFillBytes(col, projectedColumnFillBytes(col));
-      }
+      final long priced = incrementalRouteFillBytes(col, identityColumn);
       needed += priced;
       if (diag != null) {
         diag.append(" col=")
@@ -2873,16 +2866,7 @@ public final class ProjectionColumnStore {
             .append("MB");
       }
     }
-    int[] stored = columns;
-    if (storedColumns != columns.length) {
-      stored = new int[storedColumns];
-      int at = 0;
-      for (final int col : columns) {
-        if (col != KEYS_COLUMN) {
-          stored[at++] = col;
-        }
-      }
-    }
+    final int[] stored = storedColumns(columns, storedColumns);
     final boolean fits = fitsMakingRoom(needed, stored, keysPriced);
     if (diag != null && !fits) {
       System.err.println("[store] combined fit REFUSED: needed=" + (needed >> 20) + "MB retained="
@@ -4389,18 +4373,7 @@ public final class ProjectionColumnStore {
       counted[col] = true;
       needed += incrementalFillBytes(col, projectedColumnFillBytes(col));
     }
-    final int[] stored;
-    if (storedColumns == columns.length) {
-      stored = columns;
-    } else {
-      stored = new int[storedColumns];
-      int at = 0;
-      for (final int col : columns) {
-        if (col != KEYS_COLUMN) {
-          stored[at++] = col;
-        }
-      }
-    }
+    final int[] stored = storedColumns(columns, storedColumns);
     if (resident && keysNeeded && recordKeySlices == null) {
       needed += projectedRecordKeysFillBytes();
     }
@@ -4913,6 +4886,29 @@ public final class ProjectionColumnStore {
       }
       return decoded[leaf - from];
     }
+  }
+
+  private static int[] storedColumns(final int[] columns, final int storedColumns) {
+    int[] stored = columns;
+    if (storedColumns != columns.length) {
+      stored = new int[storedColumns];
+      int at = 0;
+      for (final int col : columns) {
+        if (col != KEYS_COLUMN) {
+          stored[at++] = col;
+        }
+      }
+    }
+    return stored;
+  }
+
+  private long incrementalRouteFillBytes(final int col, final int identityColumn) {
+    if (col == identityColumn) {
+      return columnIdentityFilled(col)
+          ? 0L
+          : incrementalFillBytes(col, projectedColumnIdentityFillBytes(col));
+    }
+    return incrementalFillBytes(col, projectedColumnFillBytes(col));
   }
 
 }
