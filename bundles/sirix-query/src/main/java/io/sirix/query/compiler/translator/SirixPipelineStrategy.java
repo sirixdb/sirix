@@ -9,6 +9,7 @@ import io.brackit.query.expr.PipeExpr;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.operator.HashMembershipJoin;
 import java.util.List;
+import java.util.Objects;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.translator.Compiler;
@@ -347,7 +348,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    * The outer prefix (the outer loop and its selections) compiles as operators; while its variables
    * are bound, the outer key expressions and the inner opener's instants compile in that scope.
    */
-  private Expr correlated(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
+  private @Nullable Expr correlated(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
       final Expr generic) throws QueryException {
     final AST innerPipe = (AST) node.getProperty(CorrelatedGroupAggregateDetectionStage.INNER_PIPE);
     final AST[] outerKeyAsts = (AST[]) node.getProperty(CorrelatedGroupAggregateDetectionStage.OUTER_KEY_EXPRS);
@@ -366,7 +367,6 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final RoutedGroupRequest inner = routedGroupRequest(innerPipe);
     final String database = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_DATABASE);
     final String resource = (String) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_RESOURCE);
-    final AST txTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
     final AST validTime = (AST) innerPipe.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
     if (inner == null || database == null || resource == null || validTime == null) {
       return null;
@@ -385,16 +385,14 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     }
     // The outer prefix: the chain up to (excluding) the inner loop, ended with a bare End.
     final AST prefix = node.getChild(0).copyTree();
-    AST parent = prefix;
     AST current = prefix.getLastChild(); // the outer ForBind
     while (current != null && current.getType() != XQ.ForBind) {
-      parent = current;
       current = current.getLastChild();
     }
     if (current == null) {
       return null;
     }
-    parent = current;
+    AST parent = current;
     current = current.getLastChild();
     while (current != null && current.getType() == XQ.Selection) {
       parent = current;
@@ -412,7 +410,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       for (int k = 0; k < outerKeyAsts.length; k++) {
         outerKeyExprs[k] = translator.routedInstant(outerKeyAsts[k]);
       }
-      routed = routedSource(innerPipe, compiler);
+      routed = Objects.requireNonNull(routedSource(innerPipe, compiler),
+          "correlated grouping requires an admitted routed source");
     } finally {
       translator.unbindTo(initialBindings);
     }
@@ -421,7 +420,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** The joined serving expression, or {@code null} when the annotations are not this strategy's. */
-  private static Expr joined(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
+  private static @Nullable Expr joined(final AST node, final Compiler compiler, final SirixExecutorProvider executor,
       final Expr generic) throws QueryException {
     final String[] databases = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_DATABASES);
     final String[] resources = (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.SIDE_RESOURCES);
@@ -489,7 +488,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   /** The {@code ObjectConstructor} of a pipe's return, or {@code null}. */
-  private static AST returnRecord(final AST pipe) {
+  private static @Nullable AST returnRecord(final AST pipe) {
     AST end = pipe.getChild(0);
     while (end != null && end.getType() != XQ.End) {
       end = end.getLastChild();
@@ -504,7 +503,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    * The executor-side request an annotated plain pipe describes, or {@code null} when the annotations
    * are not this strategy's or the shape carries what the correlated route declines.
    */
-  private static RoutedGroupRequest routedGroupRequest(final AST pipe) {
+  private static @Nullable RoutedGroupRequest routedGroupRequest(final AST pipe) {
     final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
     final String[] groupFields = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_GROUP_FIELDS);
     final String[] keyNames = (String[]) pipe.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_NAMES);
@@ -543,7 +542,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final AST txTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_TX_TIME);
     final AST validTime = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_VALID_TIME);
     final AST indexed = (AST) node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE_EXPR);
-    if (database == null || resource == null || txTime == null && indexed == null || validTime == null
+    if (database == null || resource == null || (txTime == null && indexed == null) || validTime == null
         || !(compiler instanceof SirixTranslator translator)) {
       return null;
     }

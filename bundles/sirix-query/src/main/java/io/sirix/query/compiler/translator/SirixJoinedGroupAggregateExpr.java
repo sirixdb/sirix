@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Serving of the COLUMN-SIDE equality join with a grouped aggregate (see
@@ -136,8 +137,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           : slot(rosters.get(aggSides[a]), aggFields[a]);
     }
     this.residualSlots = new int[this.residualSides.length];
-    for (int i = 0; i < residualSlots.length; i++) {
-      residualSlots[i] = slot(rosters.get(this.residualSides[i]), residualFields[i]);
+    if (residualSlots.length != 0) {
+      final String[] fields = Objects.requireNonNull(residualFields, "residual operands require field names");
+      for (int i = 0; i < residualSlots.length; i++) {
+        residualSlots[i] = slot(rosters.get(this.residualSides[i]), fields[i]);
+      }
     }
     this.sideFields = new String[][] {rosters.get(0).toArray(new String[0]), rosters.get(1).toArray(new String[0])};
   }
@@ -329,13 +333,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long[] operands = new long[8];
     final long[] stack = new long[64];
     final Map<GroupKey, long[]> groups = rowOutput
-        ? null
+        ? Map.of()
         : new LinkedHashMap<>();
-    final Ordering.OrderModifier[] rowModifiers = rowOutput
-        ? Arrays.copyOf(orderModifiers, orderModifiers.length + 2)
-        : null;
     final Ordering rowOrdering;
     if (rowOutput) {
+      final Ordering.OrderModifier[] rowModifiers = Arrays.copyOf(orderModifiers, orderModifiers.length + 2);
       rowModifiers[orderModifiers.length] = new Ordering.OrderModifier(true, true, null);
       rowModifiers[orderModifiers.length + 1] = new Ordering.OrderModifier(true, true, null);
       rowOrdering = new Ordering(new Expr[0], rowModifiers);
@@ -377,7 +379,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack)) {
               continue;
             }
-            if (rowOutput) {
+            if (rowOrdering != null) {
               final Sequence[] values = new Sequence[keyCount];
               for (int k = 0; k < keyCount; k++) {
                 final boolean fromBuild = keySides[k] == buildSide;
@@ -487,7 +489,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     SirixVectorizedExecutor.noteJoinGroupServed();
-    return rowOutput
+    return rowOrdering != null
         ? ordered(rowOrdering, emittedRows)
         : emit(groups, buildColumns, stringKeys);
   }

@@ -4,6 +4,7 @@ import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.compiler.XQ;
 
 import java.util.ArrayList;
@@ -154,7 +155,7 @@ public final class ComputedProgram {
   }
 
   /** {@code $loopVar.field} direct deref → field local name, else {@code null}. */
-  static String loopVarDerefField(final AST expr, final QNm loopVar) {
+  static @Nullable String loopVarDerefField(final AST expr, final QNm loopVar) {
     if (expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
       return null;
     }

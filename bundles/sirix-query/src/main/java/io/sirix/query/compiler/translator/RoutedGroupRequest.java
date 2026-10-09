@@ -6,6 +6,7 @@ import io.brackit.query.Tuple;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
+import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
@@ -19,6 +20,7 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * The executor-side description of one grouped aggregate over an index-routed source — the
@@ -68,7 +70,9 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
           ? null
           : new RoutedRows(rows.keys(), rows.revision());
     }
-    final Item txItem = routed.txTime().evaluateToItem(ctx, tuple);
+    final Expr txTimeExpr =
+        Objects.requireNonNull(routed.txTime(), "a non-indexed routed source requires transaction time");
+    final Item txItem = txTimeExpr.evaluateToItem(ctx, tuple);
     final Item validItem = routed.validTime().evaluateToItem(ctx, tuple);
     if (!(txItem instanceof DateTime txTime) || !(validItem instanceof DateTime validTime)) {
       diag("instants are not dateTimes");

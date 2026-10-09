@@ -5,6 +5,7 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.Stage;
@@ -1227,8 +1228,8 @@ public final class GroupAggregateDetectionStage implements Stage {
    * {@code HashMembershipStage.FIELD} property. The opener's instants are evaluated at the pipeline's
    * entry, so they must not read the loop var or a leading let.
    */
-  private static MembershipFilter membershipFilter(final AST node, final QNm loopVar, final List<QNm> leadingLetVars,
-      final List<AST> leadingLetExprs) {
+  private static @Nullable MembershipFilter membershipFilter(final AST node, final QNm loopVar,
+      final List<QNm> leadingLetVars, final List<AST> leadingLetExprs) {
     if (node.getChildCount() < 3) {
       return null;
     }
@@ -1265,7 +1266,7 @@ public final class GroupAggregateDetectionStage implements Stage {
         node.checkProperty(HashMembershipStage.ANTI));
   }
 
-  private static String stringLiteral(final AST node) {
+  private static @Nullable String stringLiteral(final AST node) {
     if (node == null || node.getType() != XQ.Str) {
       return null;
     }
@@ -1559,7 +1560,7 @@ public final class GroupAggregateDetectionStage implements Stage {
    *
    * @return the aggregate, or {@code null} when the expression is not servable
    */
-  private static Agg aggregateCall(final AST call, final QNm loopVar, final List<PreGroupLet> lets) {
+  private static @Nullable Agg aggregateCall(final AST call, final QNm loopVar, final List<PreGroupLet> lets) {
     if (call == null || call.getType() != XQ.FunctionCall || call.getChildCount() != 1
         || !(call.getValue() instanceof QNm fn)) {
       return null;
@@ -1893,7 +1894,7 @@ public final class GroupAggregateDetectionStage implements Stage {
   }
 
   /** The field name a single deref step selects, or {@code null} when it is not a literal key. */
-  private static String derefStepName(final AST deref) {
+  private static @Nullable String derefStepName(final AST deref) {
     final AST selector = deref.getChild(deref.getChildCount() - 1);
     if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
       return null;

@@ -399,8 +399,10 @@ final class IndexRoutedGroupWorkBudgetTest {
       doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
       // Static mocks are caller-thread scoped; bind the probe to worker accesses as well.
       doAnswer(invocation -> columns.windowedLeafAccess(observedFetcher, invocation.getArgument(1),
-          invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4)))
-              .when(observedColumns).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
+          invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4))).when(observedColumns)
+                                                                                           .windowedLeafAccess(any(),
+                                                                                               any(), anyInt(),
+                                                                                               anyInt(), anyBoolean());
       final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
           + "xs:dateTime('2024-06-01T00:00:00Z'))";
       final String query = "for $c in " + source + " let $grade := $c.grade group by $grade"
@@ -425,8 +427,8 @@ final class IndexRoutedGroupWorkBudgetTest {
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "a budget refusal is an ordinary decline");
           final WorkCapture.Captured<String> fallback = WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
-                                                                 .and(QueryWorkCounters.GROUP_AGGREGATES)
-                                                                 .call(() -> run(chain, ctx, query));
+                                                                   .and(QueryWorkCounters.GROUP_AGGREGATES)
+                                                                   .call(() -> run(chain, ctx, query));
           assertEquals(expected, fallback.result(), "generic fallback preserves the query result");
           fallback.work()
                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the compiled request declines")
@@ -474,7 +476,8 @@ final class IndexRoutedGroupWorkBudgetTest {
                          .call(() -> group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
           assertNull(result.result());
           result.work()
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the resident fill refusal declines once")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1,
+                    "the resident fill refusal declines once")
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
           verify(refusing).columnMaskedView(anyInt(), any(), any());
@@ -564,8 +567,8 @@ final class IndexRoutedGroupWorkBudgetTest {
       final AtomicInteger requests) {
     for (int i = from; i < to; i++) {
       final byte[] segment = segments[i];
-      if (segment != null && segment[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES - 1]
-          == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
+      if (segment != null && segment[ProjectionIndexColumnSegmentCodec.SEGMENT_HEADER_BYTES
+          - 1] == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
         requests.incrementAndGet();
       }
     }

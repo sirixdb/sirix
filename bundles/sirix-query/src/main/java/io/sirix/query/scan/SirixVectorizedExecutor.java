@@ -16013,8 +16013,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       // A derived lane exists only as resident slices: the windowed and whole-leaf arms read their
       // operands by column index and would fold the proxy column instead.
-      if (anyDerivedLane && (!slicedFits || windowedSlices || wholeLeafOnly || keyCount == 1 && !numericSingleKey
-          || keySubstrEff != null && keySubstrEff[0] < 0)) {
+      if (anyDerivedLane && (!slicedFits || windowedSlices || wholeLeafOnly || (keyCount == 1 && !numericSingleKey)
+          || (keySubstrEff != null && keySubstrEff[0] < 0))) {
         return declineGroupAgg("computed aggregate lanes need the resident sliced arm");
       }
       final long[] groupKeep = groupSliced
@@ -16156,8 +16156,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final boolean deferrableTransformArm = anyKeyTransform && !packedStringKey;
       // Under routing a plain composite key defers its order the same way: the composite flat arm is
       // the one sliced arm for several keys, and the legacy multi-key arm would hydrate every leaf.
-      final boolean orderDeferred = resolvedPlan == null && (deferrableTransformArm || routing != null && keyCount > 1)
-          && limit < 1 && orderIndexes != null;
+      final boolean orderDeferred = resolvedPlan == null
+          && (deferrableTransformArm || (routing != null && keyCount > 1)) && limit < 1 && orderIndexes != null;
       if (orderDeferred) {
         resolvedPlan = GroupOrderPlan.ordinalOnly();
       }

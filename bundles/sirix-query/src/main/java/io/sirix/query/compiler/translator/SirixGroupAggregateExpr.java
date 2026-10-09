@@ -28,6 +28,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Projection-served PER-GROUP AGGREGATE expression (P5b stage 7a): attempts
@@ -58,10 +59,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] aggFields;
   private final String[] outNames;
   /** Emitted-entry index per order-by spec, or {@code null} when the pipeline had no order by. */
-  private final int[] orderIndexes;
-  private final boolean[] orderAsc;
-  private final boolean[] orderEmptyLeast;
-  private final Ordering.OrderModifier[] orderModifiers;
+  private final int @Nullable [] orderIndexes;
+  private final boolean @Nullable [] orderAsc;
+  private final boolean @Nullable [] orderEmptyLeast;
+  private final Ordering.OrderModifier @Nullable [] orderModifiers;
   /**
    * Sole-consumer {@code fn:subsequence} cap over the ORDERED groups ({@code start+length-1}), or
    * {@code -1}: with a cap the executor may heap-select the first {@code limit} groups of the stable
@@ -119,7 +120,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     }
 
     public RoutedSource {
-      if (database == null || resource == null || txTime == null && indexed == null || validTime == null) {
+      if (database == null || resource == null || (txTime == null && indexed == null) || validTime == null) {
         throw new IllegalArgumentException("a routed source names its document and both instants");
       }
     }
@@ -204,8 +205,9 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    final SirixVectorizedExecutor.ServedGroups served = routedSource != null
-        ? serveRouted(ctx, tuple)
+    final RoutedSource routed = routedSource;
+    final SirixVectorizedExecutor.ServedGroups served = routed != null
+        ? serveRouted(ctx, tuple, routed)
         : serveScan(ctx);
     if (served != null) {
       if (orderIndexes == null || served.ordered()) {
@@ -246,9 +248,8 @@ public final class SirixGroupAggregateExpr implements Expr {
    * another revision, an index that cannot serve the point — declines to the generic pipeline, which
    * evaluates the very same opener and raises whatever it raises.
    */
-  private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple)
-      throws QueryException {
-    final RoutedSource routed = routedSource;
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple,
+      final RoutedSource routed) throws QueryException {
     RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed);
     if (rows == null) {
       return null;
@@ -284,20 +285,23 @@ public final class SirixGroupAggregateExpr implements Expr {
    *
    * @return the ordered sequence, or {@code null} when the groups cannot be ordered here
    */
-  private Sequence sort(final Sequence served) {
+  private @Nullable Sequence sort(final Sequence served) {
+    final int[] indexes = Objects.requireNonNull(orderIndexes, "sorting requires order indexes");
+    final Ordering.OrderModifier[] modifiers =
+        Objects.requireNonNull(orderModifiers, "sorting requires order modifiers");
     try {
-      final Ordering ordering = new Ordering(new Expr[0], orderModifiers);
+      final Ordering ordering = new Ordering(new Expr[0], modifiers);
       int count = 0;
       try (final Iter iter = served.iterate()) {
         for (Item item = iter.next(); item != null; item = iter.next()) {
           if (!(item instanceof final Object record)) {
             return null; // not the record shape the annotation described
           }
-          final Sequence[] keys = new Sequence[orderIndexes.length];
-          for (int i = 0; i < orderIndexes.length; i++) {
+          final Sequence[] keys = new Sequence[indexes.length];
+          for (int i = 0; i < indexes.length; i++) {
             // Mirrors Ordering#sortKeys: atomize, and cast untyped to string, so a key
             // reaching the comparator is exactly what the interpreter would have handed it.
-            final Sequence value = record.value(orderIndexes[i]);
+            final Sequence value = record.value(indexes[i]);
             if (value == null) {
               keys[i] = null;
               continue;
