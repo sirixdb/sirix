@@ -299,7 +299,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
     final long nodeKey = mint();
     noteUnnamedStructured(nodeKey, parentKey);
     if (indexTuples != null) {
-      indexTuples.onPathEntry(arrayPcr, nodeKey);
+      indexTuples.onPathEntry(arrayPcr, nodeKey, NodeKind.ARRAY);
     }
     final KeyValueLeafPage kvl = currentPage;
     final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(scratchArrayNode.estimateSerializedSize(), 0);
@@ -324,7 +324,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedObject(pathNodeKey);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_OBJECT);
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
     final KeyValueLeafPage kvl = currentPage;
@@ -350,7 +350,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedArray(pathNodeKey, nodeKey);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_ARRAY);
       indexTuples.onNamedArrayMirrorCandidate(pathNodeKey, nodeKey);
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
@@ -404,7 +404,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedString(pathNodeKey, utf8, utf8Length);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_STRING);
       indexTuples.onNameEntry(nameKey, nodeKey);
       indexTuples.onCasString(pathNodeKey, nodeKey, utf8, utf8Length);
     }
@@ -501,7 +501,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedNumber(pathNodeKey, value);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_NUMBER);
       indexTuples.onNameEntry(nameKey, nodeKey);
       indexTuples.onCasNumber(pathNodeKey, nodeKey, value);
     }
@@ -529,7 +529,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedInt(pathNodeKey, value);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_NUMBER);
       indexTuples.onNameEntry(nameKey, nodeKey);
       indexTuples.onCasInt(pathNodeKey, nodeKey, value);
     }
@@ -557,7 +557,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedLong(pathNodeKey, value);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_NUMBER);
       indexTuples.onNameEntry(nameKey, nodeKey);
       indexTuples.onCasLong(pathNodeKey, nodeKey, value);
     }
@@ -607,7 +607,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedBoolean(pathNodeKey, value);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_BOOLEAN);
       indexTuples.onNameEntry(nameKey, nodeKey);
       indexTuples.onCasBoolean(pathNodeKey, nodeKey, value);
     }
@@ -652,7 +652,7 @@ final class WorkerPageBuilder implements BulkRecordSink {
       batch.onNamedNull(pathNodeKey);
     }
     if (indexTuples != null) {
-      indexTuples.onPathEntry(pathNodeKey, nodeKey);
+      indexTuples.onPathEntry(pathNodeKey, nodeKey, NodeKind.OBJECT_NAMED_NULL);
       indexTuples.onNameEntry(nameKey, nodeKey);
     }
     final KeyValueLeafPage kvl = currentPage;

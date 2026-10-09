@@ -3,6 +3,8 @@ package io.sirix.query.compiler.optimizer.walker.json;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.json.JsonDBStore;
 import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Str;
+import io.sirix.query.function.jn.io.DocByPointInTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -29,6 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collector;
+import org.jspecify.annotations.Nullable;
 
 abstract class AbstractJsonPathWalker extends ScopeWalker {
 
@@ -57,8 +60,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   /**
    * Extract an array-access index as an int, or abandon the index rewrite when it is not a
    * compile-time integer literal. The brackit parser materialises an array index as a full
-   * expression, so the value is not guaranteed to be an {@link Int32} (a blind cast threw and
-   * 500'd, even for single-segment/top-level queries with no index defined).
+   * expression, so the value is not guaranteed to be an {@link Int32} (a blind cast threw and 500'd,
+   * even for single-segment/top-level queries with no index defined).
    */
   protected static int arrayIndexLiteral(final AST indexAstNode) {
     if (indexAstNode.getValue() instanceof Int32 int32) {
@@ -68,6 +71,11 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   }
 
   protected AST replaceAstIfIndexApplicable(AST astNode, AST predicateNode, Type type) {
+    for (AST parent = astNode.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent.getType() == XQExt.IndexExpr) {
+        return astNode;
+      }
+    }
     try {
       return replaceAstIfIndexApplicableImpl(astNode, predicateNode, type);
     } catch (final NonLiteralArrayIndexException e) {
@@ -103,6 +111,11 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       return astNode;
     }
 
+    if (isDocumentNodeFunction(node) && (node.getChildCount() < 2 || node.getChildCount() > 3
+        || !(node.getChild(0).getValue() instanceof Str) || !(node.getChild(1).getValue() instanceof Str)
+        || (node.getChildCount() == 3 && !RevisionData.isStableOperand(node.getChild(2))))) {
+      return astNode;
+    }
     final RevisionData revisionData = getRevisionData(node);
 
     // BORROW the collection and session, never close them: lookup() returns the store's CACHED
@@ -116,8 +129,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     final var resourceSession = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
 
     try (final var rtx = revisionData.revision() == -1
-            ? resourceSession.beginNodeReadOnlyTrx()
-            : resourceSession.beginNodeReadOnlyTrx(revisionData.revision());
+        ? resourceSession.beginNodeReadOnlyTrx()
+        : resourceSession.beginNodeReadOnlyTrx(revisionData.revision());
         final var pathSummary = revisionData.revision() == -1
             ? resourceSession.openPathSummary()
             : resourceSession.openPathSummary(revisionData.revision())) {
@@ -128,9 +141,14 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       // path node keys of all paths, which have the right most field of the query in its path
       var queryPathSegment = pathSegmentNamesToArrayIndexes.getLast();
       final boolean queryPathSegmentIsArray = !queryPathSegment.arrayIndexes().isEmpty();
-      final String rightmostSegmentName = queryPathSegmentIsArray ? "__array__" : queryPathSegment.pathSegmentName();
-      final NodeKind rightmostSegmentKind = queryPathSegmentIsArray ? NodeKind.ARRAY : NodeKind.OBJECT_NAMED_OBJECT;
-      var pathNodeKeys = findFurthestFromRootPathNodes(astNode, rightmostSegmentName, pathSummary, rightmostSegmentKind);
+      final String rightmostSegmentName = queryPathSegmentIsArray
+          ? "__array__"
+          : queryPathSegment.pathSegmentName();
+      final NodeKind rightmostSegmentKind = queryPathSegmentIsArray
+          ? NodeKind.ARRAY
+          : NodeKind.OBJECT_NAMED_OBJECT;
+      var pathNodeKeys =
+          findFurthestFromRootPathNodes(astNode, rightmostSegmentName, pathSummary, rightmostSegmentKind);
 
       var pathNodeKeysToRemove =
           pathNodeKeys.stream()
@@ -145,15 +163,16 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         // The rightmost segment matched no path node OF THE ASSUMED KIND. This is only a safe
         // signal that "the path yields nothing" when the segment name is genuinely absent from
         // the path summary. It is NOT safe when the name exists with a different node kind:
-        //   * a {@code $$}-deref predicate over an unwrapped array (e.g.
-        //     {@code .store.book[][?$$.price gt 10]}) fuses the scalar predicate leaf
-        //     ({@code price}, an OBJECT_NAMED_NUMBER/STRING/... field) into the path, but the
-        //     lookup above assumed OBJECT_NAMED_OBJECT — so {@code match} comes back empty even
-        //     though the path exists.
+        // * a {@code $$}-deref predicate over an unwrapped array (e.g.
+        // {@code .store.book[][?$$.price gt 10]}) fuses the scalar predicate leaf
+        // ({@code price}, an OBJECT_NAMED_NUMBER/STRING/... field) into the path, but the
+        // lookup above assumed OBJECT_NAMED_OBJECT — so {@code match} comes back empty even
+        // though the path exists.
         // Destroying the subtree here would turn such queries into the empty sequence. Only take
-        // the empty-sequence shortcut when the segment truly does not exist; otherwise bail and
-        // let normal (non-index) evaluation run by falling through.
-        if (!pathSegmentExistsRegardlessOfKind(rightmostSegmentName, queryPathSegmentIsArray, pathSummary)) {
+        // the empty-sequence shortcut when the segment truly does not exist and no runtime revision
+        // operand can select a different path summary; otherwise retain normal evaluation.
+        if (revisionData.operand() == null
+            && !pathSegmentExistsRegardlessOfKind(rightmostSegmentName, queryPathSegmentIsArray, pathSummary)) {
           return replaceAstNodeWithEmptySequenceAstNode(astNode);
         }
         return null;
@@ -167,8 +186,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
           predicateLeafNode, predicateSegmentNames);
 
-      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode, type, predicateSegmentNames, revisionData, resourceSession,
-          pathSummary, pathNodeKeys, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels);
+      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode, type, predicateSegmentNames, revisionData,
+          resourceSession, pathSummary, pathNodeKeys, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels);
 
       if (!notFound) {
         return replaceFoundAST(astNode, revisionData, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels,
@@ -263,10 +282,11 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
    * its node kind. {@link #findFurthestFromRootPathNodes} only matches one assumed kind
    * (OBJECT_NAMED_OBJECT, or ARRAY for an unboxed array). When the segment name exists with a
    * DIFFERENT kind — e.g. a scalar predicate leaf field ({@code price}) fused into the path by a
-   * {@code $$}-deref predicate, stored as OBJECT_NAMED_NUMBER/STRING/BOOLEAN/NULL — the
-   * kind-specific match comes back empty even though the path genuinely exists. This kind-agnostic
-   * check lets the caller tell a real "no such path" (safe to short-circuit to the empty sequence)
-   * apart from a mere node-kind mismatch (must NOT destroy the subtree).
+   * {@code $$}-deref predicate, stored as OBJECT_NAMED_NUMBER/STRING/BOOLEAN/NULL — the kind-specific
+   * match comes back empty even though the path genuinely exists. This kind-agnostic check lets the
+   * caller distinguish genuine absence from a node-kind mismatch. Before replacing the source with
+   * the empty sequence, the caller must also rule out a runtime revision operand selecting different
+   * paths.
    */
   private static boolean pathSegmentExistsRegardlessOfKind(String pathSegmentName, boolean isArraySegment,
       PathSummaryReader pathSummary) {
@@ -298,8 +318,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   }
 
   private boolean findIndexDefsForPathNodeKeys(AST predicateNode, Type type, Deque<String> predicateSegmentNames,
-      RevisionData revisionData, JsonResourceSession resourceSession, PathSummaryReader pathSummary, List<Integer> pathNodeKeys,
-      Map<IndexDef, List<Path<QNm>>> foundIndexDefsToPaths, Map<IndexDef, Integer> foundIndexDefsToPredicateLevels) {
+      RevisionData revisionData, JsonResourceSession resourceSession, PathSummaryReader pathSummary,
+      List<Integer> pathNodeKeys, Map<IndexDef, List<Path<QNm>>> foundIndexDefsToPaths,
+      Map<IndexDef, Integer> foundIndexDefsToPredicateLevels) {
     boolean notFound = false;
 
     for (final int pathNodeKey : pathNodeKeys) {
@@ -343,7 +364,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         final var revisionValue = node.getChild(2).getValue();
         if (revisionValue instanceof Integer intVal) {
           revision = intVal;
-        } else if (revisionValue instanceof io.brackit.query.atomic.Int32 int32Val) {
+        } else if (revisionValue instanceof Int32 int32Val) {
           revision = int32Val.intValue();
         } else if (revisionValue instanceof Number numVal) {
           revision = numVal.intValue();
@@ -359,7 +380,15 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       revision = (Integer) node.getProperty("revision");
     }
 
-    return new RevisionData(databaseName, resourceName, revision);
+    final AST operand = isDocumentNodeFunction(node)
+        ? (node.getChildCount() > 2
+            ? node.getChild(2)
+            : null)
+        : (node.getChildCount() > 0
+            ? node.getChild(0)
+            : null);
+    return new RevisionData(databaseName, resourceName, revision, operand,
+        DocByPointInTime.OPEN.equals(node.getValue()) || node.checkProperty("revisionByInstant"));
   }
 
   private boolean isIndexExpr(AST newChildNode) {
@@ -490,7 +519,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
   }
 
-  private Function<AST, AST> returnFunctionCallOrIndexExprNodeIfPresent(
+  private Function<AST, @Nullable AST> returnFunctionCallOrIndexExprNodeIfPresent(
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes) {
     return node -> {
       if (node.getType() == XQ.LetBind) {
@@ -503,7 +532,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     };
   }
 
-  private AST processForBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST node) {
+  private @Nullable AST processForBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST node) {
     final var stepNode = node.getChild(1);
 
     if (stepNode.getType() == XQ.DerefExpr) {
@@ -523,6 +552,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         return currAstNode;
       }).orElse(null);
     } else if (stepNode.getType() == XQExt.IndexExpr) {
+      if (stepNode.getProperty("casSourcePath") != null) {
+        return null;
+      }
       final Deque<QueryPathSegment> currentPathSegmentNamesToArrayIndexes =
           (Deque<QueryPathSegment>) stepNode.getProperty("pathSegmentNamesToArrayIndexes");
 
@@ -537,7 +569,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return null;
   }
 
-  private AST processLetBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST astNode) {
+  private @Nullable AST processLetBind(Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST astNode) {
     final AST varNode = astNode.getChild(1);
 
     if (varNode.getType() == XQ.FunctionCall) {

@@ -4,21 +4,20 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.AtomicUtil;
+import io.sirix.index.IndexDef;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Set;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -31,32 +30,31 @@ public final class CASIndexListener {
 
   private final HOTIndexWriter<CASValue> indexWriter;
   private final PathSummaryReader pathSummaryReader;
-  private final Set<Path<QNm>> paths;
+  private final List<Path<QNm>> paths;
   private final Type type;
-  private @Nullable LongSet resolvedPCRs;
-  private long maxKnownPCR = -1L;
+  private final IndexDef definition;
 
   public CASIndexListener(final PathSummaryReader pathSummaryReader, final HOTIndexWriter<CASValue> indexWriter,
-      final Set<Path<QNm>> paths, final Type type) {
+      final IndexDef definition) {
     this.pathSummaryReader = requireNonNull(pathSummaryReader);
     this.indexWriter = requireNonNull(indexWriter);
-    this.paths = requireNonNull(paths);
-    this.type = requireNonNull(type);
+    this.definition = requireNonNull(definition);
+    this.paths = List.copyOf(requireNonNull(definition.getPaths()));
+    this.type = requireNonNull(definition.getContentType());
   }
 
   /** Invalidate path filtering after an identity-import namespace replacement. */
   public void pathSummaryImported() {
-    resolvedPCRs = null;
-    maxKnownPCR = -1L;
+    pathSummaryReader.clearCache();
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey,
-      final Str value) {
+      final Atomic value) {
     listen(type, node.getNodeKey(), pathNodeKey, value);
   }
 
   public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey,
-      final Str value) {
+      final Atomic value) {
     final boolean matchesPath = matchesIndexedPath(pathNodeKey);
     switch (type) {
       case INSERT -> {
@@ -86,18 +84,26 @@ public final class CASIndexListener {
     }
   }
 
-  /** Resolve configured paths once, refreshing only when a newly minted PCR can change the answer. */
   private boolean matchesIndexedPath(final long pathNodeKey) {
     if (paths.isEmpty()) {
       return true;
     }
-    LongSet pcrs = resolvedPCRs;
-    if (pcrs == null || pathNodeKey > maxKnownPCR) {
-      pcrs = pathSummaryReader.getPCRsForPaths(paths);
-      resolvedPCRs = pcrs;
-      maxKnownPCR = Math.max(pathNodeKey, pathSummaryReader.getMaxNodeKey());
+    for (int i = 0, length = paths.size(); i < length; i++) {
+      if (pathSummaryReader.getPCRsForPath(paths.get(i)).contains(pathNodeKey)) {
+        return true;
+      }
     }
-    return pcrs.contains(pathNodeKey);
+    return false;
+  }
+
+  public void rejectValue(final long pathNodeKey, final boolean arrayField) {
+    if (!type.isNumeric() || !definition.hasNumericValuesOnly()) {
+      return;
+    }
+    if (matchesIndexedPath(pathNodeKey) || (arrayField
+        && matchesIndexedPath(pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey).getParentKey()))) {
+      definition.markNonNumericValue();
+    }
   }
 
   /**
@@ -109,23 +115,20 @@ public final class CASIndexListener {
    * arrangement produced.
    * </p>
    *
-   * @param value the node's lexical value
+   * @param value the node's atomic value, retaining its numeric representation when applicable
    * @param nodeKey the node, for the diagnostic only
    * @return the typed value, or {@code null} to skip this node
    */
-  private @Nullable Atomic toTypedOrNull(final Str value, final long nodeKey) {
-    if (type == Type.STR) {
-      return value;
-    }
+  private @Nullable Atomic toTypedOrNull(final Atomic value, final long nodeKey) {
     try {
-      return AtomicUtil.toType(value, type);
+      return AtomicUtil.toIndexType(value, definition);
     } catch (final SirixRuntimeException e) {
       logger.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", value, type, nodeKey, e);
       return null;
     }
   }
 
-  private void insert(final long nodeKey, final long pathNodeKey, final Str value) throws SirixIOException {
+  private void insert(final long nodeKey, final long pathNodeKey, final Atomic value) throws SirixIOException {
     final Atomic typedValue = toTypedOrNull(value, nodeKey);
     final boolean isOfType = typedValue != null;
 

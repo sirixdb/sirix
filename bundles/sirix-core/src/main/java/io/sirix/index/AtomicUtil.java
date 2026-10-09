@@ -16,6 +16,10 @@ import io.brackit.query.jdm.Type;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.utils.Calc;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import org.jspecify.annotations.Nullable;
+import static java.util.Objects.requireNonNull;
 
 /**
  * 
@@ -23,6 +27,88 @@ import io.sirix.utils.Calc;
  * 
  */
 public final class AtomicUtil {
+
+  public static Atomic fromNumber(final Number number) {
+    return switch (requireNonNull(number)) {
+      case Integer value -> new Int32(value);
+      case Long value -> new Int64(value);
+      case Float value -> new Flt(value);
+      case Double value -> new Dbl(value);
+      case BigDecimal value -> new Dec(value);
+      case BigInteger value -> new Dec(new BigDecimal(value));
+      default -> throw new IllegalArgumentException("Unsupported numeric representation: " + number.getClass());
+    };
+  }
+
+  public static Atomic fromNumericString(final String value) {
+    try {
+      final BigDecimal number = new BigDecimal(requireNonNull(value));
+      return number.signum() == 0 && value.startsWith("-")
+          ? new Dbl(-0.0d)
+          : new Dec(number);
+    } catch (final NumberFormatException e) {
+      return new Dbl(Double.parseDouble(value));
+    }
+  }
+
+  public static boolean isExactIntegerProbe(final @Nullable Atomic value) {
+    if (value instanceof Int32 number) {
+      final int probe = number.intValue();
+      return probe >= -16_777_215 && probe <= 16_777_215;
+    }
+    if (value instanceof Int64 number) {
+      final long probe = number.longValue();
+      return probe >= -16_777_215 && probe <= 16_777_215;
+    }
+    return value instanceof Numeric number && value.type().instanceOf(Type.INR)
+        && number.cmp(new Int32(-16_777_215)) >= 0 && number.cmp(new Int32(16_777_215)) <= 0;
+  }
+
+  @SuppressWarnings("ReferenceEquality") // Conversion identity avoids redundant checks; Type.STR is canonical.
+  public static Atomic toIndexType(final Atomic value, final IndexDef definition) {
+    requireNonNull(value);
+    requireNonNull(definition);
+    final Type type = definition.getContentType();
+    if (type.isNumeric()) {
+      if (!(value instanceof Numeric)) {
+        definition.markNonNumericValue();
+      } else if (!type.instanceOf(Type.INR) && !value.type().instanceOf(type)) {
+        definition.markIncompleteNumericCoverage();
+      }
+    }
+    try {
+      if (value instanceof Numeric number && type.instanceOf(Type.INR)) {
+        final Atomic converted = toType(value, type);
+        if (converted != value && number.decimalValue().compareTo(((Numeric) converted).decimalValue()) != 0) {
+          throw new SirixRuntimeException("Numeric value is not exactly representable as %s", type);
+        }
+        return converted;
+      }
+      return type == Type.STR
+          ? (value instanceof Str
+              ? value
+              : new Str(sourceString(value)))
+          : toType(value instanceof Numeric
+              ? new Str(sourceString(value))
+              : value, type);
+    } catch (final SirixRuntimeException | NumberFormatException e) {
+      definition.markIncompleteNumericCoverage();
+      throw new SirixRuntimeException(e);
+    }
+  }
+
+  private static String sourceString(final Atomic value) {
+    if (value instanceof Dbl number) {
+      return Double.toString(number.doubleValue());
+    }
+    if (value instanceof Flt number) {
+      return Float.toString(number.floatValue());
+    }
+    if (value instanceof Dec number) {
+      return number.decimalValue().toString();
+    }
+    return value.stringValue();
+  }
 
   // public static Field map(Type type) throws DocumentException {
   // if (!type.isBuiltin()) {

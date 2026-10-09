@@ -7,10 +7,12 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.NodeKind;
 import io.brackit.query.atomic.Str;
-import io.sirix.index.cas.CASIndexListener;
-import io.sirix.node.json.BooleanNode;
+import io.brackit.query.atomic.Atomic;
+import io.sirix.index.AtomicUtil;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.index.cas.CASIndexListener;
+import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
@@ -35,6 +37,16 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
 
   @Override
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
+    if (node.getKind() == NodeKind.NUMBER_VALUE || node.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
+      final Number number = switch (node) {
+        case NumberNode value -> value.getValue();
+        case ImmutableNumberNode value -> value.getValue();
+        case ObjectNamedNumberNode value -> value.getValue();
+        default -> throw new IllegalArgumentException("Unsupported numeric node: " + node.getKind());
+      };
+      indexListenerDelegate.listen(type, node.getNodeKey(), pathNodeKey, AtomicUtil.fromNumber(number));
+      return;
+    }
     final Str value = extractValue(node);
     listen(type, node.getNodeKey(), node.getKind(), pathNodeKey, null, value);
   }
@@ -42,17 +54,34 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
   @Override
   public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+    switch (nodeKind) {
+      case OBJECT_NAMED_ARRAY -> indexListenerDelegate.rejectValue(pathNodeKey, true);
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_NULL, NULL_VALUE -> indexListenerDelegate.rejectValue(pathNodeKey, false);
+      default -> {
+      }
+    }
     if (value == null) {
       return;
     }
     switch (nodeKind) {
-      case STRING_VALUE, BOOLEAN_VALUE, NUMBER_VALUE,
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
+        final Atomic number = AtomicUtil.fromNumericString(value.stringValue());
+        indexListenerDelegate.listen(type, nodeKey, pathNodeKey, number);
+      }
+      case STRING_VALUE, BOOLEAN_VALUE,
           // Fused kinds carry primitive value inline — extractValue upstream produced the Str.
-          OBJECT_NAMED_STRING, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER ->
+          OBJECT_NAMED_STRING, OBJECT_NAMED_BOOLEAN ->
         indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
       default -> {
       }
     }
+  }
+
+  @Override
+  public void listenNumber(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value,
+      final Number number) {
+    indexListenerDelegate.listen(type, nodeKey, pathNodeKey, AtomicUtil.fromNumber(number));
   }
 
   private static Str extractValue(final ImmutableNode node) {
@@ -82,20 +111,8 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
             ? STR_TRUE
             : STR_FALSE;
       }
-      case NUMBER_VALUE -> {
-        final Number numValue;
-        if (node instanceof NumberNode numNode) {
-          numValue = numNode.getValue();
-        } else if (node instanceof ImmutableNumberNode immutableNumNode) {
-          numValue = immutableNumNode.getValue();
-        } else {
-          throw new IllegalStateException("Unexpected node type for number value: " + node.getClass());
-        }
-        return new Str(String.valueOf(numValue));
-      }
-      // Fused OBJECT_NAMED_* records carry the primitive value inline. The production write path
-      // passes the value precomputed to the two-arg listen overload, but THIS single-arg overload
-      // accepts fused nodes too — without these cases it silently skipped indexing them.
+      // Node-based notifications must extract fused string/boolean values from the named record;
+      // primitive notifications receive those lexical values directly.
       case OBJECT_NAMED_STRING -> {
         if (node instanceof ValueNode valueNode) {
           return new Str(valueNode.getValue());
@@ -109,12 +126,6 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
               : STR_FALSE;
         }
         throw new IllegalStateException("Unexpected node type for fused boolean value: " + node.getClass());
-      }
-      case OBJECT_NAMED_NUMBER -> {
-        if (node instanceof ObjectNamedNumberNode fused) {
-          return new Str(String.valueOf(fused.getValue()));
-        }
-        throw new IllegalStateException("Unexpected node type for fused number value: " + node.getClass());
       }
       default -> {
         return null;
