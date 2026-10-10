@@ -168,10 +168,9 @@ final class TemporalAggregateIndexTest {
           final String expected = run(chain, context, body.replace("SOURCE", "(" + source + ")"));
           final long before = TemporalAggregateRoute.servedCount();
           assertEquals(expected, run(chain, context, body.replace("SOURCE", source)), tx + " / " + point);
-          assertEquals(before + (tx.startsWith("2024-02-28")
-              ? 0
-              : 1), TemporalAggregateRoute.servedCount(),
-              "Supported exact points must serve, including checkpoints and represented revisions");
+          assertEquals(before + (tx.startsWith("2024-01") || tx.startsWith("2024-03-20") ? 1 : 0),
+              TemporalAggregateRoute.servedCount(),
+              "Current-sized historical dictionaries serve; retained group excess and unsupported rows decline");
         }
       }
       final String unorderedSource = "jn:open-bitemporal('aggregate-test','inventory',"
@@ -214,7 +213,8 @@ final class TemporalAggregateIndexTest {
         final String expected = run(chain, context, correlated.replace("SOURCE", "(" + source + ")"));
         final long served = TemporalAggregateRoute.servedCount();
         assertEquals(expected, run(chain, context, correlated.replace("SOURCE", source)));
-        assertEquals(served + 2, TemporalAggregateRoute.servedCount(), "Every correlated instant must use its tree");
+        assertEquals(served + (transactionAxis ? 1 : 0), TemporalAggregateRoute.servedCount(),
+            "Each correlated revision applies its own dictionary population bound");
       }
     }
   }

@@ -334,7 +334,7 @@ final class TemporalAggregateRegressionTest {
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
               var storage = new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
             final int[] groups = new int[1];
-            storage.groups((key, head) -> {
+            storage.groups(Long.MAX_VALUE, (key, head) -> {
               groups[0]++;
               assertEquals(current == 2 ? 2 : 1, head.rows());
               if (current <= 2) {

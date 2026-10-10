@@ -81,6 +81,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `CASMultiMatchWorkBudgetTest` | CAS row-source fallback in FLWOR and array filters | candidate navigation exceeds its bound before declining an unordered result or postings from an unrelated duplicate array, including with Dewey IDs enabled |
 | `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings; warmed exact half-open primitive-key requests repeat the closed probe (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
 | `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, or reads a leaf that holds no admitted key (the row source stops pruning); the generic reference over the same decorated cursor is the positive control (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
+| `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion, across all versioning types | dictionary admission visits more than current rows plus one, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
@@ -259,6 +260,10 @@ satisfies every upper bound. For HOT work that is `sirix.hot.mergeDiag`, provide
 `bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`. Those test blocks also provide
 `sirix.validTime.scanDiag`; `ValidTimeSliceWorkBudgetTest` requires zero interval/posting references
 for empty answers and counts both kinds on nonempty answers through the same gated seam.
+`EngineWorkCounters.TEMPORAL_READS` shares `sirix.hot.mergeDiag`: dictionary heads visited in the
+bounded cardinality pass, heads decoded after admission, and aggregate part chunks requested.
+The historical populated dictionary supplies the nonzero control for every counter; oversized
+current dictionaries must decode no heads and request no parts.
 Identity replay additionally
 uses `sirix.replay.workDiag`, enabled by the core test fork.
 The query test block also provides `sirix.json.registryDiag`; its classification getter fails

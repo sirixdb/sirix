@@ -124,7 +124,7 @@ public final class TemporalAggregateRoute {
         final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
         final long coordinate = DomainHolder.DOMAIN.point(point.instant());
         final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-        storage.groups((key, group) -> {
+        final boolean admitted = storage.groups(array.getChildCount(), (key, group) -> {
           if (group.rows() == 0) {
             return;
           }
@@ -143,6 +143,9 @@ public final class TemporalAggregateRoute {
             previous.add(summary);
           }
         });
+        if (!admitted) {
+          continue;
+        }
         final QNm[] names = new QNm[request.keyNames().length + request.outNames().length];
         for (int i = 0; i < request.keyNames().length; i++) {
           names[i] = new QNm(request.keyNames()[i]);

@@ -55,6 +55,11 @@ public final class DropProjectionIndex extends AbstractFunction {
   }
 
   @Override
+  public boolean isUpdating() {
+    return true;
+  }
+
+  @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 1 && args.length != 2) {
       throw new QueryException(new QNm("No valid arguments specified!"));

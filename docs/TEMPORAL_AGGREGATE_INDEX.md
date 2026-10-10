@@ -107,6 +107,13 @@ unsupported row restores eligibility in the next revision.
 
 ## Admission and fallbacks
 
+Group dictionary admission counts at most the current root array's row population plus one,
+without copying keys or decoding heads. A dictionary larger than that population declines to
+the masked projection route before fetching aggregate parts. This bounds admission after group
+churn or deletion even though empty heads remain in the versioned dictionary. Both ordinary and
+correlated grouped routes use this check against their selected revision; populated historical
+revisions can still serve their aggregates.
+
 The grouped and correlated grouped routes try this index before constructing the valid-time key
 mask. They prefer the narrowest declared grouping that covers the query keys; a wider grouping can
 be folded into fewer keys. Each requested aggregate operand and operation must be covered. Residual predicates,

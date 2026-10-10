@@ -14,16 +14,37 @@ import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.Arrays;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
 /**
  * Small raw HOT slots; all mutation and revision ownership use the standard secondary-index path.
  */
 public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[]> implements AutoCloseable {
+  private static final boolean WORK_DIAGNOSTICS = Boolean.getBoolean("sirix.hot.mergeDiag");
+  private static final LongAdder GROUP_HEADS_VISITED = new LongAdder();
+  private static final LongAdder GROUP_HEADS_DECODED = new LongAdder();
+  private static final LongAdder PART_CHUNKS_READ = new LongAdder();
   static final byte[] HEADER = {0};
   private byte[] keyBuffer = new byte[32];
   private final Reader reader;
   private long nodesWritten;
+
+  public static boolean workDiagnosticsEnabled() {
+    return WORK_DIAGNOSTICS;
+  }
+
+  public static long groupHeadsVisited() {
+    return GROUP_HEADS_VISITED.sum();
+  }
+
+  public static long groupHeadsDecoded() {
+    return GROUP_HEADS_DECODED.sum();
+  }
+
+  public static long partChunksRead() {
+    return PART_CHUNKS_READ.sum();
+  }
 
   public TemporalAggregateStorage(final StorageEngineWriter writer, final int index) {
     super(writer, IndexType.TEMPORAL_AGGREGATE, index);
@@ -168,6 +189,9 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     public byte @Nullable [] get(final byte[] key) {
       if (key[0] == 3) {
         nodesRead++;
+        if (WORK_DIAGNOSTICS) {
+          PART_CHUNKS_READ.increment();
+        }
       }
       final PageReference reference = root.get();
       if (reference == null) {
@@ -194,18 +218,40 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
       throw new IllegalStateException("Temporal aggregate leaf did not stabilize");
     }
 
-    public void groups(final GroupConsumer consumer) {
+    public boolean groups(final long maximumHeads, final GroupConsumer consumer) {
+      if (maximumHeads < 0) {
+        throw new IllegalArgumentException("Negative temporal aggregate dictionary bound");
+      }
+      Objects.requireNonNull(consumer);
       final PageReference reference = root.get();
       if (reference == null) {
-        return;
+        return true;
+      }
+      try (HOTTrieReader groupReader = new HOTTrieReader(storage);
+          HOTRangeCursor cursor = groupReader.range(reference, new byte[] {1}, new byte[] {2})) {
+        long heads = 0;
+        while (cursor.hasNext()) {
+          if (WORK_DIAGNOSTICS) {
+            GROUP_HEADS_VISITED.increment();
+          }
+          if (heads == maximumHeads) {
+            return false;
+          }
+          heads++;
+          cursor.advance();
+        }
       }
       try (HOTTrieReader groupReader = new HOTTrieReader(storage);
           HOTRangeCursor cursor = groupReader.range(reference, new byte[] {1}, new byte[] {2})) {
         while (cursor.hasNext()) {
           final HOTRangeCursor.Entry entry = cursor.next();
+          if (WORK_DIAGNOSTICS) {
+            GROUP_HEADS_DECODED.increment();
+          }
           consumer.accept(entry.keyBytes(), GroupHead.decode(entry.valueBytes()));
         }
       }
+      return true;
     }
 
     public TemporalAggregateParts.Store parts() {

@@ -146,7 +146,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
               var storage =
                   new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
             final AggregateSummary[] summaries = new AggregateSummary[1];
-            storage.groups(
+            storage.groups(Long.MAX_VALUE,
                 (key, group) -> summaries[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
                     new TemporalAggregateDomain().height()).point(storage.parts(), group.parts(), 1));
             final AggregateSummary summary = summaries[0];
@@ -212,7 +212,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         writer.moveToFirstChild();
         final long amount = writer.getNodeKey();
         try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
-          storage.groups((key, head) -> {
+          storage.groups(Long.MAX_VALUE, (key, head) -> {
             checkpointTier[0] = head.checkpointTier();
             firstCheckpoint[0] = head.parts()[0];
           });
@@ -251,7 +251,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
           currentCheckpoint[0] = 0;
           currentTier[0] = 0;
           try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
-            storage.groups((key, head) -> {
+            storage.groups(Long.MAX_VALUE, (key, head) -> {
               currentCheckpoint[0] = head.parts()[0];
               assertEquals(checkpointTier[0], head.checkpointTier());
               final byte[] tiers = head.tiers();
@@ -331,7 +331,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
               var storage = new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
             final int[] groups = new int[1];
-            storage.groups((key, head) -> {
+            storage.groups(Long.MAX_VALUE, (key, head) -> {
               groups[0]++;
               final TemporalAggregateParts parts = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
                   new TemporalAggregateDomain().height());

@@ -291,7 +291,7 @@ final class ChangeLogWorkBudgetTest {
         assertEquals(999, slab.entries().getFirst().after().numbers[1]);
         try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
           final AggregateSummary[] summary = new AggregateSummary[1];
-          storage.groups((key, head) -> summary[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
+          storage.groups(Long.MAX_VALUE, (key, head) -> summary[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
               new TemporalAggregateDomain().height()).point(storage.parts(), head.parts(), 1));
           assertNotNull(summary[0]);
           assertEquals(rows, summary[0].count());

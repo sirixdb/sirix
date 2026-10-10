@@ -16,6 +16,7 @@ import io.sirix.index.IndexType
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
 import io.sirix.index.aggregate.TemporalAggregateIndexes
 import io.sirix.index.aggregate.TemporalAggregateStorage
+import io.sirix.index.projection.ProjectionIndexHOTStorage
 import io.sirix.io.StorageType
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
@@ -43,6 +44,7 @@ import org.mockito.Mockito
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.nio.file.Path
+import java.time.Instant
 
 @Tag("offline")
 class PermissionCheckingQueryTest {
@@ -131,15 +133,109 @@ class PermissionCheckingQueryTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource(
+        "execute,false,0,false", "execute,true,0,false", "execute,false,1,false", "execute,true,1,false",
+        "execute,false,2,false", "execute,true,2,false", "execute,false,3,false", "execute,true,3,false",
+        "paginate,false,0,false", "paginate,true,0,false", "paginate,false,1,false", "paginate,true,1,false",
+        "paginate,false,2,false", "paginate,true,2,false", "paginate,false,3,false", "paginate,true,3,false",
+        "execute,false,0,true", "execute,true,0,true", "execute,false,1,true", "execute,true,1,true",
+        "execute,false,2,true", "execute,true,2,true", "execute,false,3,true", "execute,true,3,true",
+        "paginate,false,0,true", "paginate,true,0,true", "paginate,false,1,true", "paginate,true,1,true",
+        "paginate,false,2,true", "paginate,true,2,true", "paginate,false,3,true", "paginate,true,3,true"
+    )
+    fun projectionDropAuthorizesBothSignaturesAndCommitWrappers(
+        mode: String, withId: Boolean, commitArguments: Int, modify: Boolean
+    ) {
+        createDatabase(true)
+        val user = userWith(*if (modify) arrayOf("auth-view", "modify") else arrayOf("auth-view"))
+        val authz = Mockito.mock(AuthorizationProvider::class.java)
+        Mockito.`when`(authz.getAuthorizations(user)).thenReturn(Future.succeededFuture())
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        val beforeProjection: ByteArray
+        val beforeAggregate: ByteArray
+        BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { store ->
+            val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
+            SirixQueryContext.createWithJsonStore(guarded).use { context ->
+                SirixCompileChain.createWithJsonStore(guarded).use { chain ->
+                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                        session.beginNodeReadOnlyTrx().use { reader ->
+                            beforeProjection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)!!
+                            beforeAggregate = TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
+                                it.get(TemporalAggregateIndexes.headerKey())!!
+                            }
+                        }
+                        val drop = "jn:drop-projection-index(jn:doc('auth','records')${if (withId) ",0" else ""})"
+                        val wrapped = commitArguments != 0
+                        val query = when (commitArguments) {
+                            0 -> drop
+                            1 -> "sdb:commit($drop)"
+                            2 -> "sdb:commit($drop,'drop projection')"
+                            3 -> "sdb:commit($drop,'drop projection',xs:dateTime('2024-02-15T00:00:00Z'))"
+                            else -> error(commitArguments)
+                        }
+                        if (modify) {
+                            run(mode, chain, context, query, keycloak, authz, user)
+                            val writer = session.nodeTrx.orElseThrow()
+                            val catalogue = session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes
+                            assertEquals(0, catalogue.getNrOfIndexDefsWithType(IndexType.PROJECTION))
+                            assertEquals(0, catalogue.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE))
+                            assertEquals(if (wrapped) 2 else 1, session.mostRecentRevisionNumber)
+                            if (!wrapped) writer.commit()
+                            writer.close()
+                        } else {
+                            val failure = assertThrows(IllegalStateException::class.java) {
+                                run(mode, chain, context, query, keycloak, authz, user)
+                            }
+                            assertTrue(failure.message!!.contains("not allowed to modify"))
+                            assertTrue(session.nodeTrx.isEmpty)
+                            assertEquals(1, session.mostRecentRevisionNumber)
+                        }
+                        Mockito.verify(authz).getAuthorizations(user)
+                        assertEquals("1", run(mode, chain, context, "sum(jn:doc('auth','records')[].n)", keycloak, authz, user))
+                        Mockito.verifyNoMoreInteractions(authz)
+                    }
+                }
+            }
+        }
+        Databases.clearGlobalCaches()
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            database.beginResourceSession("records").use { session ->
+                assertEquals(if (modify) 2 else 1, session.mostRecentRevisionNumber)
+                for (revision in setOf(1, session.mostRecentRevisionNumber)) {
+                    val catalogue = session.getRtxIndexController<JsonIndexController>(revision).indexes
+                    val expected = if (modify && revision == 2) 0 else 1
+                    assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.PROJECTION))
+                    assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE))
+                    session.beginNodeReadOnlyTrx(revision).use { reader ->
+                        assertArrayEquals(beforeProjection,
+                            ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0))
+                        TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
+                            assertArrayEquals(beforeAggregate, it.get(TemporalAggregateIndexes.headerKey()))
+                        }
+                        reader.moveToDocumentRoot()
+                        reader.moveToFirstChild()
+                        reader.moveToFirstChild()
+                        reader.moveToFirstChild()
+                        reader.moveToRightSibling()
+                        reader.moveToFirstChild()
+                        assertEquals(1, reader.numberValue.toInt())
+                    }
+                }
+            }
+        }
+    }
+
     private fun createDatabase(aggregate: Boolean): Long {
         val path = directory.resolve("auth")
         Databases.createJsonDatabase(DatabaseConfiguration(path))
         Databases.openJsonDatabase(path).use { database ->
             database.createResource(ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
-                .storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build())
+                .storageType(StorageType.FILE_CHANNEL).customCommitTimestamps(true).storeDiffs(false).build())
             database.beginResourceSession("records").use { session ->
                 session.beginNodeTrx().use { writer ->
-                    writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"g\":1,\"n\":1}]"), JsonNodeTrx.Commit.NO)
+                    writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+                        "[{\"g\":1,\"n\":1,\"lo\":\"2024-01-01T00:00:00Z\",\"hi\":\"2025-01-01T00:00:00Z\"}]"), JsonNodeTrx.Commit.NO)
                     writer.moveToDocumentRoot()
                     writer.moveToFirstChild()
                     writer.moveToFirstChild()
@@ -154,7 +250,7 @@ class PermissionCheckingQueryTest {
                     if (aggregate) {
                         TemporalAggregateDeclarations.declare(controller, writer, "/[]", listOf("g"), listOf("sum(n)"))
                     }
-                    writer.commit()
+                    writer.commit("initial", Instant.parse("2024-01-15T00:00:00Z"))
                     return first
                 }
             }
