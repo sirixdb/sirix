@@ -347,7 +347,7 @@ public final class ProjectionChunkRowBatch {
     for (int mapping = firstMapping(pathNodeKey); mapping >= 0; mapping = nextMapping(pathNodeKey, mapping)) {
       final int cell = cellOf(fieldPcrColumns[mapping]);
       // The extractor's container branch has no first-match guard: present and poisoned, always.
-      flags[cell] = (byte) (flags[cell] | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+      flags[cell] = (byte) ((flags[cell] & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
     }
   }
 
@@ -362,7 +362,7 @@ public final class ProjectionChunkRowBatch {
         flags[cell] = (byte) (flags[cell] | FLAG_PRESENT);
         openSetArrayKey[column] = arrayNodeKey;
       } else {
-        flags[cell] = (byte) (flags[cell] | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((flags[cell] & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
     }
   }

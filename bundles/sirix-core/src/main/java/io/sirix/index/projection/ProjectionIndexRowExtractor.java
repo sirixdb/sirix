@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -190,8 +191,16 @@ public final class ProjectionIndexRowExtractor {
       // the LongIterator avoids boxing a Long per PCR.
       final LongSet fieldPcrs = pathSummary.getPCRsForPath(fieldPaths.get(i));
       for (final LongIterator it = fieldPcrs.iterator(); it.hasNext();) {
-        pcrKeys.add(it.nextLong());
+        final long pcr = it.nextLong();
+        pcrKeys.add(pcr);
         pcrCols.add(i);
+        if (columnKinds[i] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP) {
+          final long arrayPcr = pathSummary.findChild(pcr, PathSummaryWriter.ARRAY_PATH_QNM, NodeKind.ARRAY);
+          if (arrayPcr >= 0 && !fieldPcrs.contains(arrayPcr)) {
+            pcrKeys.add(arrayPcr);
+            pcrCols.add(i);
+          }
+        }
       }
     }
     this.fieldPcrKeys = pcrKeys.toLongArray();
