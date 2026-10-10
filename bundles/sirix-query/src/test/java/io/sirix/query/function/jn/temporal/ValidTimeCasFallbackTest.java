@@ -58,7 +58,7 @@ final class ValidTimeCasFallbackTest {
   void obsoleteAutoIndexesRetainClosedRowsAndDemandTimeCastErrors(final String endpoint) throws Exception {
     final Resource resource = createObsoleteAutoIndexes(endpoint);
     final byte[] firstCatalogue = Files.readAllBytes(resource.catalogues().resolve("1.xml"));
-    final byte[] secondCatalogue = Files.readAllBytes(resource.catalogues().resolve("2.xml"));
+    assertFalse(Files.exists(resource.catalogues().resolve("2.xml")));
     final QNm castError = assertThrows(QueryException.class, () -> new DateTime("2023-01-01T00:00:00.Z")).getCode();
     final long[] history;
     try (var database = Databases.openJsonDatabase(directory.resolve("coverage"));
@@ -117,7 +117,7 @@ final class ValidTimeCasFallbackTest {
         assertEquals(2, session.getMostRecentRevisionNumber());
         assertArrayEquals(history, session.getHistoryTimestamps());
         assertArrayEquals(firstCatalogue, Files.readAllBytes(resource.catalogues().resolve("1.xml")));
-        assertArrayEquals(secondCatalogue, Files.readAllBytes(resource.catalogues().resolve("2.xml")));
+        assertFalse(Files.exists(resource.catalogues().resolve("2.xml")));
         assertFalse(Files.exists(resource.catalogues().resolve("3.xml")));
       }
     }
@@ -167,28 +167,27 @@ final class ValidTimeCasFallbackTest {
       catalogues =
           session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
     }
-    for (final int revision : List.of(1, 2)) {
-      final Path catalogue = catalogues.resolve(revision + ".xml");
-      final Node<?> persisted;
-      try (var input = Files.newInputStream(catalogue)) {
-        persisted = requireNonNull(IndexController.deserialize(input).getFirstChild());
+    // Revision 2 inherits the unchanged catalogue from revision 1.
+    final Path catalogue = catalogues.resolve("1.xml");
+    final Node<?> persisted;
+    try (var input = Files.newInputStream(catalogue)) {
+      persisted = requireNonNull(IndexController.deserialize(input).getFirstChild());
+    }
+    boolean changed = false;
+    final QNm formatName = new QNm("validTimeFormat");
+    for (Node<?> definition = persisted.getFirstChild(); definition != null; definition =
+        definition.getNextSibling()) {
+      if (definition.getAttribute(formatName) != null) {
+        definition.deleteAttribute(formatName);
+        definition.setAttribute(formatName, new Str("5"));
+        changed = true;
       }
-      boolean changed = false;
-      final QNm formatName = new QNm("validTimeFormat");
-      for (Node<?> definition = persisted.getFirstChild(); definition != null; definition =
-          definition.getNextSibling()) {
-        if (definition.getAttribute(formatName) != null) {
-          definition.deleteAttribute(formatName);
-          definition.setAttribute(formatName, new Str("5"));
-          changed = true;
-        }
-      }
-      assertTrue(changed);
-      try (var output = new PrintStream(Files.newOutputStream(catalogue))) {
-        final SubtreePrinter printer = new SubtreePrinter(output);
-        printer.print(persisted);
-        printer.end();
-      }
+    }
+    assertTrue(changed);
+    try (var output = new PrintStream(Files.newOutputStream(catalogue))) {
+      final SubtreePrinter printer = new SubtreePrinter(output);
+      printer.print(persisted);
+      printer.end();
     }
     Databases.clearGlobalCaches();
     return new Resource(catalogues, times);
