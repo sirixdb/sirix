@@ -177,8 +177,7 @@ final class IntervalRangeJoinTest {
       final String expected = "{\"category\":-2,\"contracts\":4,\"lo\":10,\"hi\":29} "
           + "{\"category\":7,\"contracts\":1,\"lo\":31,\"hi\":31}";
       assertEquals(expected, run(generic, ctx, query));
-      for (final String body : new String[] {query,
-          query.replace("$p.retail - $c.cost", "$c.cost - $p.retail"),
+      for (final String body : new String[] {query, query.replace("$p.retail - $c.cost", "$c.cost - $p.retail"),
           query.replace("count(distinct-values($cid))", "count(distinct-values($p.id))"),
           query.replace("count(distinct-values($cid))", "count(distinct-values($c.cost))"),
           query.replace("count(distinct-values($cid))", "count(distinct-values($c.vf))")}) {
