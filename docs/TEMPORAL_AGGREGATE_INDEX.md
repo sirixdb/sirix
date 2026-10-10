@@ -10,8 +10,8 @@ jn:create-temporal-aggregate-index(
   ('count(*)', 'sum(quantity)', 'sum(price*quantity)', 'min(price)', 'max(price)'))
 ```
 
-Commit the declaration through the ordinary transaction API. Field names are relative to the
-projection root; full declared field paths are also accepted. A numeric operand is a projected
+Commit the declaration through the ordinary transaction API. Declaration fields use paths relative
+to the projection root, such as `region` or `address.zone`. A numeric operand is a projected
 integer field or a checked product of two projected integer fields. A declaration supports up to
 16 group fields and 16 distinct numeric operands. Group keys may be integers, strings, booleans,
 or missing values. `TemporalAggregateDeclarations.declare` is the equivalent Java API.

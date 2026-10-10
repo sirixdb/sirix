@@ -121,9 +121,7 @@ public final class TemporalAggregateDeclarations {
     if (field.isEmpty()) {
       return -1;
     }
-    final String path = field.startsWith("/")
-        ? field
-        : projection.getProjectionRootPath() + "/" + field.replace('.', '/');
+    final String path = projection.getProjectionRootPath() + "/" + field.replace('.', '/');
     for (int i = 0; i < projection.getProjectionFields().size(); i++) {
       if (projection.getProjectionFields().get(i).toString().equals(path)) {
         return i;

@@ -233,6 +233,8 @@ final class TemporalAggregateRegressionTest {
           for (final String request : List.of(
               "'/[]','absent','sum(n)'", "'/[]',('g','g'),'sum(n)'", "'/missing','g','sum(n)'",
               "'broken','g','sum(n)'", "'/[]','g','median(n)'", "'/[]','g','count()'", "'/[]','g','sum(absent)'",
+              "'/[]','/[]/g','sum(n)'", "'/[]','g','sum(/[]/n)'", "'/[]','g','sum(/[]/n*m)'",
+              "'/[]','g','sum(n*/[]/m)'",
               "'/[]','g','sum(n*)'", "'/[]','g','sum(n*m*n)'", "'/[]',(),'sum(n)'")) {
             assertThrows(Exception.class, () -> run(chain, context,
                 "jn:create-temporal-aggregate-index(" + document + "," + request + ")"));
