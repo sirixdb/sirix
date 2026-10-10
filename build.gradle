@@ -72,10 +72,19 @@ allprojects {
     apply plugin: 'idea'
 
     repositories {
-        mavenLocal()  // Check local Maven repository first for SNAPSHOT versions
+        if (providers.gradleProperty('useMavenLocal').map { it.toBoolean() }.getOrElse(false)) {
+            mavenLocal {
+                content {
+                    includeGroup 'io.sirix'
+                }
+            }
+        }
         mavenCentral()
         maven {
             url = "https://central.sonatype.com/repository/maven-snapshots/"
+            content {
+                includeGroup 'io.sirix'
+            }
         }
     }
 
