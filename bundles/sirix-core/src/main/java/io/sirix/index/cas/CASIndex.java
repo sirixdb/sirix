@@ -88,8 +88,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     }
 
     // Bounded-cursor fast path. Bound inclusivity is enforced inside the cursor, on each group's
-    // logical key bytes. Capped decimal or lexical bounds take the residual path above: their
-    // shared posting groups need the original document values to enforce the requested bounds.
+    // logical key bytes. Decimal suffix order must not exclude candidates within an equal-double
+    // bucket; those ranges take the residual path above, as do lossy lexical bounds.
     // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
     // order over the serialized key, which is the value order only for the families
     // CASKeySerializer encodes deliberately. Types for which isByteOrderPreserving reports false
@@ -730,10 +730,6 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // with the PCR check hoisted out nothing in these scans deserializes a key at all. Same
       // content-type gate as the range-filter path: byte order decides these bounds, so a type whose
       // key bytes are its raw lexical form must use the typed comparison in the full scan instead.
-      //
-      // Capped decimal or lexical bounds already took the residual path above. Relaxing a cursor alone
-      // would
-      // keep the shared posting group but also return values outside the requested comparison.
       if (CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
         final boolean inclusive = mode == SearchMode.GREATER_OR_EQUAL || mode == SearchMode.LOWER_OR_EQUAL;
         final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = switch (mode) {

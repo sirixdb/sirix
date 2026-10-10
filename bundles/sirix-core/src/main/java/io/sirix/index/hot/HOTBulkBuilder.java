@@ -118,13 +118,15 @@ public final class HOTBulkBuilder {
    * @param sortedEntries entries sorted strictly ascending by unsigned big-endian key; must contain
    *        no duplicate keys
    * @param revision the revision number stamped onto every created page
-   * @param indexType the index type ({@code PATH} / {@code CAS} / {@code NAME})
+   * @param indexType the index type stamped onto the leaves and used to enforce key limits
    * @param pageKeyAllocator supplier of fresh persistent page keys; called once per created page
    *        (leaf and indirect)
    * @return the build result; {@code rootPage} is {@code null}-free
    * @throws NullPointerException if any argument is {@code null}
    * @throws IllegalArgumentException if {@code sortedEntries} is empty, not strictly ascending,
-   *         contains a duplicate key, or contains a single entry whose bytes cannot fit a leaf page
+   *         contains a duplicate key, contains a CAS/VALIDTIME key exceeding
+   *         {@link HOTKeySerializer#MAX_KEY_BYTES}, or contains a single entry whose bytes cannot fit
+   *         a leaf page
    */
   public static BuildResult build(final List<Entry> sortedEntries, final int revision, final IndexType indexType,
       final LongSupplier pageKeyAllocator) {

@@ -50,17 +50,13 @@ import java.util.Objects;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Order-preserving serializer for CAS (Content-and-Structure) index keys.
+ * Serializer for framed CAS (Content-and-Structure) index keys.
  *
  * <p>
- * Serializes {@link CASValue} to bytes such that the byte order matches the natural comparison
- * order defined by {@link CASValue#compareTo(CASValue)}:
+ * Serializes {@link CASValue} with path-class and type ordering before the atomic value. Stored
+ * framing is specified in docs/DISK_FORMAT.md, "CAS and VALIDTIME posting chunks"; ordering
+ * exceptions are specified in docs/HOT_INDEX_SPECIFICATION.md §2.4.
  * </p>
- * <ol>
- * <li>pathNodeKey (8 bytes, sign-flipped for order preservation)</li>
- * <li>type ID (2 bytes)</li>
- * <li>value (order-preserving atomic encoding, zero-escaped and terminated by 00 00)</li>
- * </ol>
  *
  * <h2>Order Preservation</h2>
  * <ul>
@@ -1013,9 +1009,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * </p>
    *
    * <p>
-   * Range callers use {@link #truncates} to distinguish capped lexical values and decimal suffixes
-   * from numeric narrowing. Capped bounds need inclusive candidate cursors and document-value checks;
-   * the other numeric encoders retain their bounded cursor path.
+   * This is an equality-loss test, not a proof that byte bounds preserve numeric order. Range
+   * candidate selection and residual comparisons are specified in docs/HOT_INDEX_SPECIFICATION.md
+   * §4.4.3, including equal-double bucket expansion for every ordered decimal bound.
    * </p>
    *
    * @param value the atomic being probed for, may be {@code null}

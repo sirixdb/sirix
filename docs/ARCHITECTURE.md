@@ -1174,7 +1174,7 @@ their numbers are reused. Work bounds are specified by
 │  │   └┬─┴┬─┴──┴┬─┘          │ [key₃|NodeRefs₃]                 │     │  │
 │  │    │  │     │            │ ...                              │     │  │
 │  │    ▼  ▼     ▼            │ Sorted by key, binary search     │     │  │
-│  │   Leaf Leaf Leaf         │ Values: Roaring64Bitmap          │     │  │
+│  │   Leaf Leaf Leaf         │ Values: posting slots            │     │  │
 │  │                          └──────────────────────────────────┘     │  │
 │  │                                                                   │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
@@ -1195,11 +1195,16 @@ their numbers are reused. Work bounds are specified by
 │  ──────────                                                             │
 │  • HOTLeafPage: up to 512 key-value entries                             │
 │  • Keys sorted for binary search O(log n)                               │
-│  • Values are Roaring64Bitmap (compressed node key sets)                │
+│  • Posting value encodings: see the format reference below             │
 │  • Off-heap storage via MemorySegment                                   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+Posting payload encodings are owned by
+[`NodeReferencesSerializer`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/NodeReferencesSerializer.java);
+CAS/VALIDTIME base slots, deltas and referenced payloads are specified in
+[On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks).
 
 ---
 
