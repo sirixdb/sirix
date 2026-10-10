@@ -96,10 +96,15 @@ in CI via the `Deep verification` workflow.
 # kind, every seed's stream under all four versioning types. A step is one operation of the stream,
 # so a bulk posting run (the M and X operations) is checked once it has written every node key, not
 # between them. After every operation it runs the structural validator, the full ordered slot walk
-# against the reference and compares every one of the reference's keys with what the index answers;
-# a revert is followed by those same checks of the writer it rebound to the earlier revision, every
+# against the reference and compares every one of the reference's keys with what the index answers.
+# For CAS/VALIDTIME, the slot walk checks physical order but compares base chunks with the reference:
+# delta slots must belong to a reference chunk or a base proven empty through the public posting
+# view. Such empty bases can remain physical until a fold. The validator reuses resolved pages and
+# decoded leaf keys only within one read-only pass; every later pass resolves current pages again.
+# These representation and reuse rules apply to both lanes without changing their check cadence.
+# A revert is followed by those same checks of the writer it rebound to the earlier revision, every
 # commit checks the new revision that way through the reader, and every cold reopen re-checks every
-# historical revision from disk. Nothing else is sampled. About a minute per kind;
+# historical revision from disk. Nothing else is sampled;
 # -Dsirix.hot.property.ops=N / .seeds=N / .seed=N resize or pin it.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.pathIndex'
 # Heavy lane: every index kind with a longer seeded budget (each seed again under all four versioning

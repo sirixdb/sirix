@@ -943,7 +943,7 @@ public abstract class AbstractHOTIndexReader<K> {
       }
       // Only the EXCLUSIVE case needs a logical compare. The cursor's seek bound is
       // `lower ‖ chunk0` (derived in the constructor, so they cannot drift apart) and
-      // HOTRangeCursor#isOutOfRange rejects every slot below it on every step — and
+      // the cursor rejects every slot below it on every step — and
       // `composite >= lower ‖ 0` is exactly `logical >= lower`, since the composite is the logical
       // key followed by the chunk trailer. So for an inclusive lower bound this compare could only
       // ever repeat the cursor's answer, once per slot, over the whole sweep.

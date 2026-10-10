@@ -4860,8 +4860,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * The slot whose value is a referenced posting-chunk marker carrying {@code refKey}, or {@code -1}.
    * A posting index's composite keys are not 8-byte path keys, so a referenced chunk's side reference
    * is routed to the leaf that holds the marker, not by {@link #overflowPageRefOwnerSlot}'s
-   * derivation. A bounded scan of this leaf's slot headers, used only when entries move between
-   * leaves.
+   * derivation. A bounded scan of this leaf's slot headers locates the owner during structural moves
+   * and detects local side-map collisions when a folded payload is referenced.
    */
   public int findReferencedPostingOwner(final long refKey) {
     if (indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) {

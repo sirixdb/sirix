@@ -6053,11 +6053,11 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (!(sourceLeafPage instanceof HOTLeafPage sourceLeaf) || sourceLeaf.getPageKey() != sourceLeafPageKey) {
       return false; // source slot is not the single source leaf
     }
-    // Capture the bounded source leaf's projection side map before building either replacement.
+    // Capture the bounded source leaf's side map before building either replacement.
     // The two fresh roots partition every source key, so the existing two-pass owner resolver can
     // re-home every reference locally before publication. Declining this shape would send an
-    // otherwise two-leaf mutation into the wider complete-frontier arm solely because projection
-    // stores out-of-line segments.
+    // otherwise two-leaf mutation into the wider complete-frontier arm solely because its entries
+    // own projection segments or referenced posting payloads.
     final List<CapturedSegmentRef> sourceSegmentRefs = new ArrayList<>(sourceLeaf.segmentRefCount());
     for (final long refKey : sourceLeaf.overflowPageRefKeysSorted()) {
       sourceSegmentRefs.add(

@@ -1043,9 +1043,9 @@ can shorten a truncated suffix ending in zeros and hide the information loss. An
 bound requires document values for every candidate;
 otherwise uncapped candidates can be compared from their decoded keys. Read-only transactions use
 a separate record reader; a writer-backed view uses `getTransactionView()` and preserves the caller's
-pinned record-page guard with `preserveRecordPageGuard()`. Losslessly encodable bounds keep their
-existing scan path. This boundary serves `IndexExpr`, the vectorized executor and the public
-JSON/XML CAS scan functions. `CASCappedLexicalViewTest` and `CASCappedDecimalViewTest` cover
+pinned record-page guard with `preserveRecordPageGuard()`. Uncapped, byte-ordered single-PCR bounds
+keep their existing bounded scan path. This boundary serves `IndexExpr`, the vectorized executor and
+the public JSON/XML CAS scan functions. `CASCappedLexicalViewTest` and `CASCappedDecimalViewTest` cover
 uncommitted, historical, and cold-reopened comparisons across all four versioning types.
 
 ### 4.5 Incremental insert
@@ -1820,7 +1820,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
-| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I4, I11, leaf-insert precondition |
+| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
@@ -1850,8 +1850,8 @@ framing (`test/index/hot/CASKeyPrefixPropertyTest.java`).
    16 released-leaf forwards, detector depth 64); the ≤ H + 1 pages-touched bound is not tested.
 5. **Delete, tombstone and consolidation paths.** No proof; tests only.
 6. **Copy-on-write and multi-revision isolation.** No proof; tests only.
-7. **Validator self-coverage.** No fault-injection test shows that the test validator's I1-I3, I5-I10,
-   I12 and sparse-path checks, or the detector's I12 check, fire on a broken tree.
+7. **Remaining validator self-coverage.** No fault-injection test shows that the test validator's
+   I2-I3, I5, I7-I10, I12 and sparse-path checks, or the detector's I12 check, fire on a broken tree.
 8. **The NAME prefix discriminative-bit case** of §2.5.
 9. **Campaign figures** in the archive documents cannot be reproduced at HEAD (reproducer and flags removed).
 
@@ -2008,8 +2008,6 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
 - `page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
-- `hot/AbstractHOTIndexReader.java` Javadoc cites `HOTRangeCursor#isOutOfRange`, which does not exist
-  (the method is `classifyAgainstBounds`, `trx/HOTRangeCursor.java:318`).
 - `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
   repair.
 - `trx/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
