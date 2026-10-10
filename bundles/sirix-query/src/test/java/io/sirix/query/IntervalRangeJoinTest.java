@@ -55,6 +55,35 @@ final class IntervalRangeJoinTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void timestampRowJoinsRetainColumnarUtcOutputInBothDirections(final VersioningType versioning) throws Exception {
+    build(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String prolog = "declare variable $B := xs:dateTime('2024-01-15T00:00:00Z');"
+          + "declare variable $P := xs:dateTime('2024-04-15T00:00:00Z');";
+      final String contracts = "for $c in jn:open-bitemporal('range','contracts',$B,$P) ";
+      final String products = "for $p in jn:open-bitemporal('range','products',$B,$P) ";
+      final String tail = """
+          where $c.pid eq $p.id
+          and xs:dateTime($c.vf) lt xs:dateTime($p.vt)
+          and xs:dateTime($p.vf) lt xs:dateTime($c.vt)
+          order by $c.vf, $p.vt, $c.id
+          return {'from':$c.vf,'to':$p.vt,'id':$c.id,'category':$p.category}
+          """;
+      for (final String sources : new String[] {contracts + products, products + contracts}) {
+        final String query = prolog + sources + tail;
+        final String expected = run(generic, ctx, query);
+        final long before = SirixVectorizedExecutor.joinGroupServedCount();
+        assertEquals(expected, run(chain, ctx, query));
+        assertEquals(before + 1, SirixVectorizedExecutor.joinGroupServedCount());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void eagerRangeProbeDeclinesBoundErrorsForTheOriginalShortCircuitComparisons(final VersioningType versioning) {
     build(versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build()) {

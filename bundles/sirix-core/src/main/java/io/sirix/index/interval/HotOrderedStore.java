@@ -137,7 +137,7 @@ public final class HotOrderedStore implements OrderedStore {
         (int) (ref >>> 16), key, 0);
     try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, key, key)) {
       return chunks.hasNext()
-          ? chunks.next()
+          ? chunks.next(true)
           : null;
     }
   }
@@ -168,7 +168,7 @@ public final class HotOrderedStore implements OrderedStore {
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
     try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
       while (chunks.hasNext()) {
-        final NodeReferences refs = chunks.next();
+        final NodeReferences refs = chunks.next(true);
         if (refs == null) {
           continue;
         }
@@ -198,7 +198,7 @@ public final class HotOrderedStore implements OrderedStore {
     long count = 0;
     try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
       while (chunks.hasNext()) {
-        final NodeReferences refs = chunks.next();
+        final NodeReferences refs = chunks.next(true);
         if (refs != null) {
           count += refs.cardinality();
         }
@@ -243,7 +243,7 @@ public final class HotOrderedStore implements OrderedStore {
       return chunkBase;
     }
 
-    private @Nullable NodeReferences next() {
+    private @Nullable NodeReferences next(final boolean countPostingChunk) {
       positionAtChunk();
       merge: for (int attempt = 0;; attempt++) {
         checkRetries(attempt);
@@ -294,7 +294,7 @@ public final class HotOrderedStore implements OrderedStore {
         break;
       }
       chunkBase = (HOTKeySerializer.readChunkIdx(composite, 0, COMPOSITE_BYTES) & 0xFFFFFFFFL) << 16;
-      if (SCAN_DIAGNOSTICS) {
+      if (SCAN_DIAGNOSTICS && countPostingChunk) {
         POSTING_CHUNKS_READ.increment();
       }
       return accumulator.toNodeReferencesAndReset();
@@ -380,7 +380,7 @@ public final class HotOrderedStore implements OrderedStore {
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(to, -1, last, 0);
     try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, first, last)) {
       while (chunks.hasNext()) {
-        final NodeReferences refs = chunks.next();
+        final NodeReferences refs = chunks.next(false);
         if (refs == null) {
           continue;
         }
