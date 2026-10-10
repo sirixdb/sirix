@@ -212,24 +212,40 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
   /** Aggregate dependents coalesce every projection flush until the commit maintenance barrier. */
-  private final Long2ObjectOpenHashMap<Entry> changeLogEntries = new Long2ObjectOpenHashMap<>();
+  private @Nullable Long2ObjectOpenHashMap<Entry> changeLogEntries;
+  private boolean aggregateMaintenanceEnabled;
   private int changeLogRevision = -1;
   private @Nullable ProjectionChangeLog changeCapture;
 
   public void initializeChangeLog() {
-    ProjectionChangeLog.initialize(storageEngineWriter, indexDef, pathSummary, (JsonNodeReadOnlyTrx) maintenanceTrx);
+    if (!aggregateMaintenanceEnabled) {
+      ProjectionChangeLog.initialize(storageEngineWriter, indexDef, pathSummary, (JsonNodeReadOnlyTrx) maintenanceTrx);
+      aggregateMaintenanceEnabled = true;
+    }
   }
 
   private void changeLogRevision() {
+    if (changeLogEntries == null) {
+      changeLogEntries = new Long2ObjectOpenHashMap<>();
+    }
     if (changeLogRevision != storageEngineWriter.getRevisionNumber()) {
       changeLogEntries.clear();
       changeLogRevision = storageEngineWriter.getRevisionNumber();
     }
   }
 
-  private final Map<Integer, TemporalAggregateIndexes.TransactionState> aggregateStates = new HashMap<>();
+  private @Nullable Map<Integer, TemporalAggregateIndexes.TransactionState> aggregateStates;
 
-  private @Nullable Long2ObjectOpenHashMap<long[]> aggregateDirtyColumnWords;
+  /** Bound from the catalogue only when listeners are created or declarations change. */
+  public void aggregateMaintenanceEnabled(final boolean enabled) {
+    aggregateMaintenanceEnabled = enabled;
+    if (!enabled) {
+      aggregateStates = null;
+      changeLogEntries = null;
+      changeLogRevision = -1;
+    }
+  }
+
   /**
    * First authoritative root event plus structural membership provenance, keyed by record identity.
    */
@@ -409,9 +425,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       dirtyRecordKeys = null;
       sortedKeyByRecord = null;
       dirtyColumnWordsByRecord = null;
-      aggregateDirtyColumnWords = null;
-      aggregateStates.clear();
-      changeLogEntries.clear();
+      aggregateStates = null;
+      changeLogEntries = null;
       changeLogRevision = -1;
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
@@ -438,6 +453,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   public TemporalAggregateIndexes.TransactionState aggregateState(final int index) {
+    if (aggregateStates == null) {
+      aggregateStates = new HashMap<>();
+    }
     return aggregateStates.computeIfAbsent(index, ignored -> new TemporalAggregateIndexes.TransactionState());
   }
 
@@ -2086,10 +2104,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     applyPendingMaintenance();
-    final Long2ObjectOpenHashMap<long[]> aggregateChanges = aggregateDirtyColumnWords;
-    aggregateDirtyColumnWords = null;
-    if (!invalidated
-        && (aggregateChanges != null || TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef))) {
+    if (!invalidated && aggregateMaintenanceEnabled) {
       try {
         changeLogRevision();
         final ChangeLogSlab slab = ProjectionChangeLog.slab(storageEngineWriter, indexDef.getID(),
@@ -2233,35 +2248,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             + storageEngineWriter.getRevisionNumber() + " (identity removal=" + (identityMembershipRemovals != null)
             + ")");
       }
-      queueAggregateMaintenance(dirty, dirtyColumnWords);
       maintenanceEpoch++;
     } catch (final RuntimeException | Error failure) {
       failMaintenance(failure);
       throw failure;
-    }
-  }
-
-  private void queueAggregateMaintenance(final LongSet dirty, final Long2ObjectOpenHashMap<long[]> changedColumns) {
-    if (!TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)) {
-      return;
-    }
-    if (aggregateDirtyColumnWords == null) {
-      aggregateDirtyColumnWords = new Long2ObjectOpenHashMap<>(dirty.size());
-    }
-    for (final LongIterator records = dirty.iterator(); records.hasNext();) {
-      final long record = records.nextLong();
-      final long[] changed = changedColumns.get(record);
-      final long[] columns = changed == null
-          ? allColumnWords
-          : changed;
-      final long[] previous = aggregateDirtyColumnWords.get(record);
-      if (previous == null) {
-        aggregateDirtyColumnWords.put(record, columns.clone());
-      } else {
-        for (int word = 0; word < previous.length; word++) {
-          previous[word] |= columns[word];
-        }
-      }
     }
   }
 
@@ -2431,8 +2421,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final MaintenanceGlobalDictionary[] globalDictionaries = createMaintenanceGlobalDictionaries(meta);
     final ProjectionSetSummaryChunks.Accessor setValueRowCounts =
         ProjectionSetSummaryChunks.open(storage, meta.setValueRowCounts());
-    changeLogRevision();
-    try (ProjectionChangeLog capture = TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)
+    if (aggregateMaintenanceEnabled) {
+      changeLogRevision();
+    }
+    try (ProjectionChangeLog capture = aggregateMaintenanceEnabled
         ? new ProjectionChangeLog(storageEngineWriter, indexDef.getID(), meta, dirty, dirtyColumnWords,
             changeLogEntries)
         : null) {

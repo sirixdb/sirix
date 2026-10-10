@@ -62,6 +62,10 @@ compact signed part per revision. Repeated barriers fold into that revision's pa
 creates a checkpoint at fan-in sixteen, or when accumulated delta bytes exceed half the checkpoint
 size (with a 2,048-byte floor for small groups). This bounds read fan-out but periodically performs
 work proportional to the touched group's accumulated summaries; it is not constant-cost maintenance.
+Capture and slab persistence run only while the projection has a declared aggregate consumer.
+Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
+the current projection. Slabs from earlier covered revisions remain readable; revisions without
+a consumer have no slab.
 Maintenance remains synchronous. The log is groundwork for separately maintained derived resources;
 there is no background maintainer or query-time lag protocol in this version.
 Historical revisions retain their original group heads and parts through ordinary page copy-on-write.

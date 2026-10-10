@@ -74,24 +74,6 @@ public final class TemporalAggregateIndexes {
     }
   }
 
-  /** Whether a projection needs to retain dirty identities for commit-time aggregate maintenance. */
-  public static boolean hasDependents(final StorageEngineWriter writer, final IndexDef projection) {
-    if (!(writer.getResourceSession() instanceof JsonResourceSession session)) {
-      return false;
-    }
-    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber())
-                                            .getIndexes()
-                                            .getIndexDefs()) {
-      if (definition.isTemporalAggregateIndex()
-          && definition.getTemporalAggregateSpec().projectionId() == projection.getID()) {
-        return true;
-      }
-    }
-    // Once logging starts, retain coverage even while no aggregate declaration consumes it.
-    return !writer.getActualRevisionRootPage().getChangeLogIndexPageReference().isVirginStructuralPlaceholder()
-        && writer.getChangeLogIndexPage(writer.getActualRevisionRootPage()).isIndexInitialized(projection.getID());
-  }
-
   /** Called only after the projection has installed its final rows for this maintenance batch. */
   public static void maintain(final StorageEngineWriter writer, final IndexDef projection, final ChangeLogSlab slab) {
     if (!(writer.getResourceSession() instanceof JsonResourceSession session)) {

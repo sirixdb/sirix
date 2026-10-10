@@ -21,6 +21,7 @@ import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.File;
 import java.util.List;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Slab writes depend on changed rows only; old cells survive barriers, reopen, and reverted bases.
@@ -128,6 +130,82 @@ final class ChangeLogWorkBudgetTest {
                 : i + 100, entry.after().numbers[1]);
           }
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void noLogWorkWithoutConsumerAndFreshProvenanceAfterRedeclaration(final VersioningType versioning) {
+    final var path = directory.toPath().resolve("optional-log");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("data")
+                                                   .validTimePaths("lo", "hi")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("data");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"g\":1,\"n\":1.5},{\"g\":1,\"n\":2.5}]"),
+            JsonNodeTrx.Commit.NO);
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        final long record = writer.getNodeKey();
+        final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
+            List.of(field("g"), field("n"), field("lo"), field("hi")), List.of(Type.LON, Type.LON, Type.STR, Type.STR),
+            0, IndexDef.DbType.JSON);
+        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
+        writer.commit();
+        // Neither no-op commits nor incremental column maintenance may initialize the container.
+        set(writer, record, 2);
+        session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+        writer.commit();
+        assertTrue(writer.getStorageEngineWriter()
+                         .getActualRevisionRootPage()
+                         .getChangeLogIndexPageReference()
+                         .isVirginStructuralPlaceholder());
+        writer.moveTo(record);
+        writer.moveToFirstChild();
+        writer.moveToRightSibling();
+        writer.moveToFirstChild();
+        writer.setNumberValue(1.5);
+        final IndexDef aggregate = TemporalAggregateDeclarations.declare(
+            session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]", List.of("g"), List.of("sum(n)"));
+        writer.commit(); // Revision 3 has an exceptional numeric row.
+        try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(record)[2]);
+        }
+        session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
+        set(writer, record, 4);
+        writer.commit();
+        writer.commit(); // An uncovered no-op revision must not acquire a slab either.
+        TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
+            List.of("g"), List.of("sum(n)"));
+        try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
+          assertNull(log.provenance(record), "Dropped-period numeric change must remove stale exceptional flags");
+        }
+        set(writer, record, 6);
+        writer.commit();
+        final ChangeLogSlab slab = ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 6);
+        assertEquals(1, slab.entries().size());
+        assertEquals(4, slab.entries().getFirst().before().numbers[1]);
+        assertEquals(ChangeLogSlab.PRESENT, slab.entries().getFirst().before().flags[1]);
+        assertEquals(6, slab.entries().getFirst().after().numbers[1]);
+        for (int revision = 4; revision <= 5; revision++) {
+          final int uncovered = revision;
+          assertThrows(NullPointerException.class,
+              () -> ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, uncovered));
+        }
+        // Resumption does not erase the previously covered slab or alter the older sparse flags.
+        assertTrue(ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 3).entries().isEmpty());
+        writer.revertTo(3);
+        try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(record)[2]);
+        }
+        writer.rollback();
       }
     }
   }

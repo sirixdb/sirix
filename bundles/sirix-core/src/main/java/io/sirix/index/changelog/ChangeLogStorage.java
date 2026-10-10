@@ -1,6 +1,7 @@
 package io.sirix.index.changelog;
 
 import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
@@ -12,6 +13,8 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -76,6 +79,29 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
 
   public boolean initialized() {
     return header != null;
+  }
+
+  /** Reset sparse row flags before resuming capture after an interval without consumers. */
+  public void clearProvenance() {
+    if (exceptionalRows == 0) {
+      return;
+    }
+    // Collect before mutating: a cursor must not walk a tree it is simultaneously rewriting.
+    final List<byte[]> extents = new ArrayList<>();
+    try (HOTRangeCursor cursor = reader.range(rootReference, new byte[] {1}, new byte[] {2})) {
+      while (cursor.hasNext()) {
+        final HOTRangeCursor.Entry entry = cursor.next();
+        final byte[] key = entry.keyBytes();
+        if (key.length == 13 && key[0] == 1 && ByteBuffer.wrap(key).getInt(9) == -1 && entry.value().byteSize() != 0) {
+          extents.add(key);
+        }
+      }
+    }
+    for (final byte[] extent : extents) {
+      put(extent, new byte[0]);
+    }
+    exceptionalRows = 0;
+    headerDirty = true;
   }
 
   public void write(final ChangeLogSlab slab) {

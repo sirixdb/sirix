@@ -313,6 +313,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     refreshListenerSnapshots();
+    bindAggregateDependents();
 
     return this;
   }
@@ -588,6 +589,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       addListener(projectionListener);
     }
     refreshListenerSnapshots();
+    bindAggregateDependents();
 
     return this;
   }
@@ -708,6 +710,24 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     } else {
       throw new IllegalStateException(
           "Listener does not support primitive change events: " + listener.getClass().getName());
+    }
+  }
+
+  /** Keep optional aggregate work off projection maintenance paths without a consumer. */
+  private void bindAggregateDependents() {
+    final Set<IndexDef> definitions = indexes.getIndexDefs();
+    for (final ChangeListener listener : listenerSnapshot) {
+      if (listener instanceof final ProjectionIndexChangeListener projection) {
+        boolean enabled = false;
+        for (final IndexDef definition : definitions) {
+          if (definition.isTemporalAggregateIndex()
+              && definition.getTemporalAggregateSpec().projectionId() == projection.indexDefId()) {
+            enabled = true;
+            break;
+          }
+        }
+        projection.aggregateMaintenanceEnabled(enabled);
+      }
     }
   }
 

@@ -65,9 +65,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
     final ProjectionIndexMetadata metadata = Objects.requireNonNull(
         ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(writer, projection.getID())));
     try (ChangeLogStorage storage = new ChangeLogStorage(writer, projection.getID())) {
-      if (storage.initialized()) {
-        return;
-      }
+      storage.clearProvenance();
       storage.initialize(writer.getRevisionNumber(), kinds(metadata.columnKinds()));
       final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(projection, paths);
       final boolean direct = projection.getProjectionRootPath().toString().equals("/[]")

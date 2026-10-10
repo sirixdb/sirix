@@ -232,8 +232,9 @@ fail-fast lookups, never ordinals.
   document subtrees. `base revision` records the represented revision after a revert, rather than
   assuming the immediately preceding published revision. Repeated maintenance barriers replace
   the current slab with the coalesced first-old/final-new cells. No-op revisions have empty slabs.
-  Once enabled, logging continues while the source projection exists, even if its last aggregate
-  is dropped. `ChangeLogSlabTest` pins format 1 with a golden byte fixture.
+  Slabs are written only while a declared aggregate consumes the projection; the first-revision
+  header does not imply gap-free coverage. Redeclaration rebuilds sparse provenance, retaining
+  earlier slabs and historical roots. `ChangeLogSlabTest` pins format 1 with a golden byte fixture.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
