@@ -60,7 +60,8 @@ and final new projected cells, changed masks and represented base revision. A sl
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
 decoded slab for every declaration and shares parsed endpoints; it performs no projection reads or
-represented-revision reader opens. Columns outside a declaration cause no aggregate I/O. A
+represented-revision reader opens. Unchanged maintenance barriers reuse the already-published batch;
+each new covered revision still receives an explicit empty slab. Columns outside a declaration cause no aggregate I/O. A
 transaction-local cache accounts for index creation and repeated explicit barriers; rollback
 removes all unpublished changes through normal page ownership.
 
@@ -120,3 +121,7 @@ pages for 20 changed rows beside differently sized untouched populations, and re
 readers during maintenance. `ChangeLogWorkBudgetTest` bounds slab slots and verifies cold historical
 reads and reverted bases under all four versioning types. The work-budget commands
 in `VERIFICATION.md` include the maintenance budget; no test asserts wall-clock latency.
+
+Measurements recorded for commit `5a00aa171` describe the earlier part layout. The tiered layout and
+subsequent review fixes require refreshed read, commit and storage evidence before those measurements
+can describe the fixed head. Work-budget results establish counted work and exactness, not latency.

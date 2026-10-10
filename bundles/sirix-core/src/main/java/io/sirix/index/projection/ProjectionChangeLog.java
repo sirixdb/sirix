@@ -24,6 +24,21 @@ import java.util.Objects;
  * Captures rows while projection maintenance owns their decoded columns, before they are replaced.
  */
 public final class ProjectionChangeLog implements AutoCloseable {
+  private static final boolean WORK_DIAG = Boolean.getBoolean("sirix.changelog.workDiag");
+  private static long slabsBuilt;
+  private boolean advanced;
+
+  public static long slabsBuilt() {
+    if (!WORK_DIAG) {
+      throw new IllegalStateException("Change-log work diagnostics are disabled");
+    }
+    return slabsBuilt;
+  }
+
+  boolean advanced() {
+    return advanced;
+  }
+
   private final StorageEngineWriter writer;
   private final ProjectionIndexMetadata metadata;
   private final int projection;
@@ -244,6 +259,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
         Arrays.fill(mask, -1L);
       }
       entries.put(record, new Entry(record, mask.clone(), row, row));
+      advanced = true;
     }
   }
 
@@ -263,6 +279,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
           : updates[word];
     }
     entries.put(record, new Entry(record, mask, prior.before(), next));
+    advanced = true;
     if (next.exceptional() || prior.after() != null && prior.after().exceptional()) {
       storage.provenance(record, next);
     }
@@ -275,6 +292,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
     } else {
       Arrays.fill(prior.changed(), -1L);
       entries.put(record, new Entry(record, prior.changed(), prior.before(), null));
+      advanced = true;
       if (prior.after() != null && prior.after().exceptional()) {
         storage.provenance(record, null);
       }
@@ -283,6 +301,9 @@ public final class ProjectionChangeLog implements AutoCloseable {
 
   static ChangeLogSlab slab(final StorageEngineWriter writer, final int projection, final byte[] kinds,
       final Long2ObjectOpenHashMap<Entry> entries) {
+    if (WORK_DIAG) {
+      slabsBuilt++;
+    }
     final long[] keys = entries.keySet().toLongArray();
     Arrays.sort(keys);
     final List<Entry> ordered = new ArrayList<>(keys.length);

@@ -103,8 +103,9 @@ public final class TemporalAggregateRoute {
       if (metadata == null || metadata.isStale()) {
         continue;
       }
-      final int[] groups = groupMapping(request.groupFields(), spec, metadata.fieldNames());
-      final int[] lanes = laneMapping(request, spec, metadata.fieldNames());
+      final String[] columns = metadata.fieldChains();
+      final int[] groups = groupMapping(request.groupFields(), spec, columns);
+      final int[] lanes = laneMapping(request, spec, columns);
       if (groups == null || lanes == null) {
         continue;
       }

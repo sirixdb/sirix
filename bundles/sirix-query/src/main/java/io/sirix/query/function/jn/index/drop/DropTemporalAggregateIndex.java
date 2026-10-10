@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.query.json.JsonDBItem;
 
 import java.util.LinkedHashSet;
@@ -42,39 +43,42 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
     final JsonResourceSession resourceSession = rtx.getResourceSession();
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
+    if (optionalWriteTrx.isPresent()) {
+      optionalWriteTrx.get().awaitPendingAsyncCommit();
+    }
+    final int revision = rtx.getRevisionNumber();
+    final boolean historical = revision < resourceSession.getMostRecentRevisionNumber();
+    final Indexes indexes = !historical && optionalWriteTrx.isPresent()
+        ? resourceSession.getWtxIndexController(optionalWriteTrx.get().getRevisionNumber()).getIndexes()
+        : resourceSession.getRtxIndexController(revision).getIndexes();
+    final boolean requested = args.length == 2 && args[1] != null;
+    final int requestedId = requested ? ((Int32) args[1]).intValue() : -1;
+    final Set<IndexDef> toDrop = new LinkedHashSet<>();
+    for (final IndexDef indexDef : indexes.getIndexDefs()) {
+      if (indexDef.getType() == IndexType.TEMPORAL_AGGREGATE && (!requested || indexDef.getID() == requestedId)) {
+        toDrop.add(indexDef);
+      }
+    }
+    if (requested && toDrop.isEmpty()) {
+      throw new QueryException(
+          new QNm("No TEMPORAL_AGGREGATE index with id " + requestedId + " found on the resource."));
+    }
+    if (toDrop.isEmpty()) {
+      return document;
+    }
     final boolean wtxIsOurs = optionalWriteTrx.isEmpty();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
-    boolean committedToCaller = false;
+    boolean succeeded = false;
     try {
-      if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
-        wtx.revertTo(rtx.getRevisionNumber());
+      wtx.awaitPendingAsyncCommit();
+      if (historical) {
+        wtx.revertTo(revision);
       }
-
-      final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
-
-      final Integer requestedId = args.length == 2 && args[1] != null
-          ? ((Int32) args[1]).intValue()
-          : null;
-
-      final Set<IndexDef> toDrop = new LinkedHashSet<>();
-      for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
-        if (indexDef.getType() != IndexType.TEMPORAL_AGGREGATE) {
-          continue;
-        }
-        if (requestedId == null || indexDef.getID() == requestedId) {
-          toDrop.add(indexDef);
-        }
-      }
-
-      if (requestedId != null && toDrop.isEmpty()) {
-        throw new QueryException(
-            new QNm("No TEMPORAL_AGGREGATE index with id " + requestedId + " found on the resource."));
-      }
-
-      dropAll(toDrop, controller, wtx);
-      committedToCaller = !toDrop.isEmpty();
+      final JsonIndexController controller = resourceSession.getWtxIndexController(wtx.getRevisionNumber());
+      controller.dropIndexes(toDrop, wtx);
+      succeeded = true;
     } finally {
-      if (wtxIsOurs && !committedToCaller) {
+      if (wtxIsOurs && !succeeded) {
         wtx.close();
       }
     }
@@ -82,10 +86,4 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
     return document;
   }
 
-  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller, final JsonNodeTrx wtx) {
-    if (!toDrop.isEmpty()) {
-      wtx.awaitPendingAsyncCommit();
-      controller.dropIndexes(toDrop, wtx);
-    }
-  }
 }

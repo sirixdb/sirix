@@ -215,12 +215,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable Long2ObjectOpenHashMap<Entry> changeLogEntries;
   private boolean aggregateMaintenanceEnabled;
   private int changeLogRevision = -1;
+  private boolean changeLogPending;
   private @Nullable ProjectionChangeLog changeCapture;
 
   public void initializeChangeLog() {
     if (!aggregateMaintenanceEnabled) {
       ProjectionChangeLog.initialize(storageEngineWriter, indexDef, pathSummary, (JsonNodeReadOnlyTrx) maintenanceTrx);
       aggregateMaintenanceEnabled = true;
+      changeLogPending = true;
     }
   }
 
@@ -231,6 +233,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (changeLogRevision != storageEngineWriter.getRevisionNumber()) {
       changeLogEntries.clear();
       changeLogRevision = storageEngineWriter.getRevisionNumber();
+      changeLogPending = true;
     }
   }
 
@@ -243,6 +246,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       aggregateStates = null;
       changeLogEntries = null;
       changeLogRevision = -1;
+      changeLogPending = false;
     }
   }
 
@@ -428,6 +432,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       aggregateStates = null;
       changeLogEntries = null;
       changeLogRevision = -1;
+      changeLogPending = false;
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
       identityEpoch = null;
@@ -2107,12 +2112,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (!invalidated && aggregateMaintenanceEnabled) {
       try {
         changeLogRevision();
+        if (!changeLogPending) {
+          return;
+        }
         final ChangeLogSlab slab = ProjectionChangeLog.slab(storageEngineWriter, indexDef.getID(),
             ProjectionChangeLog.kinds(Objects.requireNonNull(readMetadata()).columnKinds()), changeLogEntries);
         try (ChangeLogStorage log = new ChangeLogStorage(storageEngineWriter, indexDef.getID())) {
           log.write(slab);
         }
         TemporalAggregateIndexes.maintain(storageEngineWriter, indexDef, slab);
+        changeLogPending = false;
       } catch (final RuntimeException | Error failure) {
         failMaintenance(failure);
         throw failure;
@@ -2429,8 +2438,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             changeLogEntries)
         : null) {
       changeCapture = capture;
-      return applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas, relabelled, storage,
-          meta, persistedKinds, globalDictionaries, setValueRowCounts);
+      final boolean applied = applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas,
+          relabelled, storage, meta, persistedKinds, globalDictionaries, setValueRowCounts);
+      if (capture != null && capture.advanced()) {
+        changeLogPending = true;
+      }
+      return applied;
     } finally {
       changeCapture = null;
       releaseMaintenanceGlobalDictionaries(globalDictionaries);

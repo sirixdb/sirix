@@ -13,7 +13,10 @@ import io.brackit.query.module.StaticContext;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexDef;
+import io.sirix.index.Indexes;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.query.json.JsonDBItem;
 
 import java.util.ArrayList;
@@ -32,16 +35,33 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) arguments[0];
     final JsonResourceSession session = document.getResourceSession();
     final var existing = session.getNodeTrx();
+    if (existing.isPresent()) {
+      existing.get().awaitPendingAsyncCommit();
+    }
+    final int revision = document.getTrx().getRevisionNumber();
+    final boolean historical = revision < session.getMostRecentRevisionNumber();
+    final Indexes indexes = !historical && existing.isPresent()
+        ? session.getWtxIndexController(existing.get().getRevisionNumber()).getIndexes()
+        : session.getRtxIndexController(revision).getIndexes();
+    final String root = ((Str) arguments[1]).stringValue();
+    final List<String> groups = strings(arguments[2]);
+    final List<String> aggregates = strings(arguments[3]);
+    final TemporalAggregateSpec spec = TemporalAggregateDeclarations.resolve(indexes,
+        session.getResourceConfig().getValidTimeConfig(), root, groups, aggregates);
+    final IndexDef declared = TemporalAggregateDeclarations.find(indexes, spec);
+    if (declared != null) {
+      return declared.materialize();
+    }
     final JsonNodeTrx transaction = existing.orElseGet(session::beginNodeTrx);
     boolean succeeded = false;
     try {
-      if (document.getTrx().getRevisionNumber() < session.getMostRecentRevisionNumber()) {
-        transaction.revertTo(document.getTrx().getRevisionNumber());
-      }
       transaction.awaitPendingAsyncCommit();
+      if (historical) {
+        transaction.revertTo(revision);
+      }
       final JsonIndexController controller = session.getWtxIndexController(transaction.getRevisionNumber());
       final Sequence result = TemporalAggregateDeclarations.declare(controller, transaction,
-          ((Str) arguments[1]).stringValue(), strings(arguments[2]), strings(arguments[3])).materialize();
+          root, groups, aggregates).materialize();
       succeeded = true;
       return result;
     } finally {

@@ -523,10 +523,14 @@ public final class TemporalAggregateIndexes {
     private void finish() {
       for (final Map.Entry<byte[], Group> entry : groups.entrySet()) {
         final Group group = entry.getValue();
+        final GroupHead prior = group.head;
         if (group.delta.isEmpty()) {
+          if (prior != null && group.rows != prior.rows()) {
+            storage.put(entry.getKey(),
+                new GroupHead(group.rows, prior.checkpointTier(), prior.parts(), prior.tiers()).encode());
+          }
           continue;
         }
-        final GroupHead prior = group.head;
         long[] ids = prior == null
             ? new long[0]
             : prior.parts();

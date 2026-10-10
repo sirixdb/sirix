@@ -1,10 +1,14 @@
 package io.sirix.index.aggregate;
 
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.Indexes;
+import io.sirix.index.IndexType;
+import org.jspecify.annotations.Nullable;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 
 import java.util.ArrayList;
@@ -20,10 +24,39 @@ public final class TemporalAggregateDeclarations {
       final List<String> groups, final List<String> aggregates) {
     Objects.requireNonNull(controller);
     Objects.requireNonNull(transaction);
+    final Indexes indexes = controller.getIndexes();
+    final TemporalAggregateSpec spec = resolve(indexes,
+        transaction.getResourceSession().getResourceConfig().getValidTimeConfig(), root, groups, aggregates);
+    final IndexDef existing = find(indexes, spec);
+    if (existing != null) {
+      return existing;
+    }
+    final IndexDef projection = indexes.getIndexDef(spec.projectionId(), IndexType.PROJECTION);
+    final StorageEngineWriter writer = transaction.getStorageEngineWriter();
+    final int id = writer.getTemporalAggregateIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final IndexDef definition = IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, id);
+    controller.createIndexes(Set.of(definition), transaction);
+    return definition;
+  }
+
+  public static @Nullable IndexDef find(final Indexes indexes, final TemporalAggregateSpec spec) {
+    Objects.requireNonNull(indexes);
+    Objects.requireNonNull(spec);
+    for (final IndexDef existing : indexes.getIndexDefs()) {
+      if (existing.isTemporalAggregateIndex() && existing.getTemporalAggregateSpec().equals(spec)) {
+        return existing;
+      }
+    }
+    return null;
+  }
+
+  public static TemporalAggregateSpec resolve(final Indexes indexes, final @Nullable ValidTimeConfig config,
+      final String root, final List<String> groups, final List<String> aggregates) {
+    Objects.requireNonNull(indexes);
     Objects.requireNonNull(root);
     Objects.requireNonNull(groups);
     Objects.requireNonNull(aggregates);
-    for (final IndexDef projection : controller.getIndexes().getIndexDefs()) {
+    for (final IndexDef projection : indexes.getIndexDefs()) {
       if (!projection.isProjectionIndex() || !projection.getProjectionRootPath().toString().equals(root)) {
         continue;
       }
@@ -77,16 +110,9 @@ public final class TemporalAggregateDeclarations {
       }
       final TemporalAggregateSpec spec =
           new TemporalAggregateSpec(projection.getID(), groupColumns, new ArrayList<>(lanes));
-      for (final IndexDef existing : controller.getIndexes().getIndexDefs()) {
-        if (existing.isTemporalAggregateIndex() && existing.getTemporalAggregateSpec().equals(spec)) {
-          return existing;
-        }
-      }
-      final StorageEngineWriter writer = transaction.getStorageEngineWriter();
-      final int id = writer.getTemporalAggregateIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
-      final IndexDef definition = IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, id);
-      controller.createIndexes(Set.of(definition), transaction);
-      return definition;
+      TemporalAggregateIndexes.validate(
+          IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, 0), projection, config);
+      return spec;
     }
     throw new IllegalArgumentException("No covering projection for the temporal aggregate declaration at " + root);
   }
