@@ -1,6 +1,6 @@
 # Valid-time key slices
 
-The valid-time index can answer exact closed and half-open point predicates without reading candidate
+The valid-time index can answer exact point and range predicates without reading candidate
 objects. Its sorted key sequence constructs exact-match JSON objects only when a consumer requests
 them; exceptional candidates retain demand-time verification. `size()` counts exact keys and verifies
 exceptional candidates; repeated iteration and early close do not close the borrowed revision transaction.
@@ -15,12 +15,15 @@ exceptional candidates; repeated iteration and early close do not close the borr
 | `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op P and P op xs:dateTime($x.vt) return ...` | All four combinations of inclusive/strict endpoints, either operand/conjunct order | Original full array scan and comparisons unless every member has two exact bounds and its array order agrees with key order |
 | `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op U and L op xs:dateTime($x.vt) return ...` | Range intersection for `L <= U`, with independent strict/closed start and end ties | Original comparisons for reversed windows, rounded/clamped instants, missing/unsafe bounds, or unsafe array order |
 
-Each point or range bound must be an invariant variable or `xs:dateTime` literal. Only `xs:dateTime` field casts are consumed. The bitemporal rule consumes the first
-conjunct, preserving later conjuncts and their evaluation order. Positional/allowing-empty bindings,
+Each point or range bound must be an invariant variable or `xs:dateTime` literal. Only `xs:dateTime`
+field casts are consumed. A plain source matches exactly two temporal comparisons, in one conjunction
+or two consecutive selections. A bitemporal source can fold that pair while retaining its original
+point constraint; otherwise its residual rule consumes the first eligible conjunct, preserving later
+conjuncts and their evaluation order. Positional/allowing-empty bindings,
 other casts and other source shapes retain their ordinary evaluation.
 
-The SH1 queries call `jn:open-bitemporal` directly; they need no `local:slice` wrapper or additional
-strict-end comparison. The optimizer-only `open-bitemporal-slice` target is translated directly and
+The SH1 point-source queries call `jn:open-bitemporal` directly; they need no `local:slice` wrapper or
+additional strict-end comparison. The optimizer-only `open-bitemporal-slice` target is translated directly and
 is absent from the public function registry, so query text cannot call it.
 
 Brackit optimizes user-function bodies, so dynamic collection/resource/time parameters work inside
@@ -392,9 +395,8 @@ registration is emitted once, in at most `2 * height + 1` store probes. `startin
 keys still intersect persisted array membership, excluding nested and sibling arrays.
 
 Joined grouping and ordered row joins admit paired numeric comparisons and explicit
-`xs:dateTime(field)` comparisons over canonical UTC timestamp columns. The persisted provenance
-bit (kind-specific interpretation of `0x04`) proves every present timestamp cell has its `Z` suffix;
-text consumers continue to decline the lexical unrepresentable flag and read the original spelling.
+`xs:dateTime(field)` comparisons over canonical UTC timestamp columns, gated by the persisted
+[UTC provenance contract](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 Projection epochs are seconds; joined timestamp buffers convert them exactly to milliseconds once
 per selected row. Comparisons then use primitive longs per joined pair. Mixed-side `+`, `-`, `*`
 aggregate programs and `count(distinct-values(field))` use the same matched pairs, with primitive

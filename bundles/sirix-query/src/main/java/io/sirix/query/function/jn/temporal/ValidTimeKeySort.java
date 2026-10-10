@@ -10,6 +10,7 @@ final class ValidTimeKeySort {
 
   private ValidTimeKeySort() {}
 
+  @SuppressWarnings("ReferenceEquality") // Buffer identity determines whether sorted keys need copying back.
   static void sort(final long[] keys) {
     if (keys.length < MIN_RADIX_KEYS || keys.length > MAX_RADIX_KEYS || keys[0] < 0) {
       Arrays.sort(keys);

@@ -36,7 +36,7 @@ import java.util.Set;
  * which Brackit's join recognition has turned into a {@code Join} node over two single-loop
  * branches (SH1 Q9). Each branch's source is an index-routed opener or a literal document; the join
  * compares one field of each side for equality. The serving expression reads both sides' masked
- * columns, hashes the smaller side on its join values, probes with the other, groups the pairs on
+ * columns, indexes the smaller side on its join values, probes with the other, groups the pairs on
  * keys from either side and folds {@code count}, {@code sum}, {@code min} and {@code max} over
  * fields or paired {@code +,-,*} programs, including distinct field counts.
  *
@@ -71,13 +71,16 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   public static final String KEY_SIDES = "SIRIX_JOIN_KEY_SIDES";
   public static final String KEY_FIELDS = "SIRIX_JOIN_KEY_FIELDS";
   /**
-   * Per aggregate: function, side ({@code -1} = a pair count), field ({@code null} for a pair count,
-   * {@code prog:<i>} for a program).
+   * Per aggregate: function, side ({@code -1} = a pair count or paired program), field ({@code null}
+   * for a pair count, {@code prog:<i>} for a program).
    */
   public static final String AGG_FUNCS = "SIRIX_JOIN_AGG_FUNCS";
   public static final String AGG_SIDES = "SIRIX_JOIN_AGG_SIDES";
   public static final String AGG_FIELDS = "SIRIX_JOIN_AGG_FIELDS";
-  /** Per program: side, operand fields, code, constants. */
+  /**
+   * Per program: side ({@code -1} for paired operands named {@code side.field}), fields, code,
+   * constants.
+   */
   public static final String PROG_SIDES = "SIRIX_JOIN_PROG_SIDES";
   public static final String PROG_FIELDS = "SIRIX_JOIN_PROG_FIELDS";
   public static final String PROG_CODE = "SIRIX_JOIN_PROG_CODE";
@@ -129,7 +132,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
 
     private JoinMatcher() {}
 
-    /** A pre-group let: a plain field of one side, or a program over one side's fields. */
+    /** A pre-group let: a plain field of one side, or a program over either side's fields. */
     private record SideLet(QNm var, int side, String field) {
     }
 
@@ -1042,10 +1045,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         }
       }
       return true;
-    }
-
-    private static boolean equalityComparison(final int op) {
-      return !(op != XQ.ValueCompEQ && op != XQ.GeneralCompEQ && op != XQ.ValueCompNE && op != XQ.GeneralCompNE);
     }
 
     private static @Nullable String documentRevision(final AST call, final int side, final int[] revisions) {

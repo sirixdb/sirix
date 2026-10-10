@@ -89,7 +89,7 @@ raw results, and emit the same canonical TSV bytes.
 | 7 | latest grouped exposure | VALIDTIME row mask + projection group | no |
 | 8 | supplier/grade distribution | VALIDTIME row mask + projection group | no |
 | 9 | supplier temporal join/group | VALIDTIME row masks + column-side hash join + group | no |
-| 10 | interval-overlap product join | revision scans + generic join/group | no |
+| 10 | interval-overlap product join | VALIDTIME range masks + projection join/group with distinct counts | no |
 | 11 | daily temporal aggregation | VALIDTIME row mask + projection group, per day | no |
 | 12 | disappearance anti-join/group | VALIDTIME row masks + column-side key subtraction + projection group (fallback: [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)) | no |
 
@@ -99,6 +99,9 @@ requirements are documented in [Valid-time key slices](../../../../docs/VALID_TI
 Each business resource also declares a projection (column) index at E0 (`BitemporalProjections`), and
 projection admission and fallbacks are specified in
 [Index-routed row source](../../../../docs/INDEX_ROUTED_ROW_SOURCE.md).
+The projection declares `vf`/`vt` as timestamps and payload fields as longs. Q10's range selection
+and paired overlap comparisons follow
+[Range intersections and joined overlap residuals](../../../../docs/VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe declared query routes; they do not prove
