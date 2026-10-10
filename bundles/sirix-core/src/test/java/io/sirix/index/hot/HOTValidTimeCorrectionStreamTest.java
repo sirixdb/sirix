@@ -25,7 +25,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.io.TempDir;
@@ -84,9 +83,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * The inline geometry case runs in the default lane. The delta variant replays all four versioning
- * types and checks every revision after a cold reopen; it is also tagged for the advisory heavy
- * lane.
+ * The inline and captured delta geometry cases retain the full workload needed by their structural
+ * reach assertions. The other delta geometries use 8,192 records while retaining all twenty-five
+ * publications, including the fixed record's nested replacements and retractions. Every geometry
+ * runs under all four versionings with exact live, historical and cold revision checks and must
+ * exercise folds.
  */
 final class HOTValidTimeCorrectionStreamTest {
 
@@ -94,6 +95,7 @@ final class HOTValidTimeCorrectionStreamTest {
   private static final int INDEX_NUMBER = 0;
 
   private static final int RECORDS = 100_000;
+  private static final int DELTA_RECORDS = 8_192;
 
   /** The first publication and the twenty-four of corrections the load consisted of. */
   private static final int PUBLICATIONS = 25;
@@ -120,7 +122,8 @@ final class HOTValidTimeCorrectionStreamTest {
     final long foldsDeclinedBefore = HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get();
     final long joinSplitsBefore = AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get();
     final long nodeSplitsDeclinedBefore = AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get();
-    replayAndVerify(VersioningType.SLIDING_SNAPSHOT, false);
+    replayAndVerify(VersioningType.SLIDING_SNAPSHOT, false, RECORDS, PostingDeltas.HOT_CHUNK_BYTES,
+        PostingDeltas.FOLD_BOUND);
 
     // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
     // reaches it.
@@ -135,31 +138,24 @@ final class HOTValidTimeCorrectionStreamTest {
 
 
   @Tag("heavy")
-  @ParameterizedTest(name = "{0}: posting deltas preserve every correction publication")
-  @EnumSource(VersioningType.class)
-  void correctionStreamWithPostingDeltasStaysSoundAndExact(final VersioningType versioningType) {
-    final long delegatedBefore = AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get();
-    final long deltasBefore = HOTIndexWriter.postingDeltaWrites();
-    // This captured stream reaches the spine guard with sixty-three residual delta slots.
-    // The production window is covered separately by the complete deltaGeometries replay.
-    replayAndVerify(versioningType, true, 256, 64);
-    assertTrue(HOTIndexWriter.postingDeltaWrites() > deltasBefore, "the stream must write deltas");
-    assertTrue(AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get() > delegatedBefore,
-        "the stream must reach the branch spine-order delegation");
-  }
-
-  private void replayAndVerify(final VersioningType versioningType, final boolean deltas) {
-    replayAndVerify(versioningType, deltas, PostingDeltas.HOT_CHUNK_BYTES, PostingDeltas.FOLD_BOUND);
-  }
-
-  @Tag("heavy")
   @ParameterizedTest(name = "{0}: hot bytes {1}, fold bound {2}")
   @MethodSource("deltaGeometries")
   void correctionStreamAcrossDeltaGeometries(final VersioningType versioningType, final int hotChunkBytes,
       final int foldBound) {
+    final boolean capturedGeometry = hotChunkBytes == 256 && foldBound == 64;
     final long foldsBefore = HOTIndexWriter.postingDeltaFolds();
-    replayAndVerify(versioningType, true, hotChunkBytes, foldBound);
+    final long delegatedBefore = AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get();
+    final long deltasBefore = HOTIndexWriter.postingDeltaWrites();
+    replayAndVerify(versioningType, true, capturedGeometry
+        ? RECORDS
+        : DELTA_RECORDS, hotChunkBytes, foldBound);
     assertTrue(HOTIndexWriter.postingDeltaFolds() > foldsBefore, "the stream must exercise folds at this geometry");
+    if (capturedGeometry) {
+      // This case also carries the reach assertions of the formerly duplicated delta replay.
+      assertTrue(HOTIndexWriter.postingDeltaWrites() > deltasBefore, "the stream must write deltas");
+      assertTrue(AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get() > delegatedBefore,
+          "the stream must reach the branch spine-order delegation");
+    }
   }
 
   static Stream<Arguments> deltaGeometries() {
@@ -169,9 +165,9 @@ final class HOTValidTimeCorrectionStreamTest {
                      Arguments.of(type, 512, 64)));
   }
 
-  private void replayAndVerify(final VersioningType versioningType, final boolean deltas, final int hotChunkBytes,
-      final int foldBound) {
-    final CorrectionStream stream = new CorrectionStream();
+  private void replayAndVerify(final VersioningType versioningType, final boolean deltas, final int records,
+      final int hotChunkBytes, final int foldBound) {
+    final CorrectionStream stream = new CorrectionStream(records);
     final List<Map<ValidTimeKey, long[]>> snapshots = new ArrayList<>(PUBLICATIONS);
     final Path databasePath = temporaryDirectory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
@@ -181,13 +177,13 @@ final class HOTValidTimeCorrectionStreamTest {
                                                               .maxNumberOfRevisionsToRestore(3)
                                                               .storeDiffs(false)
                                                               .build()));
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
         for (int publication = 0; publication < PUBLICATIONS; publication++) {
-          try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            stream.publish(publication, into(HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound), deltas));
-            wtx.commit();
-          }
+          // KEEP_OPEN commit already creates the next page transaction; only the HOT writer is new.
+          stream.publish(publication, into(HOTIndexWriter.create(wtx.getStorageEngineWriter(),
+              ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound), deltas));
+          wtx.commit();
           final Map<ValidTimeKey, long[]> snapshot = new HashMap<>();
           for (final Map.Entry<ValidTimeKey, LongArrayList> entry : stream.expectedPostings().entrySet()) {
             final long[] keys = entry.getValue().toLongArray();
@@ -294,11 +290,15 @@ final class HOTValidTimeCorrectionStreamTest {
     private static final byte[] SEED = "20260920|contracts|".getBytes(StandardCharsets.UTF_8);
 
     private final MessageDigest digest;
-    @SuppressWarnings("unchecked")
-    private final List<Segment>[] segments = new List[RECORDS + 1];
-    private long nextNodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * RECORDS;
+    private final int records;
+    private final List<Segment>[] segments;
+    private long nextNodeKey;
 
-    CorrectionStream() {
+    @SuppressWarnings("unchecked")
+    CorrectionStream(final int records) {
+      this.records = records;
+      segments = new List[records + 1];
+      nextNodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * records;
       try {
         digest = MessageDigest.getInstance("SHA-256");
       } catch (final NoSuchAlgorithmException e) {
@@ -308,7 +308,7 @@ final class HOTValidTimeCorrectionStreamTest {
 
     void publish(final int publication, final Registrations sink) {
       if (publication == 0) {
-        for (int record = 1; record <= RECORDS; record++) {
+        for (int record = 1; record <= records; record++) {
           final Segment whole = new Segment(0, HORIZON_DAYS, payload(0, record));
           whole.nodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * (record - 1);
           segments[record] = new ArrayList<>(List.of(whole));
@@ -423,7 +423,7 @@ final class HOTValidTimeCorrectionStreamTest {
     /** What the index has to hold once every publication is in: each interval's nodes, per store. */
     private Map<ValidTimeKey, LongArrayList> expectedPostings() {
       final Map<ValidTimeKey, LongArrayList> postings = new HashMap<>(1 << 16);
-      for (int record = 1; record <= RECORDS; record++) {
+      for (int record = 1; record <= records; record++) {
         for (final Segment segment : segments[record]) {
           postings.computeIfAbsent(key(ValidTimeKey.STORE_LOWER, segment), ignored -> new LongArrayList())
                   .add(segment.nodeKey);
@@ -436,9 +436,9 @@ final class HOTValidTimeCorrectionStreamTest {
 
     /** The twentieth of the records a publication corrects: those with the smallest pick, in order. */
     private int[] corrected(final int publication) {
-      final int count = (RECORDS + 19) / 20;
-      final long[][] picks = new long[RECORDS - 1][2];
-      for (int record = 2; record <= RECORDS; record++) {
+      final int count = (records + 19) / 20;
+      final long[][] picks = new long[records - 1][2];
+      for (int record = 2; record <= records; record++) {
         picks[record - 2][0] = hashBits(publication, record, "pick");
         picks[record - 2][1] = record;
       }

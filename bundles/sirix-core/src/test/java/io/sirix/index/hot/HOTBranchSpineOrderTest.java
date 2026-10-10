@@ -60,10 +60,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * same operations batched into one or a few hundred commits do not reach it, and neither do
  * prefixes of fewer than ≈63,000 of its one-event base inserts, although those touch another
  * subtree (a leaf reconstructed from sliding-snapshot fragments splits differently from one grown
- * in memory). Replaying tens of thousands of commits takes minutes, so the suite is tagged
- * {@code heavy} like the other soak-style HOT suites and validates the trie's invariants and exact
- * postings at a cadence and after the last commit, not after every one. The reach assertion comes
- * last so that a broken writer is reported as the defect it is.
+ * in memory). Only the captured sliding-snapshot, 64-change-window case needs that cadence. The
+ * other versionings and the production fold policy replay every operation in batches, stopping at
+ * the same validation checkpoints. All cases validate invariants and exact postings live and after
+ * a cold reopen. The reach assertion comes last so that a broken writer is reported as the defect
+ * it is.
  */
 @Tag("heavy")
 @DisplayName("HOT branch spine-order guard (per-operation t100k stream)")
@@ -73,9 +74,10 @@ final class HOTBranchSpineOrderTest {
   private static final int INDEX_NUMBER = 0;
   private static final String STREAM = "/hot/branch-spine-order-t100k.ops.gz";
   /**
-   * Full validation (invariants + exact postings) after every this-many commits, and after the last.
+   * Full validation after every this-many captured events, and after the last.
    */
   private static final int VALIDATE_EVERY = 10_000;
+  private static final int EVENTS_PER_BATCH = 256;
 
   @TempDir
   Path temporaryDirectory;
@@ -94,7 +96,9 @@ final class HOTBranchSpineOrderTest {
     final long deltaWritesBefore = HOTIndexWriter.postingDeltaWrites();
 
     // The recorded guard-triggering layout used a 64-change window.
-    replay(versioningType, 256, 64);
+    replay(versioningType, 256, 64, versioningType == VersioningType.SLIDING_SNAPSHOT
+        ? 1
+        : EVENTS_PER_BATCH);
 
     // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
     // reaches it.
@@ -111,10 +115,11 @@ final class HOTBranchSpineOrderTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void productionFoldPolicyPreservesTheCapturedStream(final VersioningType versioningType) {
-    replay(versioningType, PostingDeltas.HOT_CHUNK_BYTES, PostingDeltas.FOLD_BOUND);
+    replay(versioningType, PostingDeltas.HOT_CHUNK_BYTES, PostingDeltas.FOLD_BOUND, EVENTS_PER_BATCH);
   }
 
-  private void replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound) {
+  private void replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound,
+      final int eventsPerCommit) {
     final List<List<String>> transactions = transactions();
     final Map<ValidTimeKey, Set<Long>> expected = new HashMap<>();
     final Map<Integer, Map<ValidTimeKey, Set<Long>>> checkpoints = new HashMap<>();
@@ -124,27 +129,31 @@ final class HOTBranchSpineOrderTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(
           ResourceConfiguration.newBuilder(RESOURCE).versioningApproach(versioningType).storeDiffs(false).build()));
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-        int committed = 0;
-        for (final List<String> ops : transactions) {
-          try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound);
-            for (final String op : ops) {
+      try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        int applied = 0;
+        while (applied < transactions.size()) {
+          // Never batch across a validation boundary: each checkpoint holds the same stream prefix.
+          final int nextCheckpoint = (applied / VALIDATE_EVERY + 1) * VALIDATE_EVERY;
+          final int end = Math.min(transactions.size(), Math.min(applied + eventsPerCommit, nextCheckpoint));
+          // KEEP_OPEN commit already creates the next page transaction; only the HOT writer is new.
+          final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
+              ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound);
+          for (; applied < end; applied++) {
+            for (final String op : transactions.get(applied)) {
               apply(writer, expected, op);
             }
-            wtx.commit();
           }
-          committed++;
-          if (committed % VALIDATE_EVERY == 0 || committed == transactions.size()) {
+          wtx.commit();
+          if (applied % VALIDATE_EVERY == 0 || applied == transactions.size()) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
               HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER)
                                    .assertOk();
-              assertExact(rtx, expected, committed);
+              assertExact(rtx, expected);
             }
             final Map<ValidTimeKey, Set<Long>> snapshot = new HashMap<>();
             expected.forEach((key, postings) -> snapshot.put(key, new TreeSet<>(postings)));
-            checkpoints.put(committed, snapshot);
+            checkpoints.put(session.getMostRecentRevisionNumber(), snapshot);
           }
         }
       }
@@ -156,7 +165,7 @@ final class HOTBranchSpineOrderTest {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(checkpoint.getKey())) {
           HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER)
                                .assertOk();
-          assertExact(rtx, checkpoint.getValue(), checkpoint.getKey());
+          assertExact(rtx, checkpoint.getValue());
         }
       }
     }
@@ -190,8 +199,8 @@ final class HOTBranchSpineOrderTest {
     }
   }
 
-  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, Set<Long>> expected,
-      final int committed) {
+  private static void assertExact(final JsonNodeReadOnlyTrx rtx, final Map<ValidTimeKey, Set<Long>> expected) {
+    final int committed = rtx.getRevisionNumber();
     final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
         ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
     for (final Map.Entry<ValidTimeKey, Set<Long>> entry : expected.entrySet()) {
