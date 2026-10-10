@@ -49,6 +49,7 @@ public final class ValidTimeReadCache {
     final StorageEngineReader storage = reader.getStorageEngineReader();
     final BufferManager buffers = storage.getBufferManager();
     final ValidTimeReadCache cache = storage.hasTrxIntentLog() || buffers == null
+        || !buffers.getHOTLookupCache().isEnabled()
         ? null
         : storage.getResourceSession().getValidTimeReadCache();
     if (cache == null) {
@@ -74,6 +75,7 @@ public final class ValidTimeReadCache {
     final StorageEngineReader storage = reader.getStorageEngineReader();
     final BufferManager buffers = storage.getBufferManager();
     final ValidTimeReadCache cache = storage.hasTrxIntentLog() || buffers == null
+        || !buffers.getHOTLookupCache().isEnabled()
         ? null
         : storage.getResourceSession().getValidTimeReadCache();
     final AtomicReference<State> slot = cache == null

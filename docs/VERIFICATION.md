@@ -83,6 +83,12 @@ in CI via the `Deep verification` workflow.
 
 ## Running the layers
 
+The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a separate JVM with
+`sirix.hotLookupCache.maxEntries=0`, since the buffer manager reads that setting once at startup.
+It checks fresh interval roots and all companion postings after truncation reuses a revision number,
+and the surviving historical revision, under all four versioning types. Run it alone with
+`./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
+
 ```bash
 # Generative + oracle + regression tests (fast, part of the normal test task)
 ./gradlew :sirix-core:test --tests 'io.sirix.property.*' \
