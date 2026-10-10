@@ -5,6 +5,12 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.JsonTestHelper;
 import io.sirix.index.IndexType;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
+import io.brackit.query.jdm.Type;
+
+import java.util.List;
+import java.util.Set;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -42,6 +48,23 @@ final class SirixStatisticsProviderTest {
   @AfterEach
   void tearDown() {
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void indexSelectionIsIndependentOfCatalogueIterationOrder() {
+    final var root = new Path<QNm>().childArray();
+    final var first = new Path<QNm>().childArray().childObjectField(new QNm("id"));
+    final var second = new Path<QNm>().childArray().childObjectField(new QNm("price"));
+    final IndexDef lower = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(first), 0, IndexDef.DbType.JSON);
+    final IndexDef higher = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(second), 1, IndexDef.DbType.JSON);
+    final IndexDef path = IndexDefs.createPathIdxDef(Set.of(root), 0, IndexDef.DbType.JSON);
+    final IndexInfo expected = new IndexInfo(0, IndexType.CAS, true);
+    for (final var definitions : List.of(List.of(higher, lower, path), List.of(path, lower, higher),
+        List.of(lower, path, higher))) {
+      assertEquals(expected, SirixStatisticsProvider.selectIndexInfo(definitions, root, null));
+    }
+    assertEquals(new IndexInfo(1, IndexType.CAS, true),
+        SirixStatisticsProvider.selectIndexInfo(List.of(lower, higher, path), second, new QNm("price")));
   }
 
   @Test

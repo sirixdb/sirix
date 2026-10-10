@@ -14,6 +14,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.module.Module;
 import io.brackit.query.module.MainModule;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.query.bench.bitemporal.BitemporalQueries;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.query.compiler.optimizer.PlanCache;
@@ -32,6 +33,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -58,6 +60,50 @@ final class CompiledQueryCacheTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     SequentialPipelineStrategy.setMorselEnabled(false);
+  }
+
+  @Test
+  void sh1CachedAndFreshCompilesHaveIdenticalFullOptimizedAsts() {
+    try (final var store = newStore();
+         final var cached = SirixCompileChain.createWithJsonStore(store)) {
+      // Multiple CAS definitions match the array root used by SH1 joins. The entire diagnostic
+      // AST, including every cost/index annotation, must equal an independent fresh compilation.
+      final String row = "{\"id\":1,\"pid\":1,\"sid\":1,\"cost\":5,\"qty\":2,\"grade\":1,"
+          + "\"category\":1,\"retail\":7,\"region\":1,\"vf\":\"2024-01-01T00:00:00Z\","
+          + "\"vt\":\"2025-01-01T00:00:00Z\"}";
+      final String data = "[" + String.join(",", Collections.nCopies(1000, row)) + "]";
+      final var collection = store.create("bt", "contracts", data);
+      for (final String resource : List.of("products", "suppliers", "epochs", "days")) {
+        collection.add(resource, JsonShredder.createStringReader(data));
+      }
+      for (final String resource : List.of("contracts", "products", "suppliers")) {
+        try (final var session = collection.getDatabase().beginResourceSession(resource);
+             final var writer = session.beginNodeTrx()) {
+          final IndexDef id = IndexDefs.createCASIdxDef(false, Type.INR,
+              Set.of(new PathParser("/[]/id", PathParser.Type.JSON).parse()), 0, IndexDef.DbType.JSON);
+          final IndexDef cost = IndexDefs.createCASIdxDef(false, Type.INR,
+              Set.of(new PathParser("/[]/cost", PathParser.Type.JSON).parse()), 1, IndexDef.DbType.JSON);
+          session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(cost, id), writer);
+          writer.commit();
+        }
+      }
+      for (final var query : BitemporalQueries.all()) {
+        cached.compile(query.text());
+        final String coldPlan = cached.getPlanAsJSON(PlanStage.OPTIMIZED);
+        if (query.index() == 10) {
+          assertTrue(coldPlan.contains("costBased.indexId"), "Q10 must exercise real catalogue annotations");
+        }
+        cached.compile(query.text());
+        assertEquals(coldPlan, cached.getPlanAsJSON(PlanStage.OPTIMIZED), "Q" + query.index() + " cached AST");
+        try (final var fresh = SirixCompileChain.createWithJsonStore(store)) {
+          fresh.compile(query.text());
+          assertEquals(fresh.getPlanAsJSON(PlanStage.OPTIMIZED), cached.getPlanAsJSON(PlanStage.OPTIMIZED),
+              "Q" + query.index() + " fresh versus cached full AST");
+          assertEquals(0, fresh.planCacheHits());
+        }
+      }
+      assertEquals(12, cached.compiledQueryCount(), "all normative SH1 queries must exercise the cache");
+    }
   }
 
   @Test

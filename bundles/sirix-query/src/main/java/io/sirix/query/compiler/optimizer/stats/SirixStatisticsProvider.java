@@ -179,21 +179,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
       final var indexes = indexController.getIndexes();
       final QNm leafName = path.getLength() > 0 ? path.tail() : null;
 
-      IndexInfo bestMatch = null;
-      int bestPriority = Integer.MAX_VALUE;
-
-      for (final IndexDef indexDef : indexes.getIndexDefs()) {
-        final IndexInfo candidate = matchIndexDef(indexDef, path, leafName, bestPriority);
-        if (candidate != null) {
-          bestPriority = priorityOf(candidate.type());
-          bestMatch = candidate;
-          if (bestPriority == 0) {
-            return bestMatch; // CAS is highest priority — can't do better
-          }
-        }
-      }
-
-      return bestMatch != null ? bestMatch : IndexInfo.NO_INDEX;
+      return selectIndexInfo(indexes.getIndexDefs(), path, leafName);
     } catch (Exception e) {
       LOG.debug("Failed to look up index info for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return IndexInfo.NO_INDEX;
@@ -201,19 +187,39 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   /**
+   * Catalogue snapshots are sets whose iteration order can differ between JVMs. Break equal-type
+   * ties by catalogue id so fresh and cached compilation select the same annotation after reopen.
+   */
+  static IndexInfo selectIndexInfo(final Iterable<IndexDef> definitions, final Path<QNm> path,
+      final QNm leafName) {
+    IndexInfo bestMatch = null;
+    int bestPriority = Integer.MAX_VALUE;
+    for (final IndexDef definition : definitions) {
+      final IndexInfo candidate = matchIndexDef(definition, path, leafName, bestPriority);
+      if (candidate == null) continue;
+      final int priority = priorityOf(candidate.type());
+      if (priority < bestPriority || bestMatch == null || candidate.indexId() < bestMatch.indexId()) {
+        bestMatch = candidate;
+        bestPriority = priority;
+      }
+    }
+    return bestMatch != null ? bestMatch : IndexInfo.NO_INDEX;
+  }
+
+  /**
    * Attempt to match a single IndexDef against the query path.
-   * Returns an IndexInfo if this def matches and has higher priority than {@code currentBestPriority},
+   * Returns an IndexInfo if this def matches and has equal or higher priority than {@code currentBestPriority},
    * or null if no improvement.
    */
   private static IndexInfo matchIndexDef(IndexDef indexDef, Path<QNm> path,
                                          QNm leafName, int currentBestPriority) {
-    if (indexDef.isCasIndex() && currentBestPriority > 0) {
+    if (indexDef.isCasIndex() && currentBestPriority >= 0) {
       return matchByPath(indexDef, path, IndexType.CAS);
     }
-    if (indexDef.isPathIndex() && currentBestPriority > 1) {
+    if (indexDef.isPathIndex() && currentBestPriority >= 1) {
       return matchByPath(indexDef, path, IndexType.PATH);
     }
-    if (indexDef.isNameIndex() && currentBestPriority > 2
+    if (indexDef.isNameIndex() && currentBestPriority >= 2
         && leafName != null && indexDef.getIncluded().contains(leafName)) {
       return new IndexInfo(indexDef.getID(), IndexType.NAME, true);
     }
