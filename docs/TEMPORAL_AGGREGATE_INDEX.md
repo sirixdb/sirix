@@ -28,29 +28,37 @@ slots with replacement semantics and zero-length tombstones, like projection slo
 rollback, fragment reconstruction and sliding-snapshot carry-forward use the normal Sirix storage
 engine. There is no separately published sidecar or process-local authority for committed answers.
 
-Each group has a sparse segment tree over exact millisecond coordinates. `TemporalAggregateDomain`
-uses a 27-bit millisecond-of-day radix under the UTC epoch day, keeping day boundaries aligned
-without losing arbitrary millisecond precision. Its admitted instant range is the same as
-`IntervalDomain`. Fixed coordinates avoid recompressing endpoints when an update introduces a new instant. An interval contributes to its canonical cover. Read links skip empty unary paths. A point
-query folds the summaries on that path and never enumerates matching records.
+Each typed group head points to at most eight immutable parts. A part contains sorted valid-time
+endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
+value-frequency vectors for declared extrema. Equal frequency vectors within a part share their
+encoded bytes. The format uses 2,048-byte HOT chunks; point reads load only the chunks reached by
+binary search and the compressed tree path.
 
-Each record stores its interval and lane values once. Canonical cover nodes maintain count and
-signed 128-bit sums by batched deltas. Only lanes declaring minimum or maximum maintain a persistent
-Patricia tree of value frequencies; equal values share a leaf, and both extrema share one tree.
-Deleting the last occurrence of an extremum updates its frequency path without scanning intervals. The summary count bounds the integer sums: long values over a long record count fit in
-signed 128 bits. Products are checked before entering the index; an overflowing product declines
-index serving instead of wrapping.
+`TemporalAggregateDomain` uses a 27-bit millisecond-of-day radix under the UTC epoch day, keeping
+day boundaries aligned without losing arbitrary millisecond precision. Its admitted instant range
+matches `IntervalDomain`. Fixed coordinates allow new endpoints without changing the canonical
+cover of older intervals. Each signed interval change contributes extrema frequencies to that
+cover. A point query combines prefix sums and frequency vectors from at most eight parts. Extrema
+first check up to 32 candidates, then use weighted binary selection over the combined frequency
+prefixes, bounding work even when a deletion removes a long run of minimum or maximum values.
+The index never enumerates the matching records during a point query.
 
-The projection listener supplies its authoritative dirty-record set after installing its new rows.
-Changes to projection columns outside the declaration are filtered before any aggregate I/O.
-The aggregate maintainer reads the previous contribution from its own persisted membership slot
-and the current values from the covering projection. Changes are accumulated by group, canonical
-cover node and value, then merged in sorted batches. Each frequency subtree is merged once
-and each touched segment ancestor is written once per maintenance batch. Projection page flushes
-coalesce identities and column masks; aggregate I/O waits until the commit maintenance barrier.
-Thus structural edits and page flushes cannot turn a publication into per-segment updates. Explicit
-index-maintenance barriers also publish pending changes. Maintenance does not rebuild an entire
-group or resource.
+The projection listener coalesces dirty identities and column masks through page flushes. Columns
+outside the declaration cause no aggregate I/O. At a maintenance barrier the maintainer reads old
+rows from the projection of the writer's represented revision and new rows from its installed
+projection. A transaction-local cache accounts for index creation and repeated explicit barriers;
+rollback discards it. Conservative projection leaf flags trigger row-local extraction so another
+row's unsupported value cannot corrupt a subtraction. No duplicate aggregate row store is persisted.
+
+Changes are accumulated in sorted group, endpoint and value order. A touched group appends one
+compact signed part per revision. Repeated barriers fold into that revision's part. At the eight-part
+limit, a batched fold creates a new checkpoint. This bounds read fan-out but periodically performs
+work proportional to the touched group's accumulated summaries; it is not constant-cost maintenance.
+Historical revisions retain their original group heads and parts through ordinary page copy-on-write.
+
+Long operands and long record counts bound sums within signed 128 bits. Products are checked before
+entering the index; an overflowing product declines serving instead of wrapping. Removing an
+unsupported row restores eligibility in the next revision.
 
 ## Admission and fallbacks
 
@@ -75,7 +83,7 @@ these declarations. `SIRIX_COMMIT` output separates publication apply and commit
 
 ## Verification
 
-`TemporalAggregateTreeTest` compares randomized batches with an independent scan oracle, checks
+`TemporalAggregatePartsTest` compares randomized signed parts and checkpoint folds with an independent scan oracle, checks
 both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning

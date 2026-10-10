@@ -51,6 +51,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -208,6 +209,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
   /** Aggregate dependents coalesce every projection flush until the commit maintenance barrier. */
+  private final Map<Integer, TemporalAggregateIndexes.TransactionState> aggregateStates = new HashMap<>();
+
   private @Nullable Long2ObjectOpenHashMap<long[]> aggregateDirtyColumnWords;
   /**
    * First authoritative root event plus structural membership provenance, keyed by record identity.
@@ -389,6 +392,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       sortedKeyByRecord = null;
       dirtyColumnWordsByRecord = null;
       aggregateDirtyColumnWords = null;
+      aggregateStates.clear();
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
       identityEpoch = null;
@@ -411,6 +415,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** Catalogue id of the definition this listener maintains. */
   public int indexDefId() {
     return indexDef.getID();
+  }
+
+  public TemporalAggregateIndexes.TransactionState aggregateState(final int index) {
+    return aggregateStates.computeIfAbsent(index, ignored -> new TemporalAggregateIndexes.TransactionState());
+  }
+
+  public ProjectionIndexRowGroupPage aggregateSourceRow(final long record) {
+    return ProjectionAggregateRows.extract(indexDef, pathSummary, (JsonNodeReadOnlyTrx) maintenanceTrx, record);
   }
 
   /**

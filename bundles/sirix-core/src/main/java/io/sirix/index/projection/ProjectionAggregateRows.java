@@ -1,6 +1,9 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.IndexDef;
+import io.sirix.index.path.summary.PathSummaryReader;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -16,6 +19,25 @@ public final class ProjectionAggregateRows {
   }
 
   private ProjectionAggregateRows() {
+  }
+
+  /** Recover row-local provenance only when a projection leaf carries a conservative poison flag. */
+  public static ProjectionIndexRowGroupPage extract(final IndexDef definition, final PathSummaryReader paths,
+      final JsonNodeReadOnlyTrx transaction, final long record) {
+    final long saved = transaction.getNodeKey();
+    try {
+      final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(definition, paths);
+      if (!extractor.extractInto(transaction, record)) {
+        throw new IllegalStateException("Aggregate source record disappeared");
+      }
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(extractor.columnKinds());
+      if (!extractor.appendTo(page, record, false, new byte[] {1})) {
+        throw new IllegalStateException("Cannot extract aggregate source row");
+      }
+      return page;
+    } finally {
+      transaction.moveTo(saved);
+    }
   }
 
   public static void visit(final StorageEngineReader reader, final int projection,

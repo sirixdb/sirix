@@ -205,11 +205,12 @@ fail-fast lookups, never ordinals.
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
 - **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
-  reference offset 11. Prefix 0 holds the format, group-id allocator and unsupported-row count;
-  prefix 1 maps typed grouping values to group ids; prefix 2 stores prior interval membership by
-  record identity; prefix 3 stores segment summaries, one row-value slot per group/record, and
-  per-lane value-frequency nodes for declared extrema. The version-2 tree payload uses exact
-  signed 128-bit sums and day-aligned millisecond coordinates. See `TEMPORAL_AGGREGATE_INDEX.md`.
+  reference offset 11. Prefix 0 holds format 2, the part-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to live-row counts, last-modified revision and at most eight
+  part ids. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
+  endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
+  deduplicated sorted signed value-frequency prefixes for declared extrema. Part magic is `TAP1`;
+  coordinates use day-aligned millisecond radix. See `TEMPORAL_AGGREGATE_INDEX.md`.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

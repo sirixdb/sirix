@@ -13,6 +13,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.Objects;
+import java.util.Arrays;
 import java.util.function.Supplier;
 
 /** Small raw HOT slots; all mutation and revision ownership use the standard secondary-index path. */
@@ -48,22 +49,59 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
   }
 
-  public TemporalAggregateTree.Store tree(final long group) {
-    return new TemporalAggregateTree.Store() {
-      private final byte[] key = new byte[29];
+  public void putPart(final long id, final byte[] bytes) {
+    for (int offset = 0, chunk = 0; offset < bytes.length; offset += TemporalAggregateParts.CHUNK_BYTES, chunk++) {
+      put(partKey(id, chunk), Arrays.copyOfRange(bytes, offset,
+          Math.min(bytes.length, offset + TemporalAggregateParts.CHUNK_BYTES)));
+    }
+  }
 
-      @Override
-      public byte @Nullable [] read(final long segment, final long prefix, final int bit) {
-        treeKey(key, group, segment, prefix, bit);
-        return reader.get(key);
+  /** Revision-owned pointers to the bounded immutable parts of one typed group. */
+  public record GroupHead(long rows, int revision, long[] parts) {
+    public GroupHead {
+      Objects.requireNonNull(parts);
+      if (rows < 0 || revision < 0 || parts.length == 0 || parts.length > TemporalAggregateParts.MAX_PARTS) {
+        throw new IllegalArgumentException("Invalid temporal aggregate group head");
       }
+      parts = parts.clone();
+      for (final long part : parts) {
+        if (part < 1) {
+          throw new IllegalArgumentException("Invalid temporal aggregate part id");
+        }
+      }
+    }
 
-      @Override
-      public void write(final long segment, final long prefix, final int bit, final byte[] value) {
-        treeKey(key, group, segment, prefix, bit);
-        put(key, value);
+    @Override
+    public long[] parts() {
+      return parts.clone();
+    }
+
+    public byte[] encode() {
+      final ByteBuffer bytes = ByteBuffer.allocate(16 + parts.length * Long.BYTES);
+      bytes.putLong(rows).putInt(revision).putInt(parts.length);
+      for (final long part : parts) {
+        bytes.putLong(part);
       }
-    };
+      return bytes.array();
+    }
+
+    public static GroupHead decode(final byte[] value) {
+      if (value.length < 24 || value.length > 16 + TemporalAggregateParts.MAX_PARTS * Long.BYTES) {
+        throw new IllegalStateException("Invalid temporal aggregate group head length");
+      }
+      final ByteBuffer bytes = ByteBuffer.wrap(value);
+      final long rows = bytes.getLong();
+      final int revision = bytes.getInt();
+      final int count = bytes.getInt();
+      if (count < 1 || value.length != 16 + count * Long.BYTES) {
+        throw new IllegalStateException("Invalid temporal aggregate group part count");
+      }
+      final long[] parts = new long[count];
+      for (int i = 0; i < count; i++) {
+        parts[i] = bytes.getLong();
+      }
+      return new GroupHead(rows, revision, parts);
+    }
   }
 
   @Override
@@ -89,7 +127,7 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
 
   @FunctionalInterface
   public interface GroupConsumer {
-    void accept(byte[] key, long group);
+    void accept(byte[] key, GroupHead group);
   }
 
   public static final class Reader implements AutoCloseable {
@@ -149,26 +187,13 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
           HOTRangeCursor cursor = groupReader.range(reference, new byte[] {1}, new byte[] {2})) {
         while (cursor.hasNext()) {
           final HOTRangeCursor.Entry entry = cursor.next();
-          consumer.accept(entry.keyBytes(), ByteBuffer.wrap(entry.valueBytes()).getLong());
+          consumer.accept(entry.keyBytes(), GroupHead.decode(entry.valueBytes()));
         }
       }
     }
 
-    public TemporalAggregateTree.Store tree(final long group) {
-      return new TemporalAggregateTree.Store() {
-        private final byte[] key = new byte[29];
-
-        @Override
-        public byte @Nullable [] read(final long segment, final long prefix, final int bit) {
-          treeKey(key, group, segment, prefix, bit);
-          return get(key);
-        }
-
-        @Override
-        public void write(final long segment, final long prefix, final int bit, final byte[] value) {
-          throw new UnsupportedOperationException("Read-only temporal aggregate tree");
-        }
-      };
+    public TemporalAggregateParts.Store parts() {
+      return (part, chunk) -> Objects.requireNonNull(get(partKey(part, chunk)), "Missing temporal aggregate part chunk");
     }
 
     @Override
@@ -177,12 +202,7 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
   }
 
-  public static byte[] recordKey(final long record) {
-    return ByteBuffer.allocate(9).put((byte) 2).putLong(record).array();
-  }
-
-  private static void treeKey(final byte[] target, final long group, final long segment, final long prefix,
-      final int bit) {
-    ByteBuffer.wrap(target).put((byte) 3).putLong(group).putLong(segment).putLong(prefix).putInt(bit);
+  private static byte[] partKey(final long part, final int chunk) {
+    return ByteBuffer.allocate(13).put((byte) 3).putLong(part).putInt(chunk).array();
   }
 }

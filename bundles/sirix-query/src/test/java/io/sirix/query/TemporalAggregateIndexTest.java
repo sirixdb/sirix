@@ -104,21 +104,41 @@ final class TemporalAggregateIndexTest {
             {"zone":"south","tier":2,"price":99,"units":1,"begin":"2024-04-01T00:00:00Z","end":"2024-08-01T00:00:00Z"}
             """), JsonNodeTrx.Commit.NO);
         writer.commit("changed", Instant.parse("2024-02-15T00:00:00Z"));
-        for (int day = 16; day <= 19; day++) {
+        for (int day = 16; day <= 27; day++) {
           field(writer, second, "price");
-          writer.setNumberValue(day == 19 ? 11 : day);
+          writer.setNumberValue(day == 27 ? 11 : day);
+          if (day == 20) {
+            session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+            writer.setNumberValue(35);
+            session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+            writer.setNumberValue(day);
+          }
           writer.commit("cross fragment window", Instant.parse("2024-02-" + day + "T00:00:00Z"));
         }
         field(writer, second, "price");
         writer.setNumberValue(-999);
+        session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
         writer.rollback();
+        field(writer, second, "price");
+        writer.setNumberValue(1.5);
+        writer.commit("row-local poison", Instant.parse("2024-02-28T00:00:00Z"));
+        field(writer, second, "price");
+        writer.setNumberValue(2);
+        writer.commit("poison recovered", Instant.parse("2024-03-01T00:00:00Z"));
+        writer.revertTo(1);
+        field(writer, first, "price");
+        writer.setNumberValue(42);
+        session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+        writer.setNumberValue(43);
+        writer.commit("represented revision", Instant.parse("2024-03-15T00:00:00Z"));
       }
     }
     Databases.clearGlobalCaches();
     try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
-      for (final String tx : List.of("2024-01-20T00:00:00Z", "2024-02-20T00:00:00Z")) {
+      for (final String tx : List.of("2024-01-20T00:00:00Z", "2024-02-20T00:00:00Z", "2024-02-27T00:00:00Z",
+          "2024-02-28T00:00:00Z", "2024-03-02T00:00:00Z", "2024-03-20T00:00:00Z")) {
         for (final String point : List.of("2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z", "2024-03-01T00:00:00Z",
             "2024-04-01T00:00:00Z", "2024-06-01T00:00:00Z", "2024-07-01T00:00:00Z", "2024-08-01T00:00:00Z")) {
           final String source = "jn:open-bitemporal('aggregate-test','inventory',xs:dateTime('" + tx
@@ -134,7 +154,8 @@ final class TemporalAggregateIndexTest {
           final String expected = run(chain, context, body.replace("SOURCE", "(" + source + ")"));
           final long before = TemporalAggregateRoute.servedCount();
           assertEquals(expected, run(chain, context, body.replace("SOURCE", source)), tx + " / " + point);
-          assertEquals(before + 1, TemporalAggregateRoute.servedCount(), "Declared aggregate must serve the exact point");
+          assertEquals(before + (tx.startsWith("2024-02-28") ? 0 : 1), TemporalAggregateRoute.servedCount(),
+              "Supported exact points must serve, including checkpoints and represented revisions");
         }
       }
       final String unorderedSource = "jn:open-bitemporal('aggregate-test','inventory',"

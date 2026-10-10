@@ -18,7 +18,8 @@ import io.sirix.index.IndexType;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
-import io.sirix.index.aggregate.TemporalAggregateTree;
+import io.sirix.index.aggregate.TemporalAggregateParts;
+import io.sirix.index.aggregate.AggregateSummary;
 import io.sirix.index.aggregate.TemporalAggregateDomain;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.io.StorageType;
@@ -92,9 +93,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         final TemporalAggregateIndexes.MaintenanceWork work = TemporalAggregateIndexes.lastMaintenance();
         assertEquals(changed, work.changedRecords());
         assertTrue(work.nodesWritten() > 0 && work.nodesWritten() <= 48 + 64L * changed,
-            "Contributor and segment rewrites must be bounded by changed rows: " + work);
-        assertTrue(work.nodesRead() > 0 && work.nodesRead() <= 4 * (48 + 64L * changed),
-            "Maintenance must not scan untouched contributor subtrees: " + work);
+            "Appended part chunks must be bounded by changed rows: " + work);
+        assertTrue(work.nodesRead() <= 4 * (48 + 64L * changed),
+            "Appending a delta must not read untouched part chunks: " + work);
         final Set<HOTLeafPage> pages = Collections.newSetFromMap(new IdentityHashMap<>());
         for (final PageContainer container : writer.getStorageEngineWriter().getLog().getList()) {
           if (container.getModified() instanceof HOTLeafPage page && page.getIndexType() == IndexType.TEMPORAL_AGGREGATE) {
@@ -124,8 +125,11 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         for (int revision = 1; revision <= 2; revision++) {
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
               var storage = new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
-            final var summary = new TemporalAggregateTree(storage.tree(1), new TemporalAggregateDomain().height(),
-                aggregate.getTemporalAggregateSpec().lanes()).point(1);
+            final AggregateSummary[] summaries = new AggregateSummary[1];
+            storage.groups((key, group) -> summaries[0] = new TemporalAggregateParts(
+                aggregate.getTemporalAggregateSpec(), new TemporalAggregateDomain().height())
+                .point(storage.parts(), group.parts(), 1));
+            final AggregateSummary summary = summaries[0];
             assertTrue(storage.nodesRead() <= 3,
                 "Point queries must read compressed summaries, never the contributor population");
             assertEquals(rows, summary.count());

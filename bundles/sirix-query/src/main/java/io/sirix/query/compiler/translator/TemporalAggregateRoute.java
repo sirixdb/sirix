@@ -22,7 +22,7 @@ import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
-import io.sirix.index.aggregate.TemporalAggregateTree;
+import io.sirix.index.aggregate.TemporalAggregateParts;
 import io.sirix.index.aggregate.TemporalAggregateDomain;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -109,9 +109,12 @@ public final class TemporalAggregateRoute {
         }
         final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
         final long coordinate = DOMAIN.point(point.instant());
+        final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DOMAIN.height());
         storage.groups((key, group) -> {
-          final AggregateSummary summary = new TemporalAggregateTree(storage.tree(group), DOMAIN.height(),
-              spec.lanes()).point(coordinate);
+          if (group.rows() == 0) {
+            return;
+          }
+          final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
           if (summary.count() == 0) {
             return;
           }
