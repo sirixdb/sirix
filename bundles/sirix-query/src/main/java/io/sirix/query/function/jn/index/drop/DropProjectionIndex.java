@@ -15,7 +15,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.function.jn.index.IndexDdl;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -70,47 +72,47 @@ public final class DropProjectionIndex extends AbstractFunction {
     final JsonResourceSession resourceSession = rtx.getResourceSession();
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
+    if (optionalWriteTrx.isPresent()) {
+      optionalWriteTrx.get().awaitPendingAsyncCommit();
+    }
+    final int revision = rtx.getRevisionNumber();
+    final Indexes indexes = IndexDdl.usesWriter(document, optionalWriteTrx.orElse(null))
+        ? resourceSession.getWtxIndexController(optionalWriteTrx.get().getRevisionNumber()).getIndexes()
+        : resourceSession.getRtxIndexController(revision).getIndexes();
+    final Integer requestedId = args.length == 2 && args[1] != null
+        ? ((Int32) args[1]).intValue()
+        : null;
+    final Set<IndexDef> toDrop = new LinkedHashSet<>();
+    for (final IndexDef indexDef : indexes.getIndexDefs()) {
+      if (indexDef.getType() == IndexType.PROJECTION && (requestedId == null || indexDef.getID() == requestedId)) {
+        toDrop.add(indexDef);
+      }
+    }
+    if (requestedId != null && toDrop.isEmpty()) {
+      throw new QueryException(new QNm("No PROJECTION index with id " + requestedId + " found on the resource."));
+    }
+    if (toDrop.isEmpty()) {
+      return document;
+    }
     // A wtx we OPEN here is ours to close on every exit; one the session already holds belongs to
     // the caller and must survive this function. Everything below therefore runs inside a
     // try/finally — a throw that stranded a freshly-begun wtx would hold the resource's single
     // writer permit for the rest of the session, so the next write of any kind blocks or fails.
     final boolean wtxIsOurs = optionalWriteTrx.isEmpty();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
-    boolean committedToCaller = false;
+    boolean succeeded = false;
     try {
-      if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
-        wtx.revertTo(rtx.getRevisionNumber());
+      wtx.awaitPendingAsyncCommit();
+      if (!IndexDdl.usesWriter(document, wtx)) {
+        wtx.revertTo(revision);
       }
 
       final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
-      final Integer requestedId = args.length == 2 && args[1] != null
-          ? ((Int32) args[1]).intValue()
-          : null;
-
-      final Set<IndexDef> toDrop = new LinkedHashSet<>();
-      for (final IndexDef indexDef : controller.getIndexes().getIndexDefs()) {
-        if (indexDef.getType() != IndexType.PROJECTION) {
-          continue;
-        }
-        if (requestedId == null || indexDef.getID() == requestedId) {
-          toDrop.add(indexDef);
-        }
-      }
-
-      if (requestedId != null && toDrop.isEmpty()) {
-        throw new QueryException(new QNm("No PROJECTION index with id " + requestedId + " found on the resource."));
-      }
-
-      dropAll(toDrop, controller, wtx);
-      // Hand a wtx we opened to the caller ONLY when it now carries pending changes: closing it then
-      // would discard the drop that was just asked for. With nothing to drop —
-      // `jn:drop-projection-index($doc)`
-      // on a resource that has no projection index — there is nothing for the caller to commit, so
-      // leaving it open would strand the resource's single writer permit on a successful no-op.
-      committedToCaller = !toDrop.isEmpty();
+      controller.dropIndexes(toDrop, wtx);
+      succeeded = true;
     } finally {
-      if (wtxIsOurs && !committedToCaller) {
+      if (wtxIsOurs && !succeeded) {
         wtx.close();
       }
     }
@@ -118,14 +120,4 @@ public final class DropProjectionIndex extends AbstractFunction {
     return document;
   }
 
-  private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller, final JsonNodeTrx wtx) {
-    if (!toDrop.isEmpty()) {
-      wtx.awaitPendingAsyncCommit();
-      controller.dropIndexes(toDrop, wtx);
-      // No PlanCache/statistics invalidation: projections route through the
-      // vectorized executor's revision-scoped catalog lookups, not through
-      // optimizer plan rewrites — revisions from this commit onward simply
-      // no longer catalogue the definition.
-    }
-  }
 }

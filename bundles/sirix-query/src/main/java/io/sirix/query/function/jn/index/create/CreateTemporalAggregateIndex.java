@@ -19,6 +19,7 @@ import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.function.jn.index.IndexDdl;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,8 +46,8 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
       existing.get().awaitPendingAsyncCommit();
     }
     final int revision = document.getTrx().getRevisionNumber();
-    final boolean historical = revision < session.getMostRecentRevisionNumber();
-    final Indexes indexes = !historical && existing.isPresent()
+    final boolean usesWriter = IndexDdl.usesWriter(document, existing.orElse(null));
+    final Indexes indexes = usesWriter
         ? session.getWtxIndexController(existing.get().getRevisionNumber()).getIndexes()
         : session.getRtxIndexController(revision).getIndexes();
     final String root = ((Str) arguments[1]).stringValue();
@@ -54,7 +55,7 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
     final List<String> aggregates = strings(arguments[3]);
     final TemporalAggregateSpec spec = TemporalAggregateDeclarations.resolve(indexes,
         session.getResourceConfig().getValidTimeConfig(), root, groups, aggregates);
-    ProjectionIndexMetadata.requireReady(!historical && existing.isPresent()
+    ProjectionIndexMetadata.requireReady(usesWriter
         ? existing.get().getStorageEngineWriter()
         : document.getTrx().getStorageEngineReader(), spec.projectionId());
     final IndexDef declared = TemporalAggregateDeclarations.find(indexes, spec);
@@ -65,7 +66,7 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
     boolean succeeded = false;
     try {
       transaction.awaitPendingAsyncCommit();
-      if (historical) {
+      if (!IndexDdl.usesWriter(document, transaction)) {
         transaction.revertTo(revision);
       }
       final JsonIndexController controller = session.getWtxIndexController(transaction.getRevisionNumber());

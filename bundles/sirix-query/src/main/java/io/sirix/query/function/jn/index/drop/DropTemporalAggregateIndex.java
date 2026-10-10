@@ -17,6 +17,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.function.jn.index.IndexDdl;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -52,8 +53,7 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
       optionalWriteTrx.get().awaitPendingAsyncCommit();
     }
     final int revision = rtx.getRevisionNumber();
-    final boolean historical = revision < resourceSession.getMostRecentRevisionNumber();
-    final Indexes indexes = !historical && optionalWriteTrx.isPresent()
+    final Indexes indexes = IndexDdl.usesWriter(document, optionalWriteTrx.orElse(null))
         ? resourceSession.getWtxIndexController(optionalWriteTrx.get().getRevisionNumber()).getIndexes()
         : resourceSession.getRtxIndexController(revision).getIndexes();
     final boolean requested = args.length == 2 && args[1] != null;
@@ -76,7 +76,7 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
     boolean succeeded = false;
     try {
       wtx.awaitPendingAsyncCommit();
-      if (historical) {
+      if (!IndexDdl.usesWriter(document, wtx)) {
         wtx.revertTo(revision);
       }
       final JsonIndexController controller = resourceSession.getWtxIndexController(wtx.getRevisionNumber());

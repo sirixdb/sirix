@@ -34,6 +34,11 @@ before checking the represented revision, and reverts only when a historical req
 different base. This applies to aggregate creation, both DROP signatures, and projection DROP
 cascades.
 
+Subsequent aggregate CREATE and aggregate or projection DROP operations on the same historical
+document use that writer's pending catalogue and projection metadata. They retain earlier
+declarations, drops and data edits. Stale or missing metadata, missing requested ids and unsupported
+declarations reject before changing lineage; dropping nothing leaves pending work intact.
+
 ## Storage and updates
 
 `TEMPORAL_AGGREGATE` has a dedicated HOT container under the revision root. Its values are opaque
