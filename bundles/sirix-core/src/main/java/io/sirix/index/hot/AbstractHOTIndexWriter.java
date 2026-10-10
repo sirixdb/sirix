@@ -45,6 +45,7 @@ import io.sirix.page.PathPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
@@ -751,6 +752,8 @@ public abstract class AbstractHOTIndexWriter<K> {
                                      .incrementAndGetMaxHotPageKey(indexNo);
       case VALIDTIME -> () -> writer.<ValidTimeIndexPage>prepareSecondaryIndexPage(IndexType.VALIDTIME)
                                     .incrementAndGetMaxHotPageKey(indexNo);
+      case TEMPORAL_AGGREGATE -> () -> writer.<TemporalAggregateIndexPage>prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
+                                    .incrementAndGetMaxHotPageKey(indexNo);
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -846,6 +849,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final ValidTimeIndexPage vtPage = storageEngineWriter.getValidTimeIndexPage(revisionRootPage);
         yield vtPage.getIndirectPageReference(indexNumber);
       }
+      case TEMPORAL_AGGREGATE -> {
+        final TemporalAggregateIndexPage vtPage = storageEngineWriter.getTemporalAggregateIndexPage(revisionRootPage);
+        yield vtPage.getIndirectPageReference(indexNumber);
+      }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
@@ -855,7 +862,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void prepareIndexPage() {
     switch (indexType) {
-      case PATH, CAS, NAME, PROJECTION, VALIDTIME -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
       default -> {
         /* ignore */ }
     }
@@ -1017,6 +1024,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case NAME -> rrp.getNamePageReference();
       case PROJECTION -> rrp.getProjectionIndexPageReference();
       case VALIDTIME -> rrp.getValidTimeIndexPageReference();
+      case TEMPORAL_AGGREGATE -> rrp.getTemporalAggregateIndexPageReference();
       default -> null;
     };
     if (indexPageRef == null)
@@ -1031,6 +1039,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case NAME -> ((NamePage) modified).getOrCreateReference(indexNumber);
       case PROJECTION -> ((ProjectionIndexPage) modified).getIndirectPageReference(indexNumber);
       case VALIDTIME -> ((ValidTimeIndexPage) modified).getIndirectPageReference(indexNumber);
+      case TEMPORAL_AGGREGATE -> ((TemporalAggregateIndexPage) modified).getIndirectPageReference(indexNumber);
       default -> fallbackRef;
     };
     return cowed != null
@@ -1892,6 +1901,23 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @throws SirixIOException if initialization fails
    */
+  protected void initializeTemporalAggregateIndex() {
+    try {
+      final TemporalAggregateIndexPage vtPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE);
+
+      // Get existing reference first to check if index already exists
+      final PageReference existingRef = vtPage.getIndirectPageReference(indexNumber);
+      final boolean indexExists = !existingRef.isVirginStructuralPlaceholder();
+
+      if (!indexExists) {
+        vtPage.createTemporalAggregateIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+      }
+      rootReference = vtPage.getIndirectPageReference(indexNumber);
+    } catch (SirixIOException e) {
+      throw new IllegalStateException("Failed to initialize HOT TEMPORAL_AGGREGATE index", e);
+    }
+  }
+
   protected void initializeValidTimeIndex() {
     try {
       final ValidTimeIndexPage vtPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.VALIDTIME);
@@ -4414,7 +4440,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // physical slot whose payload is opaque bytes (including the zero-length tombstone), so a
     // duplicate must replace the prior value byte-for-byte. Keep the projection slice exact once;
     // callers normally already provide an exact array, so the hot path allocates nothing.
-    final byte[] projectionValue = indexType == IndexType.PROJECTION
+    final byte[] projectionValue = indexType.hasOpaqueValues()
         ? valueLen == valueBuf.length
             ? valueBuf
             : Arrays.copyOf(valueBuf, valueLen)
@@ -4430,7 +4456,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // No indirect structure changes, so no structural validation scope is needed (return null).
     // Both leaf APIs consume the valid key prefix directly. The serializer's spare buffer capacity
     // never participates in ordering and no exact-size key array is created on this path.
-    if (indexType == IndexType.PROJECTION
+    if (indexType.hasOpaqueValues()
         ? leaf.putOrReplace(keyBuf, keyLen, projectionValue)
         : leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
       return null;
@@ -4438,7 +4464,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // The bucket is full. compact() only repacks the physically present entries; tombstones remain
     // because removing them without also publishing a complete version boundary could resurrect an
     // older value. Retry the merge once if the bounded, leaf-local repack reclaimed space.
-    if (leaf.compact() > 0 && (indexType == IndexType.PROJECTION
+    if (leaf.compact() > 0 && (indexType.hasOpaqueValues()
         ? leaf.putOrReplace(keyBuf, keyLen, projectionValue)
         : leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen))) {
       return null;
@@ -4563,7 +4589,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       final StructuralSplitKey keyMode = existingSlot >= 0
           ? StructuralSplitKey.PRESENT_AND_DROPPED
           : StructuralSplitKey.ABSENT;
-      final byte[] frontierValue = existingSlot < 0 || indexType == IndexType.PROJECTION
+      final byte[] frontierValue = existingSlot < 0 || indexType.hasOpaqueValues()
           ? valueSlice
           : HOTIncrementalInsert.mergeIndexValues(leaf.copyStoredValue(existingSlot), valueSlice);
       spliceCompleteFrontierIncrementally(navResult, navResult.pathDepth() - 1, keySlice, frontierValue, keyMode);
@@ -7728,7 +7754,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         // (the zero-length value is a tombstone), so bitmap decoding is both semantically wrong and
         // unsafe. Sort is stable and newly inserted (K,V) is appended after collected state; keeping
         // the last duplicate therefore implements projection's last-write slot semantics byte-for-byte.
-        final byte[] mergedValue = indexType == IndexType.PROJECTION
+        final byte[] mergedValue = indexType.hasOpaqueValues()
             ? entry.value()
             : HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value());
         out.set(last, new HOTBulkBuilder.Entry(prev.key(), mergedValue));

@@ -1,6 +1,8 @@
 package io.sirix.index;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.index.aggregate.TemporalAggregateSpec;
+import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
@@ -84,6 +86,15 @@ public final class IndexDef implements Materializable {
   private static final QNm PROJECTION_SORT_TAG = new QNm("projectionSort");
   private static final QNm PROJECTION_SORT_KEY_TAG = new QNm("keyColumn");
   private static final QNm PROJECTION_SORT_COLUMN_ATTRIBUTE = new QNm("column");
+
+  private static final QNm AGGREGATE_TAG = new QNm("temporalAggregate");
+  private static final QNm AGGREGATE_PROJECTION = new QNm("projection");
+  private static final QNm AGGREGATE_GROUP = new QNm("group");
+  private static final QNm AGGREGATE_LANE = new QNm("lane");
+  private static final QNm AGGREGATE_LEFT = new QNm("left");
+  private static final QNm AGGREGATE_OPERATIONS = new QNm("operations");
+  private static final QNm AGGREGATE_RIGHT = new QNm("right");
+  private @Nullable TemporalAggregateSpec temporalAggregateSpec;
 
   public static final QNm INDEX_TAG = new QNm("index");
 
@@ -322,6 +333,25 @@ public final class IndexDef implements Materializable {
     this.dbType = dbType;
   }
 
+  IndexDef(final Path<QNm> rootPath, final TemporalAggregateSpec spec, final int indexDefNo) {
+    if (indexDefNo < 0) {
+      throw new IllegalArgumentException("Negative aggregate index id");
+    }
+    type = IndexType.TEMPORAL_AGGREGATE;
+    dbType = DbType.JSON;
+    paths.add(requireNonNull(rootPath));
+    temporalAggregateSpec = requireNonNull(spec);
+    id = indexDefNo;
+  }
+
+  public boolean isTemporalAggregateIndex() {
+    return type == IndexType.TEMPORAL_AGGREGATE;
+  }
+
+  public TemporalAggregateSpec getTemporalAggregateSpec() {
+    return requireNonNull(temporalAggregateSpec, "No temporal aggregate declaration");
+  }
+
   @Override
   public Node<?> materialize() throws DocumentException {
     final FragmentHelper tmp = new FragmentHelper();
@@ -379,6 +409,24 @@ public final class IndexDef implements Materializable {
       for (final int column : projectionSortedSpec.keyColumns()) {
         tmp.openElement(PROJECTION_SORT_KEY_TAG);
         tmp.attribute(PROJECTION_SORT_COLUMN_ATTRIBUTE, new Una(Integer.toString(column)));
+        tmp.closeElement();
+      }
+      tmp.closeElement();
+    }
+
+    if (temporalAggregateSpec != null) {
+      tmp.openElement(AGGREGATE_TAG);
+      tmp.attribute(AGGREGATE_PROJECTION, new Una(Integer.toString(temporalAggregateSpec.projectionId())));
+      for (final int column : temporalAggregateSpec.groupColumns()) {
+        tmp.openElement(AGGREGATE_GROUP);
+        tmp.attribute(AGGREGATE_LEFT, new Una(Integer.toString(column)));
+        tmp.closeElement();
+      }
+      for (final Lane lane : temporalAggregateSpec.lanes()) {
+        tmp.openElement(AGGREGATE_LANE);
+        tmp.attribute(AGGREGATE_LEFT, new Una(Integer.toString(lane.left())));
+        tmp.attribute(AGGREGATE_RIGHT, new Una(Integer.toString(lane.right())));
+        tmp.attribute(AGGREGATE_OPERATIONS, new Una(Integer.toString(lane.operations())));
         tmp.closeElement();
       }
       tmp.closeElement();
@@ -609,6 +657,31 @@ public final class IndexDef implements Materializable {
               projectionFieldTypes.add(fieldType);
             }
           }
+        } else if (childName.equals(AGGREGATE_TAG)) {
+          if (temporalAggregateSpec != null || type != IndexType.TEMPORAL_AGGREGATE) {
+            throw new DocumentException("Invalid or duplicate temporal aggregate declaration");
+          }
+          final int projection = Integer.parseInt(requireNonNull(child.getAttribute(AGGREGATE_PROJECTION))
+              .getValue().stringValue());
+          final List<Integer> groups = new ArrayList<>();
+          final List<Lane> lanes = new ArrayList<>();
+          try (Stream<? extends Node<?>> entries = child.getChildren()) {
+            Node<?> entry;
+            while ((entry = entries.next()) != null) {
+              final int left = Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_LEFT))
+                  .getValue().stringValue());
+              if (entry.getName().equals(AGGREGATE_GROUP)) {
+                groups.add(left);
+              } else if (entry.getName().equals(AGGREGATE_LANE)) {
+                lanes.add(new Lane(left, Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_RIGHT))
+                    .getValue().stringValue()), Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_OPERATIONS))
+                    .getValue().stringValue())));
+              } else {
+                throw new DocumentException("Unknown temporal aggregate entry");
+              }
+            }
+          }
+          temporalAggregateSpec = new TemporalAggregateSpec(projection, groups, lanes);
         } else if (childName.equals(PROJECTION_SORT_TAG)) {
           if (projectionSortedSpec != null) {
             throw new DocumentException("Duplicate sorted projection declaration");
@@ -632,6 +705,9 @@ public final class IndexDef implements Materializable {
         }
         // }
       }
+    }
+    if (type == IndexType.TEMPORAL_AGGREGATE && (temporalAggregateSpec == null || paths.size() != 1)) {
+      throw new DocumentException("Incomplete temporal aggregate declaration");
     }
     if (projectionSortedSpec != null) {
       if (type != IndexType.PROJECTION) {
@@ -807,6 +883,7 @@ public final class IndexDef implements Materializable {
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)
         && projectionFieldTypes.equals(other.projectionFieldTypes)
+        && Objects.equals(temporalAggregateSpec, other.temporalAggregateSpec)
         && Objects.equals(projectionSortedSpec, other.projectionSortedSpec) && dimension == other.dimension
         && Objects.equals(distanceType, other.distanceType) && hnswM == other.hnswM
         && hnswEfConstruction == other.hnswEfConstruction && hnswEfSearch == other.hnswEfSearch;

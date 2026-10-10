@@ -27,6 +27,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.interfaces.Page;
 import org.junit.After;
 import org.junit.Before;
@@ -90,17 +91,18 @@ public final class GoldenFormatTest {
   private static final String GOLDEN_EMPTY_PATH_PAGE = "0a0000000000000000";
   private static final String GOLDEN_EMPTY_PROJECTION_PAGE = "100000000000000000";
   private static final String GOLDEN_EMPTY_VALID_TIME_PAGE = "110000000000000000";
+  private static final String GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE = "120000000000000000";
 
   /** Stable id registries — changing any value is an on-disk format break. */
   private static final String GOLDEN_PAGE_KIND_IDS =
       "KEYVALUELEAFPAGE=1,NAMEPAGE=2,UBERPAGE=3,INDIRECTPAGE=4,REVISIONROOTPAGE=5,PATHSUMMARYPAGE=6,"
           + "CASPAGE=8,OVERFLOWPAGE=9,PATHPAGE=10,DEWEYIDPAGE=11,HOT_LEAF_PAGE=12,HOT_INDIRECT_PAGE=13,"
           // ID 14 is intentionally unassigned after removing the unreachable bitmap-chunk format.
-          + "VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17";
+          + "VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17,TEMPORAL_AGGREGATEPAGE=18";
 
   private static final String GOLDEN_INDEX_TYPE_IDS =
       "REVISIONS=0,DOCUMENT=1,CHANGED_NODES=2,RECORD_TO_REVISIONS=3,PATH_SUMMARY=4,PATH=5,CAS=6,"
-          + "NAME=7,DEWEYID_TO_RECORDID=8,VECTOR=9,PROJECTION=10,VALIDTIME=11";
+          + "NAME=7,DEWEYID_TO_RECORDID=8,VECTOR=9,PROJECTION=10,VALIDTIME=11,TEMPORAL_AGGREGATE=12";
 
   // ==================== cases ====================
 
@@ -130,6 +132,8 @@ public final class GoldenFormatTest {
         serializePage(config, new ProjectionIndexPage()));
     assertGolden("empty-valid-time-page", GOLDEN_EMPTY_VALID_TIME_PAGE,
         serializePage(config, new ValidTimeIndexPage()));
+    assertGolden("empty-temporal-aggregate-page", GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE,
+        serializePage(config, new TemporalAggregateIndexPage()));
   }
 
   @Test

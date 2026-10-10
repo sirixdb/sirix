@@ -102,6 +102,20 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
     }
   }
 
+  static @Nullable RoutedRows resolve(final QueryContext ctx, final Tuple tuple,
+      final SirixGroupAggregateExpr.RoutedSource routed, final TemporalAggregateRoute.@Nullable Point point) {
+    if (point == null || routed.indexed() != null) {
+      return resolve(ctx, tuple, routed);
+    }
+    try {
+      return new RoutedRows(ValidTimeIntervalIndex.keys(point.document(), point.instant(), true),
+          point.document().getTrx().getRevisionNumber());
+    } catch (final RuntimeException notServable) {
+      diag("row resolution failed: " + notServable);
+      return null;
+    }
+  }
+
   /**
    * The main source's rows after a membership filter: the filter source's {@code innerField} values
    * are read under its own mask, then the main rows' {@code outerField} values decide which record
@@ -167,7 +181,12 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
   SirixVectorizedExecutor.@Nullable ServedGroups serve(final SirixExecutorProvider executorProvider,
       final QueryContext ctx, final Tuple tuple, final SirixGroupAggregateExpr.RoutedSource routed)
       throws QueryException {
-    final RoutedRows rows = resolve(ctx, tuple, routed);
+    final TemporalAggregateRoute.Point point = TemporalAggregateRoute.point(ctx, tuple, routed);
+    final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, point, this);
+    if (aggregate != null) {
+      return aggregate;
+    }
+    final RoutedRows rows = resolve(ctx, tuple, routed, point);
     if (rows == null) {
       return null;
     }

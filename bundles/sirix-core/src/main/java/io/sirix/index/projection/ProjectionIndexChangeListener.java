@@ -16,6 +16,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.ChangeListener;
+import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.PathNodeKeyChangeListener;
@@ -206,6 +207,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** Last sorted key per touched record in this open transaction; null means filtered out. */
   private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
+  /** Aggregate dependents coalesce every projection flush until the commit maintenance barrier. */
+  private @Nullable Long2ObjectOpenHashMap<long[]> aggregateDirtyColumnWords;
   /**
    * First authoritative root event plus structural membership provenance, keyed by record identity.
    */
@@ -385,6 +388,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       dirtyRecordKeys = null;
       sortedKeyByRecord = null;
       dirtyColumnWordsByRecord = null;
+      aggregateDirtyColumnWords = null;
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
       identityEpoch = null;
@@ -2050,6 +2054,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     applyPendingMaintenance();
+    final Long2ObjectOpenHashMap<long[]> aggregateChanges = aggregateDirtyColumnWords;
+    aggregateDirtyColumnWords = null;
+    if (aggregateChanges != null && !invalidated) {
+      try {
+        TemporalAggregateIndexes.maintain(storageEngineWriter, indexDef, aggregateChanges.keySet(), aggregateChanges);
+      } catch (final RuntimeException | Error failure) {
+        failMaintenance(failure);
+        throw failure;
+      }
+    }
   }
 
   /**
@@ -2180,10 +2194,34 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             + storageEngineWriter.getRevisionNumber() + " (identity removal=" + (identityMembershipRemovals != null)
             + ")");
       }
+      queueAggregateMaintenance(dirty, dirtyColumnWords);
       maintenanceEpoch++;
     } catch (final RuntimeException | Error failure) {
       failMaintenance(failure);
       throw failure;
+    }
+  }
+
+  private void queueAggregateMaintenance(final LongSet dirty,
+      final Long2ObjectOpenHashMap<long[]> changedColumns) {
+    if (!TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)) {
+      return;
+    }
+    if (aggregateDirtyColumnWords == null) {
+      aggregateDirtyColumnWords = new Long2ObjectOpenHashMap<>(dirty.size());
+    }
+    for (final LongIterator records = dirty.iterator(); records.hasNext();) {
+      final long record = records.nextLong();
+      final long[] changed = changedColumns.get(record);
+      final long[] columns = changed == null ? allColumnWords : changed;
+      final long[] previous = aggregateDirtyColumnWords.get(record);
+      if (previous == null) {
+        aggregateDirtyColumnWords.put(record, columns.clone());
+      } else {
+        for (int word = 0; word < previous.length; word++) {
+          previous[word] |= columns[word];
+        }
+      }
     }
   }
 

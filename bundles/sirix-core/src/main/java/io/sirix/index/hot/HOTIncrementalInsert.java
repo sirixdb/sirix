@@ -165,7 +165,7 @@ public final class HOTIncrementalInsert {
         // Posting indexes union duplicate NodeReferences. A projection key is a physical slot whose
         // payload is opaque (and may legitimately be the zero-length tombstone), so its update is
         // byte-for-byte last-writer-wins. Never feed projection bytes to the bitmap decoder.
-        final byte[] mergedValue = indexType == IndexType.PROJECTION
+        final byte[] mergedValue = indexType.hasOpaqueValues()
             ? newValue
             : mergeIndexValues(source.copyStoredValue(i), newValue);
         union.add(new HOTBulkBuilder.Entry(key, mergedValue));

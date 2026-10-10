@@ -110,6 +110,7 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.page.UberPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -526,7 +527,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     requireNonNull(storageEngineReader);
     requireNonNull(indexType);
     if (indexType == IndexType.PATH || indexType == IndexType.CAS || indexType == IndexType.PROJECTION
-        || indexType == IndexType.VALIDTIME) {
+        || indexType == IndexType.VALIDTIME || indexType == IndexType.TEMPORAL_AGGREGATE) {
       throw new IllegalArgumentException(indexType + " indexes use HOT storage");
     }
     if (indexType != IndexType.NAME) {
@@ -1807,6 +1808,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return fresh;
     }
     return (ValidTimeIndexPage) getPage(ref);
+  }
+
+  @Override
+  public TemporalAggregateIndexPage getTemporalAggregateIndexPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    final PageReference ref = revisionRoot.getTemporalAggregateIndexPageReference();
+    // Lazily seed a new page when the reference has neither an in-memory nor a durable target.
+    if (ref.getPage() == null && ref.getKey() == Constants.NULL_ID_LONG && ref.getLogKey() == Constants.NULL_ID_INT) {
+      final TemporalAggregateIndexPage fresh = new TemporalAggregateIndexPage();
+      ref.setPage(fresh);
+      return fresh;
+    }
+    return (TemporalAggregateIndexPage) getPage(ref);
   }
 
   @Override
@@ -3428,7 +3442,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case NAME -> getNamePage(revisionRoot).getNameDictionaryReference(databaseType(), index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
-      case PROJECTION, VALIDTIME -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
+      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default ->
         throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -3473,7 +3487,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
       case DOCUMENT, NAME, VECTOR -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
-      case PATH, CAS, PROJECTION, VALIDTIME ->
+      case PATH, CAS, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE ->
         throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
@@ -3510,7 +3524,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION, VALIDTIME -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
+      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
     };
 
     return maxLevel;
@@ -3727,6 +3741,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = getValidTimeIndexPage(actualRootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
+      case TEMPORAL_AGGREGATE -> {
+        final TemporalAggregateIndexPage vtPage = getTemporalAggregateIndexPage(actualRootPage);
         yield vtPage == null
             ? null
             : vtPage.getIndexReference(indexNumber);

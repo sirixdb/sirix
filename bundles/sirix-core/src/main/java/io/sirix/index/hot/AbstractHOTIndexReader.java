@@ -47,6 +47,7 @@ import io.sirix.page.PathPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.utils.LogWrapper;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
@@ -599,6 +600,12 @@ public abstract class AbstractHOTIndexReader<K> {
       }
       case VALIDTIME -> {
         final ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
+      case TEMPORAL_AGGREGATE -> {
+        final TemporalAggregateIndexPage vtPage = storageEngineReader.getTemporalAggregateIndexPage(rootPage);
         yield vtPage == null
             ? null
             : vtPage.getIndexReference(indexNumber);

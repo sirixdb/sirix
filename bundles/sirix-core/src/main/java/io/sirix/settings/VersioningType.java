@@ -1152,7 +1152,7 @@ public enum VersioningType {
    *
    * <p>
    * Cross-fragment merge happens by full key (not by entry index). Newer fragments take precedence;
-   * index-type-specific tombstones (zero length for PROJECTION, the serializer's single-byte marker
+   * index-type-specific tombstones (zero length for opaque slots, the serializer's single-byte marker
    * for posting indexes) shadow older entries; missing keys are filled in from older fragments.
    * Strategy dispatch mirrors {@link #combineRecordPages(List, int, StorageEngineReader)} for
    * {@link KeyValueLeafPage}.
@@ -1388,7 +1388,7 @@ public enum VersioningType {
             }
             continue;
           }
-          if (result.getIndexType() == IndexType.PROJECTION) {
+          if (result.getIndexType().hasOpaqueValues()) {
             if (!result.fillProjectionEntry(olderPage, j)) {
               throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()
                   + " into leaf " + result.getPageKey());
@@ -1408,8 +1408,8 @@ public enum VersioningType {
           // Add the entry — including tombstones — to the result. A tombstone in the older
           // fragment is the SHADOW that hides any non-tombstone value in still-older fragments;
           // skipping it would let the older value resurrect on the next iteration. Exact-copying
-          // from the packed reference preserves projection's zero-length tombstone and fails closed
-          // on an unreadable extent instead of silently converting corruption into a deletion.
+          // from the packed reference preserves the posting tombstone and fails closed on an
+          // unreadable extent instead of silently converting corruption into a deletion.
           final byte[] value = olderPage.copyStoredValue(j);
           final boolean inserted = result.mergeWithNodeRefs(key, key.length, value, value.length);
           if (!inserted) {
@@ -1764,7 +1764,7 @@ public enum VersioningType {
     // commit — so it must not touch a shared counter per iteration.
     long reemitted = 0;
     final HOTLeafPage oldest = fragmentsNewestFirst.get(fragmentCount - 1);
-    final boolean projectionValues = oldest.getIndexType() == IndexType.PROJECTION;
+    final boolean projectionValues = oldest.getIndexType().hasOpaqueValues();
     final int oldestEntryCount = oldest.getEntryCount();
     for (int j = 0; j < oldestEntryCount; j++) {
       // Classify off the off-heap slice: getValue would copy the ENTIRE payload (a serialized

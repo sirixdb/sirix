@@ -81,6 +81,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -1159,6 +1160,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> newRevisionRootPage.getNamePageReference();
       case PROJECTION -> newRevisionRootPage.getProjectionIndexPageReference();
       case VALIDTIME -> newRevisionRootPage.getValidTimeIndexPageReference();
+      case TEMPORAL_AGGREGATE -> newRevisionRootPage.getTemporalAggregateIndexPageReference();
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1170,6 +1172,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> storageEngineReader.getNamePage(newRevisionRootPage);
       case PROJECTION -> storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
       case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
+      case TEMPORAL_AGGREGATE -> storageEngineReader.getTemporalAggregateIndexPage(newRevisionRootPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1181,6 +1184,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> NamePage.copyForWrite((NamePage) historicalPage);
       case PROJECTION -> new ProjectionIndexPage((ProjectionIndexPage) historicalPage);
       case VALIDTIME -> new ValidTimeIndexPage((ValidTimeIndexPage) historicalPage);
+      case TEMPORAL_AGGREGATE -> new TemporalAggregateIndexPage((TemporalAggregateIndexPage) historicalPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1192,6 +1196,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> page instanceof NamePage;
       case PROJECTION -> page instanceof ProjectionIndexPage;
       case VALIDTIME -> page instanceof ValidTimeIndexPage;
+      case TEMPORAL_AGGREGATE -> page instanceof TemporalAggregateIndexPage;
       default -> false;
     };
     if (!matches) {
@@ -1761,6 +1766,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return revisionRoot == newRevisionRootPage
         ? prepareSecondaryIndexPage(IndexType.VALIDTIME)
         : storageEngineReader.getValidTimeIndexPage(revisionRoot);
+  }
+
+  @Override
+  public TemporalAggregateIndexPage getTemporalAggregateIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
+        : storageEngineReader.getTemporalAggregateIndexPage(revisionRoot);
   }
 
   @Override
@@ -3767,6 +3781,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getProjectionIndexPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getTemporalAggregateIndexPageReference());
   }
 
   /**
@@ -5363,6 +5378,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       case VALIDTIME -> {
         final var vtPage = getValidTimeIndexPage(actualRootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
+      case TEMPORAL_AGGREGATE -> {
+        final var vtPage = getTemporalAggregateIndexPage(actualRootPage);
         yield vtPage == null
             ? null
             : vtPage.getIndexReference(indexNumber);

@@ -1,6 +1,7 @@
 package io.sirix.index;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.page.PageConstants;
@@ -16,6 +17,12 @@ import java.util.Set;
  * @author Johannes Lichtenberger
  */
 public final class IndexDefs {
+  /** Declare grouped valid-time summaries backed by an existing covering projection. */
+  public static IndexDef createTemporalAggregateIdxDef(final Path<QNm> rootPath,
+      final TemporalAggregateSpec spec, final int indexNumber) {
+    return new IndexDef(rootPath, spec, indexNumber);
+  }
+
 
   /**
    * Private constructor.

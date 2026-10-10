@@ -198,12 +198,18 @@ fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
-- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage**: reference-container delegate
+- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage**: reference-container delegate
   followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
   Entries are emitted in ascending `indexId` order. These secondary-index containers have one
   representation only: their references root HOT trees; no keyed-trie node-key or indirect-level
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
+- **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
+  reference offset 11. Prefix 0 holds the format, group-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to group ids; prefix 2 stores prior interval membership by
+  record identity; prefix 3 stores segment summaries, one row-value slot per group/record, and
+  per-lane value-frequency nodes for declared extrema. The version-2 tree payload uses exact
+  signed 128-bit sums and day-aligned millisecond coordinates. See `TEMPORAL_AGGREGATE_INDEX.md`.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

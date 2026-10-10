@@ -250,7 +250,18 @@ public final class SirixGroupAggregateExpr implements Expr {
    */
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple,
       final RoutedSource routed) throws QueryException {
-    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed);
+    final TemporalAggregateRoute.Point point = TemporalAggregateRoute.point(ctx, tuple, routed);
+    if (membership == null && keyOffsets == null && keySubstr == null && keyCondFields == null
+        && keyCondLits == null && keyCondElse == null && keyRegexPattern == null && keyRegexRepl == null
+        && keyDivMod == null && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups()) {
+      final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, point,
+          new RoutedGroupRequest(sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+              computedLanes));
+      if (aggregate != null) {
+        return aggregate;
+      }
+    }
+    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed, point);
     if (rows == null) {
       return null;
     }
@@ -278,6 +289,22 @@ public final class SirixGroupAggregateExpr implements Expr {
           keyDivMod, keyStringify, having, new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
       return served;
     }
+  }
+
+  private boolean totallyOrderedGroups() {
+    if (orderIndexes == null) {
+      return false;
+    }
+    for (int group = 0; group < groupFields.length; group++) {
+      boolean ordered = false;
+      for (final int index : orderIndexes) {
+        ordered |= index == group;
+      }
+      if (!ordered) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

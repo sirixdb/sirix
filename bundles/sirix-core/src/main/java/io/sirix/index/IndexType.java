@@ -83,7 +83,10 @@ public enum IndexType {
    * revisions remain readable. Used by {@code jn:valid-at} /
    * {@code jn:open-bitemporal}.
    */
-  VALIDTIME((byte) 11);
+  VALIDTIME((byte) 11),
+
+  /** Versioned, declared grouped aggregates over half-open valid-time intervals. */
+  TEMPORAL_AGGREGATE((byte) 12);
 
   /**
    * Unique ID.
@@ -92,6 +95,11 @@ public enum IndexType {
 
   IndexType(byte id) {
     this.id = id;
+  }
+
+  /** Raw-slot indexes replace duplicate values and use zero-length tombstones. */
+  public boolean hasOpaqueValues() {
+    return this == PROJECTION || this == TEMPORAL_AGGREGATE;
   }
 
   public byte getID() {
