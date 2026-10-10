@@ -20,9 +20,10 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Owned output columns plus a row permutation. Iteration exposes ordinary mutable JDM objects;
- * fields are materialized only when a consumer reads or modifies them. Serializers can instead
- * append unmaterialized rows directly. Primitive columns retain no transaction or projection lease.
+ * Owned output columns plus an ordered row selection. Iteration exposes ordinary mutable JDM
+ * objects; fields are materialized only when a consumer reads or modifies them. Serializers can
+ * instead append unmaterialized rows directly. Primitive columns retain no transaction or
+ * projection lease.
  */
 public final class ColumnarRecordSequence extends AbstractSequence {
   private final QNm[] names;

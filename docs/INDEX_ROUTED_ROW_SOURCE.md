@@ -145,7 +145,8 @@ are interned once per leaf dictionary into one id space shared by both sides) wi
 `count` (pairs, or present values of a field), `sum`, `min` and `max` over fields or `+,-,*` programs
 of one side. Grouped output supports at most 64 keys and requires an order-by naming every key
 and aggregates over one side. Wider groupings retain the generic pipeline. Q4 emits
-ordered row records and evaluates its equality/inequality residual over the paired long columns.
+[column-backed record answers](COLUMNAR_RECORD_SERIALIZATION.md) and evaluates its
+equality/inequality residual over the paired long columns.
 Only empty array selectors (`E[]`) admit document iteration. Unsupported selectors, operands,
 residuals or arithmetic overflow retain the generic `TableJoin` pipeline.
 
