@@ -735,7 +735,7 @@ final class IndexRoutedGroupAggregateTest {
       throws Exception {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
         final PrintWriter pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
-      new Query(chain, query).serialize(ctx, pw);
+      new Query(chain, query).serialize(ctx, new SirixStringSerializer(pw));
       pw.flush();
       return out.toString(StandardCharsets.UTF_8).trim();
     }

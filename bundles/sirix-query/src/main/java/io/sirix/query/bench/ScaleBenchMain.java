@@ -6,7 +6,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.io.IOUtils;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
@@ -333,7 +333,7 @@ public final class ScaleBenchMain {
 
   private static int runOnce(SirixCompileChain chain, SirixQueryContext ctx, String wrapped) {
     var buf = IOUtils.createBuffer();
-    try (var ser = new StringSerializer(buf)) {
+    try (var ser = new SirixStringSerializer(buf)) {
       ser.serialize(new Query(chain, wrapped).execute(ctx));
     }
     return buf.toString().length();

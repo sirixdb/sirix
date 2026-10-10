@@ -4,6 +4,7 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.SourceRef;
@@ -17,6 +18,7 @@ import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
 import io.sirix.index.projection.ProjectionComputedColumn;
+import io.sirix.query.ColumnarRecordSequence;
 import io.sirix.query.scan.MaskedColumns;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -297,6 +299,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     } else {
       rowOrdering = null;
     }
+    final ColumnarRecordSequence.Builder rowColumns = rowOutput
+        ? new ColumnarRecordSequence.Builder(outputNames, stringKeys, 256)
+        : null;
     final boolean[] residualStack = new boolean[Math.max(1, residualCode.length)];
     int emittedRows = 0;
     final GroupKey probeKey = new GroupKey(keyComponents); // the scratch key: hashed per pair, cloned on insert
@@ -327,7 +332,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             }
             if (rowOrdering != null) {
               emitRow(keyCount, buildSide, probeSide, buildFieldCount, buildRows, at, probeValues, probePresent,
-                  stringKeys, buildColumns, probeColumns, leaf, row, rowOrdering);
+                  stringKeys, buildColumns, probeColumns, leaf, row, rowOrdering, rowColumns);
               emittedRows++;
               continue;
             }
@@ -339,7 +344,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     SirixVectorizedExecutor.noteJoinGroupServed();
     return rowOrdering != null
-        ? ordered(rowOrdering, emittedRows)
+        ? orderedRows(rowOrdering, emittedRows, rowColumns)
         : emit(groups, buildColumns, stringKeys);
   }
 
@@ -549,8 +554,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private void emitRow(final int keyCount, final int buildSide, final int probeSide, final int buildFieldCount,
       final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] probePresent,
       final boolean[] stringKeys, final MaskedColumns buildColumns, final MaskedColumns probeColumns, final int leaf,
-      final int row, final Ordering rowOrdering) {
-    final Sequence[] values = new Sequence[keyCount];
+      final int row, final Ordering rowOrdering, final ColumnarRecordSequence.Builder rowColumns) {
+    final int outputRow = rowColumns.addRow();
     for (int k = 0; k < keyCount; k++) {
       final boolean fromBuild = keySides[k] == buildSide;
       final int cell = at * buildFieldCount + keySlots[k];
@@ -561,18 +566,34 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         final long value = fromBuild
             ? buildRows.values[cell]
             : probeValues[keySlots[k]];
-        values[k] = stringKeys[k]
-            ? new Str(buildColumns.string((int) value))
-            : new Int64(value);
+        if (stringKeys[k]) {
+          rowColumns.setString(k, outputRow, buildColumns.string((int) value));
+        } else {
+          rowColumns.setLong(k, outputRow, value);
+        }
       }
     }
     final Sequence[] orderKeys = new Sequence[orderIndexes.length + 2];
     for (int k = 0; k < orderIndexes.length; k++) {
-      orderKeys[k] = values[orderIndexes[k]];
+      orderKeys[k] = rowColumns.value(orderIndexes[k], outputRow);
     }
     orderKeys[orderIndexes.length + buildSide] = new Int64(buildRows.recordKeys[at]);
     orderKeys[orderIndexes.length + probeSide] = new Int64(probeColumns.recordKey(leaf, row));
-    rowOrdering.add(orderKeys, new TupleImpl(new ArrayObject(outputNames, values)));
+    rowOrdering.add(orderKeys, new TupleImpl(new Int64(outputRow)));
+  }
+
+  private static Sequence orderedRows(final Ordering ordering, final int size,
+      final ColumnarRecordSequence.Builder columns) {
+    final int[] rows = new int[size];
+    if (size != 0) {
+      try (final Stream<? extends Tuple> stream = ordering.sorted()) {
+        int position = 0;
+        for (Tuple next = stream.next(); next != null; next = stream.next()) {
+          rows[position++] = ((IntNumeric) next.get(0)).intValue();
+        }
+      }
+    }
+    return columns.build(rows);
   }
 
   private void foldPair(final int keyCount, final int aggCount, final int accWidth, final int buildSide,

@@ -69,6 +69,7 @@ failure table and tells the reader where the work went.
 
 | Test | Path | Fails when |
 |---|---|---|
+| `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar, computed primitive and mixed record output | execution-scoped rows or grouped records stop batching writer calls, or an unsupported suffix allocates and flushes per item; output parity and unbatched/per-item positive controls prevent vacuous bounds |
 | `sirix-query` `ProjectionQueryWorkBudgetTest` | count-only group-by | it is no longer answered from the value-count summary the build maintained (three build paths), or the summary answers wrongly |
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
 | | grouped top-K, clean range | the sorted view stops serving it, or reads data leaves, or reads more summaries than the range has leaves |
@@ -239,7 +240,8 @@ maintains, so a budget quotes the same numbers an investigation would:
   reads zero when the route stops going through it, so give its bound a floor, or a second capture
   on the same seam that must read non-zero. Today these include
   `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper,
-  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`, and
+  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`,
+  `ColumnarSerializationWorkBudgetTest`'s output writer, and
   `ValidTimeSliceWorkBudgetTest`'s decorated real JSON cursor. The counting fetcher decorates the
   segment fetcher the prune already takes as an argument and carries its floor on the referenced
   payloads it requested. The valid-time cursor intercepts both transaction-time and revision-based
