@@ -96,6 +96,7 @@ final class IntervalRangeJoinWorkBudgetTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", run(chain, ctx));
       final WorkCapture.Captured<String> repeated = WorkCapture.of(JOINED)
+                                                               .and(EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
                                                                .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                                                                .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
                                                                .and(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES)
@@ -103,6 +104,8 @@ final class IntervalRangeJoinWorkBudgetTest {
       assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", repeated.result());
       repeated.work()
               .assertExactly(JOINED, 1, "a fresh compiled query still performs the joined column kernel")
+              .assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 0,
+                  "immutable revision and bounds reuse the membership-proved range keys")
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
                   "immutable dense numeric masks reuse only previously requested column bodies")
               .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, 0,

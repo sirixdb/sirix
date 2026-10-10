@@ -119,6 +119,86 @@ final class IntervalRangeJoinTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void denseDistinctExtremaPreservePairsTiesAndOverflow(final VersioningType versioning) throws Exception {
+    final Path path = directory.resolve("range");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(path)) {
+      for (final String resource : new String[] {"contracts", "products"}) {
+        db.createResource(ResourceConfiguration.newBuilder(resource)
+                                               .validTimePaths("vf", "vt")
+                                               .customCommitTimestamps(true)
+                                               .versioningApproach(versioning)
+                                               .storageType(StorageType.FILE_CHANNEL)
+                                               .storeDiffs(false)
+                                               .build());
+        final String rows = resource.equals("contracts")
+            ? """
+                [{"id":1,"pid":10,"cost":-4,"vf":"2024-01-01T00:00:00Z","vt":"2024-04-01T00:00:00Z"},
+                 {"id":1,"pid":10,"cost":7,"vf":"2024-04-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+                 {"id":2,"pid":20,"cost":9,"vf":"2024-01-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+                 {"id":3,"pid":99,"cost":0,"vf":"2024-01-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+                 {"id":4,"pid":10,"cost":10,"vf":"2024-01-01T00:00:00Z","vt":"2024-04-01T00:00:00Z"},
+                 {"id":5,"pid":10,"cost":15,"vf":"2024-04-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+                 {"id":6,"pid":10,"cost":1,"vf":"2024-03-01T00:00:00Z","vt":"2024-05-01T00:00:00Z"}]
+                """
+            : PRODUCTS.replace("\"category\":1", "\"category\":-2")
+                      .replace("\"category\":2", "\"category\":7")
+                      .replace("]", ", {\"id\":11,\"category\":8,\"retail\":45,\"vf\":\"2024-01-01T00:00:00Z\","
+                          + "\"vt\":\"2024-07-01T00:00:00Z\"}]");
+        try (var session = db.beginResourceSession(resource); var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows), JsonNodeTrx.Commit.NO);
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();
+          ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, "range");
+          BitemporalProjections.declare(session, wtx, resource);
+          wtx.commit("dense", Instant.parse("2024-01-15T00:00:00Z"));
+          if (resource.equals("contracts")) {
+            wtx.moveToDocumentRoot();
+            wtx.moveToFirstChild();
+            wtx.moveToFirstChild();
+            wtx.moveToFirstChild();
+            wtx.moveToRightSibling();
+            wtx.moveToRightSibling();
+            wtx.moveToFirstChild();
+            wtx.setNumberValue(Long.MIN_VALUE);
+            wtx.commit("overflow", Instant.parse("2024-09-01T00:00:00Z"));
+          }
+        }
+      }
+    }
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String prolog = "declare variable $B := xs:dateTime('2024-01-15T00:00:00Z');"
+          + "declare variable $L := xs:dateTime('2024-01-01T00:00:00Z');"
+          + "declare variable $U := xs:dateTime('2024-07-01T00:00:00Z');";
+      final String query = prolog + joined("lt", "lt");
+      final String expected = "{\"category\":-2,\"contracts\":4,\"lo\":10,\"hi\":29} "
+          + "{\"category\":7,\"contracts\":1,\"lo\":31,\"hi\":31}";
+      assertEquals(expected, run(generic, ctx, query));
+      for (final String body : new String[] {query,
+          query.replace("$p.retail - $c.cost", "$c.cost - $p.retail"),
+          query.replace("count(distinct-values($cid))", "count(distinct-values($p.id))"),
+          query.replace("count(distinct-values($cid))", "count(distinct-values($c.cost))"),
+          query.replace("count(distinct-values($cid))", "count(distinct-values($c.vf))")}) {
+        final String oracle = run(generic, ctx, body);
+        for (int repeat = 0; repeat < 2; repeat++) {
+          final long before = SirixVectorizedExecutor.joinGroupServedCount();
+          assertEquals(oracle, run(chain, ctx, body));
+          assertEquals(before + 1, SirixVectorizedExecutor.joinGroupServedCount());
+        }
+      }
+      final String overflow = query.replace("2024-01-15T00:00:00Z", "2024-09-01T00:00:00Z");
+      final long before = SirixVectorizedExecutor.joinGroupServedCount();
+      assertEquals(run(generic, ctx, overflow), run(chain, ctx, overflow));
+      assertEquals(before, SirixVectorizedExecutor.joinGroupServedCount(), "overflow retains the scalar arithmetic");
+      assertEquals(expected, run(chain, ctx, query), "historical columns survive the overflow fallback");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void overlapWindowsIntersectAlreadyRoutedPointSources(final VersioningType versioning) throws Exception {
     build(versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();

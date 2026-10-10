@@ -366,6 +366,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         firstRow.put(key, row);
       }
     }
+    final DenseExtrema extrema = denseBuild && denseHeads != null && !rowOutput
+        ? denseExtrema(buildColumns, buildSide, probeColumns)
+        : null;
+    if (extrema != null) {
+      return joinExtrema(buildColumns, buildRows, nextRow, denseHeads, probeColumns, extrema, stringKeys,
+          timestampKeys);
+    }
     // PROBE: every admitted row, every matching build row, one pair folded into its group.
     final int keyCount = keyFields.length;
     final int aggCount = aggFuncs.length;
@@ -472,6 +479,147 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return rowOrdering != null
         ? orderedRows(rowOrdering, emittedRows, rowColumns)
         : emit(groups, buildColumns, stringKeys, timestampKeys);
+  }
+
+  /** Bound operands for distinct count and min/max of one cross-side subtraction, with strict overlap. */
+  private record DenseExtrema(int distinct, int minimum, int maximum, int groupSlot, long groupMinimum,
+      int groups, int distinctSlot, boolean distinctBuild, int buildMarginSlot, int probeMarginSlot,
+      boolean buildMinusProbe, int buildFromSlot, int buildToSlot, int probeFromSlot, int probeToSlot) {
+  }
+
+  private @Nullable DenseExtrema denseExtrema(final MaskedColumns buildColumns, final int buildSide,
+      final MaskedColumns probeColumns) {
+    if (keyFields.length != 1 || keySides[0] != buildSide || !buildColumns.isLong(keySlots[0])
+        || aggKinds.length != 3 || progCode.length != 1 || !residualAnd || residualOps.length != 2) {
+      return null;
+    }
+    int distinct = -1;
+    int minimum = -1;
+    int maximum = -1;
+    for (int aggregate = 0; aggregate < aggKinds.length; aggregate++) {
+      switch (aggKinds[aggregate]) {
+        case COUNT_DISTINCT -> distinct = aggregate;
+        case MIN -> minimum = aggregate;
+        case MAX -> maximum = aggregate;
+        default -> { return null; }
+      }
+    }
+    if (distinct < 0 || minimum < 0 || maximum < 0 || aggPrograms[distinct] >= 0 || aggSlots[distinct] < 0
+        || aggPrograms[minimum] != 0 || aggPrograms[maximum] != 0) {
+      return null;
+    }
+    final int[] code = progCode[0];
+    if (code.length != 3 || code[2] != ProjectionIndexByteScan.COMPUTED_OP_SUB || code[0] < 0 || code[1] < 0
+        || code[0] >= progSlots[0].length || code[1] >= progSlots[0].length
+        || progOperandSides[0][code[0]] == progOperandSides[0][code[1]]) {
+      return null;
+    }
+    int buildFrom = -1;
+    int buildTo = -1;
+    int probeFrom = -1;
+    int probeTo = -1;
+    for (int comparison = 0; comparison < 2; comparison++) {
+      final int left = comparison * 2;
+      final int right = left + 1;
+      if (residualOps[comparison] != 2 || !residualTemporal[left] || !residualTemporal[right]
+          || residualSides[left] == residualSides[right]) {
+        return null;
+      }
+      if (residualSides[left] == buildSide) {
+        buildFrom = residualSlots[left];
+        probeTo = residualSlots[right];
+      } else {
+        probeFrom = residualSlots[left];
+        buildTo = residualSlots[right];
+      }
+    }
+    final long groupCount = groupUpperBound(buildColumns, buildSide, probeColumns);
+    if (buildFrom < 0 || buildTo < 0 || groupCount == 0
+        || !denseNumeric(probeColumns, sideFields[1 - buildSide].length)) {
+      return null;
+    }
+    final boolean buildMinusProbe = progOperandSides[0][code[0]] == buildSide;
+    return new DenseExtrema(distinct, minimum, maximum, keySlots[0], buildColumns.minimum(keySlots[0]),
+        (int) groupCount, aggSlots[distinct], aggSides[distinct] == buildSide,
+        progSlots[0][code[buildMinusProbe ? 0 : 1]], progSlots[0][code[buildMinusProbe ? 1 : 0]], buildMinusProbe,
+        buildFrom, buildTo, probeFrom, probeTo);
+  }
+
+  private Sequence joinExtrema(final MaskedColumns buildColumns, final BuildRows buildRows, final int[] nextRow,
+      final int[] heads, final MaskedColumns probeColumns, final DenseExtrema plan, final boolean[] stringKeys,
+      final boolean[] timestampKeys) {
+    final Map<GroupKey, GroupState> groups = new LinkedHashMap<>();
+    final GroupState[] states = new GroupState[plan.groups()];
+    final DistinctDomain[] domains = distinctDomains(buildColumns, keySides[0], probeColumns);
+    final int width = 1 + 4 * aggKinds.length;
+    final int minBase = 1 + 4 * plan.minimum();
+    final int maxBase = 1 + 4 * plan.maximum();
+    final long[] build = buildRows.values;
+    final int fields = buildRows.fieldCount;
+    for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
+      final long[] mask = probeColumns.rowMask(leaf);
+      if (mask == null) {
+        continue;
+      }
+      final long[] join = probeColumns.numericLane(0, leaf);
+      final long[] from = probeColumns.numericLane(plan.probeFromSlot(), leaf);
+      final long[] to = probeColumns.numericLane(plan.probeToSlot(), leaf);
+      final long[] margin = probeColumns.numericLane(plan.probeMarginSlot(), leaf);
+      final long[] distinct = plan.distinctBuild()
+          ? null
+          : probeColumns.numericLane(plan.distinctSlot(), leaf);
+      final boolean distinctTimestamp = !plan.distinctBuild() && probeColumns.isTimestamp(plan.distinctSlot());
+      for (int wordIndex = 0; wordIndex < mask.length; wordIndex++) {
+        long word = mask[wordIndex];
+        while (word != 0) {
+          final int row = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+          word &= word - 1;
+          final long key = join[row];
+          if (key < buildRows.minimumJoinKey || key > buildRows.maximumJoinKey) {
+            continue;
+          }
+          int at = heads[(int) (key - buildRows.minimumJoinKey)];
+          if (at < 0) {
+            continue;
+          }
+          final long probeFrom = Math.multiplyExact(from[row], 1000L);
+          final long probeTo = Math.multiplyExact(to[row], 1000L);
+          final long probeMargin = margin[row];
+          final long probeDistinct = distinct == null
+              ? 0
+              : distinctTimestamp ? Math.multiplyExact(distinct[row], 1000L) : distinct[row];
+          for (; at >= 0; at = nextRow[at]) {
+            final int base = at * fields;
+            if (probeFrom >= build[base + plan.buildToSlot()] || build[base + plan.buildFromSlot()] >= probeTo) {
+              continue;
+            }
+            final long groupKey = build[base + plan.groupSlot()];
+            final int group = (int) (groupKey - plan.groupMinimum());
+            GroupState state = states[group];
+            if (state == null) {
+              state = new GroupState(width, aggFuncs, 16, domains);
+              state.acc[minBase + 2] = Long.MAX_VALUE;
+              state.acc[maxBase + 3] = Long.MIN_VALUE;
+              states[group] = state;
+              groups.put(new GroupKey(new long[] {groupKey, 0}), state);
+            }
+            state.distinct[plan.distinct()].add(plan.distinctBuild()
+                ? build[base + plan.distinctSlot()]
+                : probeDistinct);
+            final long buildMargin = build[base + plan.buildMarginSlot()];
+            final long value = plan.buildMinusProbe()
+                ? Math.subtractExact(buildMargin, probeMargin)
+                : Math.subtractExact(probeMargin, buildMargin);
+            state.acc[minBase] = 1;
+            state.acc[maxBase] = 1;
+            state.acc[minBase + 2] = Math.min(state.acc[minBase + 2], value);
+            state.acc[maxBase + 3] = Math.max(state.acc[maxBase + 3], value);
+          }
+        }
+      }
+    }
+    SirixVectorizedExecutor.noteJoinGroupServed();
+    return emit(groups, buildColumns, stringKeys, timestampKeys);
   }
 
   private static boolean denseNumeric(final MaskedColumns columns, final int fields) {
