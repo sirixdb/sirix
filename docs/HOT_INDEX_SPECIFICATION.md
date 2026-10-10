@@ -354,9 +354,9 @@ Byte order equals key order within each serializer, except:
 | Case | Why | Where compensated |
 |---|---|---|
 | Capped CAS lexical values | the stored prefix can collide with longer values, including when the next zero escape cannot fit | `CASKeySerializer.truncates` selects the document-value residual described in §4.4.3 |
-| Capped CAS decimal suffixes | distinct normalized decimals can share the stored suffix | `CASKeySerializer.truncates` selects residual comparisons; `hasCappedDecimalSuffix` detects capped candidates from stored bytes (§4.4.3) |
+| Capped CAS decimal suffixes | distinct normalized decimals can share the stored suffix | `CASKeySerializer.truncates` selects residual equality comparisons; `hasCappedDecimalSuffix` detects capped candidates requiring original document values (§4.4.3) |
 | CAS string bounds containing unpaired surrogates | UTF-8 encoding would replace the original literal | open that side of the scan and compare the original bounds as residuals; see §4.4.3 |
-| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`CASKeySerializer.encodeDecimalOrderPreserving`) | capped or multi-PCR comparisons use §4.4.3; uncapped single-PCR ranges retain byte ordering |
+| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`CASKeySerializer.encodeDecimalOrderPreserving`) | all ordered decimal bounds expand outside their equal-double buckets through `CASIndex.residualScanBound`, followed by exact original numeric comparisons (§4.4.3); uncapped single-PCR equality keeps its exact seek |
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
@@ -1018,9 +1018,14 @@ uses the serializer's logical boundary, accumulates resolved bases and applies l
 torn read the group restarts at its composite key (≤ 64 attempts); groups with no live postings are
 skipped; emitted entries deserialize their key lazily. Slot layouts are owned by §2.2's references.
 
-How callers map search modes: CAS uses `get` for EQUAL, `iteratorFrom`/`iteratorTo`/`range` for
-ordered modes when `isByteOrderPreserving(type)` (relaxing a truncating bound to inclusive), and a
-full scan with a filter otherwise (`idx/cas/CASIndex.java:59-140`, `:516-700`); PATH and NAME use
+How callers map search modes: CAS uses `get` for encodable, uncapped single-PCR EQUAL probes,
+including decimals; capped probes and lexical probes containing unpaired surrogates use the residual
+path below. Single-PCR ordered modes and ranges can use
+`iteratorFrom`/`iteratorTo`/`range` when `isByteOrderPreserving(type)`. All ordered decimal
+comparisons and decimal range filters use the candidate expansion and exact numeric residual below;
+capped lexical bounds use inclusive candidate bounds. Ordered queries over several PCRs or types
+without byte ordering use a filtered full scan (`idx/cas/CASIndex.java`,
+`openHOTIndexWithFilter` and `openHOTIndexWithRangeFilter`); PATH and NAME use
 `get` for a single PCR or name and a filtered full scan otherwise
 (`idx/path/PathIndex.java:24-73`; `idx/name/NameIndex.java:29-81`). PATH and CAS first return an empty
 iterator without opening HOT when supplied paths resolve to no PCRs; see the
@@ -1028,13 +1033,22 @@ iterator without opening HOT when supplied paths resolve to no PCRs; see the
 revision's node keys while the path summary describes the query revision, so CAS checks for stale
 PCRs (`idx/cas/CASIndex.java:599-605`).
 
-`CASIndex.openRangeWithResidual` handles capped lexical values (including OTHER types) and decimal
-exact suffixes for equality and ordering comparisons, with one or several requested path classes.
-Encodable capped bounds stay on an eligible byte-ordered cursor, relaxed to inclusive so values
-sharing the bound's stored key are retained. A lexical bound containing an unpaired surrogate opens
-that side without serializing replacement bytes; an encodable opposite bound can still constrain
-the cursor. Path-class filtering and both original bounds, with their original inclusivity, remain
-in force. Comparisons use the index's declared type and, for `xs:string`, the
+`CASIndex.openRangeWithResidual` handles capped lexical values (including OTHER types), capped or
+multi-PCR decimal equality, and all ordered decimal comparisons and range filters, with one or
+several requested path classes. Encodable capped lexical bounds stay on an eligible byte-ordered cursor,
+relaxed to inclusive so values sharing the bound's stored key are retained. A lexical bound
+containing an unpaired surrogate opens that side without serializing replacement bytes; an
+encodable opposite bound can still constrain the cursor.
+
+For decimal bounds on this residual path, `residualScanBound` moves the lower cursor bound to
+`Math.nextDown` of its double value and the upper cursor bound to `Math.nextUp`. If the outward
+double is infinite, that cursor side is unbounded. The expanded candidate bounds are inclusive,
+retaining the entire equal-double bucket even when the exact suffix is uncapped. A single-PCR
+query can use these bounds on the cursor; several PCRs require a full scan.
+
+Path-class filtering and both original bounds, with their original inclusivity, remain in force
+for every residual comparison. Decimal comparisons use the original numeric bounds. Comparisons
+use the index's declared type and, for `xs:string`, the
 [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
 
 `exactRangeMatches` reads original document values for capped candidates. A capped decimal
@@ -1044,7 +1058,9 @@ bound requires document values for every candidate;
 otherwise uncapped candidates can be compared from their decoded keys. Read-only transactions use
 a separate record reader; a writer-backed view uses `getTransactionView()` and preserves the caller's
 pinned record-page guard with `preserveRecordPageGuard()`. Uncapped, byte-ordered single-PCR bounds
-keep their existing bounded scan path. This boundary serves `IndexExpr`, the vectorized executor and
+for nondecimal types keep their existing bounded scan path. Uncapped single-PCR decimal equality
+keeps its exact seek; ordered decimal queries always apply the exact original numeric bounds after
+candidate expansion. This boundary serves `IndexExpr`, the vectorized executor and
 the public JSON/XML CAS scan functions. `CASCappedLexicalViewTest` and `CASCappedDecimalViewTest` cover
 uncommitted, historical, and cold-reopened comparisons across all four versioning types.
 
