@@ -21,6 +21,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
@@ -159,12 +160,12 @@ final class SecondaryContainerLazyCowTest {
   private static boolean isSecondaryContainer(final Page page) {
     return page instanceof PathPage || page instanceof CASPage || page instanceof NamePage
         || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage
-        || page instanceof TemporalAggregateIndexPage;
+        || page instanceof TemporalAggregateIndexPage || page instanceof ChangeLogIndexPage;
   }
 
   private static IndexType[] secondaryIndexTypes() {
     return new IndexType[] {IndexType.PATH, IndexType.CAS, IndexType.NAME, IndexType.PROJECTION, IndexType.VALIDTIME,
-        IndexType.TEMPORAL_AGGREGATE};
+        IndexType.TEMPORAL_AGGREGATE, IndexType.CHANGE_LOG};
   }
 
   private static void assertRevisionCounters(final JsonResourceSession session, final int revision,
@@ -192,6 +193,7 @@ final class SecondaryContainerLazyCowTest {
       case PROJECTION -> reader.getProjectionIndexPage(revisionRoot);
       case VALIDTIME -> reader.getValidTimeIndexPage(revisionRoot);
       case TEMPORAL_AGGREGATE -> reader.getTemporalAggregateIndexPage(revisionRoot);
+      case CHANGE_LOG -> reader.getChangeLogIndexPage(revisionRoot);
       default -> throw new IllegalArgumentException("Not a secondary index type: " + type);
     };
   }
@@ -204,6 +206,7 @@ final class SecondaryContainerLazyCowTest {
       case PROJECTION -> revisionRoot.getProjectionIndexPageReference();
       case VALIDTIME -> revisionRoot.getValidTimeIndexPageReference();
       case TEMPORAL_AGGREGATE -> revisionRoot.getTemporalAggregateIndexPageReference();
+      case CHANGE_LOG -> revisionRoot.getChangeLogIndexPageReference();
       default -> throw new IllegalArgumentException("Not a secondary index type: " + type);
     };
   }
@@ -216,6 +219,7 @@ final class SecondaryContainerLazyCowTest {
       case PROJECTION -> ((ProjectionIndexPage) page).getMaxHotPageKey(INDEX_NUMBER);
       case VALIDTIME -> ((ValidTimeIndexPage) page).getMaxHotPageKey(INDEX_NUMBER);
       case TEMPORAL_AGGREGATE -> ((TemporalAggregateIndexPage) page).getMaxHotPageKey(INDEX_NUMBER);
+      case CHANGE_LOG -> ((ChangeLogIndexPage) page).getMaxHotPageKey(INDEX_NUMBER);
       default -> throw new IllegalArgumentException("Not a secondary index type: " + type);
     };
   }
@@ -228,6 +232,7 @@ final class SecondaryContainerLazyCowTest {
       case PROJECTION -> ((ProjectionIndexPage) page).incrementAndGetMaxHotPageKey(INDEX_NUMBER);
       case VALIDTIME -> ((ValidTimeIndexPage) page).incrementAndGetMaxHotPageKey(INDEX_NUMBER);
       case TEMPORAL_AGGREGATE -> ((TemporalAggregateIndexPage) page).incrementAndGetMaxHotPageKey(INDEX_NUMBER);
+      case CHANGE_LOG -> ((ChangeLogIndexPage) page).incrementAndGetMaxHotPageKey(INDEX_NUMBER);
       default -> throw new IllegalArgumentException("Not a secondary index type: " + type);
     };
   }

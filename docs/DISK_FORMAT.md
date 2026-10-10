@@ -198,20 +198,42 @@ fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
-- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage**: reference-container delegate
+- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage / ChangeLogIndexPage**: reference-container delegate
   followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
   Entries are emitted in ascending `indexId` order. These secondary-index containers have one
   representation only: their references root HOT trees; no keyed-trie node-key or indirect-level
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
 - **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
-  reference offset 11. Prefix 0 holds format 2, the part-id allocator and unsupported-row count;
-  prefix 1 maps typed grouping values to live-row counts, last-modified revision and at most eight
+  reference offset 11. Prefix 0 holds format 3, the part-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to live-row counts, last-modified revision, checkpoint/delta byte totals and at most sixteen
   part ids. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
   endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
   deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
   deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane
   instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See `TEMPORAL_AGGREGATE_INDEX.md`.
+- **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
+  reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
+  `(format i32=1, first revision i32, column count i32, exceptional row count i64)`.
+  Prefix 1 `(record key i64, chunk i32)` holds sparse row-local provenance: object/unsupported
+  kind byte, then one flag byte per column (without presence), in chunks of at most 2,048 bytes.
+  Chunk -1 holds the total length as i32; a zero-length directory removes an exception.
+  Prefix 2 `(revision i32, chunk i32)` holds change slabs in chunks of at most 2,048 bytes; chunk
+  -1 is the `(total byte length i32, chunk count i32)` directory. All roots are revision owned.
+  A slab begins with `SCLG` magic, format 1, projection id, revision, base revision and entry count
+  (all i32), followed by a u16 column count, normalized u8 cell kinds and a slab-local UTF-8
+  dictionary (i32 count, unsigned-varint byte lengths). Entries are sorted by record key and hold
+  unsigned-varint key deltas, big-endian u64 changed-column bitmap words, then old and new rows.
+  Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
+  unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
+  varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count
+  and ids. Kinds 1..7 are long, string, boolean, double transform bits, string set, timestamp, date.
+  The log records projected cells, including unsupported flags, rather than duplicating arbitrary
+  document subtrees. `base revision` records the represented revision after a revert, rather than
+  assuming the immediately preceding published revision. Repeated maintenance barriers replace
+  the current slab with the coalesced first-old/final-new cells. No-op revisions have empty slabs.
+  Once enabled, logging continues while the source projection exists, even if its last aggregate
+  is dropped. `ChangeLogSlabTest` pins format 1 with a golden byte fixture.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

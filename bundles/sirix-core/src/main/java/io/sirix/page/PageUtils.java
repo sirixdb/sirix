@@ -69,7 +69,7 @@ public final class PageUtils {
   static void createKeyedTrie(final DatabaseType databaseType, final PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     switch (indexType) {
-      case PATH, CAS, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE ->
+      case PATH, CAS, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
         throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
       default -> {
       }
@@ -114,7 +114,7 @@ public final class PageUtils {
   static void createHOTTree(PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     switch (indexType) {
-      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE -> {
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> {
       }
       default -> throw new IllegalArgumentException(indexType + " does not use HOT secondary-index storage");
     }

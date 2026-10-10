@@ -21,7 +21,7 @@ import java.util.Objects;
 /** Immutable group parts: endpoint prefix sums and compact, signed extrema-frequency vectors. */
 public final class TemporalAggregateParts {
   public static final int CHUNK_BYTES = 2048;
-  public static final int MAX_PARTS = 8;
+  public static final int MAX_PARTS = 16;
   private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
   private static final VarHandle INT_BE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
   private static final int MAGIC = 0x54415031;

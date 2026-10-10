@@ -10,6 +10,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
@@ -425,6 +426,8 @@ public interface StorageEngineReader extends AutoCloseable {
   ValidTimeIndexPage getValidTimeIndexPage(RevisionRootPage revisionRoot);
 
   TemporalAggregateIndexPage getTemporalAggregateIndexPage(RevisionRootPage revisionRoot);
+
+  ChangeLogIndexPage getChangeLogIndexPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.

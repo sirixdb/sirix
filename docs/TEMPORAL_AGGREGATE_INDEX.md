@@ -28,7 +28,7 @@ slots with replacement semantics and zero-length tombstones, like projection slo
 rollback, fragment reconstruction and sliding-snapshot carry-forward use the normal Sirix storage
 engine. There is no separately published sidecar or process-local authority for committed answers.
 
-Each typed group head points to at most eight immutable parts. A part contains sorted valid-time
+Each typed group head points to at most sixteen immutable parts. A part contains sorted valid-time
 endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
 value-frequency vectors for declared extrema. Deltas with at most 64 extrema changes instead store
 sorted `(from, to, value, sign)` candidates. A point read filters this bounded list into a signed
@@ -40,23 +40,30 @@ reads load only the chunks reached by binary search and the compressed tree path
 day boundaries aligned without losing arbitrary millisecond precision. Its admitted instant range
 matches `IntervalDomain`. Fixed coordinates allow new endpoints without changing the canonical
 cover of older intervals. Each signed interval change contributes extrema frequencies to that
-cover. A point query combines prefix sums and frequency vectors from at most eight parts. Extrema
+cover. A point query combines prefix sums and frequency vectors from at most sixteen parts. Extrema
 first check up to 32 candidates, then use weighted binary selection over the combined frequency
 prefixes, bounding work even when a deletion removes a long run of minimum or maximum values.
 Raw deltas inspect at most 64 candidates per extrema lane per part, independent of the stored record
 population. The index never enumerates the matching records during a point query.
 
-The projection listener coalesces dirty identities and column masks through page flushes. Columns
-outside the declaration cause no aggregate I/O. At a maintenance barrier the maintainer reads old
-rows from the projection of the writer's represented revision and new rows from its installed
-projection. A transaction-local cache accounts for index creation and repeated explicit barriers;
-rollback discards it. Conservative projection leaf flags trigger row-local extraction so another
-row's unsupported value cannot corrupt a subtraction. No duplicate aggregate row store is persisted.
+The projection listener coalesces dirty identities and column masks through page flushes. It captures
+old cells from the decoded leaves or column slices before replacement, and new cells from the
+extractor already maintaining the projection. A format-1 `CHANGE_LOG` slab persists the first old
+and final new projected cells, changed masks and represented base revision. A slab-local string
+dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
+leaf flags without reopening historical document readers. The aggregate kernel consumes the same
+decoded slab for every declaration and shares parsed endpoints; it performs no projection reads or
+represented-revision reader opens. Columns outside a declaration cause no aggregate I/O. A
+transaction-local cache accounts for index creation and repeated explicit barriers; rollback
+removes all unpublished changes through normal page ownership.
 
 Changes are accumulated in sorted group, endpoint and value order. A touched group appends one
-compact signed part per revision. Repeated barriers fold into that revision's part. At the eight-part
-limit, a batched fold creates a new checkpoint. This bounds read fan-out but periodically performs
+compact signed part per revision. Repeated barriers fold into that revision's part. A batched fold
+creates a checkpoint at fan-in sixteen, or when accumulated delta bytes exceed half the checkpoint
+size (with a 2,048-byte floor for small groups). This bounds read fan-out but periodically performs
 work proportional to the touched group's accumulated summaries; it is not constant-cost maintenance.
+Maintenance remains synchronous. The log is groundwork for separately maintained derived resources;
+there is no background maintainer or query-time lag protocol in this version.
 Historical revisions retain their original group heads and parts through ordinary page copy-on-write.
 
 Long operands and long record counts bound sums within signed 128 bits. Products are checked before
@@ -91,5 +98,7 @@ both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning
 types. `TemporalAggregateMaintenanceWorkBudgetTest` bounds node work and copied aggregate leaf
-pages for 20 changed rows beside differently sized untouched populations. The work-budget commands
+pages for 20 changed rows beside differently sized untouched populations, and requires zero new
+readers during maintenance. `ChangeLogWorkBudgetTest` bounds slab slots and verifies cold historical
+reads and reverted bases under all four versioning types. The work-budget commands
 in `VERIFICATION.md` include the maintenance budget; no test asserts wall-clock latency.

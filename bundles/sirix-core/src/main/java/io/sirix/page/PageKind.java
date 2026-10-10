@@ -6243,6 +6243,39 @@ public enum PageKind {
 
       PageKind.serializeMaxHotPageKeys(sink, temporalAggregatePage.maxHotPageKeysForSerialization());
     }
+  },
+
+  CHANGE_LOGPAGE((byte) 19, ChangeLogIndexPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
+
+          return new ChangeLogIndexPage(delegate, maxHotPageKeys);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ChangeLogIndexPage changeLogPage = (ChangeLogIndexPage) page;
+      final Page delegate = changeLogPage.delegate();
+      sink.writeByte(CHANGE_LOGPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      PageKind.serializeMaxHotPageKeys(sink, changeLogPage.maxHotPageKeysForSerialization());
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {

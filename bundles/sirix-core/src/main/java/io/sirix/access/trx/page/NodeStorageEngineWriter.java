@@ -82,6 +82,7 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -1161,6 +1162,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case PROJECTION -> newRevisionRootPage.getProjectionIndexPageReference();
       case VALIDTIME -> newRevisionRootPage.getValidTimeIndexPageReference();
       case TEMPORAL_AGGREGATE -> newRevisionRootPage.getTemporalAggregateIndexPageReference();
+      case CHANGE_LOG -> newRevisionRootPage.getChangeLogIndexPageReference();
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1173,6 +1175,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case PROJECTION -> storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
       case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
       case TEMPORAL_AGGREGATE -> storageEngineReader.getTemporalAggregateIndexPage(newRevisionRootPage);
+      case CHANGE_LOG -> storageEngineReader.getChangeLogIndexPage(newRevisionRootPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1185,6 +1188,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case PROJECTION -> new ProjectionIndexPage((ProjectionIndexPage) historicalPage);
       case VALIDTIME -> new ValidTimeIndexPage((ValidTimeIndexPage) historicalPage);
       case TEMPORAL_AGGREGATE -> new TemporalAggregateIndexPage((TemporalAggregateIndexPage) historicalPage);
+      case CHANGE_LOG -> new ChangeLogIndexPage((ChangeLogIndexPage) historicalPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1197,6 +1201,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case PROJECTION -> page instanceof ProjectionIndexPage;
       case VALIDTIME -> page instanceof ValidTimeIndexPage;
       case TEMPORAL_AGGREGATE -> page instanceof TemporalAggregateIndexPage;
+      case CHANGE_LOG -> page instanceof ChangeLogIndexPage;
       default -> false;
     };
     if (!matches) {
@@ -1775,6 +1780,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return revisionRoot == newRevisionRootPage
         ? prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
         : storageEngineReader.getTemporalAggregateIndexPage(revisionRoot);
+  }
+
+  @Override
+  public ChangeLogIndexPage getChangeLogIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.CHANGE_LOG)
+        : storageEngineReader.getChangeLogIndexPage(revisionRoot);
   }
 
   @Override
@@ -3782,6 +3796,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getProjectionIndexPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getTemporalAggregateIndexPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getChangeLogIndexPageReference());
   }
 
   /**
@@ -5384,6 +5399,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       case TEMPORAL_AGGREGATE -> {
         final var vtPage = getTemporalAggregateIndexPage(actualRootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
+      case CHANGE_LOG -> {
+        final var vtPage = getChangeLogIndexPage(actualRootPage);
         yield vtPage == null
             ? null
             : vtPage.getIndexReference(indexNumber);

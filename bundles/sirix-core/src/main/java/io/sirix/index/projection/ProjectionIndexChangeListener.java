@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogSlab.Entry;
+import io.sirix.index.changelog.ChangeLogStorage;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
@@ -209,6 +212,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
   /** Aggregate dependents coalesce every projection flush until the commit maintenance barrier. */
+  private final Long2ObjectOpenHashMap<Entry> changeLogEntries = new Long2ObjectOpenHashMap<>();
+  private int changeLogRevision = -1;
+  private @Nullable ProjectionChangeLog changeCapture;
+
+  public void initializeChangeLog() {
+    ProjectionChangeLog.initialize(storageEngineWriter, indexDef, pathSummary, (JsonNodeReadOnlyTrx) maintenanceTrx);
+  }
+
+  private void changeLogRevision() {
+    if (changeLogRevision != storageEngineWriter.getRevisionNumber()) {
+      changeLogEntries.clear();
+      changeLogRevision = storageEngineWriter.getRevisionNumber();
+    }
+  }
+
   private final Map<Integer, TemporalAggregateIndexes.TransactionState> aggregateStates = new HashMap<>();
 
   private @Nullable Long2ObjectOpenHashMap<long[]> aggregateDirtyColumnWords;
@@ -393,6 +411,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       dirtyColumnWordsByRecord = null;
       aggregateDirtyColumnWords = null;
       aggregateStates.clear();
+      changeLogEntries.clear();
+      changeLogRevision = -1;
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
       identityEpoch = null;
@@ -2068,9 +2088,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     applyPendingMaintenance();
     final Long2ObjectOpenHashMap<long[]> aggregateChanges = aggregateDirtyColumnWords;
     aggregateDirtyColumnWords = null;
-    if (aggregateChanges != null && !invalidated) {
+    if (!invalidated && (aggregateChanges != null || TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef))) {
       try {
-        TemporalAggregateIndexes.maintain(storageEngineWriter, indexDef, aggregateChanges.keySet(), aggregateChanges);
+        changeLogRevision();
+        final ChangeLogSlab slab = ProjectionChangeLog.slab(storageEngineWriter, indexDef.getID(),
+            ProjectionChangeLog.kinds(Objects.requireNonNull(readMetadata()).columnKinds()), changeLogEntries);
+        try (ChangeLogStorage log = new ChangeLogStorage(storageEngineWriter, indexDef.getID())) {
+          log.write(slab);
+        }
+        TemporalAggregateIndexes.maintain(storageEngineWriter, indexDef, slab);
       } catch (final RuntimeException | Error failure) {
         failMaintenance(failure);
         throw failure;
@@ -2403,10 +2429,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final MaintenanceGlobalDictionary[] globalDictionaries = createMaintenanceGlobalDictionaries(meta);
     final ProjectionSetSummaryChunks.Accessor setValueRowCounts =
         ProjectionSetSummaryChunks.open(storage, meta.setValueRowCounts());
-    try {
+    changeLogRevision();
+    try (ProjectionChangeLog capture = TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)
+        ? new ProjectionChangeLog(storageEngineWriter, indexDef.getID(), meta, dirty, dirtyColumnWords, changeLogEntries)
+        : null) {
+      changeCapture = capture;
       return applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas, relabelled, storage,
           meta, persistedKinds, globalDictionaries, setValueRowCounts);
     } finally {
+      changeCapture = null;
       releaseMaintenanceGlobalDictionaries(globalDictionaries);
     }
   }
@@ -2676,6 +2707,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           identityRemovalPaths == null
               ? pathSummary
               : identityRemovalPaths);
+      if (changeCapture != null) {
+        for (final LeafEdit edit : edits.values()) {
+          if (edit.oldPage != null) {
+            changeCapture.before(edit.oldPage);
+          }
+        }
+        for (final long record : removals) {
+          changeCapture.removed(record);
+        }
+      }
       final int[] orderedEditSlots = editOrder.toIntArray();
       IntArrays.quickSort(orderedEditSlots,
           (leftSlot, rightSlot) -> compareLeafEditsDescending(edits.get(leftSlot), edits.get(rightSlot)));
@@ -2777,6 +2818,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             if (!extractInto(extractor, extractionTrx, key)) {
               return false;
             }
+            if (changeCapture != null) {
+              changeCapture.after(key, extractor, extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
+            }
             final boolean orderException = edit.orderExceptions.getBoolean(from);
             final boolean appended = extractor.appendTo(page, key, orderException, orderLabel);
             if (!appended) {
@@ -2858,7 +2902,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         final ProjectionPersistedRecordLookup.Keys cachedKeys = persistedLookup.keys(slot);
         if (!applyColumnOnlyUpdate(storage, slot, changedColumnsBySlot.get(slot), persistedKinds, globalDictionaries,
             setValueRowCounts, extractor, extractionTrx, cachedKeys, changedLeafSlots, changedColumnsByLeaf, locality,
-            encodeWorkspace)) {
+            encodeWorkspace, changeCapture)) {
           return false;
         }
       }
@@ -3455,7 +3499,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final NodeReadOnlyTrx rtx, final ProjectionPersistedRecordLookup.Keys cachedKeys,
       final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
       final MaintenanceLocalityAccumulator locality,
-      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace) {
+      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace,
+      final @Nullable ProjectionChangeLog changeCapture) {
     final byte[] descriptor = cachedKeys.descriptor();
     if (descriptor == null || RowGroupDescriptor.columnCount(descriptor) != persistedKinds.length) {
       return false;
@@ -3470,10 +3515,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         new ProjectionColumnStore.ColumnSlice[persistedKinds.length];
     int selectedColumns = 0;
     for (int column = 0; column < persistedKinds.length; column++) {
-      if (!columnSelected(changedColumnWords, column)) {
+      final boolean selected = columnSelected(changedColumnWords, column);
+      if (!selected && changeCapture == null) {
         continue;
       }
-      selectedColumns++;
+      if (selected) {
+        selectedColumns++;
+      }
       final byte[] body = storage.getVerifiedColumnSegment(slot, descriptor,
           ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
           ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
@@ -3502,6 +3550,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         return false;
       }
       priorSlices[column] = priorSlice;
+      if (!selected) {
+        continue;
+      }
       final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(new byte[] {kind});
       if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
         if (globalDictionaries == null || globalDictionaries[column] == null) {
@@ -3515,9 +3566,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return true;
     }
 
+    if (changeCapture != null) {
+      changeCapture.before(recordKeys, priorSlices);
+    }
     for (final long recordKey : recordKeys) {
       if (!extractInto(extractor, rtx, recordKey, changedColumnWords)) {
         return false;
+      }
+      if (changeCapture != null) {
+        changeCapture.after(recordKey, extractor, rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
       }
       for (int column = 0; column < persistedKinds.length; column++) {
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];

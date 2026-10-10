@@ -1,6 +1,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -239,6 +240,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public TemporalAggregateIndexPage getTemporalAggregateIndexPage(final RevisionRootPage revisionRoot) {
     return delegate().getTemporalAggregateIndexPage(revisionRoot);
+  }
+
+  @Override
+  public ChangeLogIndexPage getChangeLogIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getChangeLogIndexPage(revisionRoot);
   }
 
   @Override

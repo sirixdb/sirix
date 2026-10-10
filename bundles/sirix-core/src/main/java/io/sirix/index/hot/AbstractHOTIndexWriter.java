@@ -46,6 +46,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
@@ -754,6 +755,8 @@ public abstract class AbstractHOTIndexWriter<K> {
                                     .incrementAndGetMaxHotPageKey(indexNo);
       case TEMPORAL_AGGREGATE -> () -> writer.<TemporalAggregateIndexPage>prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
                                     .incrementAndGetMaxHotPageKey(indexNo);
+      case CHANGE_LOG -> () -> writer.<ChangeLogIndexPage>prepareSecondaryIndexPage(IndexType.CHANGE_LOG)
+                                    .incrementAndGetMaxHotPageKey(indexNo);
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -853,6 +856,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final TemporalAggregateIndexPage vtPage = storageEngineWriter.getTemporalAggregateIndexPage(revisionRootPage);
         yield vtPage.getIndirectPageReference(indexNumber);
       }
+      case CHANGE_LOG -> {
+        final ChangeLogIndexPage vtPage = storageEngineWriter.getChangeLogIndexPage(revisionRootPage);
+        yield vtPage.getIndirectPageReference(indexNumber);
+      }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
@@ -862,7 +869,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void prepareIndexPage() {
     switch (indexType) {
-      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
       default -> {
         /* ignore */ }
     }
@@ -1025,6 +1032,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case PROJECTION -> rrp.getProjectionIndexPageReference();
       case VALIDTIME -> rrp.getValidTimeIndexPageReference();
       case TEMPORAL_AGGREGATE -> rrp.getTemporalAggregateIndexPageReference();
+      case CHANGE_LOG -> rrp.getChangeLogIndexPageReference();
       default -> null;
     };
     if (indexPageRef == null)
@@ -1040,6 +1048,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       case PROJECTION -> ((ProjectionIndexPage) modified).getIndirectPageReference(indexNumber);
       case VALIDTIME -> ((ValidTimeIndexPage) modified).getIndirectPageReference(indexNumber);
       case TEMPORAL_AGGREGATE -> ((TemporalAggregateIndexPage) modified).getIndirectPageReference(indexNumber);
+      case CHANGE_LOG -> ((ChangeLogIndexPage) modified).getIndirectPageReference(indexNumber);
       default -> fallbackRef;
     };
     return cowed != null
@@ -1915,6 +1924,23 @@ public abstract class AbstractHOTIndexWriter<K> {
       rootReference = vtPage.getIndirectPageReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT TEMPORAL_AGGREGATE index", e);
+    }
+  }
+
+  protected void initializeChangeLogIndex() {
+    try {
+      final ChangeLogIndexPage vtPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.CHANGE_LOG);
+
+      // Get existing reference first to check if index already exists
+      final PageReference existingRef = vtPage.getIndirectPageReference(indexNumber);
+      final boolean indexExists = !existingRef.isVirginStructuralPlaceholder();
+
+      if (!indexExists) {
+        vtPage.createChangeLogIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
+      }
+      rootReference = vtPage.getIndirectPageReference(indexNumber);
+    } catch (SirixIOException e) {
+      throw new IllegalStateException("Failed to initialize HOT CHANGE_LOG index", e);
     }
   }
 

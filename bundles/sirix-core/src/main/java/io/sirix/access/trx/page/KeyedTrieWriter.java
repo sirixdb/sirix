@@ -221,7 +221,7 @@ final class KeyedTrieWriter {
       case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
       case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
       case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
-      case CAS, PATH, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE ->
+      case CAS, PATH, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
         throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       case NAME -> storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
       case PATH_SUMMARY ->
@@ -242,7 +242,7 @@ final class KeyedTrieWriter {
       case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
       case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      case CAS, PATH, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE ->
+      case CAS, PATH, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
         throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       case NAME -> storageEngineReader.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY ->

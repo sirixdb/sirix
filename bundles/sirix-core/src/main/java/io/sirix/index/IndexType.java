@@ -86,7 +86,10 @@ public enum IndexType {
   VALIDTIME((byte) 11),
 
   /** Versioned, declared grouped aggregates over half-open valid-time intervals. */
-  TEMPORAL_AGGREGATE((byte) 12);
+  TEMPORAL_AGGREGATE((byte) 12),
+
+  /** Versioned per-projection record change slabs for derived indexes. */
+  CHANGE_LOG((byte) 13);
 
   /**
    * Unique ID.
@@ -99,7 +102,7 @@ public enum IndexType {
 
   /** Raw-slot indexes replace duplicate values and use zero-length tombstones. */
   public boolean hasOpaqueValues() {
-    return this == PROJECTION || this == TEMPORAL_AGGREGATE;
+    return this == PROJECTION || this == TEMPORAL_AGGREGATE || this == CHANGE_LOG;
   }
 
   public byte getID() {

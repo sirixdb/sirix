@@ -29,6 +29,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
+import java.lang.reflect.Field;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -46,7 +48,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
 
   @ParameterizedTest
   @ValueSource(ints = {256, 4096})
-  void changedRowsBoundNodeAndPageWrites(final int rows) {
+  void changedRowsBoundNodeAndPageWrites(final int rows) throws Exception {
     final var databasePath = directory.toPath().resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -74,6 +76,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         writer.moveToFirstChild();
         writer.moveToFirstChild();
         final int changed = 20;
+        final AtomicInteger readerIds = readerIds(session);
+        final int beforeReaders = readerIds.get();
         final TemporalAggregateIndexes.MaintenanceWork beforePublication = TemporalAggregateIndexes.lastMaintenance();
         for (int row = 0; row < changed; row++) {
           final long object = writer.getNodeKey();
@@ -90,6 +94,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
               "Projection flushes must queue aggregate changes rather than apply each segment separately");
         }
         session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+        assertEquals(beforeReaders, readerIds.get(), "Maintenance must open zero represented-revision readers");
         final TemporalAggregateIndexes.MaintenanceWork work = TemporalAggregateIndexes.lastMaintenance();
         assertEquals(changed, work.changedRecords());
         assertTrue(work.nodesWritten() > 0 && work.nodesWritten() <= 48 + 64L * changed,
@@ -138,6 +143,19 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         }
       }
     }
+  }
+
+  private static AtomicInteger readerIds(final JsonResourceSession session) throws Exception {
+    for (Class<?> type = session.getClass(); type != null; type = type.getSuperclass()) {
+      try {
+        final Field field = type.getDeclaredField("trxIDCounter");
+        field.setAccessible(true);
+        return (AtomicInteger) field.get(session);
+      } catch (final NoSuchFieldException next) {
+        // Continue to the resource-session implementation that owns transaction IDs.
+      }
+    }
+    throw new AssertionError("No transaction ID allocator");
   }
 
   private static Path<QNm> path(final String field) {

@@ -17,6 +17,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -178,7 +179,7 @@ public final class PageCache implements Cache<PageReference, Page> {
   private static boolean isIndexRootPage(final Page page) {
     return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof CASPage
         || page instanceof PathPage || page instanceof DeweyIDPage || page instanceof VectorPage
-        || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage || page instanceof TemporalAggregateIndexPage;
+        || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage || page instanceof TemporalAggregateIndexPage || page instanceof ChangeLogIndexPage;
   }
 
   @Override
