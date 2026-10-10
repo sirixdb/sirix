@@ -75,6 +75,7 @@ public final class FpCmpIntegralRewriteTest {
       // The FpCmp rewrite only ever produces numeric ops.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op from the FpCmp rewrite: " + p.op);
+      case KEY_IN -> throw new IllegalStateException("record-key set from the FpCmp rewrite");
     };
   }
 

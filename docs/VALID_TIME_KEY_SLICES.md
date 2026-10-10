@@ -45,6 +45,11 @@ their original object-root and missing-resource semantics.
 Reordered arrays retain the key-only bitemporal route, whose sorted keys preserve the temporal source's
 order, while plain FLWOR retains its document-order admission check.
 
+## Row masks for projection scans
+
+Projection consumers of these key sequences follow the mechanism, admission rules and fallbacks
+in [Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
+
 ## Index representation
 
 The lower and upper RI-tree stores retain their `(fork, endpoint)` keys. `stabHalfOpen` excludes an
@@ -100,6 +105,11 @@ admission stops at the first live guard chunk; exceptional-bound admission stops
 intersection with the array's membership. Exceptional intervals in other cohorts do not prevent
 key-only counts over exact array members. The read index controller retains up to 256 cohort admission
 results, scoped to database, resource, immutable revision, definition identity, array key and length.
+Half-open primitive-key requests at an exactly representable point reuse a successful cached proof
+to issue only the half-open stab, skipping the closed probe and endpoint verification. Membership
+postings still exclude matching records from other arrays. Without a cached proof, requests retain
+ordinary candidate verification; a nonempty matching result can establish the cohort proof for
+later requests, while an empty result does not initiate cohort admission reads.
 Controller eviction or collection of the owning session releases these proofs; entries retain no
 readers or transactions. Every key-only factory declines writers and intent-log-backed serving
 cursors before discovering indexes, including read-only wrappers over mutable readers. Historical

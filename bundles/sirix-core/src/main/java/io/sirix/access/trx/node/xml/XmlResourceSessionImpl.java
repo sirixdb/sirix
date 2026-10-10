@@ -154,6 +154,12 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
     return wtxIndexControllers.computeIfAbsent(revision, _ -> createIndexController(revision));
   }
 
+  @Override
+  protected void invalidateIndexControllers(final int firstRevision) {
+    rtxIndexControllers.keySet().removeIf(revision -> revision >= firstRevision);
+    wtxIndexControllers.keySet().removeIf(revision -> revision >= firstRevision);
+  }
+
   private XmlIndexController createIndexController(int revision) {
     final var controller = new XmlIndexController();
     initializeIndexController(revision, controller);

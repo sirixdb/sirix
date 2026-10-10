@@ -111,9 +111,11 @@ let-memo branch.
 
 ## Reproduction
 
-Use a private Maven repository for every Gradle command; stale snapshots in `~/.m2` must not be used
-or changed. On the shared laptop, every Gradle/Maven invocation, and every standalone JVM above
-2 GB, runs under this memory-aware two-slot limiter:
+Dependency resolution and the local-artifact opt-in are documented in
+[CONTRIBUTING.md](../../../CONTRIBUTING.md#getting-started). When reproducing the historical baseline
+above, retain the helper's private Maven repository to isolate its older repository configuration;
+do not use or change `~/.m2`. On the shared laptop, every Gradle/Maven invocation, and every
+standalone JVM above 2 GB, runs under this memory-aware two-slot limiter:
 
 ```bash
 heavy() { while :; do a=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); if [ "$a" -ge 6 ]; then for s in 1 2; do flock -n -E 75 /var/tmp/fm-heavy-jvm.$s.lock "$@"; rc=$?; [ $rc -ne 75 ] && return $rc; done; fi; sleep 30; done; }

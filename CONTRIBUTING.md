@@ -15,6 +15,17 @@ Thank you for your interest in contributing to SirixDB! This guide will help you
    ./gradlew build -x test
    ```
 
+By default, `io.sirix` SNAPSHOT dependencies are resolved from the Sonatype
+snapshot repository. If you are developing against a locally installed Sirix
+or Brackit snapshot, explicitly opt in to the local Maven repository:
+
+```bash
+./gradlew -PuseMavenLocal=true build -x test
+```
+
+The opt-in only enables local artifacts in the `io.sirix` group; without the
+property, artifacts in `~/.m2` are not considered.
+
 ### Requirements
 
 - Java 25+ (with `--enable-preview`)

@@ -533,8 +533,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       }
     }
 
-    // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
-    // Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
+    // 1. Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
     // remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
     for (final IndexDef indexDef : indexDefs) {
       indexes.removeIndex(indexDef);

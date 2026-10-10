@@ -3046,14 +3046,11 @@ vector parameters (dimension, distance, the HNSW $m$/\code{efConstruction}/\allo
 and the projection field list with aligned field types. Factory helpers live in \code{IndexDefs}
 (\code{createCASIdxDef}, \code{createPathIdxDef}, \code{createFilteredNameIdxDef},
 \code{createVectorIdxDef}, \code{createProjectionIdxDef}). The full set is a per-resource
-\code{Indexes} catalogue; mutation tracking is defined by \code{Indexes.isDirty}.
+\code{Indexes} catalogue.
 
-\textbf{Persistence uses revision-numbered XML catalogues}: commit serialisation is governed by
-\code{NodeStorageEngineWriter.serializeIndexDefinitions}, which writes to
-\pp{{resource}/indexes/{revision}.xml}. On open the controller searches \emph{backward}
-from the requested revision for the most recent \code{{n}.xml}: the same max-numbered-file
-search whose naïve per-commit \code{Files.exists} walk was the $O(R^2)$ \code{access(2)} pathology
-of \S\ref{sec:evolution}. Each index \emph{tree} is rooted in a fixed reference slot on the
+Catalogue persistence, inherited resolution and cache bounds are owned by the
+\href{ARCHITECTURE.md\#index-catalogues}{Index Catalogues section of \code{docs/ARCHITECTURE.md}}.
+Each index \emph{tree} is rooted in a fixed reference slot on the
 \code{RevisionRootPage} (\code{PATH\_SUMMARY}, \code{NAME}, \code{CAS}, \code{PATH},
 \code{DEWEYID}, \code{VECTOR}, \code{PROJECTION}) and materialised through a per-type page
 (\code{PathPage}, \code{CASPage}, \code{NamePage}, \code{DeweyIDPage}, \code{VectorPage},
@@ -3078,8 +3075,8 @@ steady state (every later write):
    -> it writes (P_price, decimal, 30) -> nodeRef into the TIL, merged ATOMICALLY with the data at commit r7
    no rescan: the single build scan at r6 is the only full pass the index ever costs
 
-open @ rev k:  the controller searches backward for the latest indexes/{<=k}.xml ; each revision's CAS page
-               is CoW-versioned, so a historical read sees the index exactly as it stood then
+open @ rev k:  the session resolves the catalogue under docs/ARCHITECTURE.md's Index Catalogues rules;
+               each revision's CAS page is CoW-versioned, preserving its historical index state
 \end{diagramS}
 
 \noindent The contract is build-once, maintain-forever: a declaration pays one document scan at creation,
@@ -3333,7 +3330,7 @@ path uses a primitive \code{PathNodeKeyChangeListener} signature
 (\code{(nodeKey, kind, pathNodeKey, name, value)}) to avoid materialising an immutable change
 snapshot per node; each listener consults the path summary for path/type eligibility and routes
 the change to a key-local HOT posting insertion or removal. Listeners are re-created
-per write transaction, and the catalogue is re-serialised at commit.
+per write transaction; catalogue persistence follows the owner linked in \S\ref{sec:catalogue}.
 
 \section{Change tracking: the history indexes}
 \label{sec:changetracking}
@@ -5559,7 +5556,7 @@ node layer (commitInternal):
                                                       ├─ serialise dirty KeyValueLeafPages in parallel (> 4 pages)
                                                       ├─ uberPage.commit(): recurse the dirty page subtree,
                                                       │                     write pages, assign disk offsets
-                                                      ├─ serialise and fsync the index catalogue
+                                                      ├─ apply catalogue persistence rules (ARCHITECTURE.md)
                                                       ├─ writeUberPageReference(): fsync data + dual beacons  (Ch. 4)
                                                       └─ clear the intent log, free off-heap pages
   4  publish the new RevisionRootPage as the resource's latest revision

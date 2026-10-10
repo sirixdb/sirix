@@ -3,7 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.StorageEngineReader;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import java.util.function.IntFunction;
+import java.util.function.LongToIntFunction;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -35,9 +38,9 @@ final class ProjectionPersistedRecordLookup {
     }
   }
 
-  private final ProjectionIndexHOTStorage storage;
+  private final IntFunction<Keys> keyReader;
   private final ProjectionIndexFences.Accessor fences;
-  private final ProjectionRecordLocator.Accessor locator;
+  private final LongToIntFunction locator;
   private int cachedSlot;
   private @Nullable Keys cachedKeys;
   private @Nullable Int2ObjectOpenHashMap<Keys> keysBySlot;
@@ -49,16 +52,48 @@ final class ProjectionPersistedRecordLookup {
     if (storage == null || fences == null || locator == null) {
       throw new NullPointerException("projection lookup dependencies are required");
     }
-    this.storage = storage;
+    this.keyReader = slot -> {
+      final byte[] descriptor = storage.getVerifiedRowGroupDescriptor(slot);
+      if (descriptor == null) {
+        throw new IllegalStateException("projection physical leaf " + slot + " has no descriptor");
+      }
+      return decodeKeys(slot, descriptor, storage.getVerifiedColumnSegment(slot, descriptor,
+          ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS));
+    };
     this.fences = fences;
-    this.locator = locator;
+    this.locator = locator::find;
+  }
+
+  ProjectionPersistedRecordLookup(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionIndexMetadata metadata) {
+    this.fences = ProjectionIndexFences.open(reader, indexNumber, metadata.rowGroupCount());
+    this.locator = key -> ProjectionRecordLocator.read(reader, indexNumber, key);
+    this.keyReader = slot -> {
+      final byte[] descriptor =
+          ProjectionIndexHOTStorage.readBlob(reader, indexNumber, metadata.slotLayout().descriptorSlot(slot));
+      if (descriptor == null) {
+        throw new IllegalStateException("projection physical leaf " + slot + " has no descriptor");
+      }
+      RowGroupDescriptor.validate(descriptor);
+      return decodeKeys(slot, descriptor,
+          ProjectionIndexHOTStorage.readVerifiedColumnSegment(reader, indexNumber, metadata.slotLayout(), slot,
+              descriptor, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+              ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS));
+    };
+  }
+
+  private static Keys decodeKeys(final int slot, final byte[] descriptor, final byte @Nullable [] segment) {
+    if (segment == null) {
+      throw new IllegalStateException("projection physical leaf " + slot + " has no KEYS segment");
+    }
+    return new Keys(descriptor, segment, ProjectionIndexColumnSegmentCodec.decodeKeysView(descriptor, segment));
   }
 
   long find(final long recordKey) {
     if (recordKey < 0) {
       throw new IllegalArgumentException("projection record key must be non-negative: " + recordKey);
     }
-    final int exactSlot = locator.find(recordKey);
+    final int exactSlot = locator.applyAsInt(recordKey);
     if (exactSlot != 0) {
       if (!fences.isLivePhysicalSlot(exactSlot)) {
         throw new IllegalStateException(
@@ -95,24 +130,14 @@ final class ProjectionPersistedRecordLookup {
     if (!fences.isLivePhysicalSlot(physicalSlot)) {
       throw new IllegalStateException("projection KEYS requested for non-live physical leaf " + physicalSlot);
     }
-    final byte[] descriptor = storage.getVerifiedRowGroupDescriptor(physicalSlot);
-    if (descriptor == null) {
-      throw new IllegalStateException("projection physical leaf " + physicalSlot + " has no descriptor");
-    }
+    final Keys loaded = keyReader.apply(physicalSlot);
     descriptorsRead++;
-    final byte[] keySegment = storage.getVerifiedColumnSegment(physicalSlot, descriptor,
-        ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(), ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS);
-    if (keySegment == null) {
-      throw new IllegalStateException("projection physical leaf " + physicalSlot + " has no KEYS segment");
-    }
     keySegmentsRead++;
-    final ProjectionIndexColumnSegmentCodec.KeysView view =
-        ProjectionIndexColumnSegmentCodec.decodeKeysView(descriptor, keySegment);
-    if (view.recordKeys().length != RowGroupDescriptor.rowCount(descriptor)
+    final ProjectionIndexColumnSegmentCodec.KeysView view = loaded.view();
+    if (view.recordKeys().length != RowGroupDescriptor.rowCount(loaded.descriptor())
         || view.firstRecordKey() != fences.first(physicalSlot) || view.lastRecordKey() != fences.last(physicalSlot)) {
       throw new IllegalStateException("projection KEYS/fence mirror mismatch at physical leaf " + physicalSlot);
     }
-    final Keys loaded = new Keys(descriptor, keySegment, view);
     if (cachedKeys != null) {
       if (keysBySlot == null) {
         keysBySlot = new Int2ObjectOpenHashMap<>();

@@ -208,9 +208,9 @@ plus a **presence bitmap** (a field can be missing on any row) and sticky
 | `NOT_VALUE_EXACT` / non-integral reading for doubles | double column: some source value (BigDecimal/BigInteger) rounded during conversion — value-exact serving declined |
 
 The 1024-row leaf is a deliberate, load-bearing choice (§2.1 of the
-redesign): it is the re-extraction granularity of incremental maintenance
-and exactly matches the kernels' 1024-bit match masks. It is *not* the I/O
-granularity — that is the segment (§4).
+redesign): it exactly matches the kernels' 1024-bit match masks. Extraction and
+rewrite granularity follow [incremental maintenance](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
+The I/O granularity is the segment (§4).
 
 ### 2.1 Two forms of the same leaf
 
@@ -361,8 +361,9 @@ redesign):
 
 A deliberate divergence from those systems: no fat row groups. DuckDB uses
 ~122 880-row groups, Parquet ~128 MB; SirixDB keeps 1024-row leaves because
-maintenance re-extracts touched leaves wholesale and CoW sharing works at
-page granularity — a small leaf is what makes per-commit maintenance cheap.
+CoW sharing works at page granularity — a small leaf bounds the cost of a
+full maintenance rewrite. The append and partial-update paths are described in
+[incremental maintenance](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
 
 ---
 

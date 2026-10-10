@@ -43,6 +43,7 @@ import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
@@ -131,6 +132,7 @@ import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
@@ -4000,14 +4002,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // revision was never committed and the orphaned file (named for an uncommitted, higher revision)
       // is never consulted.
       //
-      // Intermediate auto-commits may skip unchanged indexes only when based on the latest revision.
-      // Reverts publish their represented catalogue even when empty, so later opens cannot inherit
-      // the newer catalogue. Final/explicit commits always attempt serialization.
-      if (!isIntermediateCommit || indexController.getIndexes().isDirty()
-          || representRevision < newRevisionRootPage.getRevision() - 1) {
-        serializeIndexDefinitions(revision);
-        indexController.getIndexes().clearDirty();
-      }
+      // Only a changed catalogue is serialized (see serializeIndexDefinitions): the file of the
+      // newest revision at or below a revision describes it, so a commit that did not change the
+      // definitions or numeric CAS coverage neither writes a file nor pays its fsync. Reverts publish
+      // their represented catalogue even when empty, so later opens cannot inherit the newer catalogue.
+      serializeIndexDefinitions(revision);
 
       final long t3 = timing
           ? System.nanoTime()
@@ -4080,19 +4079,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void serializeIndexDefinitions(int revision) {
     final var indexCatalog = indexController.getIndexes();
-    // Persist definitions, a dirty empty catalogue, or the catalogue of a reverted revision. An
-    // empty snapshot after dropping the last index or reverting is essential: the load-side
-    // (AbstractResourceSession#initializeIndexController) falls back to the most recent {N}.xml at or
-    // below the requested revision, so without an EMPTY catalogue file at the drop revision a reopen
-    // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml
-    // ("<indexes/>") makes the drop of the last index stick across the commit, while older revisions
-    // keep their own non-empty files (time-travel preserved).
-    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()
-        || representRevision < newRevisionRootPage.getRevision() - 1) {
-      final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
-          ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
-
-      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+    final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
+    // The catalogue of a revision is the newest {N}.xml at or below it
+    // (AbstractResourceSession#initializeIndexController), so a commit whose definitions are the ones
+    // of that file has nothing to write: the file of an earlier revision already describes it, and
+    // the file creation, the XML materialization and the metadata fsync are skipped. A commit
+    // serializes when
+    // - the net definitions or numeric CAS coverage differ from the persisted baseline (an index was
+    // created or dropped; an empty snapshot after dropping the last index is essential, or a reopen
+    // would resurrect the pre-drop catalogue from the older file: "<indexes/>" makes the drop stick,
+    // while older revisions keep their own files, so time travel is preserved);
+    // - it represents a reverted revision: its catalogue must be re-published at this revision even
+    // when empty, so a later open cannot inherit the newer catalogue it reverted away from;
+    // - the definitions were never persisted (a catalogue created before any file existed);
+    // - a file for this revision already exists: a commit of this revision number that was started
+    // and not acknowledged (crash before the beacon) may have left its own, different catalogue
+    // under this name, and a reader of the committed revision would find that file first.
+    final boolean reverted = representRevision < newRevisionRootPage.getRevision() - 1;
+    final boolean neverPersisted =
+        indexCatalog.catalogueRevision() == Indexes.NO_CATALOGUE_FILE && !indexCatalog.isEmpty();
+    if (reverted || neverPersisted || indexCatalog.differsFromPersisted() || Files.exists(indexes)) {
+      try (final OutputStream out = newOutputStream(indexes, CREATE, TRUNCATE_EXISTING)) {
         indexController.serialize(out);
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
@@ -4111,6 +4119,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // The session answers the next writer's catalogue lookup from this report instead of listing
       // the directory, so it has to learn of the file here, where it is created.
+      indexCatalog.markPersisted(revision);
       storageEngineReader.resourceSession.recordSerializedIndexCatalogueRevision(revision);
     }
   }
@@ -5988,6 +5997,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
+    storageEngineReader.resourceSession.invalidateIndexCataloguesAfter(revision);
     storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached

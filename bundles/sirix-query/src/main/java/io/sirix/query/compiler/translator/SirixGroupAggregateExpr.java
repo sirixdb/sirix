@@ -24,9 +24,11 @@ import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Projection-served PER-GROUP AGGREGATE expression (P5b stage 7a): attempts
@@ -57,10 +59,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] aggFields;
   private final String[] outNames;
   /** Emitted-entry index per order-by spec, or {@code null} when the pipeline had no order by. */
-  private final int[] orderIndexes;
-  private final boolean[] orderAsc;
-  private final boolean[] orderEmptyLeast;
-  private final Ordering.OrderModifier[] orderModifiers;
+  private final int @Nullable [] orderIndexes;
+  private final boolean @Nullable [] orderAsc;
+  private final boolean @Nullable [] orderEmptyLeast;
+  private final Ordering.OrderModifier @Nullable [] orderModifiers;
   /**
    * Sole-consumer {@code fn:subsequence} cap over the ORDERED groups ({@code start+length-1}), or
    * {@code -1}: with a cap the executor may heap-select the first {@code limit} groups of the stable
@@ -96,8 +98,33 @@ public final class SirixGroupAggregateExpr implements Expr {
    * {@link SourceRef.Kind#VARIABLE} ref cannot be judged at compile time, so this expr re-checks the
    * binding at evaluation time and declines to its generic fallback when it is foreign.
    */
-  private final SourceRef sourceRef;
+  private final @Nullable SourceRef sourceRef;
   private final Expr genericFallback;
+  /**
+   * The index-routed source ({@code jn:open-bitemporal('db','res', T, P)}) this pipeline loops over,
+   * or {@code null} for an ordinary document scan. Per evaluation the two instants are evaluated, the
+   * revision is resolved from {@code T}, the valid rows' record keys come from the valid-time index,
+   * and the executor bound to that revision folds exactly those rows as a column mask.
+   */
+  private final @Nullable RoutedSource routedSource;
+  /** The computed pre-group programs the aggregate lanes named {@code prog:<i>} fold, or null. */
+  private final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes;
+  /** A membership filter over a second routed opener, applied to the row keys before grouping. */
+  private final RoutedGroupRequest.@Nullable MembershipFilter membership;
+
+  /** A resource and either compiled opener instants or a folded indexed source expression. */
+  public record RoutedSource(String database, String resource, @Nullable Expr txTime, Expr validTime,
+      @Nullable Expr indexed) {
+    public RoutedSource(final String database, final String resource, final Expr txTime, final Expr validTime) {
+      this(database, resource, txTime, validTime, null);
+    }
+
+    public RoutedSource {
+      if (database == null || resource == null || (txTime == null && indexed == null) || validTime == null) {
+        throw new IllegalArgumentException("a routed source names its document and both instants");
+      }
+    }
+  }
 
   public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
@@ -107,7 +134,27 @@ public final class SirixGroupAggregateExpr implements Expr {
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
-      final SourceRef sourceRef, final Expr genericFallback) {
+      final @Nullable SourceRef sourceRef, final Expr genericFallback) {
+    this(executorProvider, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes,
+        orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse,
+        keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, decorPos, decorPrefix, decorSuffix,
+        constEntryPos, constEntryNames, constEntryValues, sourceRef, genericFallback, null, null, null);
+  }
+
+  public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
+      final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
+      final @Nullable SourceRef sourceRef, final Expr genericFallback, final @Nullable RoutedSource routedSource,
+      final SirixVectorizedExecutor.ComputedLane @Nullable [] computedLanes,
+      final RoutedGroupRequest.@Nullable MembershipFilter membership) {
+    this.routedSource = routedSource;
+    this.computedLanes = computedLanes;
+    this.membership = membership;
     this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -158,28 +205,79 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
-    if (lease != null) {
-      try (lease) {
-        final SirixVectorizedExecutor executor = lease.executor();
-        if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
-          final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
-              predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc,
-              orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern,
-              keyRegexRepl, keyDivMod, keyStringify, having);
-          if (served != null) {
-            if (orderIndexes == null || served.ordered()) {
-              return postProcess(served.groups());
-            }
-            final Sequence sorted = sort(served.groups());
-            if (sorted != null) {
-              return postProcess(sorted);
-            }
-          }
-        }
+    final RoutedSource routed = routedSource;
+    final SirixVectorizedExecutor.ServedGroups served = routed != null
+        ? serveRouted(ctx, tuple, routed)
+        : serveScan(ctx);
+    if (served != null) {
+      if (orderIndexes == null || served.ordered()) {
+        return postProcess(served.groups());
+      }
+      final Sequence sorted = sort(served.groups());
+      if (sorted != null) {
+        return postProcess(sorted);
       }
     }
     return genericFallback.evaluate(ctx, tuple);
+  }
+
+  /** The ordinary document scan: the executor the lease resolves for the compile-time source. */
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveScan(final QueryContext ctx) throws QueryException {
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
+    if (lease == null) {
+      return null;
+    }
+    try (lease) {
+      final SirixVectorizedExecutor executor = lease.executor();
+      if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
+        return executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs,
+            aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+            keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having,
+            computedLanes == null
+                ? null
+                : new SirixVectorizedExecutor.GroupRouting(null, computedLanes));
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The index-routed source: the rows the opener would materialise, as a record-key mask over the
+   * projection at the revision current at the transaction-time instant. Any trouble on the way — an
+   * instant that is not a dateTime, a resource without valid-time configuration, an executor bound to
+   * another revision, an index that cannot serve the point — declines to the generic pipeline, which
+   * evaluates the very same opener and raises whatever it raises.
+   */
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple,
+      final RoutedSource routed) throws QueryException {
+    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed);
+    if (rows == null) {
+      return null;
+    }
+    if (membership != null) {
+      rows = RoutedGroupRequest.filterByMembership(executorProvider, ctx, tuple, sourcePath, rows, routed, membership);
+      if (rows == null) {
+        return null;
+      }
+    }
+    final long[] keys = rows.keys();
+    final int revision = rows.revision();
+    final SirixExecutorProvider.Lease lease =
+        executorProvider.acquire(ctx, SourceRef.document(routed.database(), routed.resource(), revision));
+    if (lease == null) {
+      return null;
+    }
+    try (lease) {
+      final SirixVectorizedExecutor executor = lease.executor();
+      if (executor.getRevision() != revision || !executor.canExecute(ctx)) {
+        return null;
+      }
+      final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
+          predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
+          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl,
+          keyDivMod, keyStringify, having, new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
+      return served;
+    }
   }
 
   /**
@@ -187,20 +285,23 @@ public final class SirixGroupAggregateExpr implements Expr {
    *
    * @return the ordered sequence, or {@code null} when the groups cannot be ordered here
    */
-  private Sequence sort(final Sequence served) {
+  private @Nullable Sequence sort(final Sequence served) {
+    final int[] indexes = Objects.requireNonNull(orderIndexes, "sorting requires order indexes");
+    final Ordering.OrderModifier[] modifiers =
+        Objects.requireNonNull(orderModifiers, "sorting requires order modifiers");
     try {
-      final Ordering ordering = new Ordering(new Expr[0], orderModifiers);
+      final Ordering ordering = new Ordering(new Expr[0], modifiers);
       int count = 0;
       try (final Iter iter = served.iterate()) {
         for (Item item = iter.next(); item != null; item = iter.next()) {
           if (!(item instanceof final Object record)) {
             return null; // not the record shape the annotation described
           }
-          final Sequence[] keys = new Sequence[orderIndexes.length];
-          for (int i = 0; i < orderIndexes.length; i++) {
+          final Sequence[] keys = new Sequence[indexes.length];
+          for (int i = 0; i < indexes.length; i++) {
             // Mirrors Ordering#sortKeys: atomize, and cast untyped to string, so a key
             // reaching the comparator is exactly what the interpreter would have handed it.
-            final Sequence value = record.value(orderIndexes[i]);
+            final Sequence value = record.value(indexes[i]);
             if (value == null) {
               keys[i] = null;
               continue;

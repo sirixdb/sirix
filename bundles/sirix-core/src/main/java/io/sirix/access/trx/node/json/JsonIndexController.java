@@ -70,6 +70,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   private final Cache<ValidTimeCohort, Boolean> validTimeCohorts = Caffeine.newBuilder().maximumSize(256).build();
 
+  /** Whether this immutable array cohort already has an exactness proof, without reading postings. */
+  public boolean isKnownExactValidTimeArray(final StorageEngineReader reader, final IndexDef definition,
+      final long arrayKey, final int length) {
+    requireNonNull(reader);
+    requireNonNull(definition);
+    if (reader instanceof StorageEngineWriter || reader.hasTrxIntentLog()) {
+      return false;
+    }
+    return Boolean.TRUE.equals(validTimeCohorts.getIfPresent(new ValidTimeCohort(reader.getDatabaseId(),
+        reader.getResourceId(), reader.getRevisionNumber(), arrayKey, length, definition)));
+  }
+
   public boolean isExactValidTimeArray(final StorageEngineReader reader, final IndexDef definition, final long arrayKey,
       final int length) {
     requireNonNull(reader);
