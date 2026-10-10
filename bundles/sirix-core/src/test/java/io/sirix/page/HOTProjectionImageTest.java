@@ -51,13 +51,15 @@ final class HOTProjectionImageTest {
     }
     try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION)) {
       final HOTLeafPage leaf = spy(original);
-      leaf.readSideReferences(new ByteArrayBytesIn(trailer), count);
+      leaf.readSideReferences(pairs(trailer, count), count);
       PageUtils.fixupPageReferenceIds(leaf, 17, 19);
       verify(leaf, times(2)).beginSideReferenceRead();
       verify(leaf, times(2)).endSideReferenceRead();
       verify(leaf, never()).getReferences();
       for (int i = 0; i < count; i++) {
-        final PageReference reference = original.getPageReference(i - 256);
+        // The decoder installs a map sized for the trailer, so read back through the decoding leaf
+        // rather than the spied original, which only aliased the pre-decode map.
+        final PageReference reference = leaf.getPageReference(i - 256);
         assertNotNull(reference);
         assertEquals(i + 1000, reference.getKey());
         assertEquals(17, reference.getDatabaseId());
@@ -65,13 +67,19 @@ final class HOTProjectionImageTest {
       }
     }
     try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION)) {
-      assertThrows(IndexOutOfBoundsException.class,
-          () -> leaf.readSideReferences(new ByteArrayBytesIn(trailer), count + 1));
+      assertThrows(IndexOutOfBoundsException.class, () -> leaf.readSideReferences(pairs(trailer, count), count + 1));
       assertNull(leaf.getPageReference(0), "reject dimensions before populating the map");
       encoded.putLong(Long.BYTES, -1);
-      assertThrows(IllegalStateException.class, () -> leaf.readSideReferences(new ByteArrayBytesIn(trailer), count));
+      assertThrows(IllegalStateException.class, () -> leaf.readSideReferences(pairs(trailer, count), count));
       assertNull(leaf.getPageReference(-256));
     }
+  }
+
+  /** Decode a serialized trailer into the interleaved pair array the leaf installs from. */
+  private static long[] pairs(final byte[] trailer, final int count) {
+    final long[] pairs = new long[2 * count];
+    new ByteArrayBytesIn(trailer).readLongs(pairs, 0, pairs.length);
+    return pairs;
   }
 
   @Test

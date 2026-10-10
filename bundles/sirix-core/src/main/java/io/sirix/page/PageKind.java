@@ -6438,6 +6438,14 @@ public enum PageKind {
   private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_KEYS =
       ThreadLocal.withInitial(() -> new long[HOTLeafPage.MAX_ENTRIES]);
 
+  /**
+   * Reusable decoder scratch for a HOT leaf's side trailer: {@code count} interleaved (compositeKey,
+   * diskOffsetKey) pairs read with one bulk copy. Sized like the serializer scratch, for twice the
+   * reference count.
+   */
+  private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_PAIRS =
+      ThreadLocal.withInitial(() -> new long[2 * HOTLeafPage.MAX_ENTRIES]);
+
   /** Tiny introsort partitions are faster as a branch-light in-place insertion pass. */
   private static final int HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD = 24;
 
@@ -6514,19 +6522,36 @@ public enum PageKind {
       throw new IllegalStateException(
           "HOT-leaf side-reference count " + required + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
-    long[] scratch = HOT_LEAF_SIDE_REFERENCE_KEYS.get();
+    return grownScratch(HOT_LEAF_SIDE_REFERENCE_KEYS, required, MAX_HOT_LEAF_SIDE_REFERENCES);
+  }
+
+  /** Return reusable decoder scratch holding {@code count} interleaved side-reference pairs. */
+  private static long[] hotLeafSideReferencePairScratch(final int count) {
+    if (count < 0 || count > MAX_HOT_LEAF_SIDE_REFERENCES) {
+      throw new IllegalStateException(
+          "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
+    }
+    return grownScratch(HOT_LEAF_SIDE_REFERENCE_PAIRS, 2 * count, 2 * MAX_HOT_LEAF_SIDE_REFERENCES);
+  }
+
+  /**
+   * Grow a thread-local scratch to at least {@code required} longs by doubling, capped at
+   * {@code limit}. Growth only happens on a new per-thread high-water mark, never on warm reuse.
+   */
+  private static long[] grownScratch(final ThreadLocal<long[]> holder, final int required, final int limit) {
+    long[] scratch = holder.get();
     if (scratch.length >= required) {
       return scratch;
     }
 
     int capacity = scratch.length;
     while (capacity < required) {
-      capacity = capacity <= MAX_HOT_LEAF_SIDE_REFERENCES / 2
+      capacity = capacity <= limit / 2
           ? capacity << 1
-          : MAX_HOT_LEAF_SIDE_REFERENCES;
+          : limit;
     }
     scratch = new long[capacity];
-    HOT_LEAF_SIDE_REFERENCE_KEYS.set(scratch);
+    holder.set(scratch);
     return scratch;
   }
 
@@ -6676,14 +6701,28 @@ public enum PageKind {
     }
   }
 
-  /** Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. */
+  /**
+   * Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. The
+   * whole trailer is read with one bulk copy into thread-local scratch; the leaf then installs it
+   * from primitive pairs with a map sized once for the count.
+   */
   private static void deserializeSegmentRefs(final BytesIn<?> source, final HOTLeafPage page) {
     final long count = Utils.getVarLong(source);
     if (count < 0L || count > MAX_HOT_LEAF_SIDE_REFERENCES) {
       throw new IllegalStateException(
           "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
-    page.readSideReferences(source, (int) count);
+    if (count == 0L) {
+      return;
+    }
+    final int referenceCount = (int) count;
+    final int longCount = 2 * referenceCount;
+    if ((long) longCount * Long.BYTES > source.remaining()) {
+      throw new IndexOutOfBoundsException("Truncated HOT-leaf side-reference trailer");
+    }
+    final long[] pairs = hotLeafSideReferencePairScratch(referenceCount);
+    source.readLongs(pairs, 0, longCount);
+    page.readSideReferences(pairs, referenceCount);
   }
 
   /**

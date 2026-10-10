@@ -136,6 +136,14 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
   }
 
   @Override
+  public void readLongs(final long[] dst, final int off, final int len) {
+    // One native copy vs {@code len} VarHandle reads — used by the HOT-leaf side-trailer
+    // decoder in PageKind.deserializeSegmentRefs (hot path at cold-cache lookups).
+    MemorySegment.copy(memorySegment, LE.LONG, position, dst, off, len);
+    position += (long) len * Long.BYTES;
+  }
+
+  @Override
   public long position() {
     return position;
   }
