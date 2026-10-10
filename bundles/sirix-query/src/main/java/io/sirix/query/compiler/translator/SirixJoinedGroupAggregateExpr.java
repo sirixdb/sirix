@@ -56,7 +56,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final String[] ARRAY_MEMBERS = {"[]"};
   private static final String COMPUTED_PREFIX = "prog:";
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
-  private static final boolean TIMING = Boolean.getBoolean("sirix.joinTiming");
   private static final byte COUNT = 0;
   private static final byte COUNT_DISTINCT = 1;
   private static final byte SUM = 2;
@@ -229,9 +228,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     final long[][] keys = new long[2][];
     final int[] revisions = new int[2];
-    long stageStarted = TIMING
-        ? System.nanoTime()
-        : 0L;
     for (int side = 0; side < 2; side++) {
       final Side spec = sides[side];
       if (spec.routed() != null) {
@@ -248,11 +244,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
         keys[side] = rows.keys();
         revisions[side] = rows.revision();
-        if (TIMING) {
-          System.err.println("JOIN_STAGE range side=" + side + " rows=" + rows.keys().length + " ms="
-              + (System.nanoTime() - stageStarted) / 1e6);
-          stageStarted = System.nanoTime();
-        }
       } else {
         revisions[side] = spec.revision();
       }
@@ -262,11 +253,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       columns[side] = columns(ctx, side, keys[side], revisions[side]);
       if (columns[side] == null) {
         return decline("side " + side + " has no masked columns");
-      }
-      if (TIMING) {
-        System.err.println("JOIN_STAGE columns side=" + side + " rows=" + columns[side].rows() + " ms="
-            + (System.nanoTime() - stageStarted) / 1e6);
-        stageStarted = System.nanoTime();
       }
       if (!columns[side].isLong(0)) {
         return decline("join field of side " + side + " is not a long column");
@@ -285,11 +271,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final int probe = 1 - build;
     columns[build].adopt(columns[probe]);
     try {
-      final Sequence served = join(columns[build], build, columns[probe], probe, stringKeys, timestampKeys);
-      if (TIMING) {
-        System.err.println("JOIN_STAGE hash-residual-group ms=" + (System.nanoTime() - stageStarted) / 1e6);
-      }
-      return served;
+      return join(columns[build], build, columns[probe], probe, stringKeys, timestampKeys);
     } catch (final ArithmeticException overflow) {
       return decline("exact arithmetic overflow");
     }
