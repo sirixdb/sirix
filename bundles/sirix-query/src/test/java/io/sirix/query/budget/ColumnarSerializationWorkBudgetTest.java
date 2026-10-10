@@ -92,8 +92,8 @@ final class ColumnarSerializationWorkBudgetTest {
   @Test
   void mixedRecordsDelegateTheSuffixWithConstantPrintersAndFlushes() {
     final int size = 8000;
-    final Sequence records = new Query("({'v':1}, for $i in 1 to " + size + " return {'v':[$i]})")
-        .execute(new BrackitQueryContext());
+    final Sequence records =
+        new Query("({'v':1}, for $i in 1 to " + size + " return {'v':[$i]})").execute(new BrackitQueryContext());
     final CountingWriter actual = new CountingWriter();
     try (final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(actual))) {
       serializer.serialize(records);
