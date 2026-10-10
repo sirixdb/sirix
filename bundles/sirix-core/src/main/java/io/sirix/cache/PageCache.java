@@ -3,23 +3,14 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
-import io.sirix.page.CASPage;
-import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
-import io.sirix.page.PathPage;
-import io.sirix.page.PathSummaryPage;
-import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.page.ValidTimeIndexPage;
-import io.sirix.page.TemporalAggregateIndexPage;
-import io.sirix.page.ChangeLogIndexPage;
-import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -177,14 +168,11 @@ public final class PageCache implements Cache<PageReference, Page> {
    * exist yet.
    *
    * <p>
-   * The list must stay in step with {@code RevisionRootPage}'s {@code *_REFERENCE_OFFSET} slots: a
-   * new index type added there and forgotten here is silently mis-shared.
+   * Index-root implementations declare this ownership through {@link IndexRootPage}. Checking the
+   * shared marker avoids linking every optional index implementation on ordinary page-cache reads.
    */
   private static boolean isIndexRootPage(final Page page) {
-    return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof CASPage
-        || page instanceof PathPage || page instanceof DeweyIDPage || page instanceof VectorPage
-        || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage
-        || page instanceof TemporalAggregateIndexPage || page instanceof ChangeLogIndexPage;
+    return page instanceof IndexRootPage;
   }
 
   @Override

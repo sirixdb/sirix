@@ -6212,7 +6212,7 @@ public enum PageKind {
     }
   },
 
-  TEMPORAL_AGGREGATEPAGE((byte) 18, TemporalAggregateIndexPage.class) {
+  TEMPORAL_AGGREGATEPAGE((byte) 18) {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
@@ -6245,7 +6245,7 @@ public enum PageKind {
     }
   },
 
-  CHANGE_LOGPAGE((byte) 19, ChangeLogIndexPage.class) {
+  CHANGE_LOGPAGE((byte) 19) {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
@@ -8910,7 +8910,9 @@ public enum PageKind {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind ID " + (page.id & 0xFF) + " for " + duplicateId + " and " + page);
       }
-      final PageKind duplicateClass = INSTANCEFORCLASS.put(page.clazz, page);
+      final PageKind duplicateClass = page.clazz == null
+          ? null
+          : INSTANCEFORCLASS.put(page.clazz, page);
       if (duplicateClass != null) {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind class " + page.clazz.getName() + " for " + duplicateClass + " and " + page);
@@ -8926,14 +8928,19 @@ public enum PageKind {
   /**
    * Class.
    */
-  private final Class<? extends Page> clazz;
+  private final @Nullable Class<? extends Page> clazz;
 
   /**
-   * Constructor.
+   * Optional container kind; resolve its implementation class only when used.
    *
    * @param id unique identifier
-   * @param clazz class
+   *
    */
+  PageKind(final byte id) {
+    this.id = id;
+    this.clazz = null;
+  }
+
   PageKind(final byte id, final Class<? extends Page> clazz) {
     this.id = id;
     this.clazz = clazz;
@@ -9141,10 +9148,23 @@ public enum PageKind {
    */
   public static PageKind getKind(final Class<? extends Page> clazz) {
     final PageKind page = INSTANCEFORCLASS.get(clazz);
-    if (page == null) {
-      throw new IllegalStateException();
+    if (page != null) {
+      return page;
     }
-    return page;
+    return OptionalAggregatePageKinds.get(clazz);
+  }
+
+  /** Optional containers must not load their implementation classes for unrelated page reads. */
+  private static final class OptionalAggregatePageKinds {
+    private static PageKind get(final Class<? extends Page> clazz) {
+      if (clazz == TemporalAggregateIndexPage.class) {
+        return TEMPORAL_AGGREGATEPAGE;
+      }
+      if (clazz == ChangeLogIndexPage.class) {
+        return CHANGE_LOGPAGE;
+      }
+      throw new IllegalStateException("Unknown PageKind class: " + clazz);
+    }
   }
 
   /**

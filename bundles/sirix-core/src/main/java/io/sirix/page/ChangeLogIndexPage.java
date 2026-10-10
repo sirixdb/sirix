@@ -10,6 +10,7 @@ import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ToStringHelper;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -19,7 +20,7 @@ import org.jspecify.annotations.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /** Revision-owned HOT roots and page allocators for change log indexes. */
-public final class ChangeLogIndexPage extends AbstractForwardingPage {
+public final class ChangeLogIndexPage extends AbstractForwardingPage implements IndexRootPage {
 
   private Page delegate;
 

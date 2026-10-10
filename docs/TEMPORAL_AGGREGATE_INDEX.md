@@ -17,6 +17,13 @@ integer field or a checked product of two projected integer fields. A declaratio
 or missing values. `TemporalAggregateDeclarations.declare` is the equivalent Java API.
 
 The catalogue stores the source projection id, root, grouping columns, operand columns and required operations.
+Catalogue reads retain a private copy of the aggregate declaration without decoding its lanes.
+The first aggregate consumer decodes and validates those semantics once; unrelated queries and
+catalogue copies do not initialize aggregate specifications. Creation validates the supplied
+specification immediately. Malformed persisted operand declarations fail when first consumed.
+Optional aggregate and change-log container classes are resolved only when those page types are used.
+The shared page cache checks the `IndexRootPage` ownership marker instead of loading every index
+container implementation to classify an ordinary page; revision-owned containers remain uncached.
 `jn:drop-temporal-aggregate-index($document[, $id])` removes one declaration or all declarations.
 Physical ids are never reused. Removing a source projection also removes its dependent aggregate
 definitions from the new revision; historical catalogues and roots remain readable.

@@ -48,7 +48,10 @@ import java.util.concurrent.atomic.LongAdder;
 
 /** Exact point admission before the valid-time stab and masked grouped kernel. */
 public final class TemporalAggregateRoute {
-  private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
+  private static final class DomainHolder {
+    private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
+  }
+
   private static final DateTimeToInstant INSTANT = new DateTimeToInstant();
   private static final LongAdder SERVED = new LongAdder();
 
@@ -66,7 +69,7 @@ public final class TemporalAggregateRoute {
     if (request.predicate() != null || request.sourcePath().length != 1 || !"[]".equals(request.sourcePath()[0])) {
       return null;
     }
-    if (point == null || !DOMAIN.isExact(point.instant())) {
+    if (point == null) {
       return null;
     }
     final JsonDBItem document = point.document();
@@ -77,6 +80,9 @@ public final class TemporalAggregateRoute {
     final Indexes indexes =
         document.getResourceSession().getRtxIndexController(reader.getRevisionNumber()).getIndexes();
     if (indexes.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0) {
+      return null;
+    }
+    if (!DomainHolder.DOMAIN.isExact(point.instant())) {
       return null;
     }
     final List<IndexDef> candidates = new ArrayList<>();
@@ -108,8 +114,8 @@ public final class TemporalAggregateRoute {
           continue;
         }
         final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
-        final long coordinate = DOMAIN.point(point.instant());
-        final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DOMAIN.height());
+        final long coordinate = DomainHolder.DOMAIN.point(point.instant());
+        final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
         storage.groups((key, group) -> {
           if (group.rows() == 0) {
             return;
@@ -169,7 +175,7 @@ public final class TemporalAggregateRoute {
     }
     try {
       final Instant transaction = INSTANT.convert(txTime);
-      if (!DOMAIN.isExact(transaction)
+      if (!DomainHolder.DOMAIN.isExact(transaction)
           || !(ctx.getJsonItemStore().lookup(routed.database()) instanceof JsonDBCollection collection)) {
         return null;
       }

@@ -1,6 +1,5 @@
 package io.sirix.index.aggregate;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 
@@ -65,9 +64,6 @@ public record TemporalAggregateSpec(int projectionId, List<Integer> groupColumns
     if (groupColumns.isEmpty() || groupColumns.size() > 16 || lanes.size() > 16) {
       throw new IllegalArgumentException("An aggregate index needs 1..16 grouping columns and at most 16 lanes");
     }
-    if (new HashSet<>(groupColumns).size() != groupColumns.size() || new HashSet<>(lanes).size() != lanes.size()) {
-      throw new IllegalArgumentException("Duplicate aggregate group column or lane");
-    }
     for (int i = 0; i < lanes.size(); i++) {
       for (int j = 0; j < i; j++) {
         if (lanes.get(i).sameOperand(lanes.get(j))) {
@@ -75,9 +71,15 @@ public record TemporalAggregateSpec(int projectionId, List<Integer> groupColumns
         }
       }
     }
-    for (final int column : groupColumns) {
+    for (int i = 0; i < groupColumns.size(); i++) {
+      final int column = groupColumns.get(i);
       if (column < 0) {
         throw new IllegalArgumentException("Negative grouping column");
+      }
+      for (int j = 0; j < i; j++) {
+        if (column == groupColumns.get(j)) {
+          throw new IllegalArgumentException("Duplicate aggregate group column");
+        }
       }
     }
   }

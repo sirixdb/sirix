@@ -35,6 +35,7 @@ import io.sirix.index.IndexType;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ToStringHelper;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
@@ -52,7 +53,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class VectorPage extends AbstractForwardingPage {
+public final class VectorPage extends AbstractForwardingPage implements IndexRootPage {
 
   /**
    * The references page instance (starts as ReferencesPage4, may grow).
