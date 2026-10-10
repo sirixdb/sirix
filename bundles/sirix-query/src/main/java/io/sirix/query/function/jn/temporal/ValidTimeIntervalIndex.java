@@ -31,16 +31,18 @@ import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
 
 public final class ValidTimeIntervalIndex {
-  private static final boolean SCAN_DIAGNOSTICS = HotOrderedStore.scanDiagnosticsEnabled();
-  private static final LongAdder CANDIDATE_WORDS_VISITED = new LongAdder();
-  private static final LongAdder CANDIDATE_BITMAPS_CREATED = new LongAdder();
+  private static final class Diagnostics {
+    private static final boolean SCAN_DIAGNOSTICS = HotOrderedStore.scanDiagnosticsEnabled();
+    private static final LongAdder CANDIDATE_WORDS_VISITED = new LongAdder();
+    private static final LongAdder CANDIDATE_BITMAPS_CREATED = new LongAdder();
+  }
 
   public static long candidateWordsVisited() {
-    return CANDIDATE_WORDS_VISITED.sum();
+    return Diagnostics.CANDIDATE_WORDS_VISITED.sum();
   }
 
   public static long candidateBitmapsCreated() {
-    return CANDIDATE_BITMAPS_CREATED.sum();
+    return Diagnostics.CANDIDATE_BITMAPS_CREATED.sum();
   }
 
   @SuppressWarnings("ArrayRecordComponent")
@@ -259,8 +261,8 @@ public final class ValidTimeIntervalIndex {
       }
       references.forEachNodeKey(this);
       try {
-        if (SCAN_DIAGNOSTICS) {
-          CANDIDATE_WORDS_VISITED.add(touchedCount);
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.CANDIDATE_WORDS_VISITED.add(touchedCount);
         }
         int count = 0;
         final long[] selected = chunk.selected;
@@ -272,8 +274,8 @@ public final class ValidTimeIntervalIndex {
               chunk.unverified = verification.apply(base);
             }
             if (verifyOnly) {
-              if (SCAN_DIAGNOSTICS) {
-                CANDIDATE_WORDS_VISITED.increment();
+              if (Diagnostics.SCAN_DIAGNOSTICS) {
+                Diagnostics.CANDIDATE_WORDS_VISITED.increment();
               }
               bits &= chunk.unverified.word(word);
             }
@@ -295,8 +297,8 @@ public final class ValidTimeIntervalIndex {
           return;
         }
         if (chunk.first == null && count >= DENSE_THRESHOLD) {
-          if (SCAN_DIAGNOSTICS) {
-            CANDIDATE_BITMAPS_CREATED.increment();
+          if (Diagnostics.SCAN_DIAGNOSTICS) {
+            Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
           }
           chunk.selected = scratch.clone();
           chunk.count = count;
@@ -327,8 +329,8 @@ public final class ValidTimeIntervalIndex {
             }
           }
           if (unique >= DENSE_THRESHOLD) {
-            if (SCAN_DIAGNOSTICS) {
-              CANDIDATE_BITMAPS_CREATED.increment();
+            if (Diagnostics.SCAN_DIAGNOSTICS) {
+              Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
             }
             chunk.selected = scratch.clone();
             chunk.first = null;
@@ -360,8 +362,8 @@ public final class ValidTimeIntervalIndex {
           for (int index = 0; index < touchedCount; index++) {
             final int word = touchedWords[index];
             final long removed = selected[word] & scratch[word] & ~unverified.word(word);
-            if (SCAN_DIAGNOSTICS) {
-              CANDIDATE_WORDS_VISITED.increment();
+            if (Diagnostics.SCAN_DIAGNOSTICS) {
+              Diagnostics.CANDIDATE_WORDS_VISITED.increment();
             }
             selected[word] &= ~removed;
             chunk.count -= Long.bitCount(removed);
@@ -376,8 +378,8 @@ public final class ValidTimeIntervalIndex {
             final int word = (int) ((key & 0xFFFFL) >>> 6);
             final long bit = 1L << key;
             if ((scratch[word] & bit) != 0) {
-              if (SCAN_DIAGNOSTICS) {
-                CANDIDATE_WORDS_VISITED.increment();
+              if (Diagnostics.SCAN_DIAGNOSTICS) {
+                Diagnostics.CANDIDATE_WORDS_VISITED.increment();
               }
               if ((unverified.word(word) & bit) == 0) {
                 continue;
@@ -470,9 +472,9 @@ public final class ValidTimeIntervalIndex {
       for (Run run = chunk.first; run != null; run = run.next) {
         groups = mergeRunWords(run, runKeys.keys, wordGroups, groups);
       }
-      if (SCAN_DIAGNOSTICS) {
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
         for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
-          CANDIDATE_WORDS_VISITED.add(Long.bitCount(wordGroups[Integer.numberOfTrailingZeros(remaining)]));
+          Diagnostics.CANDIDATE_WORDS_VISITED.add(Long.bitCount(wordGroups[Integer.numberOfTrailingZeros(remaining)]));
         }
       }
       return groups;
@@ -525,8 +527,8 @@ public final class ValidTimeIntervalIndex {
   }
 
   private static void markUnverified(final long key, final PostingMask unverified, final Roaring64Bitmap keys) {
-    if (SCAN_DIAGNOSTICS) {
-      CANDIDATE_WORDS_VISITED.increment();
+    if (Diagnostics.SCAN_DIAGNOSTICS) {
+      Diagnostics.CANDIDATE_WORDS_VISITED.increment();
     }
     if ((unverified.word((int) ((key & 0xFFFFL) >>> 6)) & (1L << key)) != 0) {
       keys.addLong(key);

@@ -4,7 +4,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
-import io.sirix.index.interval.HotOrderedStore;
 import java.util.concurrent.atomic.LongAdder;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
@@ -32,10 +31,14 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
 
-  private static final LongAdder INDEX_ROOT_LOADS = new LongAdder();
+  private static final boolean SCAN_DIAGNOSTICS = Boolean.getBoolean("sirix.validTime.scanDiag");
+
+  private static final class Diagnostics {
+    private static final LongAdder INDEX_ROOT_LOADS = new LongAdder();
+  }
 
   public static long indexRootLoads() {
-    return INDEX_ROOT_LOADS.sum();
+    return Diagnostics.INDEX_ROOT_LOADS.sum();
   }
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
@@ -154,8 +157,8 @@ public final class PageCache implements Cache<PageReference, Page> {
       }
       final Page page = mappingFunction.apply(k, v);
       computed[0] = page;
-      if (HotOrderedStore.scanDiagnosticsEnabled() && isIndexRootPage(page)) {
-        INDEX_ROOT_LOADS.increment();
+      if (SCAN_DIAGNOSTICS && isIndexRootPage(page)) {
+        Diagnostics.INDEX_ROOT_LOADS.increment();
       }
       return isCacheablePageType(k, page)
           ? page

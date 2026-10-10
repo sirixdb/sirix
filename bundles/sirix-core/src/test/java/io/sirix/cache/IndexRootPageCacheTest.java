@@ -3,8 +3,11 @@ package io.sirix.cache;
 import io.sirix.page.CASPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -15,6 +18,52 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class IndexRootPageCacheTest {
+  @Test
+  @SuppressWarnings("unchecked")
+  void pageMissDoesNotLoadValidTimeStore() throws ReflectiveOperationException {
+    final AtomicInteger intervalLoads = new AtomicInteger();
+    final String cacheClass = PageCache.class.getName();
+    final ClassLoader loader = new ClassLoader(PageCache.class.getClassLoader()) {
+      @Override
+      protected Class<?> loadClass(final String name, final boolean resolve) throws ClassNotFoundException {
+        if (name.startsWith("io.sirix.index.interval.")) {
+          intervalLoads.incrementAndGet();
+        }
+        if (!name.equals(cacheClass) && !name.startsWith(cacheClass + "$")) {
+          return super.loadClass(name, resolve);
+        }
+        synchronized (getClassLoadingLock(name)) {
+          Class<?> loaded = findLoadedClass(name);
+          if (loaded == null) {
+            try (final InputStream input = getResourceAsStream(name.replace('.', '/') + ".class")) {
+              if (input == null) {
+                throw new ClassNotFoundException(name);
+              }
+              final byte[] bytes = input.readAllBytes();
+              loaded = defineClass(name, bytes, 0, bytes.length);
+            } catch (final IOException exception) {
+              throw new ClassNotFoundException(name, exception);
+            }
+          }
+          if (resolve) {
+            resolveClass(loaded);
+          }
+          return loaded;
+        }
+      }
+    };
+    final Cache<PageReference, Page> cache =
+        (Cache<PageReference, Page>) loader.loadClass(cacheClass).getConstructor(int.class).newInstance(32);
+    final PageReference key = new PageReference().setKey(100).revisionCacheKey(1);
+    final CASPage page = new CASPage();
+    assertSame(page, cache.get(key, (_, _) -> page));
+    assertSame(page, cache.get(key, (_, _) -> {
+      throw new AssertionError("cached root must be reused");
+    }));
+    assertEquals(0, intervalLoads.get(), "metadata loads must not initialize the valid-time store");
+    cache.clear();
+  }
+
   @Test
   void rootsAreIsolatedByRevisionDatabaseAndResource() {
     final PageCache cache = new PageCache(32);
