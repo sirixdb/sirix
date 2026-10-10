@@ -7,9 +7,12 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.Bits;
 import io.brackit.query.compiler.translator.Binding;
 import io.brackit.query.compiler.translator.VariableTable;
+import io.brackit.query.jdm.json.JsonCollection;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollectionImpl;
 import java.util.Arrays;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /** Checks scalar inputs without traversing containers or resolving unbound defaults. */
 public final class ConjunctInputs {
@@ -19,8 +22,8 @@ public final class ConjunctInputs {
   private final int[] positions;
   private final boolean nativeStore;
 
-  public ConjunctInputs(final QNm[] inputs, final QNm[] captured, final QNm[] defaultNames, final VariableTable table,
-      final boolean nativeStore) {
+  public ConjunctInputs(final QNm[] inputs, final QNm[] captured, final QNm[] defaultNames,
+      final @Nullable VariableTable table, final boolean nativeStore) {
     this.nativeStore = nativeStore;
     Objects.requireNonNull(inputs);
     Objects.requireNonNull(captured);
@@ -48,7 +51,7 @@ public final class ConjunctInputs {
         positions[i] = -2;
       }
       if (i >= inputs.length && table != null) {
-        for (final Binding binding : bindings) {
+        for (final Binding binding : Objects.requireNonNull(bindings)) {
           if (names[i].equals(binding.getName())) {
             final int index = i;
             table.resolve(names[i], position -> positions[index] = position);
@@ -60,10 +63,14 @@ public final class ConjunctInputs {
   }
 
   boolean admit(final QueryContext context, final Tuple tuple) {
-    // Only the final stock store guarantees freshly opened document views. A caller's
-    // provider may return an already exposed object with changing lazy field values.
-    if (nativeStore && !(context.getJsonItemStore() instanceof BasicJsonDBStore)) {
-      return false;
+    if (nativeStore) {
+      if (!(context.getJsonItemStore() instanceof BasicJsonDBStore store) || !store.hasOnlyStockCollections()) {
+        return false;
+      }
+      final JsonCollection<?> defaultCollection = context.getDefaultJsonCollection();
+      if (defaultCollection != null && !(defaultCollection instanceof JsonDBCollectionImpl)) {
+        return false;
+      }
     }
     for (int i = 0; i < names.length; i++) {
       if (!repeatable(value(context, tuple, i), i)) {

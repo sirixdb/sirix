@@ -508,10 +508,11 @@ This query **joins data across time**—something that would require ETL pipelin
 
 ### Temporal Query Functions
 
+Resource access by revision number or timestamp is documented in
+[Time-Travel Queries](../README.md#time-travel-queries).
+
 | Function | Description |
 |----------|-------------|
-| `jn:open(db, resource, revision)` | Open specific revision by number |
-| `jn:open(db, resource, timestamp)` | Open revision at point-in-time |
 | `jn:previous($node)` | Get node from previous revision |
 | `jn:next($node)` | Get node from next revision |
 | `jn:all-times($node)` | Iterate all versions of node |
@@ -906,7 +907,7 @@ Document:                          CAS Index (for /users/[]/age, Type=INT):
 - Value-based filtering (`where price < 100`)
 - Range queries (`where date between ...`)
 - Equality checks on specific paths
-- Can be marked as `unique` for constraint enforcement
+- For `unique` flag semantics, see [Indexes](../README.md#indexes).
 
 **Storage**: PATH, CAS, and NAME secondary indexes have one representation:
 `IndexPage` → `HOTIndirectPage` → `HOTLeafPage`, with sorted key/posting-list entries. The path

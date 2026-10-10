@@ -193,12 +193,10 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   }
 
   private XmlDBNode getDocumentInternal(final String resName, final int revision) {
-    if (revision == -1) {
-      return createXmlDBNode(revision, resName);
-    } else {
-      return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
-          (unused) -> createXmlDBNode(revision, resName));
-    }
+    return revision == -1
+        ? createXmlDBNode(revision, resName)
+        : documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
+            (unused) -> createXmlDBNode(revision, resName));
   }
 
   @Override
@@ -241,12 +239,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
     }
     try {
       final var resourceName = resources.get(0).getFileName().toString();
-      if (revision == -1) {
-        return createXmlDBNode(revision, resourceName);
-      } else {
-        return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resourceName, revision),
-            (unused) -> createXmlDBNode(revision, resourceName));
-      }
+      return getDocumentInternal(resourceName, revision);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }

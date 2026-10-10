@@ -28,7 +28,6 @@ import io.sirix.api.Movement;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.PostCommitHook;
 import io.sirix.api.PreCommitHook;
-import io.sirix.node.xml.TextNode;
 import io.sirix.service.xml.shredder.XmlShredder;
 
 import org.jspecify.annotations.Nullable;
@@ -108,6 +107,28 @@ import java.time.Instant;
  *
  */
 public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
+
+  /**
+   * Begin a nestable publication scope, waiting for any earlier asynchronous commit to finish.
+   * Count-based revision publication is suppressed and scheduled commits wait for the scope to end;
+   * explicit commits are rejected. Private async-flush epochs may still rotate without publishing.
+   *
+   * <p>
+   * Balance every successful call with {@link #endAtomicOperation()} on the same thread in a
+   * {@code finally} block. A scope does not undo failed mutations: mark a failed operation
+   * rollback-only with {@link #markRollbackOnly(Throwable)} before releasing the scope.
+   * </p>
+   */
+  void beginAtomicOperation();
+
+  /**
+   * End a publication scope without committing. Auto-commit becomes eligible again after the
+   * outermost scope ends.
+   *
+   * @throws IllegalStateException if there is no matching begin call on the current thread
+   * @see #beginAtomicOperation()
+   */
+  void endAtomicOperation();
 
   enum Commit {
     Implicit,
@@ -322,9 +343,10 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertElementAsRightSibling(QNm name);
 
   /**
-   * Insert new text node as first child of currently selected node. The cursor is moved to the
-   * inserted node. If the result would be two adjacent {@link TextNode}s the value is appended with a
-   * single whitespace character prepended at first.
+   * Insert text as first child of the currently selected node. Normally, adjacent text is
+   * concatenated in document order without added whitespace, and the cursor moves to the resulting
+   * text node. During Brackit pending-update application, text normalization is deferred until all
+   * operations have run, so insertion creates a distinct text node.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as first child
@@ -334,8 +356,8 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertTextAsFirstChild(String value);
 
   /**
-   * Insert new text node as left sibling of currently selected node. The transaction is moved to the
-   * inserted node.
+   * Insert text as left sibling of the currently selected node. Normalization and cursor positioning
+   * follow {@link #insertTextAsFirstChild(String)}.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as right sibling
@@ -345,8 +367,8 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertTextAsLeftSibling(String value);
 
   /**
-   * Insert new text node as right sibling of currently selected node. The transaction is moved to the
-   * inserted node.
+   * Insert text as right sibling of the currently selected node. Normalization and cursor positioning
+   * follow {@link #insertTextAsFirstChild(String)}.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as right sibling
@@ -494,9 +516,9 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx insertSubtreeAsLeftSibling(XMLEventReader reader, Commit commit);
 
   /**
-   * Remove currently selected node. This does automatically remove descendants. If two adjacent
-   * {@link TextNode}s would be the result after the remove, the value of the former right sibling is
-   * appended to the left sibling {@link TextNode} and removed afterwards.
+   * Remove the currently selected node and its descendants. Removing a non-text node normally merges
+   * newly adjacent text siblings into the left sibling. During Brackit pending-update application,
+   * this normalization is deferred until all operations have run.
    *
    * The cursor is located at the former right sibling. If there was no right sibling, it is located
    * at the former left sibling. If there was no left sibling, it is located at the former parent.
@@ -520,7 +542,10 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx setName(QNm name);
 
   /**
-   * Set value of node.
+   * Set the value of a text, attribute, comment or processing-instruction node. An empty value
+   * removes a text node immediately during ordinary writes; during Brackit pending-update
+   * application, removal is deferred to final text normalization. Other supported node kinds retain
+   * empty values.
    *
    * @param value new value of node
    * @return the current transaction

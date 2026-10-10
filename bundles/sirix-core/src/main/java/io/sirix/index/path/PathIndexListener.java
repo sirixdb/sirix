@@ -8,10 +8,9 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.hot.HOTLongIndexWriter;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import it.unimi.dsi.fastutil.longs.LongSet;
-import org.jspecify.annotations.Nullable;
 
 import java.util.Set;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -20,15 +19,13 @@ public final class PathIndexListener {
 
   private final HOTLongIndexWriter hotWriter;
   private final PathSummaryReader pathSummaryReader;
-  private final Set<Path<QNm>> paths;
-  private @Nullable LongSet resolvedPCRs;
-  private long maxKnownPCR = -1L;
+  private final List<Path<QNm>> paths;
 
   public PathIndexListener(final Set<Path<QNm>> paths, final PathSummaryReader pathSummaryReader,
       final HOTLongIndexWriter hotWriter) {
     this.hotWriter = requireNonNull(hotWriter);
     this.pathSummaryReader = requireNonNull(pathSummaryReader);
-    this.paths = requireNonNull(paths);
+    this.paths = List.copyOf(requireNonNull(paths));
   }
 
   /**
@@ -42,8 +39,7 @@ public final class PathIndexListener {
 
   /** Invalidate path filtering after an identity-import namespace replacement. */
   public void pathSummaryImported() {
-    resolvedPCRs = null;
-    maxKnownPCR = -1L;
+    pathSummaryReader.clearCache();
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
@@ -73,18 +69,16 @@ public final class PathIndexListener {
     }
   }
 
-  /** Resolve configured paths once, refreshing only when a newly minted PCR can change the answer. */
   private boolean matchesIndexedPath(final long pathNodeKey) throws PathException {
     if (paths.isEmpty()) {
       return true;
     }
-    LongSet pcrs = resolvedPCRs;
-    if (pcrs == null || pathNodeKey > maxKnownPCR) {
-      pcrs = pathSummaryReader.getPCRsForPaths(paths);
-      resolvedPCRs = pcrs;
-      maxKnownPCR = Math.max(pathNodeKey, pathSummaryReader.getMaxNodeKey());
+    for (int i = 0, length = paths.size(); i < length; i++) {
+      if (pathSummaryReader.getPCRsForPath(paths.get(i)).contains(pathNodeKey)) {
+        return true;
+      }
     }
-    return pcrs.contains(pathNodeKey);
+    return false;
   }
 
   /**

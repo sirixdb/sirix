@@ -4,7 +4,6 @@ import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.Bits;
@@ -96,9 +95,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
         && new QNm(Bits.BIT_NSURI, Bits.BIT_PREFIX, "array-values").equals(parent.getValue()));
 
     if (parent.getType() == XQ.FilterExpr) {
+      revisionData.bind(indexExpr, parent);
       parent.getParent().replaceChild(parent.getChildIndex(), indexExpr);
     } else {
       final var filterExpr = parent.getParent();
+      revisionData.bind(indexExpr, filterExpr);
       filterExpr.getParent().replaceChild(filterExpr.getChildIndex(), indexExpr);
     }
 
@@ -179,6 +180,11 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   protected AST visit(AST astNode) {
+    for (AST parent = astNode.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent.getType() == XQExt.IndexExpr) {
+        return astNode;
+      }
+    }
     if (astNode.getType() != XQ.FilterExpr) {
       return astNode;
     }

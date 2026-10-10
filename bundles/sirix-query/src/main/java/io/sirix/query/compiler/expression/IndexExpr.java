@@ -3,10 +3,25 @@ package io.sirix.query.compiler.expression;
 import io.sirix.query.compiler.optimizer.walker.json.Paths;
 import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.DateTime;
+import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Numeric;
+import io.brackit.query.jdm.Type;
+import io.brackit.query.jdm.type.AtomicType;
+import io.brackit.query.jdm.type.Cardinality;
+import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.sequence.FunctionConversionSequence;
+import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.node.SirixDeweyID;
+import java.util.Arrays;
+import java.time.Instant;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
@@ -20,6 +35,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.node.NodeKind;
 import io.sirix.index.IndexDef;
+import io.sirix.index.AtomicUtil;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.cas.CASFilter;
@@ -31,6 +47,9 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.compiler.optimizer.walker.json.QueryPathSegment;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonItemFactory;
+import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.json.JsonDBObject;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -41,60 +60,90 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
 
 public final class IndexExpr implements Expr {
 
+  private static final DateTimeToInstant DATE_TIME_TO_INSTANT = new DateTimeToInstant();
+  private static final SequenceType INSTANT_REVISION_TYPE = new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne);
+  private static final SequenceType INTEGER_REVISION_TYPE = new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne);
+
   private final String databaseName;
 
   private final String resourceName;
 
-  private final Integer revision;
+  private final int revision;
 
   private final Map<IndexDef, List<Path<QNm>>> indexDefsToPaths;
 
   private final Map<String, Object> properties;
 
+  private final @Nullable Expr revisionOperand;
+  private final @Nullable Expr fallback;
+
   public IndexExpr(final Map<String, Object> properties) {
-    this.properties = properties;
-    requireNonNull(properties);
-    databaseName = (String) properties.get("databaseName");
-    resourceName = (String) properties.get("resourceName");
-    revision = (Integer) properties.get("revision");
+    this(properties, null, null);
+  }
+
+  public IndexExpr(final Map<String, Object> properties, final @Nullable Expr revisionOperand,
+      final @Nullable Expr fallback) {
+    this.revisionOperand = revisionOperand;
+    this.fallback = fallback;
+    this.properties = requireNonNull(properties);
+    databaseName = requiredProperty("databaseName", String.class);
+    resourceName = requiredProperty("resourceName", String.class);
+    revision = requiredProperty("revision", Integer.class);
     // noinspection unchecked
-    indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) properties.get("indexDefs");
+    indexDefsToPaths = properties.containsKey("casSourcePath")
+        ? Map.of()
+        : (Map<IndexDef, List<Path<QNm>>>) requiredProperty("indexDefs", Map.class);
+  }
+
+  private <T> T requiredProperty(final String name, final Class<T> type) {
+    final Object value = properties.get(name);
+    if (value == null) {
+      throw new IllegalStateException("Missing required index property: " + name);
+    }
+    return type.cast(value);
   }
 
   @Override
-  public Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
+  public @Nullable Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
     final var jsonItemStore = ((SirixQueryContext) ctx).getJsonItemStore();
 
     final JsonDBCollection jsonCollection = jsonItemStore.lookup(databaseName);
     final var database = jsonCollection.getDatabase();
 
     final var resourceSession = database.beginResourceSession(resourceName);
+    final int resolvedRevision = resolveRevision((SirixQueryContext) ctx, tuple, resourceSession);
+    if (properties.containsKey("casSourcePath")) {
+      return evaluateCASSource(ctx, tuple, jsonCollection, resourceSession, resolvedRevision);
+    }
     final JsonNodeReadOnlyTrx rtx;
     try {
-      rtx = revision == -1
-          ? resourceSession.beginNodeReadOnlyTrx()
-          : resourceSession.beginNodeReadOnlyTrx(revision);
+      rtx = resourceSession.beginNodeReadOnlyTrx(resolvedRevision);
     } catch (final Exception e) {
-      resourceSession.close();
       throw e;
     }
     try {
-      final var indexController = revision == -1
-          ? resourceSession.getRtxIndexController(resourceSession.getMostRecentRevisionNumber())
-          : resourceSession.getRtxIndexController(revision);
+      final var indexController = resourceSession.getRtxIndexController(resolvedRevision);
+      for (final IndexDef expected : indexDefsToPaths.keySet()) {
+        final IndexDef actual = indexController.getIndexes().getIndexDef(expected.getID(), expected.getType());
+        if (actual == null || !actual.hasSameDefinition(expected) || !supportsNumericQuery(actual)) {
+          rtx.close();
+          return requireNonNull(fallback).evaluate(ctx, tuple);
+        }
+      }
       var nodeKeys = new ArrayList<Long>();
 
-      final var indexType = (IndexType) properties.get("indexType");
+      final var indexType = requiredProperty("indexType", IndexType.class);
       final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
       @SuppressWarnings("unchecked")
       final var pathSegmentNamesToArrayIndexes =
-          (Deque<QueryPathSegment>) properties.get("pathSegmentNamesToArrayIndexes");
+          (Deque<QueryPathSegment>) requiredProperty("pathSegmentNamesToArrayIndexes", Deque.class);
 
       for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
         final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
@@ -108,8 +157,8 @@ public final class IndexExpr implements Expr {
                 nodeKeys, false);
           }
           case CAS -> {
-            final var atomic = (Atomic) properties.get("atomic");
-            final var comparisonType = (String) properties.get("comparator");
+            final var atomic = requiredProperty("atomic", Atomic.class);
+            final var comparisonType = requiredProperty("comparator", String.class);
             final Atomic atomicUpperBound = (Atomic) properties.get("upperBoundAtomic");
             final String comparisonUpperBound = (String) properties.get("upperBoundComparator");
             final SearchMode searchMode = getSearchMode(comparisonType);
@@ -161,7 +210,8 @@ public final class IndexExpr implements Expr {
       }
 
       final var sequence = new ArrayList<Item>();
-      final var jsonItemFactory = new JsonItemFactory();
+      final var jsonItemFactory = JsonItemFactory.INSTANCE;
+      final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
 
       switch (indexType) {
         case PATH, NAME -> nodeKeys.forEach(nodeKey -> {
@@ -179,11 +229,11 @@ public final class IndexExpr implements Expr {
             if (!isFusedRecord) {
               rtx.moveToFirstChild();
             }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           } else if (arrayIndexes.getFirst() == Integer.MIN_VALUE) {
             if (rtx.moveToFirstChild()) {
               do {
-                sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+                sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
               } while (rtx.moveToRightSibling());
             }
           } else {
@@ -203,53 +253,63 @@ public final class IndexExpr implements Expr {
                         + " for nodeKey " + nodeKey));
               }
             }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
+            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           }
         });
-        case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
-          final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
-          @SuppressWarnings("unchecked")
-          final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
-          final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
-          final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
-          nodeKeysOfIndex.forEach(nodeKey -> {
-            // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
-            // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
-            rtx.moveTo(nodeKey);
-            // iter#32 fusion: the legacy CAS index emitted entries on the primitive VALUE node
-            // (STRING_VALUE etc.) whose parent was OBJECT_KEY. Under fusion the indexed entry
-            // is on the fused OBJECT_NAMED_* record itself — which already plays the OBJECT_KEY
-            // role. The first moveToParent below is the legacy "VALUE → OBJECT_KEY" step; for
-            // a fused record it would skip one level too high, so emit a synthetic stay-put.
-            final boolean indexedOnFusedPrimitive = rtx.getKind().isFusedObjectNamed();
-            if (!indexedOnFusedPrimitive) {
-              rtx.moveToParent();
-            }
-            for (int i = 1; i < predicateLevel; i++) {
-              rtx.moveToParent();
+        case CAS -> {
+          final LongOpenHashSet publishedKeys = new LongOpenHashSet();
+          for (final IndexDef indexDef : indexDefsToPaths.keySet()) {
+            final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
+            @SuppressWarnings("unchecked")
+            final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) requiredProperty("predicateLevel", Map.class);
+            final var predicateLevel = requireNonNull(indexDefToPredicateLevel.get(indexDef));
+            final var nodeKeysOfIndex = requireNonNull(indexTypeToNodeKeys.get(indexDef));
+            for (final long nodeKey : nodeKeysOfIndex) {
+              // TODO: We can skip this traversal once we store a DeweyID <=> nodeKey mapping.
+              // Then we can simply clip the DeweyID with the given path level and get the corresponding nodeKey.
+              rtx.moveTo(nodeKey);
+              if (!hasFirstFieldIdentity(rtx)) {
+                rtx.close();
+                return requireNonNull(fallback).evaluate(ctx, tuple);
+              }
+              // iter#32 fusion: the legacy CAS index emitted entries on the primitive VALUE node
+              // (STRING_VALUE etc.) whose parent was OBJECT_KEY. Under fusion the indexed entry
+              // is on the fused OBJECT_NAMED_* record itself — which already plays the OBJECT_KEY
+              // role. The first moveToParent below is the legacy "VALUE → OBJECT_KEY" step; for
+              // a fused record it would skip one level too high, so emit a synthetic stay-put.
+              final boolean indexedOnFusedPrimitive = rtx.getKind().isFusedObjectNamed();
+              if (!indexedOnFusedPrimitive) {
+                rtx.moveToParent();
+              }
+              for (int i = 1; i < predicateLevel; i++) {
+                rtx.moveToParent();
 
-              // Bare OBJECT only — the fused OBJECT_NAMED_OBJECT already collapses the
-              // OBJECT_KEY+OBJECT pair, so the extra hop is illegal under fusion.
-              if (rtx.getKind() == NodeKind.OBJECT && i + 1 < predicateLevel) {
-                rtx.moveToParent();
+                // Bare OBJECT only — the fused OBJECT_NAMED_OBJECT already collapses the
+                // OBJECT_KEY+OBJECT pair, so the extra hop is illegal under fusion.
+                if (rtx.getKind() == NodeKind.OBJECT && i + 1 < predicateLevel) {
+                  rtx.moveToParent();
+                }
+              }
+              if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
+                // the legacy "skip OBJECT_KEY layer to its containing OBJECT"
+                // hop becomes a no-op when the predicate target is itself a fused
+                // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
+                // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
+                if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
+                  rtx.moveToParent();
+                }
+              }
+              if (publishedKeys.add(rtx.getNodeKey())) {
+                sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
               }
             }
-            if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
-              // the legacy "skip OBJECT_KEY layer to its containing OBJECT"
-              // hop becomes a no-op when the predicate target is itself a fused
-              // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
-              // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
-              if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
-                rtx.moveToParent();
-              }
-            }
-            sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
-          });
-        });
+          }
+        }
         default -> throw new QueryException(JNFun.ERR_INVALID_INDEX_TYPE, "Index type not known: " + indexType);
       }
 
-      if (sequence.size() == 0) {
+      if (sequence.isEmpty()) {
+        rtx.close();
         return null;
       }
 
@@ -261,13 +321,200 @@ public final class IndexExpr implements Expr {
       } catch (final Exception s) {
         e.addSuppressed(s);
       }
-      try {
-        resourceSession.close();
-      } catch (final Exception s) {
-        e.addSuppressed(s);
-      }
       throw e;
     }
+  }
+
+  private static boolean hasFirstFieldIdentity(final JsonNodeReadOnlyTrx rtx) {
+    final long indexedKey = rtx.getNodeKey();
+    do {
+      final long ancestorKey = rtx.getNodeKey();
+      if (rtx.isObjectKey()) {
+        final int nameKey = rtx.getNameKey();
+        while (rtx.moveToLeftSibling()) {
+          if (rtx.isObjectKey() && rtx.getNameKey() == nameKey) {
+            rtx.moveTo(indexedKey);
+            return false;
+          }
+        }
+        rtx.moveTo(ancestorKey);
+      }
+    } while (rtx.moveToParent());
+    rtx.moveTo(indexedKey);
+    return true;
+  }
+
+  private boolean supportsNumericQuery(final IndexDef definition) {
+    final Type type = definition.getContentType();
+    if (definition.getType() != IndexType.CAS || !type.isNumeric()) {
+      return true;
+    }
+    if (!definition.hasNumericValuesOnly()) {
+      return false;
+    }
+    final Atomic lower = (Atomic) properties.get("atomic");
+    final Atomic upper = (Atomic) properties.get("upperBoundAtomic");
+    if ((lower instanceof Numeric number && number.doubleValue() == 0.0d)
+        || (upper instanceof Numeric upperNumber && upperNumber.doubleValue() == 0.0d)) {
+      return false;
+    }
+    if (!type.instanceOf(Type.INR)) {
+      return definition.hasCompleteNumericCoverage();
+    }
+    if (!AtomicUtil.isExactIntegerProbe(lower)) {
+      return false;
+    }
+    final String comparison = (String) properties.get("comparator");
+    if ("ValueCompEQ".equals(comparison) || "GeneralCompEQ".equals(comparison)) {
+      return true;
+    }
+    return definition.hasCompleteNumericCoverage() && (upper == null || AtomicUtil.isExactIntegerProbe(upper));
+  }
+
+  private int resolveRevision(final SirixQueryContext context, final Tuple tuple, final JsonResourceSession session) {
+    if (revisionOperand == null) {
+      return revision == -1
+          ? session.getMostRecentRevisionNumber()
+          : revision;
+    }
+    final boolean byInstant = Boolean.TRUE.equals(properties.get("revisionByInstant"));
+    final Item value = (Item) FunctionConversionSequence.asTypedSequence(byInstant
+        ? INSTANT_REVISION_TYPE
+        : INTEGER_REVISION_TYPE, revisionOperand.evaluate(context, tuple), true);
+    if (byInstant) {
+      final Instant instant = DATE_TIME_TO_INSTANT.convert((DateTime) value);
+      return context.resolveRevision(session, instant);
+    }
+    final int number = value == null
+        ? -1
+        : ((IntNumeric) value).intValue();
+    return number == -1
+        ? session.getMostRecentRevisionNumber()
+        : number;
+  }
+
+  @SuppressWarnings("unchecked")
+  private @Nullable Sequence evaluateCASSource(final QueryContext context, final Tuple tuple,
+      final JsonDBCollection collection, final JsonResourceSession session, final int revisionNumber) {
+    final Path<QNm> path = (Path<QNm>) requiredProperty("casSourcePath", Path.class);
+    final Type type = requiredProperty("casSourceType", Type.class);
+    final var controller = session.getRtxIndexController(revisionNumber);
+    final var definition = controller.getIndexes().findCASIndex(path, type);
+    if (definition.isEmpty() || !definition.get().hasNumericValuesOnly()) {
+      return requireNonNull(fallback).evaluate(context, tuple);
+    }
+    final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revisionNumber);
+    boolean retained = false;
+    try {
+      final long arrayKey = resolveSourceArray(rtx, collection);
+      if (arrayKey < 0) {
+        rtx.close();
+        return requireNonNull(fallback).evaluate(context, tuple);
+      }
+      final boolean deweyIDs = session.getResourceConfig().areDeweyIDsStored;
+      final Atomic value = requiredProperty("atomic", Atomic.class);
+      final CASFilter filter = new CASFilter(Set.of(path), value, SearchMode.EQUAL, new JsonPCRCollector(rtx));
+      final Iterator<NodeReferences> references =
+          controller.openCASIndex(rtx.getStorageEngineReader(), definition.get(), filter);
+      final LongLinkedOpenHashSet keys = new LongLinkedOpenHashSet();
+      int inspected = 0;
+      int rejected = 0;
+      while (references.hasNext()) {
+        final var postings = references.next().nodeKeyIterator();
+        while (postings.hasNext()) {
+          rtx.moveTo(postings.next());
+          if (!rtx.getKind().isFusedObjectNamed()) {
+            rtx.moveToParent();
+          }
+          rtx.moveToParent();
+          final boolean selectedArray = rtx.getParentKey() == arrayKey;
+          if (selectedArray) {
+            keys.add(rtx.getNodeKey());
+          } else {
+            rejected++;
+          }
+          inspected++;
+          if (rejected == 2 || (inspected == 2 && !deweyIDs
+              && !hasOrderedArrayEvidence(rtx, (JsonIndexController) controller, arrayKey))) {
+            rtx.close();
+            return requireNonNull(fallback).evaluate(context, tuple);
+          }
+        }
+      }
+      if (keys.isEmpty()) {
+        return null;
+      }
+      final Item[] items = materializeCASSourceItems(keys, rtx, collection, deweyIDs);
+      retained = true;
+      return new ItemSequence(items);
+    } finally {
+      if (!retained && !rtx.isClosed()) {
+        rtx.close();
+      }
+    }
+  }
+
+  private static Item[] materializeCASSourceItems(final LongLinkedOpenHashSet keys, final JsonNodeReadOnlyTrx rtx,
+      final JsonDBCollection collection, final boolean deweyIDs) {
+    final long[] ordered = keys.toLongArray();
+    Arrays.sort(ordered);
+    if (ordered.length > 1 && deweyIDs) {
+      final SirixDeweyID[] ids = new SirixDeweyID[ordered.length];
+      final int[] positions = new int[ordered.length];
+      for (int i = 0; i < ordered.length; i++) {
+        rtx.moveTo(ordered[i]);
+        ids[i] = rtx.getDeweyID();
+        positions[i] = i;
+      }
+      IntArrays.quickSort(positions, (left, right) -> ids[left].compareTo(ids[right]));
+      final long[] unsorted = ordered.clone();
+      for (int i = 0; i < ordered.length; i++) {
+        ordered[i] = unsorted[positions[i]];
+      }
+    }
+    final Item[] items = new Item[ordered.length];
+    final JsonItemFactory factory = JsonItemFactory.INSTANCE;
+    final JsonNodeReadOnlyTrx itemTrx = new ThreadSafeJsonReadOnlyTrx(rtx);
+    for (int i = 0; i < ordered.length; i++) {
+      rtx.moveTo(ordered[i]);
+      items[i] = factory.getSequence(itemTrx, collection);
+    }
+    return items;
+  }
+
+  private long resolveSourceArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+    rtx.moveToDocumentRoot();
+    if (!rtx.moveToFirstChild()) {
+      return -1;
+    }
+    final QNm[] fields = requiredProperty("casSourceFields", QNm[].class);
+    if (fields.length == 0) {
+      return rtx.isArray()
+          ? rtx.getNodeKey()
+          : -1;
+    }
+    Sequence item = JsonItemFactory.INSTANCE.getSequence(rtx, collection);
+    for (final QNm field : fields) {
+      if (!(item instanceof JsonDBObject object)) {
+        return -1;
+      }
+      item = object.get(field);
+    }
+    return item instanceof JsonDBArray array
+        ? array.getNodeKey()
+        : -1;
+  }
+
+  private static boolean hasOrderedArrayEvidence(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,
+      final long arrayKey) {
+    rtx.moveTo(arrayKey);
+    for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+      if (definition.isValidTimeIndex() && controller.isExactValidTimeArray(rtx.getStorageEngineReader(), definition,
+          arrayKey, (int) rtx.getChildCount())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private SearchMode getSearchMode(String comparisonType) {
@@ -285,9 +532,7 @@ public final class IndexExpr implements Expr {
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
       List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
-    try (final var pathSummary = revision == -1
-        ? resourceSession.openPathSummary()
-        : resourceSession.openPathSummary(revision)) {
+    try (final var pathSummary = resourceSession.openPathSummary(rtx.getRevisionNumber())) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new LongLinkedOpenHashSet((int) currentNodeReferences.cardinality());
         currentNodeReferences.forEachNodeKey(currNodeKeys::add);

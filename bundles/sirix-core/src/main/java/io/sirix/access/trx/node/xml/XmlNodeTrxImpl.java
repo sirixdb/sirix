@@ -23,6 +23,7 @@ package io.sirix.access.trx.node.xml;
 
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.update.UpdateList;
 import io.sirix.access.trx.node.AbstractNodeHashing;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.access.trx.node.AfterCommitState;
@@ -1058,7 +1059,7 @@ final class XmlNodeTrxImpl extends
       final long rightSibKey = currentNode.getFirstChildKey();
 
       // Update value in case of adjacent text nodes.
-      if (hasNode(rightSibKey)) {
+      if (!UpdateList.isTextNormalizationDeferred() && hasNode(rightSibKey)) {
         moveTo(rightSibKey);
         if (getKind() == NodeKind.TEXT) {
           final String mergedText = value + getValue();
@@ -1068,7 +1069,6 @@ final class XmlNodeTrxImpl extends
         moveTo(parentKey);
       }
 
-      // Insert new text node if no adjacent text nodes are found.
       final byte[] textValue = getBytes(value);
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
       final TextNode node =
@@ -1115,37 +1115,34 @@ final class XmlNodeTrxImpl extends
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
 
-      // Update value in case of adjacent text nodes. `value` is appended unconditionally so that
-      // for a non-TEXT anchor (element/comment/PI) `builder` equals `value` and control falls
-      // through to inserting a new text node — mirroring insertTextAsRightSibling. Only when the
-      // anchor itself is a TEXT node do we merge (new text is prepended to the anchor's text, as
-      // this is a left-sibling insert). Previously `getValue()` was appended unconditionally, so a
-      // non-TEXT anchor took the setValue branch and threw (element) or dropped the insert (comment/PI).
-      final StringBuilder builder = new StringBuilder(value.length() + 16);
-      builder.append(value);
-      if (currentNodeKind == NodeKind.TEXT) {
-        builder.append(getValue());
-      }
+      // Preserve pending targets until Brackit's final normalization. Ordinary writes merge only
+      // with TEXT anchors or neighbors; reading a non-TEXT anchor's value would corrupt the insert.
+      if (!UpdateList.isTextNormalizationDeferred()) {
+        final StringBuilder builder = new StringBuilder(value.length() + 16);
+        builder.append(value);
+        if (currentNodeKind == NodeKind.TEXT) {
+          builder.append(getValue());
+        }
 
-      if (!value.contentEquals(builder)) {
-        setValue(builder.toString());
-        return this;
-      }
-      if (hasNode(leftSibKey)) {
-        moveTo(leftSibKey);
-        if (getKind() == NodeKind.TEXT) {
-          final StringBuilder valueBuilder = new StringBuilder(builder.length() + 16);
-          valueBuilder.append(getValue()).append(builder);
-          if (!value.contentEquals(valueBuilder)) {
-            setValue(valueBuilder.toString());
-            return this;
+        if (!value.contentEquals(builder)) {
+          setValue(builder.toString());
+          return this;
+        }
+        if (hasNode(leftSibKey)) {
+          moveTo(leftSibKey);
+          if (getKind() == NodeKind.TEXT) {
+            final StringBuilder valueBuilder = new StringBuilder(builder.length() + 16);
+            valueBuilder.append(getValue()).append(builder);
+            if (!value.contentEquals(valueBuilder)) {
+              setValue(valueBuilder.toString());
+              return this;
+            }
           }
         }
       }
 
-      // Insert new text node if no adjacent text nodes are found.
       moveTo(rightSibKey);
-      final byte[] textValue = getBytes(builder.toString());
+      final byte[] textValue = getBytes(value);
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
       final TextNode node =
           nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
@@ -1200,32 +1197,33 @@ final class XmlNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       // Update value in case of adjacent text nodes.
-      final StringBuilder currentValueBuilder = new StringBuilder(value.length() + 16);
-      if (currentNodeKind == NodeKind.TEXT) {
-        currentValueBuilder.append(getValue());
-      }
-      currentValueBuilder.append(value);
-      String currentValue = currentValueBuilder.toString();
-      if (!value.equals(currentValue)) {
-        setValue(currentValue);
-        return this;
-      }
-      if (hasNode(rightSibKey)) {
-        moveTo(rightSibKey);
-        if (getKind() == NodeKind.TEXT) {
-          final StringBuilder valueBuilder = new StringBuilder(currentValue.length() + 16);
-          valueBuilder.append(currentValue).append(getValue());
-          currentValue = valueBuilder.toString();
-          if (!value.equals(currentValue)) {
-            setValue(currentValue);
-            return this;
+      if (!UpdateList.isTextNormalizationDeferred()) {
+        final StringBuilder currentValueBuilder = new StringBuilder(value.length() + 16);
+        if (currentNodeKind == NodeKind.TEXT) {
+          currentValueBuilder.append(getValue());
+        }
+        currentValueBuilder.append(value);
+        String currentValue = currentValueBuilder.toString();
+        if (!value.equals(currentValue)) {
+          setValue(currentValue);
+          return this;
+        }
+        if (hasNode(rightSibKey)) {
+          moveTo(rightSibKey);
+          if (getKind() == NodeKind.TEXT) {
+            final StringBuilder valueBuilder = new StringBuilder(currentValue.length() + 16);
+            valueBuilder.append(currentValue).append(getValue());
+            currentValue = valueBuilder.toString();
+            if (!value.equals(currentValue)) {
+              setValue(currentValue);
+              return this;
+            }
           }
         }
       }
 
-      // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
-      final byte[] textValue = getBytes(currentValue);
+      final byte[] textValue = getBytes(value);
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
       final TextNode node =
           nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
@@ -1816,8 +1814,7 @@ final class XmlNodeTrxImpl extends
         }
         checkAccessAndCommit();
 
-        // If an empty value is specified the node needs to be removed (see XDM).
-        if (value.isEmpty()) {
+        if (currentKind == NodeKind.TEXT && value.isEmpty() && !UpdateList.isTextNormalizationDeferred()) {
           remove();
           return this;
         }
@@ -1978,8 +1975,8 @@ final class XmlNodeTrxImpl extends
     // Concatenate neighbor text nodes if they exist (the right sibling is
     // deleted afterwards).
     boolean concatenated = false;
-    if (hasLeft && hasRight && moveTo(rightSibKey) && getKind() == NodeKind.TEXT && moveTo(leftSibKey)
-        && getKind() == NodeKind.TEXT) {
+    if (!UpdateList.isTextNormalizationDeferred() && oldNode.getKind() != NodeKind.TEXT && hasLeft && hasRight
+        && moveTo(rightSibKey) && getKind() == NodeKind.TEXT && moveTo(leftSibKey) && getKind() == NodeKind.TEXT) {
       final StringBuilder builder = new StringBuilder(getValue());
       moveTo(rightSibKey);
       builder.append(getValue());

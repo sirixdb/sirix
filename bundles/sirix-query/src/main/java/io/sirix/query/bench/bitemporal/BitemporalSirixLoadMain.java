@@ -1,6 +1,12 @@
 package io.sirix.query.bench.bitemporal;
 
 import com.google.gson.JsonParser;
+import io.brackit.query.jdm.Type;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
+import java.util.Set;
+import io.brackit.query.util.path.PathParser;
+import static io.brackit.query.util.path.Path.parse;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -165,6 +171,18 @@ public final class BitemporalSirixLoadMain {
                                                  .build());
   }
 
+  static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
+      final String resource) {
+    if (!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource)) {
+      return;
+    }
+    final var storage = writer.getStorageEngineWriter();
+    final int indexId = storage.getCASPage(storage.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final var id = parse("/[]/id", PathParser.Type.JSON);
+    final IndexDef definition = IndexDefs.createCASIdxDef(false, Type.INR, Set.of(id), indexId, IndexDef.DbType.JSON);
+    session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(definition), writer);
+  }
+
   private static void loadInitial(final Database<JsonResourceSession> database, final RelationState state,
       final List<Event> events) {
     if (events.size() != state.identityCount) {
@@ -194,6 +212,7 @@ public final class BitemporalSirixLoadMain {
       }
       state.arrayNodeKey = wtx.getNodeKey();
       ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, BitemporalSchema.DATABASE);
+      createBusinessKeyIndex(session, wtx, state.name);
       if (!wtx.moveTo(state.arrayNodeKey) || !wtx.moveToFirstChild()) {
         throw new IllegalStateException("cannot traverse inserted " + state.name + " array");
       }

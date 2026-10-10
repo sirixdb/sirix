@@ -13,10 +13,11 @@ prolog defaults and context declarations. Fresh rows opened by the final stock `
 and literal rows can be filtered before exposure, only within the selection's predicate branch.
 A preceding selection does not make a lazy return fresh. Correlated opening arguments have already
 been evaluated to produce the current row; they do not become inputs to its field predicates.
-Every admitted document or index read requires the stock provider, including reads in defaults,
-nested pipelines and composed row constructors. Custom document providers retain the original
-order. A row reused through an inner loop, join or grouping is treated as captured. Other
-captured inputs, including function parameters, are admitted only when the actual tuple value is
+Every admitted document or index read uses the
+[shared provider guard](../../LET_MATERIALIZATION_VERIFICATION.md#admission), including reads in
+defaults, nested pipelines and composed row constructors. A row reused through an inner loop,
+join or grouping is treated as captured. Other captured inputs, including function parameters,
+are admitted only when the actual tuple value is
 scalar. Globals are checked in the query context, separately from shadowing tuple bindings.
 Admission runs for every conjunction evaluation and never iterates a sequence or traverses a
 container. Opaque values, supplied stored
@@ -24,7 +25,8 @@ views and the global context item execute the original conjunction. Pure unbound
 lazy; unsafe defaults are barriers. A cheaper false conjunct can suppress a later dynamic error,
 as permitted by XQuery predicate evaluation ordering.
 
-Let materialisation and timestamp parsing are separate changes. This implementation adds no replay
+Let materialisation is described in the [let-bound FLWOR reference](../../LET_MATERIALIZATION_VERIFICATION.md);
+timestamp parsing is a separate change. This conjunction pass adds no replay
 buffer, memo lifetime, cursor sharing, view invalidation or query-context cache. It preserves main's
 membership join implementation.
 
@@ -95,7 +97,9 @@ measurements. Shared-laptop timings are observational; exact work budgets guard 
 | Q5 | 8531.603 | 1434.584 | 5.95x | 15909.357 | 11399.992 |
 | Q10 | 1104.009 | 1185.324 | 0.93x | 2979.880 | 3058.861 |
 
-Q1/Q2/Q3/Q5 are served by the pass. Q3 still scans three times; each scan is cheaper. Q5's
+Q1/Q2/Q3/Q5 are served by the pass. In this C(1)-only measurement, Q3 scans three times;
+each scan is cheaper. Current let materialisation behavior and its separate Q3 measurement are
+owned by the [let-bound FLWOR reference](../../LET_MATERIALIZATION_VERIFICATION.md#sh1-q3-measurement). Q5's
 correlated revision opens admit cheap-first filters on their newly produced rows. Q10's plan is
 unchanged and is a control: its warm sample was 7.4% slower here, with no speedup claim.
 

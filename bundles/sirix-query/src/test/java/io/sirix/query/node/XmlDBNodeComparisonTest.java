@@ -66,7 +66,7 @@ class XmlDBNodeComparisonTest {
             assertEquals(descendant, nodes[first].isDescendantOf(other), pair);
             assertEquals(first == second || descendant, nodes[first].isDescendantOrSelfOf(other), pair);
             assertEquals(ancestor, nodes[first].isAncestorOf(other), pair);
-            assertEquals(ancestor || (first == second && !storeDeweyIds), nodes[first].isAncestorOrSelfOf(other), pair);
+            assertEquals(ancestor || first == second, nodes[first].isAncestorOrSelfOf(other), pair);
             assertEquals(sibling, nodes[first].isSiblingOf(other), pair);
             assertEquals(sibling && first < second, nodes[first].isPrecedingSiblingOf(other), pair);
             assertEquals(sibling && first > second, nodes[first].isFollowingSiblingOf(other), pair);

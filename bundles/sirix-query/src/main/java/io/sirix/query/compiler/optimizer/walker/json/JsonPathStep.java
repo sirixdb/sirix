@@ -67,6 +67,7 @@ public final class JsonPathStep extends AbstractJsonPathWalker {
     indexExpr.setProperty("revision", revisionData.revision());
     indexExpr.setProperty("pathSegmentNamesToArrayIndexes", pathSegmentNamesToArrayIndexes);
 
+    revisionData.bind(indexExpr, astNode);
     final var parentASTNode = astNode.getParent();
     parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
 

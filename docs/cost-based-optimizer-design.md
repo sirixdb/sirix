@@ -148,14 +148,14 @@ try (var chain = SirixCompileChain.createWithJsonStore(store);
 
 ### AST Properties — The Communication Channel
 
-Optimization decisions flow between stages via **AST properties**. These are string-keyed values attached to AST nodes. All 40+ property keys are defined as constants in `CostProperties.java` to prevent typos:
+Optimization decisions flow between stages via **AST properties**. These are string-keyed values attached to AST nodes. Cost-based property keys are defined as constants in `CostProperties.java` to prevent typos; other stages own their annotation keys:
 
 ```java
 // CostProperties.java — centralized property key constants
 public static final String PREFER_INDEX = "costBased.preferIndex";       // Boolean
 public static final String INDEX_SCAN_COST = "costBased.indexScanCost";  // Double
 public static final String ESTIMATED_CARDINALITY = "costBased.estimatedCardinality"; // Long
-// ... 37 more keys
+// ... other cost-based property keys
 ```
 
 This is analogous to how HTTP headers carry metadata alongside the request body — the AST carries the query structure, and properties carry optimization metadata alongside it.
@@ -168,7 +168,7 @@ This is analogous to how HTTP headers carry metadata alongside the request body 
 | Fusion | `JOIN_FUSED`, `FUSED_OPERATOR` | JqgmRewriteStage | CostBasedJoinReorder |
 | Decomposition | `DECOMPOSITION_TYPE`, `INTERSECTION_JOIN` | IndexDecompositionStage | SirixPipelineStrategy |
 | Mesh | `MESH_CLASS_ID` | MeshPopulationStage | MeshSelectionStage |
-| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage | IndexMatching walkers |
+| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage | [The Cost Gate Check](#the-cost-gate-check) |
 
 ---
 
@@ -216,9 +216,11 @@ conditions, its work bounds and its disable property.
 
 ### Final Residual Predicate Ordering
 
-`CheapFirstConjunctStage` runs after index matching.
+`CheapFirstConjunctStage` runs after index matching, before `LetMaterializationStage`.
 [performance/cheap-first/README.md](performance/cheap-first/README.md) owns its admission rules,
 disable property, regression coverage and measurement protocol.
+The subsequent stage is described in the
+[let-bound FLWOR reference](LET_MATERIALIZATION_VERIFICATION.md).
 
 ### Why This Order?
 
@@ -226,7 +228,7 @@ The ordering is deliberate:
 - **Logical rewrites first** (Stage 1): Simplify the query before analyzing costs, so the cost model sees a cleaner structure.
 - **Cost analysis before join reordering** (Stages 2-3): The join reorderer needs cardinality estimates to compare join orders. Those estimates come from Stage 2.
 - **Mesh before decomposition** (Stages 4-6): The Mesh records the alternative plans. Decomposition happens after the best alternative is selected, so it only restructures the chosen plan.
-- **Routing before index matching** (Stages 7, 10): The routing stage decides which subtrees should use indexes. Index matching in Stage 10 respects those decisions via the `INDEX_GATE_CLOSED` flag.
+- **Routing before index matching** (Stages 7, 10): The routing stage supplies `INDEX_GATE_CLOSED`; [The Cost Gate Check](#the-cost-gate-check) describes its consumers.
 
 ### Deterministic Work Budgets
 
@@ -267,9 +269,9 @@ After:  Join(A, B, C)         -- fused: reorderer can consider all 3! = 6 orderi
 
 ### Rule 3: Select-Access Fusion (`SelectAccessFusionWalker.java`, 211 lines)
 
-**Problem**: A WHERE predicate like `$x.price > 50` is separate from the `$x.price` field access. But for CAS index matching (Stage 10) to work, the predicate information needs to be **on the access node itself**.
+**Problem**: Predicate metadata must be available to cost analysis alongside the field access.
 
-**Solution**: When a filter predicate references a field accessed via a deref chain (e.g., `$x.price`), fuse the predicate operator and value into the access node via properties (`FUSED_OPERATOR`, `FUSED_FIELD_NAME`). Stage 10's `JsonCASStep` reads these to determine if a CAS index can serve the predicate.
+**Solution**: `SelectAccessFusionWalker` annotates the filter and its access child with predicate metadata (`FUSED_OPERATOR`, `FUSED_FIELD_NAME`) for cost analysis. The automatic CAS routing contract is owned by [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
 
 ---
 
@@ -492,9 +494,7 @@ Think of it like traffic lights at an intersection:
 - **Green light** (`PREFER_INDEX=true`): "Go ahead and use the index."
 - **Red light** (`INDEX_GATE_CLOSED=true`): "Don't use the index — sequential scan is cheaper."
 
-When Stage 2 annotates a ForBind with `PREFER_INDEX=false`, Stage 7 propagates `INDEX_GATE_CLOSED=true` to **all descendant nodes**. When Stage 10's index matching walkers visit those nodes, they check the gate and skip the rewrite.
-
-Without this stage, the index matching walkers would blindly rewrite every eligible node to use an index, even when the cost model determined it would be slower.
+When Stage 2 annotates a ForBind with `PREFER_INDEX=false`, Stage 7 propagates `INDEX_GATE_CLOSED=true` to **all descendant nodes**. [The Cost Gate Check](#the-cost-gate-check) owns the description of how the index walkers consume that signal.
 
 ---
 
@@ -532,7 +532,10 @@ eligible subtrees with index calls or `IndexExpr` nodes.
 **`IndexMatching`** (inner class in `SirixOptimizer.java`) owns walker priority and admission guards;
 its `rewrite` method is the authoritative list. Examples of the index families it matches:
 
-1. **`JsonCASStep`**: Matches CAS (Content And Structure) indexes. These indexes store `(value, path)` pairs in a B+-tree, enabling efficient value-based lookups. Example: A CAS index on `/[]/price` of type `xs:integer` can serve `$x.price > 50`.
+The CAS row-source walker, `JsonCASSourceStep`, precedes the legacy path walkers;
+its admission and fallback rules are documented in [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
+
+1. **`JsonCASStep`**: Matches CAS (Content And Structure) indexes for value-based predicates. Their storage representation is documented in [Secondary indexes](ARCHITECTURE.md#secondary-index-types).
 
 2. **`JsonPathStep`**: Matches PATH indexes. These indexes map paths to node keys, enabling efficient path-based access without scanning the entire document. Example: A PATH index on `/[]/item/name` can serve `$x.item.name` field access.
 
@@ -543,11 +546,12 @@ its `rewrite` method is the authoritative list. Examples of the index families i
 When a walker finds a match, it:
 1. Creates an `IndexExpr` AST node with the index definition, database/resource metadata, and filter parameters
 2. Replaces the original AST subtree with the `IndexExpr` node
-3. At runtime, `IndexExpr` opens the index directly instead of scanning the document
+3. At runtime, `IndexExpr` follows the revision and catalogue checks described in
+   [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md)
 
 ### The Cost Gate Check
 
-Before applying any rewrite, every walker checks:
+Before applying a legacy path-based rewrite, its walker checks:
 ```java
 if (CostProperties.isIndexGateClosed(astNode)) {
     return astNode;  // Skip — cost model says sequential scan is cheaper
@@ -555,6 +559,7 @@ if (CostProperties.isIndexGateClosed(astNode)) {
 ```
 
 This is how Stages 2-7 communicate their cost decisions to Stage 10.
+Valid-time and CAS row-source walkers use structural admission rules instead.
 
 ---
 
@@ -739,7 +744,7 @@ When `INTERSECTION_JOIN=true` is detected on a Join node, forces `skipSort=true`
 
 ### Physical Operators
 
-**`IndexExpr`** (`IndexExpr.java`, 406 lines): Replaces sequential scans with direct index lookups. Dispatches on index type (PATH, CAS, NAME), opens the appropriate index via `IndexController`, and materializes results into an `ItemSequence`.
+**`IndexExpr`** (`IndexExpr.java`): Executes PATH, CAS, and NAME lookups through `IndexController` and materializes their results. Its revision, catalogue, and fallback contract is documented in [Runtime revision routing for CAS lookups](RUNTIME_REVISION_CAS.md).
 
 **`VectorizedPipelineExpr`** (`VectorizedPipelineExpr.java`, 343 lines): Replaces simple scan-filter-project pipelines with batch-oriented columnar execution using SIMD instructions.
 
@@ -783,7 +788,7 @@ This catches a class of bugs where the optimizer makes a correct decision but th
 |------|-----------|
 | **AST** | Abstract Syntax Tree — tree representation of a parsed query |
 | **Cardinality** | Number of rows a query operation produces |
-| **CAS Index** | Content And Structure — B+-tree index on `(value, path)` pairs |
+| **CAS Index** | Content And Structure — typed value/path index; see [Secondary indexes](ARCHITECTURE.md#secondary-index-types) for storage |
 | **Circuit Breaker** | Timeout that aborts optimization if it takes too long |
 | **DPhyp** | Dynamic Programming via Hypergraph Partitioning — optimal join ordering algorithm |
 | **Equi-depth** | Histogram where each bucket has the same number of values |
@@ -791,7 +796,7 @@ This catches a class of bugs where the optimizer makes a correct decision but th
 | **FLWOR** | For-Let-Where-OrderBy-Return — the XQuery/JSONiq loop construct |
 | **GOO** | Greedy Operator Ordering — fast fallback for large join graphs |
 | **HOT** | Height Optimized Trie — SirixDB's index structure with SIMD search |
-| **Index Gate** | Flag that prevents index matching when the cost model prefers sequential scan |
+| **Index Gate** | Cost-model signal consumed as described in [The Cost Gate Check](#the-cost-gate-check) |
 | **JQGM** | JSON Query Graph Model — adaptation of Weiner's XQGM for JSON |
 | **MCV** | Most-Common Values — exact frequencies for the K most frequent values |
 | **Mesh** | Search space structure grouping equivalent plans into equivalence classes |
@@ -882,6 +887,7 @@ bundles/sirix-query/src/main/java/io/sirix/query/
 │               ├── JoinDecompositionWalker.java   ← Rules 5-6: Annotate index decomposition
 │               ├── CostBasedJoinReorder.java      ← Extract join groups for DPhyp
 │               ├── AbstractJsonPathWalker.java    ← Base class for index matching
+│               ├── JsonCASSourceStep.java         ← CAS row sources (see runtime revision reference)
 │               ├── JsonCASStep.java               ← Match CAS indexes to predicates
 │               ├── JsonPathStep.java              ← Match PATH indexes to field access
 │               └── JsonObjectKeyNameStep.java     ← Match NAME indexes to object keys

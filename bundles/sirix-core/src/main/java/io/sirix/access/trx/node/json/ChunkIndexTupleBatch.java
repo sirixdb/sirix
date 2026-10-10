@@ -3,6 +3,8 @@
  */
 package io.sirix.access.trx.node.json;
 
+import io.sirix.node.NodeKind;
+
 import it.unimi.dsi.fastutil.bytes.ByteArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -21,11 +23,14 @@ import java.util.Arrays;
  * <h2>Filtering split</h2> The worker pre-prunes with UNION filters snapshot at chunk dispatch —
  * the union of every PATH/CAS definition's resolved path classes and of every NAME definition's
  * included dictionary name keys ({@code null} union = a definition indexes everything, collect
- * all). The exact per-definition filter, include/exclude semantics and CAS type conversion run at
- * drain, inside the builders themselves — the one place those semantics already live. The snapshots
- * are exact for their chunk by the importer's standing argument: a chunk's paths and names are
- * resolved into the summary and the dictionary BEFORE the chunk is dispatched, so a class first
- * occurring in this chunk is in this chunk's snapshot.
+ * all). Structural and null observations bypass this pruning when CAS is active, so those fields
+ * can invalidate numeric coverage even without a PATH index. Scalar CAS feeds already supply their
+ * coverage evidence and do not add CAS-only path observations. The exact per-definition filter,
+ * include/exclude semantics and CAS type conversion run at drain, inside the builders themselves —
+ * the one place those semantics already live. The snapshots are exact for their chunk by the
+ * importer's standing argument: a chunk's paths and names are resolved into the summary and the
+ * dictionary BEFORE the chunk is dispatched, so a class first occurring in this chunk is in this
+ * chunk's snapshot.
  *
  * <h2>Memory discipline</h2> Primitive parallel lists grown amortized, one UTF-8 arena for CAS
  * string values, {@code Number} references reused from the parser's own boxes — no per-record
@@ -47,9 +52,10 @@ final class ChunkIndexTupleBatch {
   private final boolean casActive;
   private final boolean nameActive;
 
-  // PATH: (pathNodeKey, nodeKey) for ARRAY and every OBJECT_NAMED_* create.
+  // Shared path observations: PATH postings and CAS non-numeric coverage evidence.
   private final LongArrayList pathPcrs = new LongArrayList(64);
   private final LongArrayList pathNodeKeys = new LongArrayList(64);
+  private final ByteArrayList pathKinds = new ByteArrayList(64);
 
   // OBJECT_NAMED_ARRAY mirror candidates: the OBJECT_KEY-layer entry lives under the PARENT path
   // class of the array-layer one, which only the coordinator's path summary can resolve — so these
@@ -87,11 +93,16 @@ final class ChunkIndexTupleBatch {
 
   // ==== worker feed ============================================================================
 
-  /** An ARRAY or OBJECT_NAMED_* create — the kinds the PATH family indexes. */
-  void onPathEntry(final long pathNodeKey, final long nodeKey) {
-    if (pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey))) {
+  /** PATH posting candidates and structural/null observations required by CAS coverage. */
+  void onPathEntry(final long pathNodeKey, final long nodeKey, final NodeKind kind) {
+    final boolean coverageObservation = casActive && switch (kind) {
+      case ARRAY, OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_OBJECT, NULL_VALUE, OBJECT_NAMED_NULL -> true;
+      default -> false;
+    };
+    if (coverageObservation || (pathActive && (pathPcrUnion == null || pathPcrUnion.contains(pathNodeKey)))) {
       pathPcrs.add(pathNodeKey);
       pathNodeKeys.add(nodeKey);
+      pathKinds.add(kind.getId());
     }
   }
 
@@ -182,6 +193,10 @@ final class ChunkIndexTupleBatch {
 
   long pathNodeKeyAt(final int index) {
     return pathNodeKeys.getLong(index);
+  }
+
+  NodeKind pathKindAt(final int index) {
+    return NodeKind.getKind(pathKinds.getByte(index));
   }
 
   int mirrorCandidateCount() {

@@ -1,0 +1,12 @@
+Date: 2026-10-09
+Measured merge head: c239516e91ecc37e17d73448aecd5fb5093d9555
+Brackit: 1.0-alpha10-20261008.110148-96
+Brackit SHA-1: 218ea254a0e7d9c65841fdf98a1a19501c37dab4
+Runtime: rebuilt production classes; no historical runtime-snapshot
+Database: private copy of t100k-hot-44fc2f4afe01-nodiffs/sirix
+Probe: ../let-materialization-2026-10-06/Q3Probe.java.txt
+Oracle SHA-256: 2b33db4275bb42f191ca5d8096a3be65536d2dff0d34e5b49cc33a4e553eaefd
+Method: five warmups + nine measured runs per variant, alternating order
+Before warm median: 225.246 ms
+After warm median: 74.319 ms
+All 28 runs oracle-exact

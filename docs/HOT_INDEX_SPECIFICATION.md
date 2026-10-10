@@ -1818,7 +1818,8 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 
 Gating: `@Tag("heavy")` suites are excluded only with `-PexcludeHeavyTests`; the sirix-core test JVM sets
 `sirix.hot.mergeDiag=true` so the "walked past a complete dump" sentinel is live and asserted
-(`bundles/sirix-core/build.gradle:124-140`). There are no jqwik property tests of the trie; jqwik covers
+(see [the core test configuration](../bundles/sirix-core/build.gradle)).
+There are no jqwik property tests of the trie; jqwik covers
 `CASKeySerializer` (`test/property/CASKeySerializerPropertyTest.java`).
 
 ### 5.3 What remains asserted only
