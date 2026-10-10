@@ -12,9 +12,11 @@ jn:create-temporal-aggregate-index(
 
 Commit the declaration through the ordinary transaction API. Declaration fields use paths relative
 to the projection root, such as `region` or `address.zone`. A numeric operand is a projected
-integer field or a checked product of two projected integer fields. A declaration supports up to
-16 group fields and 16 distinct numeric operands. Group keys may be integers, strings, booleans,
-or missing values. `TemporalAggregateDeclarations.declare` is the equivalent Java API.
+integer field or a checked product of two projected integer fields. A declaration supports 1–16
+group fields and up to 16 distinct numeric operands. `count(field)` and `count(field*field)` count
+present operands; `count(*)` counts records and is supplied by every declaration. Group keys may be
+integers, strings, booleans, or missing values. `TemporalAggregateDeclarations.declare` is the
+equivalent Java API.
 
 The catalogue stores the source projection id, root, grouping columns, operand columns and required operations.
 Catalogue reads retain a private copy of the aggregate declaration without decoding its lanes.
@@ -27,6 +29,8 @@ container implementation to classify an ordinary page; revision-owned containers
 `jn:drop-temporal-aggregate-index($document[, $id])` removes one declaration or all declarations.
 Physical ids are never reused. Removing a source projection also removes its dependent aggregate
 definitions from the new revision; historical catalogues and roots remain readable.
+Aggregate CREATE and both aggregate DROP signatures are updating functions. REST checks MODIFY
+permission before evaluating an updating query, including a commit-wrapped DROP.
 
 Committing a historical document preserves pending DDL and edits when the writer already
 represents that document's revision. Commit waits for an outstanding asynchronous publication
@@ -45,6 +49,7 @@ declarations reject before changing lineage; dropping nothing leaves pending wor
 slots with replacement semantics and zero-length tombstones, like projection slots. Page ownership,
 rollback, fragment reconstruction and sliding-snapshot carry-forward use the normal Sirix storage
 engine. There is no separately published sidecar or process-local authority for committed answers.
+The persisted byte layout is owned by [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
 Each typed group head points to one checkpoint and at most fifteen immutable delta parts per tier.
 A part contains sorted valid-time endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
@@ -126,7 +131,9 @@ correlated grouped routes use this check against their selected revision; popula
 revisions can still serve their aggregates.
 
 The grouped and correlated grouped routes try this index before constructing the valid-time key
-mask. They prefer the narrowest declared grouping that covers the query keys; a wider grouping can
+mask. Serving requires the selected revision's source to be the whole document-root array at
+`/[]`; a nested array or replacement of the root array with another shape declines. They prefer
+the narrowest declared grouping that covers the query keys; a wider grouping can
 be folded into fewer keys. Each requested aggregate operand and operation must be covered. Residual predicates,
 membership filters, transformed grouping keys and unsupported aggregate functions retain their
 existing execution path. Ordinary grouped queries must order by every group key; otherwise the

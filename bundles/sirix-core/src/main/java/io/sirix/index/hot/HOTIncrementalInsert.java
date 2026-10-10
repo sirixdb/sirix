@@ -154,7 +154,7 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
 
     // The sorted, distinct union of the leaf's entries with the new one spliced in at its
-    // lexicographic position (its value OR-merged into an existing key, if present).
+    // lexicographic position (an existing value is merged or replaced according to the index type).
     final int sourceCount = source.getEntryCount();
     final List<HOTBulkBuilder.Entry> union = new ArrayList<>(sourceCount + 1);
     boolean placed = false;
@@ -162,9 +162,8 @@ public final class HOTIncrementalInsert {
       final byte[] key = source.getKey(i);
       final int cmp = Arrays.compareUnsigned(key, newKey);
       if (cmp == 0) {
-        // Posting indexes union duplicate NodeReferences. A projection key is a physical slot whose
-        // payload is opaque (and may legitimately be the zero-length tombstone), so its update is
-        // byte-for-byte last-writer-wins. Never feed projection bytes to the bitmap decoder.
+        // Posting indexes union duplicate NodeReferences. Opaque slots replace payload bytes,
+        // including zero-length tombstones. Never feed those bytes to the bitmap decoder.
         final byte[] mergedValue = indexType.hasOpaqueValues()
             ? newValue
             : mergeIndexValues(source.copyStoredValue(i), newValue);

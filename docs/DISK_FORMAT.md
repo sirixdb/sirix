@@ -143,8 +143,9 @@ unambiguously means "legacy".)
 
 ### Endianness
 
-The format is **fully little-endian pinned** (checklist item 1 — done). Every multi-byte scalar
-that reaches disk goes through an explicitly LE-ordered accessor:
+Page and record scalar IO is **little-endian pinned** (checklist item 1 — done). Raw payloads
+with deliberately big-endian fields use the explicit encodings listed below; neither depends on
+host byte order:
 
 - Superblock, beacon XXH3 trailers, revision records, beacon/page-record length prefixes:
   pinned LE (`ByteOrder.LITTLE_ENDIAN` buffers / `MMFileReader.LAYOUT_INT`).
@@ -154,7 +155,9 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 - Deliberate big-endian defined byte sequences: `compactDir` uses explicit byte composition on
   stream reads and a byte-swapped LE-short access on `MemorySegment`; in-blob column length
   prefixes use explicit shifts. HOT discriminative keys use BE loads for lexicographic
-  `compareUnsigned`. These are defined wire byte sequences, not host-order dependent.
+  `compareUnsigned`. Temporal aggregate slot payloads, part headers and summary scalars, and
+  change-log headers and fixed-width slab fields also use explicit big-endian encoding.
+  These are defined wire byte sequences, not host-order dependent.
 - The superblock's endianness check remains as a fail-fast guard for headers written by
   pre-pin dev builds on BE hosts (none exist in practice).
 - The legacy big-endian FILE backend is removed; `StorageType.FILE` fails fast.
@@ -182,10 +185,9 @@ than trusting it to stay complete, since a kind may add a flag without touching 
 Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
 build that predates a flag bit reads a resource written without it, but a resource written WITH it
 cannot be read by that build — the reader refuses the unknown bit loudly rather than misparsing.
-Kind ids: 1 KVLP, 2 NAME,
-3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
-12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
-(7 and 14 retired/reserved; readers reject both ids).
+The stable kind-id registry is defined by
+[`PageKind`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) and pinned by
+`GoldenFormatTest.pageKindIdsArePinned`; retired ids 7 and 14 are rejected.
 
 **Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
 `BinaryEncodingVersion` bump — every node/page (de)serializer receives the
@@ -198,6 +200,10 @@ fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
+  The delegate's reference count and offsets are defined by
+  [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
+  The aggregate and change-log references extend the unreleased V0 layout in place; earlier
+  databases must be recreated rather than opened through a compatibility reader.
 - **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage / ChangeLogIndexPage**: reference-container delegate
   followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
   Entries are emitted in ascending `indexId` order. These secondary-index containers have one
@@ -205,14 +211,16 @@ fail-fast lookups, never ordinals.
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
 - **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
-  reference offset 11. Prefix 0 holds format 4, the part-id allocator and unsupported-row count;
+  reference offset 11. All fixed-width slot and part payload scalars are big-endian.
+  Prefix 0 holds format 4, the part-id allocator and unsupported-row count;
   prefix 1 maps typed grouping values to `(live rows i64, checkpoint tier i32, part count i32)`
   followed by `(part id i64, tier u8)` pairs. The first part is the checkpoint; each lower tier holds
   fewer than sixteen deltas. There are at most six delta tiers and 91 parts, within one inline slot. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
   endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
   deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
   deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane
-  instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See `TEMPORAL_AGGREGATE_INDEX.md`.
+  instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See
+  [TEMPORAL_AGGREGATE_INDEX.md](TEMPORAL_AGGREGATE_INDEX.md) for declaration, maintenance and admission semantics.
 - **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
   reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
   `(format i32=1, first revision i32, column count i32, exceptional row count i64)`.

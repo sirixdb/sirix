@@ -97,6 +97,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.io.IOException;
@@ -241,7 +242,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * becomes phantom-reachable. Used as the post-Java-9 replacement for the deprecated
    * {@code finalize()} override.
    */
-  private static final java.lang.ref.Cleaner LEAK_CLEANER = java.lang.ref.Cleaner.create();
+  private static final Cleaner LEAK_CLEANER = Cleaner.create();
 
   /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
@@ -252,15 +253,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int trxId;
     final int writerIdentity;
     final int logIdentity;
-    final java.util.concurrent.atomic.AtomicReference<TransactionIntentLog> logRef;
-    final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    final AtomicReference<TransactionIntentLog> logRef;
+    final AtomicBoolean closed = new AtomicBoolean(false);
 
     LeakDetectorState(final int trxId, final int writerIdentity, final int logIdentity,
         final TransactionIntentLog log) {
       this.trxId = trxId;
       this.writerIdentity = writerIdentity;
       this.logIdentity = logIdentity;
-      this.logRef = new java.util.concurrent.atomic.AtomicReference<>(log);
+      this.logRef = new AtomicReference<>(log);
     }
 
     @Override

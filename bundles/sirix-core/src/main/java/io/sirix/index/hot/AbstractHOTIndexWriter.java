@@ -4465,9 +4465,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   private byte @Nullable [] mergeIntoLeaf(final LeafNavigationResult navResult, final byte[] keyBuf, final int keyLen,
       final byte[] valueBuf, final int valueLen) {
     final HOTLeafPage leaf = navResult.leaf();
-    // Posting indexes union NodeReferences for duplicate keys. A projection key identifies one
-    // physical slot whose payload is opaque bytes (including the zero-length tombstone), so a
-    // duplicate must replace the prior value byte-for-byte. Keep the projection slice exact once;
+    // Posting indexes union NodeReferences for duplicate keys. An opaque-slot key identifies one
+    // payload (including the zero-length tombstone), so a duplicate must replace the prior value
+    // byte-for-byte. Keep the opaque value slice exact once;
     // callers normally already provide an exact array, so the hot path allocates nothing.
     final byte[] projectionValue = indexType.hasOpaqueValues()
         ? valueLen == valueBuf.length
@@ -4602,8 +4602,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * The frontier splits N's subtree immediately before {@code K} and gives {@code K} a fresh
    * one-entry leaf, which relieves the overflow without folding anything into N's block. When the
    * overflow was a byte overflow on a key the leaf already holds, that fresh leaf carries the value
-   * {@link HOTIncrementalInsert#splitLeafPage} would have stored — the posting union, or for a
-   * projection the new bytes — and the split drops the stale entry from the boundary leaf.
+   * {@link HOTIncrementalInsert#splitLeafPage} would have stored — the posting union, or for an
+   * opaque slot the new bytes — and the split drops the stale entry from the boundary leaf.
    * </p>
    *
    * <p>
@@ -7778,11 +7778,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int last = out.size() - 1;
       if (last >= 0 && Arrays.equals(out.get(last).key(), entry.key())) {
         final HOTBulkBuilder.Entry prev = out.get(last);
-        // PATH/CAS/NAME values are NodeReferences bitmaps and duplicate inserts union their node
-        // sets. A PROJECTION key is a physical slot: its value is arbitrary descriptor/segment bytes
-        // (the zero-length value is a tombstone), so bitmap decoding is both semantically wrong and
-        // unsafe. Sort is stable and newly inserted (K,V) is appended after collected state; keeping
-        // the last duplicate therefore implements projection's last-write slot semantics byte-for-byte.
+        // Posting-index duplicate inserts union their NodeReferences. Opaque slots contain raw
+        // payload bytes, including zero-length tombstones; bitmap decoding would corrupt them.
+        // Sort is stable and newly inserted (K,V) follows collected state, so keeping the last
+        // duplicate preserves replacement semantics byte-for-byte.
         final byte[] mergedValue = indexType.hasOpaqueValues()
             ? entry.value()
             : HOTIncrementalInsert.mergeIndexValues(prev.value(), entry.value());

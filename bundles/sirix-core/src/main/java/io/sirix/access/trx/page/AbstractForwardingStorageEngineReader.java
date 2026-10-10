@@ -21,6 +21,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;

@@ -993,9 +993,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Fill one missing projection entry during read reconstruction. The private result's routing index
-   * would be invalidated by every inserted entry; binary search avoids repeatedly building it, and
-   * the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
+   * Fill one missing opaque-slot entry during read reconstruction. The private result's routing
+   * index would be invalidated by every inserted entry; binary search avoids repeatedly building it,
+   * and the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
    * order and dirty-bit shifts are exactly the ordinary insertion path's operations. An existing
    * entry, including a zero-length tombstone, always wins over the older fragment.
    */
@@ -1817,7 +1817,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * <p>
    * Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
    * instead of conflating it with an absent/unreadable value. Callers that rebuild or migrate leaf
-   * entries must use this method when zero-length projection tombstones are part of the value domain.
+   * entries must use this method when zero-length opaque-slot tombstones are part of the value
+   * domain.
    *
    * @param index entry index in this leaf
    * @return a newly allocated byte array containing the complete stored value
@@ -2911,8 +2912,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *
    * <p>
    * Uses the packed value reference directly, so the check allocates nothing and never conflates a
-   * valid zero-length projection tombstone with an unreadable slot. An unreadable value is structural
-   * corruption and fails before a delete or compaction mutates the page.
+   * valid zero-length opaque-slot tombstone with an unreadable slot. An unreadable value is
+   * structural corruption and fails before a delete or compaction mutates the page.
    * </p>
    */
   private boolean isStoredTombstone(final int index) {
@@ -3113,7 +3114,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is already
    * present. Used by the split machinery for index types whose values are opaque byte payloads
-   * (projection and temporal aggregate slots) rather than mergeable NodeReferences bitmaps.
+   * rather than mergeable NodeReferences bitmaps; {@link IndexType#hasOpaqueValues()} owns that
+   * policy.
    *
    * <p>
    * Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and shrinkage are

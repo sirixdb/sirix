@@ -94,10 +94,11 @@ public final class DropProjectionIndex extends AbstractFunction {
     if (toDrop.isEmpty()) {
       return document;
     }
-    // A wtx we OPEN here is ours to close on every exit; one the session already holds belongs to
-    // the caller and must survive this function. Everything below therefore runs inside a
-    // try/finally — a throw that stranded a freshly-begun wtx would hold the resource's single
-    // writer permit for the rest of the session, so the next write of any kind blocks or fails.
+    // A wtx we OPEN here is ours to close on failure; success leaves it open for the caller's
+    // commit. One the session already holds belongs to the caller and must survive this function.
+    // Everything below therefore runs inside a try/finally — a throw that stranded a freshly-begun
+    // wtx would hold the resource's single writer permit for the rest of the session, so the next
+    // write of any kind blocks or fails.
     final boolean wtxIsOurs = optionalWriteTrx.isEmpty();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
     boolean succeeded = false;

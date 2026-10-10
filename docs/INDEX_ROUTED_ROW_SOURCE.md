@@ -11,9 +11,11 @@ and kept leaves.
 
 The first consumer is the bitemporal opener: a grouped FLWOR over
 `jn:open-bitemporal('db','res', T, P)` is served from the resource's projection at the revision
-current at `T`, masked by the valid-time index's half-open stab at `P` (the SH1 queries Q7 and Q8;
-see [Valid-time key slices](VALID_TIME_KEY_SLICES.md) for the stab). The mechanism itself is
-general: any sorted set of record keys is a row source.
+current at `T`, masked by the valid-time index's half-open stab at `P` when no temporal aggregate
+serves (the SH1 queries Q7 and Q8; see [Valid-time key slices](VALID_TIME_KEY_SLICES.md) for the stab).
+The mechanism itself is general: any sorted set of record keys is a row source.
+Eligible grouped points try the [temporal aggregate route](TEMPORAL_AGGREGATE_INDEX.md#admission-and-fallbacks)
+first; that reference owns its admission and source-reuse contract.
 
 ## The predicate: `Op.KEY_IN` on the virtual KEYS column
 
@@ -100,10 +102,10 @@ projection admission, including in pre-group predicates; nested dereferences rem
 steps. Joined and correlated returns must have unique names across the complete emitted record,
 so duplicate names retain the generic `BIT_DUPLICATE_OBJECT_FIELD` error.
 
-Per evaluation the routed source resolves its revision and exact record-key set under the
-[point and range admission rules](VALID_TIME_KEY_SLICES.md#admission-and-exact-fallbacks). The consumer
-acquires the executor bound to that resource and revision through the chain's per-source resolver,
-and serves.
+When aggregate admission declines, the routed source resolves its revision and exact record-key
+set under the [point and range admission rules](VALID_TIME_KEY_SLICES.md#admission-and-exact-fallbacks).
+The consumer acquires the executor bound to that resource and revision through the chain's
+per-source resolver, and serves.
 Lease acquisition enforces resource identity for every consumer. One leaf keep mask bounds every
 key and operand fill; an empty source fetches no columns. Anything on the
 way that cannot be served — an instant that is not a dateTime, a resource without valid-time

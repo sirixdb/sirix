@@ -36,6 +36,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -2341,7 +2342,7 @@ public enum PageKind {
       if (populatedCount > 0) {
         final byte[] templatePool = TEMPLATE_POOL_SCRATCH.get();
         final byte[] slotTemplateIds = SLOT_TEMPLATE_IDS_SCRATCH.get();
-        final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
+        final Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
         final OffsetTableTemplatePool.BuildResult br = OffsetTableTemplatePool.build(slottedPage, populatedCount,
             slotKindIds, slotHeapOffs, templatePool, slotTemplateIds, templateMap);
         if (br.isDedupEnabled()) {
@@ -8338,9 +8339,9 @@ public enum PageKind {
    * Per-thread fastutil map for packed-key → templateId lookup during dedup. Default return value is
    * -1 (sentinel for "not present").
    */
-  private static final ThreadLocal<it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap> TEMPLATE_MAP =
+  private static final ThreadLocal<Long2IntOpenHashMap> TEMPLATE_MAP =
       ThreadLocal.withInitial(() -> {
-        final var m = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(256);
+        final var m = new Long2IntOpenHashMap(256);
         m.defaultReturnValue(-1);
         return m;
       });
@@ -8858,7 +8859,7 @@ public enum PageKind {
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_OUT = ThreadLocal.withInitial(() -> {
     // Start at 128 KiB; {@link #lz4OutScratch} grows it as needed.
-    return java.lang.foreign.Arena.ofAuto().allocate(128 * 1024);
+    return Arena.ofAuto().allocate(128 * 1024);
   });
 
   /**
@@ -8866,7 +8867,7 @@ public enum PageKind {
    * call works without JNI round-trips.
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_STAGING =
-      ThreadLocal.withInitial(() -> java.lang.foreign.Arena.ofAuto().allocate(128 * 1024));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
 
   /**
    * Per-thread pointer to the decompressed body blob and its heap-section offset. Bridges the
@@ -8884,7 +8885,7 @@ public enum PageKind {
   private static MemorySegment v1StagingScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_STAGING.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_STAGING.set(s);
     }
     return s;
@@ -8894,7 +8895,7 @@ public enum PageKind {
   private static MemorySegment v1Lz4OutScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_OUT.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_OUT.set(s);
     }
     return s;

@@ -105,13 +105,15 @@ backend selector.
 | NAME | `HOTIndexWriter<QNm>` + `NameKeySerializer` | `HOTIndexReader<QNm>` | [expanded name](../README.md#indexes) | posting list | `idx/name/NameIndexListenerFactory.java:25`, `idx/name/NameIndexBuilderFactory.java:25` |
 | VALIDTIME | `HOTIndexWriter<ValidTimeKey>` + `ValidTimeKeySerializer` | `HOTIndexReader<ValidTimeKey>` | RI-tree endpoints and companion evidence (§2.3.4) | posting list | `idx/interval/ValidTimeIntervalIndexFactory.java`, `idx/interval/HotOrderedStore.java` |
 | PROJECTION | `ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long>` (`proj/ProjectionIndexHOTStorage.java:100`) | same class, via `HOTTrieReader` | 8-byte slot key | opaque bytes, last writer wins, zero length = tombstone | `proj/ProjectionIndexBuilder.java:942` |
+| TEMPORAL_AGGREGATE | `TemporalAggregateStorage` | `TemporalAggregateStorage.Reader` | group head or part-chunk key | opaque bytes | [Temporal aggregate reference](TEMPORAL_AGGREGATE_INDEX.md) |
+| CHANGE_LOG | `ChangeLogStorage` | same class | source-row provenance or revision-slab key | opaque bytes | [Change-log layout](DISK_FORMAT.md#2-pages) |
 
 **DeweyIDs are not stored in HOT.** `DeweyIDPage` builds a keyed trie
 (`page/DeweyIDPage.java:105`, `PageUtils.createKeyedTrie(..., IndexType.DEWEYID_TO_RECORDID, ...)`),
 and no DeweyID `HOTKeySerializer` exists in `src/main`. `docs/DEWEYID_HOT_INDEX_FORMAL_PROOF.md`
-describes a proposal (§5.1). The page-key allocator and the root slot of `AbstractHOTIndexWriter`
-accept only PATH, CAS, NAME, PROJECTION and VALIDTIME (`hot/AbstractHOTIndexWriter.java:710-726`,
-`:787-817`); any other type throws.
+describes a proposal (§5.1). HOT writer allocation and root dispatch accept the types in the table;
+unsupported types throw. `IndexType.hasOpaqueValues()` owns the distinction between raw-slot
+replacement and posting-list merge semantics.
 
 ### 1.2 Where a HOT tree lives in the storage engine
 
@@ -120,12 +122,13 @@ SirixDB stores every revision as a copy-on-write tree of pages reachable from a
 
 ```
 RevisionRootPage (one per revision)
- ├─ ref[4]  NamePage        ─┐
- ├─ ref[5]  CASPage          │  "index container pages": a reference delegate with up to
- ├─ ref[6]  PathPage         │  INP_REFERENCE_COUNT (1024) slots, one slot per index number,
- ├─ ref[7]  DeweyIDPage      │  plus the per-index HOT page-key high-water mark
- ├─ ref[9]  ProjectionIndexPage
- └─ ref[10] ValidTimeIndexPage ┘
+ ├─ NamePage                ─┐
+ ├─ CASPage                  │  "index container pages": a reference delegate with up to
+ ├─ PathPage                 │  INP_REFERENCE_COUNT (1024) slots, one slot per index number,
+ ├─ ProjectionIndexPage      │  plus the per-index HOT page-key high-water mark
+ ├─ ValidTimeIndexPage       │
+ ├─ TemporalAggregateIndexPage
+ └─ ChangeLogIndexPage       ─┘
                  │ slot[indexNumber]  (PageReference: disk offset key + fragment list)
                  ▼
             HOT root  ── HOTIndirectPage (height h) ── ... ── HOTIndirectPage (height 1)
@@ -137,15 +140,13 @@ RevisionRootPage (one per revision)
                                                        newest image + older fragments (§3.5)
 ```
 
-- Reference offsets in the revision root: NAME 4, CAS 5, PATH 6, DEWEYID 7, VECTOR 8,
-  PROJECTION 9, VALIDTIME 10 (`page/RevisionRootPage.java:77-107`). DEWEYID (7) is the keyed trie
-  mentioned above.
-- Each occupied slot of `CASPage`/`PathPage`/`NamePage`/`ProjectionIndexPage`/`ValidTimeIndexPage`
-  roots one HOT tree. VALIDTIME uses two physical slots per catalog index (§2.3.4).
+- The [disk-format reference](DISK_FORMAT.md#2-pages) owns the container wire layout and points to
+  the revision-root offset definitions. DeweyIDPage roots the separate keyed trie mentioned above.
+- Each occupied secondary HOT container slot roots one HOT tree.
+  VALIDTIME uses two physical slots per catalog index (§2.3.4).
   The container also persists, per physical tree id, the largest HOT page key it has
-  issued (`Int2LongMap maxHotPageKeys`, `page/CASPage.java:47-70`), serialized as
-  `[i32 size][size × (i32 index, i64 max)]` with strictly increasing index `< 1024` and non-negative
-  max (`page/PageKind.java:6313-6346`, `:6356-6383`).
+  issued (`Int2LongMap maxHotPageKeys`, `page/CASPage.java:47-70`); deserialization requires
+  strictly increasing index ids `< 1024` and non-negative maxima.
 - A new tree is a single empty `HOTLeafPage` with page key `ROOT_PAGE_KEY = 0` placed in the
   transaction intent log (`page/PageUtils.java:114-130`). The root becomes an indirect page on the
   first split (§4.5.3).
@@ -603,7 +604,7 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 - **β-constancy metadata** `ancestorOwnedBits[]`/`ancestorOwnedValues[]`: sorted absolute bit
   positions that ancestors route on and the constant value every key in this leaf has there
   (`:462-477`); propagated on copy and split and checked by `mergeWithNodeRefsStrict` (`:2844-2860`).
-- **Tombstones**: posting indexes store `[0xFE]`, PROJECTION stores a zero-length value
+- **Tombstones**: posting indexes store `[0xFE]`; opaque-slot indexes store a zero-length value
   (`:2655-2679`). `delete`/`deleteAt` never remove a key; they overwrite its value with the
   tombstone so a newer fragment shadows older ones (`:2681-2730`).
 
@@ -618,7 +619,7 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 | 3 | u8 | flags | bit 0 = side map present; other bits rejected (`:5918-5923`, `:6787-6791`) |
 | 4 | varlong | recordPageKey | logical key (§1.2) |
 | 5 | i32 LE | revision | revision that wrote this physical image |
-| 6 | u8 | index type id | PATH 5, CAS 6, NAME 7, PROJECTION 10, VALIDTIME 11 (`idx/IndexType.java:37-86`) |
+| 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
 | 7 | u16 LE | commonPrefixLen | |
 | 8 | bytes | commonPrefix | |
 | 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`:5941-5944`, `:5962-5964`) |
@@ -721,7 +722,7 @@ revision must equal its fragment key's revision, otherwise `SirixIOException`
   2. newest image has `completeDump` → return it;
   3. `result = newest.copy()`, clear `completePageRef` and dirty bits;
   4. for each older image, newest to oldest: insert every key **absent** from `result`, tombstones
-     included (first value seen wins; PROJECTION via `fillProjectionEntry`, CAS/VALIDTIME via
+     included (first value seen wins; opaque-slot indexes via `fillProjectionEntry`, CAS/VALIDTIME via
      `fillPostingEntry`, others via `mergeWithNodeRefs`). The fill paths retain the insertion point
      from one binary search and copy stored bytes directly, including tombstones and chunk markers;
      failure to fit throws;
@@ -1128,7 +1129,7 @@ The thresholds and stored layout are owned by
 
 1. A referenced CAS/VALIDTIME base is resolved and merged through `mergeIntoReferencedChunk`,
    retaining its marker and replacing its immutable side payload. Other postings use
-   `leaf.mergeWithNodeRefs(key, value)`; PROJECTION uses `putOrReplace`. If it fits, done — no
+   `leaf.mergeWithNodeRefs(key, value)`; opaque-slot indexes use `putOrReplace`. If it fits, done — no
    structural change, no validation.
 2. Otherwise `compact()` and retry once.
 3. `!canSplit()` → `SirixIOException("single value exceeds page capacity")`.
@@ -1156,7 +1157,7 @@ The thresholds and stored layout are owned by
    frontier splits the parent's subtree immediately before `K` and gives `K` a fresh one-entry leaf,
    which relieves the overflow without folding anything into the parent's block. A byte overflow on a
    key the leaf already holds passes that leaf the value `splitLeafPage` computed — the posting
-   union, or for a projection the new bytes — and the split drops the stale entry from the boundary
+   union, or for an opaque slot the new bytes — and the split drops the stale entry from the boundary
    leaf (§4.5.4 case 9).
 
    **Side references follow their owners, including a dropped projection entry.**

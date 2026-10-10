@@ -89,6 +89,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * which re-keys the catalog's decoded-leaf cache. All writes ride the write transaction — invisible
  * to concurrent readers until commit, discarded on rollback, and historical revisions keep serving
  * their own immutable snapshots.
+ * When a declared aggregate consumes this projection, capture also reads unchanged column slices
+ * to preserve complete old rows in the change log. It does not re-encode those unchanged columns.
+ * Aggregate maintenance consumes the coalesced slab after the projection installs its final rows;
+ * {@code docs/TEMPORAL_AGGREGATE_INDEX.md} owns the maintenance and compaction contract.
  *
  * <h2>Bounded ownership</h2> Ordinary maintenance rewrites only touched row groups, fence chunks,
  * Bloom chunks, set-summary columns, and affected immutable dictionary radix paths. It never scans
