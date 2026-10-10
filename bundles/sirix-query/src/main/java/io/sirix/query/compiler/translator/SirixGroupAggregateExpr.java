@@ -250,18 +250,18 @@ public final class SirixGroupAggregateExpr implements Expr {
    */
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple,
       final RoutedSource routed) throws QueryException {
-    final TemporalAggregateRoute.Point point = TemporalAggregateRoute.point(ctx, tuple, routed);
+    final RoutedGroupRequest.ResolvedSource source = RoutedGroupRequest.resolveSource(ctx, tuple, routed);
     if (membership == null && keyOffsets == null && keySubstr == null && keyCondFields == null && keyCondLits == null
         && keyCondElse == null && keyRegexPattern == null && keyRegexRepl == null && keyDivMod == null
         && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups()) {
       final SirixVectorizedExecutor.ServedGroups aggregate =
-          TemporalAggregateRoute.serve(ctx, tuple, point, new RoutedGroupRequest(sourcePath, predicateOrNull,
+          TemporalAggregateRoute.serve(ctx, tuple, source.point(), new RoutedGroupRequest(sourcePath, predicateOrNull,
               groupFields, keyNames, funcs, aggFields, outNames, computedLanes));
       if (aggregate != null) {
         return aggregate;
       }
     }
-    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed, point);
+    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed, source);
     if (rows == null) {
       return null;
     }

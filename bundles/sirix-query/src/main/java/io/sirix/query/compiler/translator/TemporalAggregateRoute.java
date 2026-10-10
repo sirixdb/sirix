@@ -173,11 +173,6 @@ public final class TemporalAggregateRoute {
 
   static @Nullable Point point(final QueryContext ctx, final Tuple tuple,
       final SirixGroupAggregateExpr.RoutedSource routed) {
-    if (routed.indexed() != null) {
-      return routed.indexed() instanceof SirixValidTimeScanExpr scan
-          ? scan.aggregatePoint(ctx, tuple)
-          : null;
-    }
     final Item tx = Objects.requireNonNull(routed.txTime()).evaluateToItem(ctx, tuple);
     final Item valid = routed.validTime().evaluateToItem(ctx, tuple);
     if (!(tx instanceof DateTime txTime) || !(valid instanceof DateTime validTime) || txTime.getTimezone() == null

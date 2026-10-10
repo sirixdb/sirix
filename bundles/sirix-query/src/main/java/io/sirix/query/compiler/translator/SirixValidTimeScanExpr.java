@@ -50,12 +50,16 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
     pointPosition = position;
   }
 
-  TemporalAggregateRoute.@Nullable Point aggregatePoint(final QueryContext ctx, final Tuple tuple) {
+  @Nullable Item document(final QueryContext ctx, final Tuple tuple) {
+    return document.evaluateToItem(ctx, tuple);
+  }
+
+  TemporalAggregateRoute.@Nullable Point aggregatePoint(final QueryContext ctx, final Tuple tuple,
+      final @Nullable Item item) {
     if (mode != 2) {
       return null;
     }
-    final Item item = document.evaluateToItem(ctx, tuple);
-    if (!(item instanceof JsonDBArray source)) {
+    if (!(item instanceof JsonDBArray source) || source.len() == 0) {
       return null;
     }
     final JsonIndexController controller =
@@ -94,8 +98,8 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
   }
 
   @Nullable
-  RoutedKeys routedKeys(final QueryContext ctx, final Tuple tuple) {
-    final JsonDBItem source = (JsonDBItem) document.evaluateToItem(ctx, tuple);
+  RoutedKeys routedKeys(final QueryContext ctx, final Tuple tuple, final @Nullable Item item) {
+    final JsonDBItem source = (JsonDBItem) item;
     if (!(source instanceof Array array)) {
       return null;
     }
@@ -113,7 +117,7 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) {
-    final JsonDBItem source = (JsonDBItem) document.evaluateToItem(ctx, tuple);
+    final JsonDBItem source = (JsonDBItem) document(ctx, tuple);
     final Sequence captured = pointPosition >= 0
         ? tuple.get(pointPosition)
         : point instanceof DateTime dateTime

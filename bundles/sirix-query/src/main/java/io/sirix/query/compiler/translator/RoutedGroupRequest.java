@@ -47,6 +47,19 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
   record RoutedRows(long[] keys, int revision) {
   }
 
+  record ResolvedSource(@Nullable Item document, TemporalAggregateRoute.@Nullable Point point) {
+  }
+
+  static ResolvedSource resolveSource(final QueryContext ctx, final Tuple tuple,
+      final SirixGroupAggregateExpr.RoutedSource routed) {
+    if (routed.indexed() instanceof SirixValidTimeScanExpr scan) {
+      final Item document = scan.document(ctx, tuple);
+      return new ResolvedSource(document, scan.aggregatePoint(ctx, tuple, document));
+    }
+    return new ResolvedSource(null,
+        routed.indexed() == null ? TemporalAggregateRoute.point(ctx, tuple, routed) : null);
+  }
+
   /**
    * A membership filter over a second index-routed opener: rows of the main source are kept when
    * their {@code outerField} value is ({@code anti == false}) or is not ({@code anti == true}) among
@@ -66,7 +79,7 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
       final SirixGroupAggregateExpr.RoutedSource routed) throws QueryException {
     if (routed.indexed() != null) {
       final RoutedKeys rows = routed.indexed() instanceof SirixValidTimeScanExpr scan
-          ? scan.routedKeys(ctx, tuple)
+          ? scan.routedKeys(ctx, tuple, scan.document(ctx, tuple))
           : routed.indexed() instanceof SirixValidTimeRangeExpr range
               ? range.routedKeys(ctx, tuple)
               : ValidTimeIntervalIndex.routedKeys(routed.indexed().evaluate(ctx, tuple));
@@ -103,8 +116,13 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
   }
 
   static @Nullable RoutedRows resolve(final QueryContext ctx, final Tuple tuple,
-      final SirixGroupAggregateExpr.RoutedSource routed, final TemporalAggregateRoute.@Nullable Point point) {
-    if (point == null || routed.indexed() != null) {
+      final SirixGroupAggregateExpr.RoutedSource routed, final ResolvedSource source) {
+    final TemporalAggregateRoute.Point point = source.point();
+    if (point == null && routed.indexed() instanceof SirixValidTimeScanExpr scan) {
+      final RoutedKeys rows = scan.routedKeys(ctx, tuple, source.document());
+      return rows == null ? null : new RoutedRows(rows.keys(), rows.revision());
+    }
+    if (point == null) {
       return resolve(ctx, tuple, routed);
     }
     try {
@@ -181,12 +199,12 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
   SirixVectorizedExecutor.@Nullable ServedGroups serve(final SirixExecutorProvider executorProvider,
       final QueryContext ctx, final Tuple tuple, final SirixGroupAggregateExpr.RoutedSource routed)
       throws QueryException {
-    final TemporalAggregateRoute.Point point = TemporalAggregateRoute.point(ctx, tuple, routed);
-    final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, point, this);
+    final ResolvedSource source = resolveSource(ctx, tuple, routed);
+    final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, source.point(), this);
     if (aggregate != null) {
       return aggregate;
     }
-    final RoutedRows rows = resolve(ctx, tuple, routed, point);
+    final RoutedRows rows = resolve(ctx, tuple, routed, source);
     if (rows == null) {
       return null;
     }

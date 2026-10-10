@@ -28,6 +28,12 @@ container implementation to classify an ordinary page; revision-owned containers
 Physical ids are never reused. Removing a source projection also removes its dependent aggregate
 definitions from the new revision; historical catalogues and roots remain readable.
 
+Committing a historical document preserves pending DDL and edits when the writer already
+represents that document's revision. Commit waits for an outstanding asynchronous publication
+before checking the represented revision, and reverts only when a historical request needs a
+different base. This applies to aggregate creation, both DROP signatures, and projection DROP
+cascades.
+
 ## Storage and updates
 
 `TEMPORAL_AGGREGATE` has a dedicated HOT container under the revision root. Its values are opaque
@@ -127,6 +133,11 @@ values or non-exact interval endpoints are tracked in the revision's header and 
 decline index serving. Missing values retain aggregate presence counts; missing temporal bounds
 have the valid-time opener's open-ended semantics. The index is never served from a mutable
 transaction. Older queries select the catalogue and HOT root belonging to their own revision.
+
+Indexed document scans evaluate their source once per binding and share it between aggregate
+admission and masked projection fallback. Missing aggregate declarations, uncovered lanes and
+oversized dictionaries reuse that reader. Empty arrays defer point evaluation for all comparison
+modes, including correlated scans.
 
 SH1 declares `grade` and `(sid, grade)` groupings on contracts in
 `BitemporalTemporalAggregates`. The loader's
