@@ -70,7 +70,7 @@ public final class TemporalAggregateDeclarations {
       final List<Lane> lanes = new ArrayList<>();
       for (final String aggregate : aggregates) {
         final String expression = Objects.requireNonNull(aggregate).trim();
-        if (expression.equals("count()") || expression.equals("count(*)")) {
+        if (expression.equals("count(*)")) {
           continue;
         }
         final int open = expression.indexOf('(');
