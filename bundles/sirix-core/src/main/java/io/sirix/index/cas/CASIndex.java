@@ -21,6 +21,8 @@ import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.Numeric;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -78,9 +80,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     final Type contentType = indexDef.getContentType();
-    if (filter != null && (requiresValueResidual(filter.getMin(), contentType)
-        || requiresValueResidual(filter.getMax(), contentType) || !CASKeySerializer.isByteOrderPreserving(contentType)
-        || (isDecimalType(contentType) && filter.getPCRs().size() != 1))) {
+    if (filter != null
+        && (requiresValueResidual(filter.getMin(), contentType) || requiresValueResidual(filter.getMax(), contentType)
+            || !CASKeySerializer.isByteOrderPreserving(contentType) || isDecimalType(contentType))) {
       return openRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
           filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
@@ -223,8 +225,6 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  // Open only an unencodable side; keep encodable bounds on the cursor, including capped bounds
-  // relaxed to inclusive. Original bounds and inclusivity remain the document-value residual.
   private static Iterator<NodeReferences> openRangeWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min,
       final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
@@ -288,16 +288,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   private static Iterator<Map.Entry<CASValue, NodeReferences>> residualRangeEntries(
       final HOTIndexReader<CASValue> reader, final Type type, final Set<Long> pcrs, final @Nullable Atomic min,
       final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
-    final Atomic scanMin = hasLossyStringBound(min, type)
-        ? null
-        : min;
-    final Atomic scanMax = hasLossyStringBound(max, type)
-        ? null
-        : max;
+    final Atomic scanMin = residualScanBound(min, type, true);
+    final Atomic scanMax = residualScanBound(max, type, false);
     if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type) && (scanMin != null || scanMax != null)) {
       final long pcr = pcrs.iterator().next();
-      final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
-      final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
+      final boolean includeMin = minInclusive || isDecimalType(type) || CASKeySerializer.truncates(scanMin, type);
+      final boolean includeMax = maxInclusive || isDecimalType(type) || CASKeySerializer.truncates(scanMax, type);
       if (scanMin != null && scanMax != null) {
         return reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
       }
@@ -306,6 +302,23 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
           : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
     }
     return reader.iterator();
+  }
+
+  private static @Nullable Atomic residualScanBound(final @Nullable Atomic bound, final Type type,
+      final boolean lower) {
+    if (bound == null || hasLossyStringBound(bound, type)) {
+      return null;
+    }
+    if (!isDecimalType(type)) {
+      return bound;
+    }
+    final double value = ((Numeric) bound).doubleValue();
+    final double outside = lower
+        ? Math.nextDown(value)
+        : Math.nextUp(value);
+    return Double.isInfinite(outside)
+        ? null
+        : new Dbl(outside);
   }
 
   private static boolean inRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
@@ -625,7 +638,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
     if (filter != null && filter.getKey() != null
         && (requiresValueResidual(filter.getKey(), indexDef.getContentType())
-            || (isDecimalType(indexDef.getContentType()) && pcrsRequested.size() != 1)
+            || (isDecimalType(indexDef.getContentType())
+                && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1))
             || (!CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())
                 && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1)))) {
       return openComparisonWithResidual(storageEngineReader, reader, indexDef, filter, pcrsRequested);

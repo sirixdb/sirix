@@ -86,6 +86,46 @@ final class CASCappedDecimalViewTest {
   @MethodSource("views")
   void filtersUseExactValuesInThePostingView(final VersioningType versioning, final boolean bulk, final Type type,
       final String[] values) throws Exception {
+    verifyPostingViews(versioning, bulk, type, values, true);
+  }
+
+  static Stream<Arguments> equalDoubleBuckets() {
+    final String below = "9." + "9".repeat(220);
+    final String above = "10." + "0".repeat(220) + "1";
+    final String tiny = "0." + "0".repeat(399);
+    final String huge = "1" + "0".repeat(309);
+    final List<String[]> buckets =
+        List.of(new String[] {below, above, "10", "9.999999999999999999", "10.000000000000000001"},
+            new String[] {above, below, "10", "9.999999999999999999", "10.000000000000000001"},
+            new String[] {tiny + "1", tiny + "2", "0", "0." + "0".repeat(319) + "1", tiny + "3"},
+            new String[] {huge + "11", huge + "12", huge + "13", "9".repeat(310), huge});
+    final List<Arguments> cases = new ArrayList<>(64);
+    for (final VersioningType versioning : VersioningType.values()) {
+      for (final boolean bulk : new boolean[] {false, true}) {
+        for (final String sign : new String[] {"", "-"}) {
+          for (int bucketIndex = 0; bucketIndex < buckets.size(); bucketIndex++) {
+            final String[] bucket = buckets.get(bucketIndex);
+            final String[] values = new String[bucket.length];
+            for (int i = 0; i < bucket.length; i++) {
+              values[i] = sign + bucket[i];
+            }
+            cases.add(Arguments.of(versioning, bulk, Type.DEC, values, bucketIndex < 2));
+          }
+        }
+      }
+    }
+    return cases.stream();
+  }
+
+  @ParameterizedTest
+  @MethodSource("equalDoubleBuckets")
+  void boundsIncludeTheEntireEqualDoubleBucket(final VersioningType versioning, final boolean bulk, final Type type,
+      final String[] values, final boolean numericAliases) throws Exception {
+    verifyPostingViews(versioning, bulk, type, values, numericAliases);
+  }
+
+  private void verifyPostingViews(final VersioningType versioning, final boolean bulk, final Type type,
+      final String[] values, final boolean numericAliases) throws Exception {
     final var databasePath = directory.toPath().resolve("database");
     final var snapshots = new ArrayList<Map<Long, StoredValue>>();
     final var expected = new HashMap<Long, StoredValue>();
@@ -111,7 +151,7 @@ final class CASCappedDecimalViewTest {
             if (i != 0) {
               json.append(',');
             }
-            json.append(object(values[i]));
+            json.append(object(values[i], numericAliases));
           }
           for (int i = 0; i < 1100; i++) {
             json.append(",\"padding\"");
@@ -136,17 +176,22 @@ final class CASCappedDecimalViewTest {
           assertWriterViews(trx, controller, definition, expected, values);
           trx.moveToDocumentRoot();
           assertTrue(trx.moveToFirstChild());
-          trx.insertSubtreeAsLastChild(JsonShredder.createStringReader(object(values[1])), JsonNodeTrx.Commit.NO);
+          trx.insertSubtreeAsLastChild(JsonShredder.createStringReader(object(values[1], numericAliases)),
+              JsonNodeTrx.Commit.NO);
           final long insertedObject = trx.getNodeKey();
           assertTrue(trx.moveToFirstChild());
           expected.put(trx.getNodeKey(), new StoredValue(TITLE, values[1]));
           assertTrue(trx.moveToRightSibling());
           expected.put(trx.getNodeKey(), new StoredValue(ALIAS, values[1]));
           assertWriterViews(trx, controller, definition, expected, values);
-          final long numericUpdated = nodeKey(expected, ALIAS, values[1]);
-          assertTrue(trx.moveTo(numericUpdated));
-          trx.setNumberValue(new BigDecimal(values[2]));
-          expected.put(numericUpdated, new StoredValue(ALIAS, values[2]));
+          final long aliasUpdated = nodeKey(expected, ALIAS, values[1]);
+          assertTrue(trx.moveTo(aliasUpdated));
+          if (numericAliases) {
+            trx.setNumberValue(new BigDecimal(values[2]));
+          } else {
+            trx.setStringValue(values[2]);
+          }
+          expected.put(aliasUpdated, new StoredValue(ALIAS, values[2]));
           assertWriterViews(trx, controller, definition, expected, values);
           final long removed = nodeKey(expected, ALIAS, values[0]);
           assertTrue(trx.moveTo(removed));
@@ -171,9 +216,11 @@ final class CASCappedDecimalViewTest {
     }
   }
 
-  private static String object(final String value) {
+  private static String object(final String value, final boolean numericAlias) {
     final String literal = new JsonPrimitive(value).toString();
-    return "{\"title\":" + literal + ",\"alias\":" + value + ",\"ignored\":" + literal + '}';
+    return "{\"title\":" + literal + ",\"alias\":" + (numericAlias
+        ? value
+        : literal) + ",\"ignored\":" + literal + '}';
   }
 
   private static void collectValues(final JsonNodeReadOnlyTrx trx, final Map<Long, StoredValue> expected) {
@@ -255,9 +302,11 @@ final class CASCappedDecimalViewTest {
           assertCursor(trx, cursor, recordReader, page, guards);
         }
       }
-      final String[][] bounds = {{values[0], values[3]}, {values[1], values[1]}, {null, values[1]}, {values[1], null},
-          {shortValue, values[1]}, {values[1], shortValue}, {values[4], values[3]}, {values[4], values[4]},
-          {null, values[4]}, {values[4], null}, {null, null}};
+      final String[][] bounds = {{values[0], values[3]}, {values[0], values[1]}, {values[1], values[0]},
+          {values[0], values[0]}, {null, values[0]}, {values[0], null}, {values[2], values[3]}, {values[3], values[2]},
+          {null, values[2]}, {values[2], null}, {null, values[3]}, {values[3], null}, {values[1], values[1]},
+          {null, values[1]}, {values[1], null}, {shortValue, values[1]}, {values[1], shortValue},
+          {values[4], values[3]}, {values[4], values[4]}, {null, values[4]}, {values[4], null}, {null, null}};
       for (final String[] bound : bounds) {
         final Atomic min = bound[0] == null
             ? null
