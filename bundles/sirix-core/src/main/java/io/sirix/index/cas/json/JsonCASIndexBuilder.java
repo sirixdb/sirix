@@ -8,11 +8,13 @@ import io.sirix.index.cas.CASIndexBuilder;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
+import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedNullNode;
 import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 
@@ -70,6 +72,30 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor implements Index
   @Override
   public VisitResult visit(final ObjectNamedBooleanNode node) {
     return indexBuilderDelegate.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedObjectNode node) {
+    indexBuilderDelegate.rejectValue(node.getPathNodeKey(), false);
+    return super.visit(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedArrayNode node) {
+    indexBuilderDelegate.rejectValue(node.getPathNodeKey(), true);
+    return super.visit(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedNullNode node) {
+    indexBuilderDelegate.rejectValue(node.getPathNodeKey(), false);
+    return super.visit(node);
+  }
+
+  @Override
+  public VisitResult visit(final ImmutableNullNode node) {
+    indexBuilderDelegate.rejectValue(getPathClassRecord(node), false);
+    return super.visit(node);
   }
 
   @Override

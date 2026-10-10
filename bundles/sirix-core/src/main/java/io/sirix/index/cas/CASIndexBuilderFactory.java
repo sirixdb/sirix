@@ -21,10 +21,15 @@ public final class CASIndexBuilderFactory {
       throw new IllegalArgumentException("CAS builder requires an IndexType.CAS definition");
     }
     final var pathSummary = requireNonNull(pathSummaryReader);
-    final var paths = requireNonNull(indexDef.getPaths());
-    final var type = requireNonNull(indexDef.getContentType());
+    final IndexDef current =
+        requireNonNull(storageEngineWriter.getResourceSession()
+                                          .getWtxIndexController(storageEngineWriter.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDef(indexDef.getID(), IndexType.CAS));
+    requireNonNull(current.getPaths());
+    requireNonNull(current.getContentType());
     final var indexWriter =
         HOTIndexWriter.create(storageEngineWriter, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
-    return new CASIndexBuilder(indexWriter, pathSummary, paths, type);
+    return new CASIndexBuilder(indexWriter, pathSummary, current);
   }
 }

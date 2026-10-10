@@ -22,19 +22,13 @@ public enum AfterCommitState {
   KEEP_OPEN_ASYNC_FLUSH,
 
   /**
-   * Asynchronous durable commits. Each threshold crossing creates a REAL revision (durable,
-   * queryable, with its own commit record), but the durability barriers — index-catalogue fsync,
-   * buffered-tail flush, data force, uber-beacon writes — run on a background thread while the
-   * transaction continues inserting into the next epoch. The writer thread pays only page
-   * serialization (phase 1); readers see a new revision exactly when it hardens
-   * (durable-before-visible). Depth-1 pipeline: the next epoch's phase 1 waits for the previous
-   * epoch's hardening. A hardening failure poisons the transaction terminally.
+   * Asynchronous durable commits. Publication, hardening and failure semantics are specified in
+   * {@code docs/ASYNC_COMMIT_DESIGN.md}.
    *
    * <p>
-   * See {@code docs/ASYNC_COMMIT_DESIGN.md}. Requirements: FILE_CHANNEL backend only (stricter than
-   * {@link #KEEP_OPEN_ASYNC_FLUSH}, which also allows MEMORY_MAPPED — mid-transaction revision
-   * publication is not yet validated against concurrently remapping memory-mapped readers),
-   * count-based auto-commit only.
+   * Requirements: FILE_CHANNEL backend only (stricter than {@link #KEEP_OPEN_ASYNC_FLUSH}, which also
+   * allows MEMORY_MAPPED — mid-transaction revision publication is not yet validated against
+   * concurrently remapping memory-mapped readers), count-based auto-commit only.
    * </p>
    */
   KEEP_OPEN_ASYNC_COMMIT,

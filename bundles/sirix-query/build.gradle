@@ -228,6 +228,7 @@ test {
     // -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
     systemProperty 'sirix.validTime.scanDiag', System.getProperty('sirix.validTime.scanDiag', 'true')
+    systemProperty 'sirix.json.registryDiag', System.getProperty('sirix.json.registryDiag', 'true')
 
     // NativeImageDowncallConfigTest guards the native-image downcall configuration. It is handed what
     // THIS BUILD evaluates, not the text of this script: the argument the opt-in produces and the one
@@ -276,6 +277,7 @@ test {
     
     def baseArgs = [
         "-Duser.home=${layout.buildDirectory.get()}",
+        '--enable-preview',
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
@@ -798,6 +800,7 @@ tasks.register('nativeImageSmokeTest', Test) {
         includeTags 'native-image'
     }
     jvmArgs = [
+        '--enable-preview',
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',

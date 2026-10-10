@@ -16,6 +16,7 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.compiler.optimizer.TopDownOptimizer;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.optimizer.walker.json.JsonCASStep;
+import io.sirix.query.compiler.optimizer.walker.json.JsonCASSourceStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonValidTimeStep;
 import io.sirix.query.json.JsonDBStore;
@@ -162,6 +163,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     if (CheapFirstConjunctStage.enabled()) {
       getStages().add(new CheapFirstConjunctStage());
     }
+    // Final admission uses the physical binding scopes after every structural rewrite.
+    getStages().add(new LetMaterializationStage());
   }
 
   /**
@@ -407,9 +410,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Applies the index rewrites (valid-time, CAS, path, object-key). Each walker consults the cost
    * gate ({@code INDEX_GATE_CLOSED}, authored by the always-run {@link CostBasedStage}) except
-   * valid-time, which currently matches structurally; either way the decision is made by the
-   * always-run cost stage, so this stage is NOT {@link BudgetSheddable} — it always runs, keeping
-   * index selection independent of the budget.
+   * valid-time and CAS row-source routing, which match structurally. This stage is NOT
+   * {@link BudgetSheddable} — it always runs, keeping index matching independent of the optimizer
+   * budget.
    */
   private static final class IndexMatching implements IndexMatchingStage {
     private final JsonDBStore jsonItemStore;
@@ -422,6 +425,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
       // Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
+      // Valid-time folding already ran as stage 9a (before the index-routed source admission).
+      ast = new JsonCASSourceStep(jsonItemStore).walk(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);
       ast = new JsonObjectKeyNameStep(jsonItemStore).walk(ast);

@@ -102,7 +102,10 @@ projection admission and fallbacks are specified in
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe declared query routes; they do not prove
-which physical operator served a particular execution.
+which physical operator served a particular execution. Q12's membership route is described in the
+linked implementation reference. The loader's business-key index configuration and physical routing
+for eligible queries are documented in
+[Runtime revision routing for CAS lookups](../../../../docs/RUNTIME_REVISION_CAS.md).
 
 ## Runtime prerequisites
 
