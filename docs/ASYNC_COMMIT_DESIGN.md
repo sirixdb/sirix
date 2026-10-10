@@ -37,9 +37,11 @@ async-flush path solves the same race with deep copies; doing that for the
 whole trie is the phase-2 roadmap item below).
 
 **Phase 2 — harden (background thread).**
-`serializeIndexDefinitions(revision)` (must be durable before the beacon —
-existing crash invariant), `writeUberPageReference(...)` (flushes the
-buffered tail, forces the data file, writes both uber beacons write-through;
+`serializeIndexDefinitions(revision)` (writes only when required by the
+[catalogue persistence rules](ARCHITECTURE.md#index-catalogues); any write must be durable
+before the beacon), `writeUberPageReference(...)` (flushes the
+buffered tail, forces the data file, and publishes both uber beacons through
+the writer's durability protocol;
 its return is the commit acknowledge), clear the TIL and local caches,
 delete the commit marker, **then** publish
 `session.setLastCommittedUberPage(...)` and close the superseded page
@@ -51,6 +53,10 @@ The public synchronous `commit()` is unchanged: phase 1 + phase 2 inline.
 phase 1 inline, submit phase 2 to a background thread, return. The node
 transaction immediately re-instantiates onto a **new page transaction based
 on the pending uber page** and keeps inserting while phase 2's barriers run.
+After successful hardening, `awaitPendingAsyncCommit()` reconciles the successor's
+catalogue persistence baseline with the predecessor through
+[`Indexes.acknowledgePersisted()`](../bundles/sirix-core/src/main/java/io/sirix/index/Indexes.java),
+preserving changes the successor made while hardening was in flight.
 
 ## Why this is safe
 

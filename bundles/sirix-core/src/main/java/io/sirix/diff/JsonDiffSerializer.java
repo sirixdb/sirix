@@ -269,8 +269,9 @@ public final class JsonDiffSerializer {
               updateJson.add("update", jsonUpdateDiff);
               jsonDiffs.add(updateJson);
             }
+            break;
 
-            // $CASES-OMITTED$
+          // $CASES-OMITTED$
           default:
             // Do nothing.
         }

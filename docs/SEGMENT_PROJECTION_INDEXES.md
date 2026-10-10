@@ -135,9 +135,9 @@ with (`core/index/IndexDef.java:225-246`):
   satisfied them. Those literals are gone from the declaration and from the persisted catalogue; the
   same queries are now served as a prefix range over a view of every row (§6.1, §7.2).
 
-Definitions are persisted in the catalogue `<resource>/indexes/<revision>.xml` of the revision that changed them
-(`trx/NodeStorageEngineWriter.java:4075-4080`; XML elements `IndexDef.java:56-62`, `:292-301`,
-`:442-461`: one `keyColumn column="N"` child of `projectionSort` per key column, in order).
+Definition persistence follows the [index-catalogue rules](ARCHITECTURE.md#index-catalogues).
+The XML representation is owned by `IndexDef.materialize()`: one `keyColumn column="N"` child
+of `projectionSort` per key column, in order.
 
 JSONiq: `jn:create-projection-index($doc, $rootPath, $fields [, $types [, $sortColumns]])`
 (`query/function/jn/index/create/CreateProjectionIndex.java:41-77`). Each `$sortColumns` entry names
@@ -2073,10 +2073,9 @@ included), `runFallbacks()` (members re-read exactly because their body crossed 
 process-wide running totals: read them as a difference across the operation you are attributing, never reset in place —
 a work-budget capture fails outright on a counter that ran backwards while it was running. A batch that stops
 coalescing, or is not sorted by file offset, returns the same bytes, so these are the only way to tell. `AbstractReader.regionChunkHits()` / `regionChunkFallbacks()`, the `# chunked:` projection events
-(§7.3), the frame-slot allocator's `allocateCount` / `releaseCount` and the index-catalogue directory listings
-(`AbstractResourceSession.indexCatalogueDirectoryListings()`: a session resolves a transaction's catalogue from what it
-knows before it lists `indexes/`, and the listing is what grows with the revision count) are unconditional for the same
-reason.
+(§7.3), the frame-slot allocator's `allocateCount` / `releaseCount` and the commit-work counters described in
+the [budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters) are unconditional for the
+same reason.
 
 **Gated HOT work counters.** The fragment-merge, requested-slot and carry-forward counters in `VersioningType`,
 and `HOTLeafPage.suffixProbeReads()` / `sideReferenceReads()`, stay gated behind

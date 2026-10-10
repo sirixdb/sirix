@@ -4004,8 +4004,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       //
       // Only a changed catalogue is serialized (see serializeIndexDefinitions): the file of the
       // newest revision at or below a revision describes it, so a commit that did not change the
-      // definitions neither writes a file nor pays its fsync. Reverts publish their represented
-      // catalogue even when empty, so later opens cannot inherit the newer catalogue.
+      // definitions or numeric CAS coverage neither writes a file nor pays its fsync. Reverts publish
+      // their represented catalogue even when empty, so later opens cannot inherit the newer catalogue.
       serializeIndexDefinitions(revision);
 
       final long t3 = timing
@@ -4086,7 +4086,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // of that file has nothing to write: the file of an earlier revision already describes it, and
     // the file creation, the XML materialization and the metadata fsync are skipped. A commit
     // serializes when
-    // - the definitions differ from the file they were loaded from or last written to (an index was
+    // - the net definitions or numeric CAS coverage differ from the persisted baseline (an index was
     // created or dropped; an empty snapshot after dropping the last index is essential, or a reopen
     // would resurrect the pre-drop catalogue from the older file: "<indexes/>" makes the drop stick,
     // while older revisions keep their own files, so time travel is preserved);

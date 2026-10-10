@@ -90,9 +90,9 @@ failure table and tells the reader where the work went.
 | `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend, removal and both directions of same-parent empty-neighbor moves beside 16/4096 retained rows, all four versioning types; moves also cover both Dewey modes and mixed insert/delete/move epochs | boundary changes queue retained row edits, allocate row labels or walk the unchanged row subtree; cold payloads, sorted memberships, labels and key/numeric segment offsets must stay stable; later population of the moved neighbor, indexed reorder and reparenting provide positive controls |
 | | independently varied 16/4096 unlabelled siblings and 16/4096 indexed rows, both directions and Dewey modes | classification walks an unchanged sibling run or probes its order slots; changed boundaries must bound record and slot work without retained-row edits |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
-| `sirix-core` `CommitReinstantiationWorkBudgetTest` | durable commit and close of the committed writer | a commit forces the data file more than its write-ahead barrier and beacon flush, or closing the committed writer forces it again; a rolled-back writer is the positive control |
+| `sirix-core` `CommitReinstantiationWorkBudgetTest` | durable commit and close of the committed writer | a commit forces the data file more than its write-ahead barrier and beacon flush, or closing the committed writer forces it again |
 | `sirix-core` `ProjectionTailAppendWorkBudgetTest` | appending rows to a projection's open row group (600 persisted rows, 4 appended) | the tail append re-extracts the persisted rows of the leaf from the document (11,848 record visits with the prefix proof, 204 without); the row group is read back with every row |
-| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup and serialization of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory to find its writer's definitions (a session lists at most once and remembers every file), or a commit that did not change its definitions writes a catalogue file (a file creation, an XML materialization and a metadata fsync); the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
+| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup and serialization of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory to find its writer's definitions, or an ordinary commit with net-unchanged definitions and numeric CAS coverage writes a catalogue file (a file creation, an XML materialization and a metadata fsync); the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot; persistence and cache rules are owned by [Index Catalogues](../../../../../../../../docs/ARCHITECTURE.md#index-catalogues) |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
@@ -175,8 +175,9 @@ maintains, so a budget quotes the same numbers an investigation would:
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
-  listings, native HOT suffix lanes, overflow-reference map probes, and valid-time interval and
-  posting references emitted by ordered-store scans, posting lookups and compressed posting chunks read.
+  listings and files written, data-file forces, native HOT suffix lanes, overflow-reference map probes,
+  and valid-time interval and posting references emitted by ordered-store scans, posting lookups
+  and compressed posting chunks read.
   The valid-time figures guard empty and selective positive stabs that used to expand whole-array
   membership and verification postings. Only what a budget captures is
   listed: a catalog entry nothing reads is one more thing

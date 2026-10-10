@@ -10,10 +10,10 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -123,6 +123,13 @@ public final class Indexes implements Materializable {
     clearDirty();
   }
 
+  /**
+   * Advances a pending successor's baseline after its predecessor hardens, without replacing the
+   * successor's live definitions. Only coverage evidence matching the persisted predecessor is
+   * cleared; successor membership or coverage changes must still require persistence.
+   *
+   * @param predecessor the successfully hardened catalogue, distinct from this successor
+   */
   public void acknowledgePersisted(final Indexes predecessor) {
     requireNonNull(predecessor);
     checkArgument(predecessor != this, "predecessor must be a different catalogue");
@@ -141,19 +148,19 @@ public final class Indexes implements Materializable {
 
   @SuppressWarnings("ReferenceEquality")
   private static boolean samePersistedState(final IndexDef left, final IndexDef right) {
-    return left == right || left.hasSameDefinition(right)
-        && (!left.isCasIndex() || !left.getContentType().isNumeric()
-            || left.hasNumericValuesOnly() == right.hasNumericValuesOnly()
-                && left.hasCompleteNumericCoverage() == right.hasCompleteNumericCoverage());
+    return left == right || left.hasSameDefinition(right) && (!left.isCasIndex() || !left.getContentType().isNumeric()
+        || left.hasNumericValuesOnly() == right.hasNumericValuesOnly()
+            && left.hasCompleteNumericCoverage() == right.hasCompleteNumericCoverage());
   }
 
   /**
-   * Whether the definitions differ from the ones in the catalogue file they were loaded from or last
-   * serialized to. A commit serializes a catalogue only when this is {@code true} (or when it has to
-   * re-publish the represented catalogue after a revert), so an unchanged catalogue costs a commit
-   * neither a file nor an fsync.
+   * Whether net membership or definition state differs from the persisted baseline, or any numeric
+   * coverage evidence is dirty. The structural dirty flag alone is insufficient: creating and then
+   * dropping an index can leave the persisted state unchanged. The storage writer separately handles
+   * forced republication after a revert and replacement of an unacknowledged revision's leftover
+   * file.
    *
-   * @return {@code true} when a commit has to serialize these definitions
+   * @return {@code true} when the catalogue state differs from its persisted baseline
    */
   public boolean differsFromPersisted() {
     final IndexDef[] snapshot = persisted;

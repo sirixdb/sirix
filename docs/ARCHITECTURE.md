@@ -367,7 +367,7 @@ These aren't just nice-to-haves—they're load-bearing constraints that enable t
 │  │   NATIVE     │    │    PROOF     │    │   WRITE AMP  │               │
 │  │              │    │              │    │              │               │
 │  │  Sequential  │    │  Commit =    │    │  No periodic │               │
-│  │  append-only │    │  fsync once  │    │  full page   │               │
+│  │  append-only │    │  durable     │    │  full page   │               │
 │  │  writes only │    │  No WAL/redo │    │  rewrites    │               │
 │  └──────────────┘    └──────────────┘    └──────────────┘               │
 │                                                                         │
@@ -1029,7 +1029,7 @@ IndexDef casIdx = IndexDefs.createCASIdxDef(
 
 ## Storage Engine
 
-> **Design Goal**: A single append-only file per resource. No WAL. No compaction. Just write pages sequentially and fsync once per commit.
+> **Design Goal**: A single append-only file per resource. No WAL. No compaction. Write pages sequentially and durably publish each revision.
 
 The storage engine is deceptively simple: pages go in, pages come out. The complexity lives in *which* pages to write and *how* to reconstruct them. That's where versioning strategies earn their keep.
 
@@ -1052,7 +1052,7 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 │      │   │   ├── sirix.data            ◄── Page data (append-only)          │
 │      │   │   └── sirix.revisions       ◄── Revision offset index            │
 │      │   ├── indexes/                  ◄── Index definitions                │
-│      │   │   └── <revision>.xml        ◄── One catalogue per change         │
+│      │   │   └── <revision>.xml        ◄── See Index Catalogues below       │
 │      │   ├── log/                      ◄── Transaction intent log           │
 │      │   │   └── .commit               ◄── Commit marker file               │
 │      │   ├── encryption/               ◄── Resource encryption keys         │
@@ -1068,6 +1068,24 @@ The storage engine is deceptively simple: pages go in, pages come out. The compl
 - `sirix.data` - Append-only file containing all pages (compressed, versioned)
 - `sirix.revisions` - Index mapping revision numbers to file offsets
 - `ressetting.obj` - Serialized `ResourceConfiguration` (versioning type, compression, etc.)
+
+### Index Catalogues
+
+The catalogue for a committed revision is the newest `indexes/<revision>.xml` at or below
+that revision. Commits write a catalogue when the net index membership or definitions differ
+from their persisted baseline, or numeric CAS coverage changes. Creating and dropping an index
+between commits does not by itself require a file. Dropping the last index writes an empty
+catalogue so later revisions cannot inherit the old definitions. A revert republishes its
+represented catalogue, including an empty one. A leftover file for an unacknowledged revision
+is ignored during writer creation and replaced when that revision number commits.
+
+Catalogue lookup and parse caches are shared by handles of the same resource for the lifetime
+of their shared session. Writer creation remembers the catalogue resolved at the latest committed
+revision; after a directory listing, historical lookups also use the remembered file revisions.
+Controllers receive copies of cached definitions so mutable numeric coverage cannot alter another
+controller or the parse cache. Truncation and crash recovery invalidate discarded revisions before
+their numbers are reused. Work bounds are specified by
+[`IndexCatalogueResolutionWorkBudgetTest`](../bundles/sirix-core/src/test/java/io/sirix/budget/IndexCatalogueResolutionWorkBudgetTest.java).
 
 ### Page Hierarchy
 

@@ -60,6 +60,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -68,7 +69,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
@@ -221,8 +221,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * The sorted revisions of every catalogue file of this resource, once any of its sessions has
-   * listed {@code indexes/}, extended by every file their writers serialize since.
-   * See {@link #resolveIndexCatalogueRevision}.
+   * listed {@code indexes/}, extended by every file their writers serialize since. See
+   * {@link #resolveIndexCatalogueRevision}.
    */
   private record CatalogueRevisions(int[] revisions, boolean listed) {
   }
@@ -231,9 +231,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * The parsed definitions of every catalogue file this resource's sessions have read, by the file's
-   * revision. A catalogue file is immutable once its revision is committed, and every writer of the
-   * resource re-instantiates its controller on every commit from the same file, so parsing the file
-   * once per JVM instead of twice per commit is exact. Shared between the handles of one resource.
+   * revision, shared between handles for the lifetime of their shared resource session. See
+   * {@link #parsedIndexCatalogue} for isolation and invalidation requirements.
    */
   private final ConcurrentMap<Integer, List<IndexDef>> parsedIndexCatalogues;
 
@@ -458,10 +457,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * The definitions of the catalogue file {@code catalogueRevision}, parsed once per resource and
-   * JVM. The file is immutable once its revision is committed, and only committed revisions' files
-   * are resolved, so a cached parse is exact; the {@link IndexDef} instances are immutable after
-   * parsing.
+   * Cached definitions from a committed catalogue file. {@link Indexes#initFrom} copies them before a
+   * controller can mutate numeric coverage, so cached instances remain unchanged. Concurrent cache
+   * misses may parse independently; subsequent lookups reuse the installed parse. Truncation and
+   * revision-number reuse invalidate affected entries through {@link #invalidateIndexCataloguesAfter}
+   * and {@link #recordSerializedIndexCatalogueRevision}.
    */
   private List<IndexDef> parsedIndexCatalogue(final Path indexesDir, final int catalogueRevision) {
     final List<IndexDef> cached = parsedIndexCatalogues.get(catalogueRevision);
@@ -487,14 +487,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * {@link #NO_INDEX_CATALOGUE}.
    *
    * <p>
-   * A commit writes a catalogue file only when it changed the definitions (or re-publishes the
-   * represented catalogue after a revert), so the directory holds one file per catalogue change, not
-   * one per revision, and most revisions resolve to an earlier revision's file. Writer creation
-   * resolves its prospective revision's controller and restores the catalogue at its represented
-   * revision; every commit re-instantiates the writer. Answering each lookup from the directory would
-   * cost one {@code readdir} per commit (measured at 0.68 µs per catalogue file, 78 % of the commit's
-   * CPU after 21,000 revisions when every commit still wrote one). So the directory is listed at most
-   * once per resource and process:
+   * Most revisions inherit an earlier catalogue. Directory knowledge is shared for the resource
+   * session's lifetime; after a listing, subsequent lookups need no directory access:
    * <ol>
    * <li>what this resource's sessions know. Once one has listed the directory, the sorted revisions
    * of every catalogue file are shared by all of them and extended by every file their writers
@@ -508,8 +502,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * </ol>
    * Each step returns what the listing would return. (1) and (3) hold because every catalogue file
    * this resource's writers create is reported through
-   * {@link #recordSerializedIndexCatalogueRevision(int)} as soon as it is durable, and nothing
-   * removes one under an open session ({@code Database.removeResource} refuses while a session is
+   * {@link #recordSerializedIndexCatalogueRevision(int)} as soon as it is durable. Truncation and
+   * crash recovery invalidate discarded revisions through {@link #invalidateIndexCataloguesAfter};
+   * unrelated removal is excluded ({@code Database.removeResource} refuses while a session is
    * registered; a restore only fills an empty directory).
    *
    * <p>
@@ -644,7 +639,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     knownIndexCatalogueRevisions.updateAndGet(current -> {
       final int[] revisions = current.revisions();
       int retained = Arrays.binarySearch(revisions, revision);
-      retained = retained >= 0 ? retained + 1 : -retained - 1;
+      retained = retained >= 0
+          ? retained + 1
+          : -retained - 1;
       return new CatalogueRevisions(Arrays.copyOf(revisions, retained), current.listed());
     });
     invalidateIndexControllers(revision + 1);

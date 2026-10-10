@@ -361,8 +361,9 @@ redesign):
 
 A deliberate divergence from those systems: no fat row groups. DuckDB uses
 ~122 880-row groups, Parquet ~128 MB; SirixDB keeps 1024-row leaves because
-maintenance re-extracts touched leaves wholesale and CoW sharing works at
-page granularity — a small leaf is what makes per-commit maintenance cheap.
+CoW sharing works at page granularity — a small leaf bounds the cost of a
+full maintenance rewrite. The append and partial-update paths are described in
+[incremental maintenance](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
 
 ---
 
