@@ -20,7 +20,9 @@ import java.util.function.LongSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** A repeated plan skips parse/analysis/optimization and translates fresh, bounded executable code. */
+/**
+ * A repeated plan skips parse/analysis/optimization and translates fresh, bounded executable code.
+ */
 @Isolated
 final class CompiledQueryWorkBudgetTest {
   @TempDir
@@ -30,17 +32,17 @@ final class CompiledQueryWorkBudgetTest {
   private static final WorkCounter ANALYSES = counter("compile.analyses", CompileWorkStats::analyses);
   private static final WorkCounter OPTIMIZATIONS = counter("compile.optimizations", CompileWorkStats::optimizations);
   private static final WorkCounter TRANSLATIONS = counter("compile.translations", CompileWorkStats::translations);
-  private static final WorkCounter EXPRESSIONS = counter("compile.translationExpressions",
-      CompileWorkStats::translatedExpressions);
+  private static final WorkCounter EXPRESSIONS =
+      counter("compile.translationExpressions", CompileWorkStats::translatedExpressions);
   private static final List<WorkCounter> PHASES = List.of(PARSES, ANALYSES, OPTIMIZATIONS, TRANSLATIONS);
   private static final long EXPRESSION_DISPATCH_BUDGET = 20;
 
   @Test
   void repeatsOnlyTranslateFreshExpressionsWithFixedWork() throws Exception {
     try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var interpreter = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var interpreter = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       store.create("inventory", "events", "[{\"n\":3},{\"n\":7},{\"n\":11}]");
       final String text = "let $rows := jn:doc('inventory','events')[]"
           + " for $r in $rows where $r.n gt 3 order by $r.n return $r.n + 1";
@@ -52,8 +54,9 @@ final class CompiledQueryWorkBudgetTest {
       for (final WorkCounter phase : PHASES) {
         cold.work().assertBetween(phase, 1, 4, "first compilation must observe live compiler work");
       }
-      cold.work().assertExactly(EXPRESSIONS, EXPRESSION_DISPATCH_BUDGET,
-          "the cold control must observe the fixture's live translator work");
+      cold.work()
+          .assertExactly(EXPRESSIONS, EXPRESSION_DISPATCH_BUDGET,
+              "the cold control must observe the fixture's live translator work");
       final Query retained = new Query(chain, text);
       for (int repetition = 0; repetition < 5; repetition++) {
         final var repeated = capture.call(() -> evaluate(chain, context, text));
@@ -82,8 +85,8 @@ final class CompiledQueryWorkBudgetTest {
   }
 
   private static WorkCounter counter(final String name, final LongSupplier reader) {
-    return WorkCounter.gated(name, "one compiler phase invocation", reader,
-        "-Dsirix.query.compileWorkDiag=true", () -> CompileWorkStats.ENABLED);
+    return WorkCounter.gated(name, "one compiler phase invocation", reader, "-Dsirix.query.compileWorkDiag=true",
+        () -> CompileWorkStats.ENABLED);
   }
 
   private static String evaluate(final SirixCompileChain chain, final SirixQueryContext context, final String text) {

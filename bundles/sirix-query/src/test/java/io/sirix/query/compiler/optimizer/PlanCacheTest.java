@@ -208,8 +208,7 @@ final class PlanCacheTest {
 
     assertEquals(0, errors.get(), "No errors should occur during concurrent access");
     assertTrue(concurrentCache.size() >= 0, "Size should be non-negative");
-    assertTrue(concurrentCache.hits() + concurrentCache.misses() > 0,
-        "Some operations should have been recorded");
+    assertTrue(concurrentCache.hits() + concurrentCache.misses() > 0, "Some operations should have been recorded");
   }
 
   @Test
@@ -231,8 +230,7 @@ final class PlanCacheTest {
     // Retrieve from cache — should be unaffected by mutations
     final AST cached = cache.get("q1");
     assertNotNull(cached);
-    assertEquals(1, cached.getChildCount(),
-        "Cached AST should still have 1 child (not 2)");
+    assertEquals(1, cached.getChildCount(), "Cached AST should still have 1 child (not 2)");
     assertEquals(true, cached.getChild(0).getProperty("costBased.preferIndex"),
         "Cached property should be true (not mutated to false)");
   }

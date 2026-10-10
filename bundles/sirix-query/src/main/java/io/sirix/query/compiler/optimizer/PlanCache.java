@@ -1,6 +1,7 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.compiler.AST;
+import io.sirix.query.compiler.AstSupport;
 import io.brackit.query.module.StaticContext;
 
 import java.util.LinkedHashMap;
@@ -10,24 +11,32 @@ import io.sirix.index.IndexSchemaVersion;
 /**
  * LRU cache for optimized query plans (ASTs).
  *
- * <p>Maps query template strings to their optimized ASTs. When the same query
- * pattern hits the optimizer again, the cached AST is returned immediately,
- * bypassing the full 10-stage optimization pipeline.</p>
+ * <p>
+ * Maps query template strings to their optimized ASTs. When the same query pattern hits the
+ * optimizer again, the cached AST is returned immediately, bypassing the full 10-stage optimization
+ * pipeline.
+ * </p>
  *
- * <p>The optimizer supplies the complete query/prolog and target identity, plus the core schema
+ * <p>
+ * The optimizer supplies the complete query/prolog and target identity, plus the core schema
  * version. AST.toString() is only a node label and must never be used as a query identity. Each
- * Sirix compile chain owns one cache, so store bindings cannot leak between chains.</p>
+ * Sirix compile chain owns one cache, so store bindings cannot leak between chains.
+ * </p>
  *
- * <p>Thread-safety: all access is synchronized. The cache is used during
- * query optimization which is inherently sequential per-query, so
- * contention is negligible.</p>
+ * <p>
+ * Thread-safety: all access is synchronized. The cache is used during query optimization which is
+ * inherently sequential per-query, so contention is negligible.
+ * </p>
  *
- * <p>Eviction: LRU (least-recently-used) via {@link LinkedHashMap} with
- * access-order. Default capacity is 128 plans.</p>
+ * <p>
+ * Eviction: LRU (least-recently-used) via {@link LinkedHashMap} with access-order. Default capacity
+ * is 128 plans.
+ * </p>
  *
- * <p><b>Important:</b> AST nodes are mutable. The {@link #get} method returns
- * a deep copy of the cached AST to prevent downstream stages from mutating
- * the cache entry.</p>
+ * <p>
+ * <b>Important:</b> AST nodes are mutable. The {@link #get} method returns a deep copy of the
+ * cached AST to prevent downstream stages from mutating the cache entry.
+ * </p>
  */
 public final class PlanCache {
 
@@ -35,10 +44,12 @@ public final class PlanCache {
   public static final int DEFAULT_MAX_SIZE = 128;
 
   /**
-   * Signal that the index schema has changed (index created, dropped, or modified).
-   * All plan caches will produce misses for plans cached before this call.
+   * Signal that the index schema has changed (index created, dropped, or modified). All plan caches
+   * will produce misses for plans cached before this call.
    *
-   * <p>Call this from index-modifying operations (jn:create-cas-index, etc.).</p>
+   * <p>
+   * Call this from index-modifying operations (jn:create-cas-index, etc.).
+   * </p>
    */
   public static void signalIndexSchemaChange() {
     IndexSchemaVersion.changed();
@@ -88,9 +99,10 @@ public final class PlanCache {
   /**
    * Look up a cached optimized AST for the given query template.
    *
-   * <p>Returns a deep copy to prevent downstream stages from mutating
-   * the cache entry. The copy cost is negligible compared to the
-   * 10-stage optimization pipeline it replaces on cache hits.</p>
+   * <p>
+   * Returns a deep copy to prevent downstream stages from mutating the cache entry. The copy cost is
+   * negligible compared to the 10-stage optimization pipeline it replaces on cache hits.
+   * </p>
    *
    * @param queryTemplate the query template string
    * @return a deep copy of the cached AST, or {@code null} if not found
@@ -106,10 +118,12 @@ public final class PlanCache {
 
   /** Share the full-query fingerprint across target keys instead of copying it into every string. */
   synchronized AST get(final String namespace, final String queryTemplate, final StaticContext context) {
-    final AST cached = queryTemplate == null ? null : cache.get(new CacheKey(namespace, queryTemplate, context));
+    final AST cached = queryTemplate == null
+        ? null
+        : cache.get(new CacheKey(namespace, queryTemplate, context));
     if (cached != null) {
       hits++;
-      return cached.copyTree();
+      return AstSupport.copyTree(cached);
     }
     misses++;
     return null;
@@ -119,7 +133,7 @@ public final class PlanCache {
    * Cache an optimized AST for the given query template.
    *
    * @param queryTemplate the query template string
-   * @param optimizedAst  the optimized AST to cache
+   * @param optimizedAst the optimized AST to cache
    */
   public synchronized void put(String queryTemplate, AST optimizedAst) {
     put(queryTemplate, null, optimizedAst);
@@ -180,6 +194,8 @@ public final class PlanCache {
    */
   public synchronized double hitRatio() {
     final long total = hits + misses;
-    return total > 0 ? (double) hits / total : 0.0;
+    return total > 0
+        ? (double) hits / total
+        : 0.0;
   }
 }

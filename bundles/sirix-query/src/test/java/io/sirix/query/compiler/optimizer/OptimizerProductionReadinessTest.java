@@ -25,9 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Production readiness tests for the cost-based query optimizer subsystem.
  *
- * <p>Covers GOO-DP fallback behavior, optimizer timeouts, cycle detection,
- * GroupBy histogram integration, statistics catalog lifecycle, and plan
- * cache schema version invalidation.</p>
+ * <p>
+ * Covers GOO-DP fallback behavior, optimizer timeouts, cycle detection, GroupBy histogram
+ * integration, statistics catalog lifecycle, and plan cache schema version invalidation.
+ * </p>
  */
 final class OptimizerProductionReadinessTest {
 
@@ -80,8 +81,7 @@ final class OptimizerProductionReadinessTest {
         "Optimization should complete within 30s, took " + (elapsed / 1_000_000) + "ms");
 
     assertNotNull(plan, "Should produce a valid plan for a 25-relation chain");
-    assertEquals(graph.fullSet(), plan.relationSet(),
-        "Plan should cover all 25 relations");
+    assertEquals(graph.fullSet(), plan.relationSet(), "Plan should cover all 25 relations");
     assertTrue(plan.cost() >= 0, "Plan cost should be non-negative");
     assertTrue(plan.cardinality() >= 1, "Plan cardinality should be at least 1");
   }
@@ -130,16 +130,14 @@ final class OptimizerProductionReadinessTest {
     final JoinPlan plan = optimizer.optimize();
 
     assertNotNull(plan, "DPhyp should produce plan for 5-relation chain");
-    assertEquals(graph.fullSet(), plan.relationSet(),
-        "Plan should cover all relations");
+    assertEquals(graph.fullSet(), plan.relationSet(), "Plan should cover all relations");
 
     // Verify DP table was populated with connected subsets
     final var dpTable = optimizer.dpTable();
     // Every pair of adjacent relations should have a plan
     for (int i = 0; i < n - 1; i++) {
       final long pairMask = (1L << i) | (1L << (i + 1));
-      assertNotNull(dpTable.get(pairMask),
-          "Should have plan for adjacent pair {R" + i + ",R" + (i + 1) + "}");
+      assertNotNull(dpTable.get(pairMask), "Should have plan for adjacent pair {R" + i + ",R" + (i + 1) + "}");
     }
   }
 
@@ -167,8 +165,7 @@ final class OptimizerProductionReadinessTest {
     final AST result = optimizer.optimize(null, ast);
 
     assertNotNull(result, "Optimizer should return cached plan");
-    assertEquals(true, result.getProperty("fromCache"),
-        "Should return the cached plan");
+    assertEquals(true, result.getProperty("fromCache"), "Should return the cached plan");
     assertEquals(1, planCache.hits(), "Should record one cache hit");
   }
 
@@ -196,8 +193,7 @@ final class OptimizerProductionReadinessTest {
     assertNotNull(result, "Should return cached plan");
     assertEquals(1, planCache.hits(), "Should record a cache hit");
     // The result is a deep copy, so the marker property should be preserved
-    assertEquals("cached-plan", result.getProperty("marker"),
-        "Should return the cached plan (with marker property)");
+    assertEquals("cached-plan", result.getProperty("marker"), "Should return the cached plan (with marker property)");
   }
 
   // ===== 3. Cycle Detection Tests =====
@@ -214,10 +210,8 @@ final class OptimizerProductionReadinessTest {
     // the stage's public API surface.
     final var stage = new CostBasedStage(null);
 
-    assertNotNull(stage.getSelectivityEstimator(),
-        "CostBasedStage should expose SelectivityEstimator");
-    assertNotNull(stage.getCardinalityEstimator(),
-        "CostBasedStage should expose CardinalityEstimator");
+    assertNotNull(stage.getSelectivityEstimator(), "CostBasedStage should expose SelectivityEstimator");
+    assertNotNull(stage.getCardinalityEstimator(), "CostBasedStage should expose CardinalityEstimator");
   }
 
   @Test
@@ -261,8 +255,7 @@ final class OptimizerProductionReadinessTest {
   void testGroupByUsesHistogramDistinctCount() {
     // Set up a SelectivityEstimator with a histogram that has distinctCount=50
     final var selEstimator = new SelectivityEstimator();
-    final var histBuilder = new Histogram.Builder(16)
-        .setDistinctCount(50);
+    final var histBuilder = new Histogram.Builder(16).setDistinctCount(50);
     // Add values to make it a valid histogram
     for (int i = 0; i < 1000; i++) {
       histBuilder.addValue(i % 50); // 50 distinct values over 1000 rows
@@ -286,8 +279,7 @@ final class OptimizerProductionReadinessTest {
 
     final long card = cardEstimator.estimatePipelineCardinality(groupBy);
     // 1000 / 20 = 50 — matches the distinct count from histogram
-    assertEquals(50L, card,
-        "GroupBy should produce inputCard/divisor. With divisor=20 and input=1000, output=50");
+    assertEquals(50L, card, "GroupBy should produce inputCard/divisor. With divisor=20 and input=1000, output=50");
   }
 
   @Test
@@ -309,8 +301,7 @@ final class OptimizerProductionReadinessTest {
 
     final long card = cardEstimator.estimatePipelineCardinality(groupBy);
     // Default divisor = 100; 10000 / 100 = 100
-    assertEquals(100L, card,
-        "Without histogram, GroupBy should use default divisor: 10000/100=100");
+    assertEquals(100L, card, "Without histogram, GroupBy should use default divisor: 10000/100=100");
   }
 
   @Test
@@ -326,8 +317,7 @@ final class OptimizerProductionReadinessTest {
 
     // Equality selectivity should be 1/NDV = 1/50 = 0.02
     final double eqSel = histogram.estimateEqualitySelectivity(10.0);
-    assertEquals(0.02, eqSel, 0.001,
-        "Equality selectivity should be 1/distinctCount = 1/50 = 0.02");
+    assertEquals(0.02, eqSel, 0.001, "Equality selectivity should be 1/distinctCount = 1/50 = 0.02");
   }
 
   // ===== 5. Statistics Catalog Tests =====
@@ -346,12 +336,9 @@ final class OptimizerProductionReadinessTest {
     // Invalidate all entries for db1/res1
     catalog.invalidate("db1", "res1");
 
-    assertNull(catalog.get("db1", "res1", "price"),
-        "Invalidated entry should be gone");
-    assertNull(catalog.get("db1", "res1", "quantity"),
-        "Invalidated entry should be gone");
-    assertNotNull(catalog.get("db1", "res2", "name"),
-        "Entry for different resource should survive");
+    assertNull(catalog.get("db1", "res1", "price"), "Invalidated entry should be gone");
+    assertNull(catalog.get("db1", "res1", "quantity"), "Invalidated entry should be gone");
+    assertNotNull(catalog.get("db1", "res2", "name"), "Entry for different resource should survive");
     assertEquals(1, catalog.size());
   }
 
@@ -367,8 +354,7 @@ final class OptimizerProductionReadinessTest {
     // Sleep to let the entry expire
     Thread.sleep(50);
 
-    assertNull(catalog.get("db1", "res1", "price"),
-        "Entry should be expired after TTL");
+    assertNull(catalog.get("db1", "res1", "price"), "Entry should be expired after TTL");
   }
 
   @Test
@@ -422,19 +408,16 @@ final class OptimizerProductionReadinessTest {
     final String cacheKeyBefore = queryText + "@v" + versionBefore;
     planCache.put(cacheKeyBefore, ast);
 
-    assertNotNull(planCache.get(cacheKeyBefore),
-        "Plan should be cached before schema change");
+    assertNotNull(planCache.get(cacheKeyBefore), "Plan should be cached before schema change");
 
     // Signal schema change (simulates index creation/drop)
     PlanCache.signalIndexSchemaChange();
     final long versionAfter = PlanCache.indexSchemaVersion();
-    assertTrue(versionAfter > versionBefore,
-        "Schema version should increment after signalIndexSchemaChange()");
+    assertTrue(versionAfter > versionBefore, "Schema version should increment after signalIndexSchemaChange()");
 
     // The NEW lookup (using the new version) should miss
     final String cacheKeyAfter = queryText + "@v" + versionAfter;
-    assertNull(planCache.get(cacheKeyAfter),
-        "Cache should miss for the new schema version (key changed)");
+    assertNull(planCache.get(cacheKeyAfter), "Cache should miss for the new schema version (key changed)");
   }
 
   @Test
@@ -482,8 +465,7 @@ final class OptimizerProductionReadinessTest {
     // Same query text but new version — cache miss
     final String key2 = queryText + "@v" + v2;
     assertNull(planCache.get(key2), "Should be a cache miss after schema change");
-    assertEquals(1, planCache.misses(),
-        "After schema change, lookup with new version key should be a miss");
+    assertEquals(1, planCache.misses(), "After schema change, lookup with new version key should be a miss");
   }
 
   // ===== Additional Production Readiness Tests =====
@@ -510,15 +492,13 @@ final class OptimizerProductionReadinessTest {
 
     // Every single relation should have a base plan
     for (int i = 0; i < n; i++) {
-      assertNotNull(dpTable.get(1L << i),
-          "Should have base plan for R" + i);
+      assertNotNull(dpTable.get(1L << i), "Should have base plan for R" + i);
     }
 
     // Every contiguous pair should have a plan
     for (int i = 0; i < n - 1; i++) {
       final long pairMask = (1L << i) | (1L << (i + 1));
-      assertNotNull(dpTable.get(pairMask),
-          "Should have plan for adjacent pair {R" + i + ",R" + (i + 1) + "}");
+      assertNotNull(dpTable.get(pairMask), "Should have plan for adjacent pair {R" + i + ",R" + (i + 1) + "}");
     }
   }
 
@@ -545,27 +525,22 @@ final class OptimizerProductionReadinessTest {
 
     // Disable CostBasedStage
     optimizer.disableStage(CostBasedStage.class);
-    assertFalse(optimizer.isStageEnabled(CostBasedStage.class),
-        "CostBasedStage should be disabled");
+    assertFalse(optimizer.isStageEnabled(CostBasedStage.class), "CostBasedStage should be disabled");
 
     // Other stages should remain enabled
-    assertTrue(optimizer.isStageEnabled(JoinReorderStage.class),
-        "JoinReorderStage should still be enabled");
-    assertTrue(optimizer.isStageEnabled(JqgmRewriteStage.class),
-        "JqgmRewriteStage should still be enabled");
+    assertTrue(optimizer.isStageEnabled(JoinReorderStage.class), "JoinReorderStage should still be enabled");
+    assertTrue(optimizer.isStageEnabled(JqgmRewriteStage.class), "JqgmRewriteStage should still be enabled");
 
     // Re-enable CostBasedStage
     optimizer.enableStage(CostBasedStage.class);
-    assertTrue(optimizer.isStageEnabled(CostBasedStage.class),
-        "CostBasedStage should be re-enabled");
+    assertTrue(optimizer.isStageEnabled(CostBasedStage.class), "CostBasedStage should be re-enabled");
 
     // Disable multiple stages
     optimizer.disableStage(VectorizedDetectionStage.class);
     optimizer.disableStage(VectorizedRoutingStage.class);
     assertFalse(optimizer.isStageEnabled(VectorizedDetectionStage.class));
     assertFalse(optimizer.isStageEnabled(VectorizedRoutingStage.class));
-    assertTrue(optimizer.isStageEnabled(CostBasedStage.class),
-        "CostBasedStage should remain enabled");
+    assertTrue(optimizer.isStageEnabled(CostBasedStage.class), "CostBasedStage should remain enabled");
   }
 
   @Test
@@ -582,14 +557,12 @@ final class OptimizerProductionReadinessTest {
     assertEquals(42.0, single.minValue(), 0.001);
 
     // NaN and Infinity should be silently skipped
-    final Histogram withNaN = new Histogram.Builder(8)
-        .addValue(1.0)
-        .addValue(Double.NaN)
-        .addValue(Double.POSITIVE_INFINITY)
-        .addValue(Double.NEGATIVE_INFINITY)
-        .addValue(2.0)
-        .build();
-    assertEquals(2, withNaN.totalCount(),
-        "NaN and Infinity values should be silently skipped");
+    final Histogram withNaN = new Histogram.Builder(8).addValue(1.0)
+                                                      .addValue(Double.NaN)
+                                                      .addValue(Double.POSITIVE_INFINITY)
+                                                      .addValue(Double.NEGATIVE_INFINITY)
+                                                      .addValue(2.0)
+                                                      .build();
+    assertEquals(2, withNaN.totalCount(), "NaN and Infinity values should be silently skipped");
   }
 }

@@ -8,6 +8,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.api.json.JsonNodeTrx.Commit;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.CompileChain.PlanStage;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Type;
@@ -78,7 +79,8 @@ final class CompiledQueryCacheTest {
         final Field namespace = key.getClass().getDeclaredField("namespace");
         namespace.setAccessible(true);
         final String current = (String) namespace.get(key);
-        if (fingerprint == null) fingerprint = current;
+        if (fingerprint == null)
+          fingerprint = current;
         assertSame(fingerprint, current, "the large full-query fingerprint must be retained only once");
       }
     }
@@ -86,8 +88,7 @@ final class CompiledQueryCacheTest {
 
   @Test
   void sh1CachedAndFreshCompilesHaveIdenticalFullOptimizedAsts() {
-    try (final var store = newStore();
-         final var cached = SirixCompileChain.createWithJsonStore(store)) {
+    try (final var store = newStore(); final var cached = SirixCompileChain.createWithJsonStore(store)) {
       // Multiple CAS definitions match the array root used by SH1 joins. The entire diagnostic
       // AST, including every cost/index annotation, must equal an independent fresh compilation.
       final String row = "{\"id\":1,\"pid\":1,\"sid\":1,\"cost\":5,\"qty\":2,\"grade\":1,"
@@ -100,7 +101,7 @@ final class CompiledQueryCacheTest {
       }
       for (final String resource : List.of("contracts", "products", "suppliers")) {
         try (final var session = collection.getDatabase().beginResourceSession(resource);
-             final var writer = session.beginNodeTrx()) {
+            final var writer = session.beginNodeTrx()) {
           final IndexDef id = IndexDefs.createCASIdxDef(false, Type.INR,
               Set.of(new PathParser("/[]/id", PathParser.Type.JSON).parse()), 0, IndexDef.DbType.JSON);
           final IndexDef cost = IndexDefs.createCASIdxDef(false, Type.INR,
@@ -115,6 +116,9 @@ final class CompiledQueryCacheTest {
         if (query.index() == 10) {
           assertTrue(coldPlan.contains("costBased.indexId"), "Q10 must exercise real catalogue annotations");
         }
+        mutateBooleanAnnotations(cached.getOptimizedAST());
+        assertEquals(coldPlan, cached.getPlanAsJSON(PlanStage.OPTIMIZED),
+            "diagnostic annotation arrays must be detached from the executable and cached plan");
         cached.compile(query.text());
         assertEquals(coldPlan, cached.getPlanAsJSON(PlanStage.OPTIMIZED), "Q" + query.index() + " cached AST");
         try (final var fresh = SirixCompileChain.createWithJsonStore(store)) {
@@ -128,11 +132,24 @@ final class CompiledQueryCacheTest {
     }
   }
 
+  private static void mutateBooleanAnnotations(final AST node) {
+    for (final String key : List.of("SIRIX_JOIN_ORDER_ASC", "SIRIX_JOIN_ORDER_EMPTY_LEAST", "SIRIX_JOIN_RESIDUAL_NE",
+        "SIRIX_CORR_ORDER_ASC", "SIRIX_CORR_ORDER_EMPTY_LEAST", "SIRIX_GROUP_AGG_ORDER_ASC",
+        "SIRIX_GROUP_AGG_ORDER_EMPTY_LEAST")) {
+      if (node.getProperty(key) instanceof boolean[] flags) {
+        for (int i = 0; i < flags.length; i++)
+          flags[i] = !flags[i];
+      }
+    }
+    for (int i = 0; i < node.getChildCount(); i++)
+      mutateBooleanAnnotations(node.getChild(i));
+  }
+
   @Test
   void sharedTargetsBindFunctionExpressionsToTheNewAnalysisContext() throws Exception {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       final String text = "declare base-uri 'https://sirix.test/context/'; resolve-uri('value')";
       final Module fresh = chain.compile(text);
       final long hits = chain.planCacheHits();
@@ -157,8 +174,8 @@ final class CompiledQueryCacheTest {
   @Test
   void cachedPlansRecreateTypedDeclarationsAndNamespaceContexts() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       final String text = "declare namespace p = 'urn:vars'; declare variable $p:input as xs:integer external;"
           + " declare variable $p:uri := namespace-uri-from-QName(xs:QName('p:field')); ($p:input + 1, $p:uri)";
       final Module first = chain.compile(text);
@@ -180,8 +197,8 @@ final class CompiledQueryCacheTest {
   @Test
   void executionFacadeClaimsEachBodyOnceAndRevalidatesBeforeEvaluation() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       final String text = "for $n in 1 to 3 return $n + $n";
       final Module cached = chain.compile(text);
       final var raw = new MainModule();
@@ -200,8 +217,8 @@ final class CompiledQueryCacheTest {
   @Test
   void fullTreeAndPrologPreventPlanCollisions() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       assertEquals("2 3", answer(chain, context, "for $x in 1 to 2 return $x + 1"));
       assertEquals("11 12", answer(chain, context, "for $x in 1 to 2 return $x + 10"));
       assertEquals("2 3", answer(chain, context, "for $x in 1 to 2 return $x + 1 (: same plan :)"));
@@ -215,8 +232,8 @@ final class CompiledQueryCacheTest {
   @Test
   void externalAndInitializedVariablesBelongToEachExecution() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       final String text = "declare variable $input external; declare variable $derived := $input + 1;"
           + " for $n in 1 to 3 return $derived + $n";
       final Module first = chain.compile(text);
@@ -233,8 +250,8 @@ final class CompiledQueryCacheTest {
   @Test
   void concurrentMissAndLazyExecutionUseIndependentBindings() throws Exception {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var workers = Executors.newFixedThreadPool(8)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var workers = Executors.newFixedThreadPool(8)) {
       final String text = "declare variable $input external; declare variable $derived := $input + 1;"
           + " for $n in 1 to 20 return $derived + $n";
       final Query retained = new Query(chain, text);
@@ -250,7 +267,8 @@ final class CompiledQueryCacheTest {
             final Module module = chain.compile(text);
             final StringBuilder expected = new StringBuilder();
             for (int n = 1; n <= 20; n++) {
-              if (n > 1) expected.append(' ');
+              if (n > 1)
+                expected.append(' ');
               expected.append(input + n + 1);
             }
             for (int repetition = 0; repetition < 10; repetition++) {
@@ -274,9 +292,9 @@ final class CompiledQueryCacheTest {
   @Test
   void documentHintsAndStoreIdentityFenceCompiledModules() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var other = SirixCompileChain.createWithJsonStore(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var other = SirixCompileChain.createWithJsonStore(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       store.create("a", "r", "[10,20]");
       store.create("b", "r", "[1,2,3]");
       final String text = "declare variable $doc external; sum($doc[])";
@@ -297,8 +315,8 @@ final class CompiledQueryCacheTest {
   @Test
   void coreIndexCreateDropAndCommitInvalidateBothCaches() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       final var collection = store.create("db", "r", "[{\"v\":1},{\"v\":2},{\"v\":3}]");
       final var session = collection.getDatabase().beginResourceSession("r");
       final String text = "for $x in jn:doc('db','r')[] where $x.v eq 2 return $x.v";
@@ -358,7 +376,7 @@ final class CompiledQueryCacheTest {
             }
           });
       try (final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(observed);
-           final var context = SirixQueryContext.createWithJsonStore(store)) {
+          final var context = SirixQueryContext.createWithJsonStore(store)) {
         final String text = "for $r in jn:doc('db','r')[] where $r.v eq 2 return $r.v";
         final var pending = worker.submit(() -> chain.compile(text));
         lookupEntered.await();
@@ -376,8 +394,7 @@ final class CompiledQueryCacheTest {
 
   @Test
   void explicitExecutorAndMorselBindingsCannotReuseTheWrongPlan() {
-    try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (final var store = newStore(); final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var collection = store.create("db", "r", "[1,2,3]");
       final Module normal = chain.compile("1 + 1");
       final var executor = new SirixVectorizedExecutor(collection.getDatabase().beginResourceSession("r"), 1);
@@ -402,7 +419,8 @@ final class CompiledQueryCacheTest {
     try (final var store = newStore(); final var chain = SirixCompileChain.createWithJsonStore(store)) {
       chain.compile("1 + 1");
       chain.compile("4 + 1");
-      for (int i = 2; i <= CompiledQueryCache.MAX_ENTRIES; i++) chain.compile(i + " + 1");
+      for (int i = 2; i <= CompiledQueryCache.MAX_ENTRIES; i++)
+        chain.compile(i + " + 1");
       chain.compile("2 + 1");
       long parses = CompileWorkStats.parses();
       chain.compile("1 + 1");
@@ -431,8 +449,8 @@ final class CompiledQueryCacheTest {
   @Test
   void descendantExpressionsDoNotShareMutablePathMatchesAcrossResourcesOrWorkers() throws Exception {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
-         final var workers = Executors.newFixedThreadPool(4)) {
+        final var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        final var workers = Executors.newFixedThreadPool(4)) {
       store.create("a", "r", "{\"a\":{\"needle\":7},\"b\":0}");
       store.create("b", "r", "{\"a\":{\"other\":4},\"z\":{\"needle\":13}}");
       final Query query = new Query(chain, "declare variable $doc external; $doc=>>needle");
@@ -445,7 +463,9 @@ final class CompiledQueryCacheTest {
             for (final String database : List.of("a", "b")) {
               final var document = store.lookup(database).getDocument("r");
               context.bind(new QNm("doc"), document);
-              assertEquals(database.equals("a") ? "7" : "13", answer(query, context));
+              assertEquals(database.equals("a")
+                  ? "7"
+                  : "13", answer(query, context));
               document.getTrx().close();
             }
           }
@@ -453,15 +473,16 @@ final class CompiledQueryCacheTest {
           return "done";
         });
       }
-      for (final var result : workers.invokeAll(tasks)) assertEquals("done", result.get());
+      for (final var result : workers.invokeAll(tasks))
+        assertEquals("done", result.get());
     }
   }
 
   @Test
   void importedModulesBypassTextCachingAndLocalFunctionsKeepTheirOwnBindings() {
     try (final var store = newStore();
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var context = SirixQueryContext.createWithJsonStore(store)) {
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var context = SirixQueryContext.createWithJsonStore(store)) {
       chain.compile("module namespace m = 'urn:cache-test'; declare function m:f() { 7 }; ");
       final String imported = "import module namespace m = 'urn:cache-test'; m:f()";
       final Module first = chain.compile(imported);

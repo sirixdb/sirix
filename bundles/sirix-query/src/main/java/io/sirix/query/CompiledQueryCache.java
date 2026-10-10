@@ -8,9 +8,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Strictly bounded, chain-owned optimized-plan LRU. The chain's compile monitor protects
- * plan lookup and translation. Expression evaluation never takes that monitor. Only detached plans and immutable source hints are retained, never an expression,
- * query context, tuple, result or transaction. Prolog values are owned by Brackit's QueryExecution.
+ * Strictly bounded, chain-owned optimized-plan LRU. The chain's compile monitor protects plan
+ * lookup and translation. Expression evaluation never takes that monitor. Only detached plans and
+ * immutable source hints are retained, never an expression, query context, tuple, result or
+ * transaction. Prolog values are owned by Brackit's QueryExecution.
  */
 final class CompiledQueryCache {
   static final int MAX_ENTRIES = 128;

@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link SirixStatisticsProvider} against a real SirixDB database.
- * Verifies that PathSummary-based cardinality estimation and index detection work correctly.
+ * Integration tests for {@link SirixStatisticsProvider} against a real SirixDB database. Verifies
+ * that PathSummary-based cardinality estimation and index detection work correctly.
  */
 final class SirixStatisticsProviderTest {
 
@@ -32,13 +32,12 @@ final class SirixStatisticsProviderTest {
   private static final String RESOURCE_NAME = "mydoc.jn";
 
   /**
-   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time.
-   * When fusion is on, each primitive-valued object field collapses from {@code OBJECT_KEY + VALUE}
-   * (two physical nodes) into a single {@code OBJECT_NAMED_*} record, halving the total node count
-   * for documents dominated by primitive fields.
+   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time. When
+   * fusion is on, each primitive-valued object field collapses from {@code OBJECT_KEY + VALUE} (two
+   * physical nodes) into a single {@code OBJECT_NAMED_*} record, halving the total node count for
+   * documents dominated by primitive fields.
    */
-  private static final boolean FUSE_NAMED_PRIMITIVES =
-      true;
+  private static final boolean FUSE_NAMED_PRIMITIVES = true;
 
   @BeforeEach
   void setUp() {
@@ -75,21 +74,18 @@ final class SirixStatisticsProviderTest {
           '[{"name":"Alice","age":30},{"name":"Bob","age":25},{"name":"Charlie","age":35}]')
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       // PathSummary for [{"name":"..."}] stores path as: childArray() / childObjectField("name")
       final var namePath = new Path<QNm>();
       namePath.childArray().childObjectField(new QNm("name"));
-      final long nameCardinality = statsProvider.getPathCardinality(
-          namePath, DB_NAME, RESOURCE_NAME, -1);
+      final long nameCardinality = statsProvider.getPathCardinality(namePath, DB_NAME, RESOURCE_NAME, -1);
       assertEquals(3L, nameCardinality, "Expected 3 nodes at path /[]/name");
 
       // Path /[]/age should match 3 nodes
       final var agePath = new Path<QNm>();
       agePath.childArray().childObjectField(new QNm("age"));
-      final long ageCardinality = statsProvider.getPathCardinality(
-          agePath, DB_NAME, RESOURCE_NAME, -1);
+      final long ageCardinality = statsProvider.getPathCardinality(agePath, DB_NAME, RESOURCE_NAME, -1);
       assertEquals(3L, ageCardinality, "Expected 3 nodes at path /[]/age");
     }
   }
@@ -101,20 +97,20 @@ final class SirixStatisticsProviderTest {
           '[{"name":"Alice","age":30},{"name":"Bob","age":25}]')
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final long totalNodes = statsProvider.getTotalNodeCount(DB_NAME, RESOURCE_NAME, -1);
       // Legacy shred — Array(1) + Object(2) + name OBJECT_KEY+VALUE (4) + age OBJECT_KEY+VALUE (4)
-      //   = 11 physical nodes.
+      // = 11 physical nodes.
       // Fused shred — each primitive field is one OBJECT_NAMED_* record, so name (2) + age (2)
-      //   collapse to 4, giving Array(1) + Object(2) + 4 fused fields = 7 physical nodes.
+      // collapse to 4, giving Array(1) + Object(2) + 4 fused fields = 7 physical nodes.
       // The threshold is therefore 7 under fusion and 10 under legacy.
       assertTrue(totalNodes > 0, "Total node count should be positive, got " + totalNodes);
-      final long minExpected = FUSE_NAMED_PRIMITIVES ? 7L : 10L;
+      final long minExpected = FUSE_NAMED_PRIMITIVES
+          ? 7L
+          : 10L;
       assertTrue(totalNodes >= minExpected,
-          "Should have at least " + minExpected + " nodes for 2 objects with 2 fields each (got "
-              + totalNodes + ")");
+          "Should have at least " + minExpected + " nodes for 2 objects with 2 fields each (got " + totalNodes + ")");
     }
   }
 
@@ -131,15 +127,13 @@ final class SirixStatisticsProviderTest {
         return {"revision": sdb:commit($doc)}
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       // Build path matching the CAS index definition: /[]/age
       final var agePath = new Path<QNm>();
       agePath.childArray().childObjectField(new QNm("age"));
 
-      final IndexInfo indexInfo = statsProvider.getIndexInfo(
-          agePath, DB_NAME, RESOURCE_NAME, -1);
+      final IndexInfo indexInfo = statsProvider.getIndexInfo(agePath, DB_NAME, RESOURCE_NAME, -1);
 
       assertTrue(indexInfo.exists(), "CAS index on /[]/age should be detected");
       assertEquals(IndexType.CAS, indexInfo.type(), "Index type should be CAS");
@@ -153,14 +147,12 @@ final class SirixStatisticsProviderTest {
         jn:store('json-path1','mydoc.jn', '{"name":"Alice","age":30}')
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final var agePath = new Path<QNm>();
       agePath.childObjectField(new QNm("age"));
 
-      final IndexInfo indexInfo = statsProvider.getIndexInfo(
-          agePath, DB_NAME, RESOURCE_NAME, -1);
+      final IndexInfo indexInfo = statsProvider.getIndexInfo(agePath, DB_NAME, RESOURCE_NAME, -1);
 
       assertFalse(indexInfo.exists(), "No index should be found when none is created");
       assertEquals(null, indexInfo.type(), "No-index sentinel should have null type");
@@ -179,14 +171,12 @@ final class SirixStatisticsProviderTest {
         return {"revision": sdb:commit($doc)}
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final var pricePath = new Path<QNm>();
       pricePath.childArray().childObjectField(new QNm("price"));
 
-      final BaseProfile profile = statsProvider.buildBaseProfile(
-          pricePath, DB_NAME, RESOURCE_NAME, -1);
+      final BaseProfile profile = statsProvider.buildBaseProfile(pricePath, DB_NAME, RESOURCE_NAME, -1);
 
       assertEquals(5L, profile.nodeCount(), "5 price nodes expected");
       assertTrue(profile.pathLevel() > 0, "Path level should be > 0");
@@ -209,8 +199,7 @@ final class SirixStatisticsProviderTest {
         return {"revision": sdb:commit($doc)}
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final var aPath = new Path<QNm>();
       aPath.childArray().childObjectField(new QNm("a"));
@@ -241,9 +230,8 @@ final class SirixStatisticsProviderTest {
       // the index wins. Scale both counts by 1000x → ~45K total, ~4K matching.
       final double scaledSeqCost = costModel.estimateSequentialScanCost(totalNodes * 1000L);
       final double scaledIdxCost = costModel.estimateIndexScanCost(pathCard * 1000L);
-      assertTrue(costModel.isIndexScanCheaper(scaledIdxCost, scaledSeqCost),
-          "At realistic scale, index scan (cost=" + scaledIdxCost
-              + ") should be cheaper than seq scan (cost=" + scaledSeqCost + ")");
+      assertTrue(costModel.isIndexScanCheaper(scaledIdxCost, scaledSeqCost), "At realistic scale, index scan (cost="
+          + scaledIdxCost + ") should be cheaper than seq scan (cost=" + scaledSeqCost + ")");
     }
   }
 
@@ -253,8 +241,7 @@ final class SirixStatisticsProviderTest {
         jn:store('json-path1','mydoc.jn', '[{"x":1},{"x":2},{"x":3}]')
         """);
 
-    try (final var store = newStore();
-         final var statsProvider = new SirixStatisticsProvider(store)) {
+    try (final var store = newStore(); final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final var xPath = new Path<QNm>();
       xPath.childArray().childObjectField(new QNm("x"));
@@ -269,15 +256,13 @@ final class SirixStatisticsProviderTest {
 
   private void storeAndCommit(String query) {
     try (final var store = newStore();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, query).evaluate(ctx);
     }
   }
 
   private BasicJsonDBStore newStore() {
-    return BasicJsonDBStore.newBuilder()
-        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-        .build();
+    return BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
   }
 }

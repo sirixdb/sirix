@@ -13,8 +13,8 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Claims the initially translated body once. Subsequent executions translate a fresh body from
- * the fenced plan before QueryExecution starts; no dispatch wrapper enters expression evaluation.
+ * Claims the initially translated body once. Subsequent executions translate a fresh body from the
+ * fenced plan before QueryExecution starts; no dispatch wrapper enters expression evaluation.
  */
 final class SchemaFencedModule implements Module {
   private final SirixCompileChain chain;

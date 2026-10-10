@@ -16,19 +16,23 @@ public final class CompileWorkStats {
   }
 
   static void parsed() {
-    if (ENABLED) PARSES.incrementAndGet();
+    if (ENABLED)
+      PARSES.incrementAndGet();
   }
 
   static void analysed() {
-    if (ENABLED) ANALYSES.incrementAndGet();
+    if (ENABLED)
+      ANALYSES.incrementAndGet();
   }
 
   static void optimized() {
-    if (ENABLED) OPTIMIZATIONS.incrementAndGet();
+    if (ENABLED)
+      OPTIMIZATIONS.incrementAndGet();
   }
 
   static void translated() {
-    if (ENABLED) TRANSLATIONS.incrementAndGet();
+    if (ENABLED)
+      TRANSLATIONS.incrementAndGet();
   }
 
   public static long parses() {
@@ -49,7 +53,8 @@ public final class CompileWorkStats {
 
   /** Actual recursive expression-dispatch work, rather than an AST-size estimate. */
   public static void translatedExpression() {
-    if (ENABLED) TRANSLATED_EXPRESSIONS.incrementAndGet();
+    if (ENABLED)
+      TRANSLATED_EXPRESSIONS.incrementAndGet();
   }
 
   public static long translatedExpressions() {

@@ -10,6 +10,7 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
+import io.sirix.query.compiler.AstSupport;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.DefaultOptimizer;
 import io.brackit.query.compiler.optimizer.Stage;
@@ -84,7 +85,9 @@ public class SirixOptimizer extends TopDownOptimizer {
     this(options, nodeStore, jsonItemStore, planCache, null);
   }
 
-  /** Cache namespace includes the complete prolog and target slot when supplied by a compile chain. */
+  /**
+   * Cache namespace includes the complete prolog and target slot when supplied by a compile chain.
+   */
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
       final PlanCache planCache, final String cacheNamespace) {
     this(options, nodeStore, jsonItemStore, planCache, cacheNamespace, true);
@@ -116,8 +119,12 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.planCache = planCache;
     this.contextScoped = cacheNamespace == null;
     this.cacheTargets = cacheTargets;
-    this.cacheNamespace = cacheNamespace == null ? "" : cacheNamespace;
-    this.cacheOptions = cacheTargets ? String.valueOf(options) : "";
+    this.cacheNamespace = cacheNamespace == null
+        ? ""
+        : cacheNamespace;
+    this.cacheOptions = cacheTargets
+        ? String.valueOf(options)
+        : "";
     this.cacheTargetSlot = targetSlot;
     // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
     // equality key and keep single-side predicates on their own side. Brackit's stages are private
@@ -221,9 +228,13 @@ public class SirixOptimizer extends TopDownOptimizer {
   @Override
   public AST optimize(StaticContext sctx, AST ast) {
     final long version = PlanCache.indexSchemaVersion();
-    final String cacheKey = cacheTargets && reusableTree(ast, sctx) ? targetCacheKey(ast) : null;
+    final String cacheKey = cacheTargets && reusableTree(ast, sctx)
+        ? targetCacheKey(ast)
+        : null;
     if (cacheKey != null) {
-      final AST cached = planCache.get(cacheNamespace, cacheKey, contextScoped ? sctx : null);
+      final AST cached = planCache.get(cacheNamespace, cacheKey, contextScoped
+          ? sctx
+          : null);
       if (cached != null) {
         rebindContexts(cached, sctx);
         return cached;
@@ -261,7 +272,9 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     // Cache a deep copy so the caller's subsequent mutations don't corrupt the entry.
     if (cacheKey != null && version == PlanCache.indexSchemaVersion()) {
-      planCache.put(cacheNamespace, cacheKey, contextScoped ? sctx : null, optimized.copyTree());
+      planCache.put(cacheNamespace, cacheKey, contextScoped
+          ? sctx
+          : null, AstSupport.copyTree(optimized));
     }
 
     return optimized;
@@ -317,9 +330,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   }
 
   /**
-   * Bind a detached cached tree to this analysis. A copied target loses any context inherited
-   * from its former parent, so a null context also needs rebinding. reusableTree rejects nested
-   * contexts before caching, making this analysis context valid throughout the target.
+   * Bind a detached cached tree to this analysis. A copied target loses any context inherited from
+   * its former parent, so a null context also needs rebinding. reusableTree rejects nested contexts
+   * before caching, making this analysis context valid throughout the target.
    */
   private static void rebindContexts(final AST node, final StaticContext context) {
     node.setStaticContext(context);
