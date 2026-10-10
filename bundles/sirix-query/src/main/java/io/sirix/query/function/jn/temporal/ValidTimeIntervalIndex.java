@@ -93,9 +93,34 @@ public final class ValidTimeIntervalIndex {
     Objects.requireNonNull(document);
     final ValidTimeConfig config =
         Objects.requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig());
+    final IndexDef exactCohort = strictEnd && document instanceof Array && isIndexView(document) && !isMutable(document)
+        && new IntervalDomain().isExact(instant)
+            ? findValidTimeIndex(document)
+            : null;
+    if (exactCohort != null) {
+      final JsonIndexController controller =
+          document.getResourceSession().getRtxIndexController(document.getTrx().getRevisionNumber());
+      final var reader = document.getTrx().getStorageEngineReader();
+      // A known exact cohort needs no closed stab for endpoint verification. Membership still
+      // excludes matching intervals in nested/sibling arrays; the proof never loads on an empty stab.
+      if (controller.isKnownExactValidTimeArray(reader, exactCohort, document.getNodeKey(), ((Array) document).len())) {
+        final IntervalDomain domain = new IntervalDomain();
+        final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, exactCohort.getID(), domain);
+        final LongOpenHashSet keys = new LongOpenHashSet();
+        tree.stabHalfOpen(domain.point(instant), keys::add);
+        return readEvidence(document, exactCohort.getID(), keys).members();
+      }
+    }
     final Sequence sequence = sequence(document, instant, config, false, strictEnd);
     if (sequence != null) {
-      return ((ValidTimeKeySequence) sequence).matchingKeys();
+      final long[] keys = ((ValidTimeKeySequence) sequence).matchingKeys();
+      if (keys.length != 0 && exactCohort != null) {
+        final JsonIndexController controller =
+            document.getResourceSession().getRtxIndexController(document.getTrx().getRevisionNumber());
+        controller.isExactValidTimeArray(document.getTrx().getStorageEngineReader(), exactCohort, document.getNodeKey(),
+            ((Array) document).len());
+      }
+      return keys;
     }
     final LongArrayList keys = new LongArrayList();
     try (final var iterator =

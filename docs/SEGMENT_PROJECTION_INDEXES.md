@@ -1163,7 +1163,10 @@ Details:
 - **Failures**: an `ArithmeticException` (sum overflow) declines; other runtime exceptions go to `failSoft`, counted,
   and rethrown only with `-Dsirix.query.strictServing=true` (`SVE:8013-8037`, `:17586-17619`).
 - **Parallelism**: a fixed pool of `sirix.vec.threads` (default CPUs) daemon threads; row groups are split into
-  `min(threads, ⌈rowGroups/64⌉)` chunks (`SVE:1081-1161`, `:15851-15852`).
+  `min(threads, ⌈rowGroups/64⌉)` chunks. A single chunk runs on the calling thread and reuses its cursor.
+  Group merges also visit all partitions on the caller when the combined scanned and spilled group count does
+  not exceed the partition count; larger merges use the worker pool (`SirixVectorizedExecutor.parallel`
+  and `mergePartitions`).
 - **`trySortedGroupTopK`'s own gate** (`SVE:17622-17691`): no write transaction, a predicate present, exactly one
   group field, every aggregate over the **same** field and each of them `min`, `max` or a span, one order index,
   `limit ∈ 1..32`, no `having`, plain keys only. The ordered aggregate picks the order — `min` ascending →

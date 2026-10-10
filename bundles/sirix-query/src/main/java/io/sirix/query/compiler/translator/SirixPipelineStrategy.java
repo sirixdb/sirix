@@ -91,9 +91,12 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         return generic;
       }
     } else {
-      generic = Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
-          ? super.compileGenericPipeExpr(node, compiler)
-          : super.compilePipeExpr(node, compiler);
+      // Capability probes can open a revision executor even when the SPI will decline the pipe.
+      // Admit its source and shape first; Sirix's own routed shapes are considered below.
+      generic =
+          (Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST)) || !hasSpiShape(node))
+              ? super.compileGenericPipeExpr(node, compiler)
+              : super.compilePipeExpr(node, compiler);
     }
     final Expr sortedScan = sortedScan(node, generic);
     if (sortedScan != null) {
@@ -120,6 +123,15 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return constantGroup;
     }
     return grouped(node, compiler, generic);
+  }
+
+  private static boolean hasSpiShape(final AST node) {
+    final SourceRef source = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
+    return source != null && source.kind() != SourceRef.Kind.UNKNOWN
+        && (Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY"))
+            || Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY_MULTI"))
+            || Boolean.TRUE.equals(node.getProperty("VECTORIZED_ORDERBY"))
+            || Boolean.TRUE.equals(node.getProperty("VECTORIZED_AGGREGATE")));
   }
 
   /** The membership filter the detection stage annotated, its opener's instants compiled, or null. */

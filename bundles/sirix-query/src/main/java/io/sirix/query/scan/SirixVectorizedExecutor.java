@@ -1386,7 +1386,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (terminallyClosed && !reentrant) {
           throw new IllegalStateException("Vectorized executor is closed");
         }
-        if (activeCalls == 0) {
+        if (activeCalls == 0 && ProjectionColumnStore.residencyHeadroomEnabled()) {
           // R1: the outermost admitted call IS the query scope. Column fills published while it is
           // open are pinned; at its exit the stores it touched release what nothing pins any more
           // and no longer fits the headroom share. Nested and concurrent calls share the scope —
@@ -16866,7 +16866,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final long[][] cdBuckets = cdAcc != null
                 ? bucketDistinctSizes(cdAcc, partitionsF, shift)
                 : null;
-            parallel(partitions, part -> {
+            mergePartitions(partitions, scanned + spill.groupsSpilled(), part -> {
               if (!spill.ownsPartition(part)) {
                 return;
               }
@@ -17519,7 +17519,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               : cdAcc != null
                   ? bucketDistinctSizes(cdAcc, partitionsF, shift)
                   : null;
-          parallel(partitions, part -> {
+          mergePartitions(partitions, scanned + spill.groupsSpilled(), part -> {
             if (!spill.ownsPartition(part)) {
               return;
             }
@@ -18746,7 +18746,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         continue; // nothing in this pass's partitions
       }
       final long perPartitionEstimate = Math.max(16, (scanned + spill.groupsSpilled()) / partitions);
-      parallel(partitions, part -> {
+      mergePartitions(partitions, scanned + spill.groupsSpilled(), part -> {
         if (!spill.ownsPartition(part)) {
           return;
         }
@@ -19328,7 +19328,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[][] cdBuckets = cdAcc != null
             ? bucketDistinctSizes(cdAcc, partitionsF, shift)
             : null;
-        parallel(partitions, part -> {
+        mergePartitions(partitions, scanned + spill.groupsSpilled(), part -> {
           if (!spill.ownsPartition(part)) {
             return;
           }
@@ -30620,6 +30620,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     parallel(n, task, null);
   }
 
+  void mergePartitions(final int partitions, final long groups, final ChunkTask task) {
+    if (groups <= partitions) {
+      // Keep the spill/pass partition layout, but avoid dispatching mostly empty merge tasks.
+      parallel(1, ignored -> {
+        for (int part = 0; part < partitions; part++) {
+          task.run(part);
+        }
+      });
+    } else {
+      parallel(partitions, task);
+    }
+  }
+
   /**
    * {@link #parallel(int, ChunkTask)} that also records each chunk's wall time, in nanoseconds, into
    * {@code chunkNanos[index]} — the straggler instrument of a statically chunked scan: the phase ends
@@ -30630,6 +30643,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     enterExecution();
     try {
       try {
+        // A single chunk has no parallelism to exploit. Keep it on the admitted caller so small
+        // scans reuse its cursor instead of starting a worker and opening another revision cursor.
+        if (n == 1) {
+          runChunkTimed(task, 0, chunkNanos);
+          return;
+        }
         // A retired executor is still reachable from an already-compiled query. It remains admitted
         // by the shared chain lifetime and runs inline; terminal close, in contrast, rejects it in
         // enterExecution() before any session-bound work is accepted.

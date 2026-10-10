@@ -2931,11 +2931,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Fetch distinct logical segment slots from one projection chain. Results retain request order;
-   * NULL_ID_LONG requests and missing slots yield null. Gaps larger than 64 row-group ids start a new
-   * trie range, so sparse physical order never turns a small window into a full-index walk.
-   * Referenced payloads use the same coalesced batch reader as offset directories. No segment bytes
-   * are cached here, and the caller verifies every result against its revision's descriptor.
+   * Fetch distinct logical segment slots from one committed column-major chain. Results retain
+   * request order; NULL_ID_LONG requests and missing slots yield null. Gaps larger than 64 row-group
+   * ids start a new trie range, so sparse physical order never turns a small window into a full-index
+   * walk. Referenced payloads use the same coalesced batch reader as offset directories. No segment
+   * bytes are cached here, and the caller verifies every result against its revision's descriptor.
    */
   static void readColumnSlotRange(final StorageEngineReader reader, final int indexNumber, final long[] slotKeys,
       final int from, final int to, final byte[][] out) {
