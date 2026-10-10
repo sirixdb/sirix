@@ -28,6 +28,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -732,10 +733,11 @@ final class IndexRoutedGroupAggregateTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
       throws Exception {
-    try (final ByteArrayOutputStream out = new ByteArrayOutputStream(); final PrintWriter pw = new PrintWriter(out)) {
+    try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        final PrintWriter pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
       new Query(chain, query).serialize(ctx, pw);
       pw.flush();
-      return out.toString().trim();
+      return out.toString(StandardCharsets.UTF_8).trim();
     }
   }
 

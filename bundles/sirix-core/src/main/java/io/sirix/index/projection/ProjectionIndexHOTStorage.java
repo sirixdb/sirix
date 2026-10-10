@@ -1317,8 +1317,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (expectedKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS) {
         final ProjectionOpenRowGroupTail.Header header = ProjectionOpenRowGroupTail.Header.decode(
             readBlob(reader, indexNumber, ProjectionOpenRowGroupTail.headerSlot(rowGroupId)), rowGroupId);
-        final byte[] baseKeys = readVerifiedColumnSegment(reader, indexNumber, layout, rowGroupId,
-            header.baseDescriptor(), columnSegmentId, expectedKind);
+        final byte[] baseKeys = Objects
+                                       .requireNonNull(
+                                           readVerifiedColumnSegment(reader, indexNumber, layout, rowGroupId,
+                                               header.baseDescriptor(), columnSegmentId, expectedKind),
+                                           "an appended tail requires its base KEYS segment");
         segment = ProjectionOpenRowGroupTail.materializeKeys(rowGroupId, descriptor, header, baseKeys,
             readTailRowBlobs(reader, indexNumber, rowGroupId, header));
       } else {

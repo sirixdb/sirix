@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
@@ -47,8 +49,47 @@ final class RecordKeySetPredicateTest {
    * Columns: 0 = long, 1 = string. {@code keys[leaf][row]} and {@code longs[leaf][row]} mirror the
    * pages.
    */
-  private record Fixture(ProjectionColumnStore store, List<byte[]> rawLeaves, ColumnSegmentFetcher fetcher,
-      long[][] keys, long[][] longs, boolean[][] present) {
+  private static final class Fixture {
+    private final ProjectionColumnStore store;
+    private final List<byte[]> rawLeaves;
+    private final ColumnSegmentFetcher fetcher;
+    private final long[][] keys;
+    private final long[][] longs;
+    private final boolean[][] present;
+
+    private Fixture(final ProjectionColumnStore store, final List<byte[]> rawLeaves, final ColumnSegmentFetcher fetcher,
+        final long[][] keys, final long[][] longs, final boolean[][] present) {
+      this.store = store;
+      this.rawLeaves = rawLeaves;
+      this.fetcher = fetcher;
+      this.keys = keys;
+      this.longs = longs;
+      this.present = present;
+    }
+
+    ProjectionColumnStore store() {
+      return store;
+    }
+
+    List<byte[]> rawLeaves() {
+      return rawLeaves;
+    }
+
+    ColumnSegmentFetcher fetcher() {
+      return fetcher;
+    }
+
+    long[][] keys() {
+      return keys;
+    }
+
+    long[][] longs() {
+      return longs;
+    }
+
+    boolean[][] present() {
+      return present;
+    }
   }
 
   private static Fixture buildFixture(final long seed, final int leaves, final boolean exceptions) {
@@ -104,7 +145,8 @@ final class RecordKeySetPredicateTest {
       }
       final byte[] raw = page.serialize();
       rawLeaves.add(raw);
-      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
+      final EncodedRowGroup encoded =
+          requireNonNull(ProjectionIndexColumnSegmentCodec.encode(raw), "fixture rows must encode as column segments");
       final int segmentCount = encoded.columnSegmentIds().length;
       final int[] ids = new int[segmentCount];
       final long[] offsets = new long[segmentCount];
@@ -225,12 +267,12 @@ final class RecordKeySetPredicateTest {
               final PredicateTree andTree = preds.length == 1
                   ? PredicateTree.of(preds, new byte[] {0})
                   : PredicateTree.of(preds, new byte[] {0, 1, PredicateTree.OP_AND});
-              assertEquals(expected, treeCount(fx, preds, andTree), "tree AND " + at);
+              assertEquals(expected, treeCount(fx, andTree), "tree AND " + at);
               if (withLong) {
                 final PredicateTree orTree = PredicateTree.of(preds, new byte[] {0, 1, PredicateTree.OP_OR});
                 final long orExpected =
                     bruteCount(fx, set, false) + bruteCount(fx, allStoredKeys(fx), true) - bruteCount(fx, set, true);
-                assertEquals(orExpected, treeCount(fx, preds, orTree), "tree OR " + at);
+                assertEquals(orExpected, treeCount(fx, orTree), "tree OR " + at);
               }
             }
           }
@@ -261,7 +303,8 @@ final class RecordKeySetPredicateTest {
                 new byte[kinds.length][], new int[kinds.length], null, presence, new boolean[kinds.length],
                 new boolean[kinds.length], new boolean[kinds.length], leaf == 0 && row == 1);
           }
-          final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+          final EncodedRowGroup encoded = requireNonNull(ProjectionIndexColumnSegmentCodec.encode(page.serialize()),
+              "fixture rows must encode as column segments");
           final int[] ids = encoded.columnSegmentIds();
           final long[] offsets = new long[ids.length];
           for (int segment = 0; segment < ids.length; segment++) {
@@ -309,15 +352,17 @@ final class RecordKeySetPredicateTest {
         final WorkCapture.Captured<long[]> read = WorkCapture.of(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
                                                              .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                                                              .call(() -> {
-                                                               final long[] keep =
+                                                               final long[] keep = requireNonNull(
                                                                    ProjectionColumnScan.predicateKeepMask(store,
-                                                                       flatPredicates, predicateTree, fetcher);
+                                                                       flatPredicates, predicateTree, fetcher),
+                                                                   "the fixture must prune the excluded leaves");
                                                                for (int column = 0; column < kinds.length; column++) {
                                                                  final ColumnSlice[] slices =
                                                                      store.columnMaskedView(column, fetcher, keep);
                                                                  assertEquals(0, slices[0].rowCount());
                                                                  assertEquals(values[column],
-                                                                     slices[1].numericValues()[0]);
+                                                                     requireNonNull(slices[1].numericValues(),
+                                                                         "the retained fixture column is numeric")[0]);
                                                                  assertEquals(0, slices[2].rowCount());
                                                                }
                                                                return keep;
@@ -351,8 +396,10 @@ final class RecordKeySetPredicateTest {
           .assertAtMost(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES, rows + leaves.length,
               "a dense source advances its key set once, independent of the leaf count");
     long members = 0;
+    final ProjectionRecordKeySet.Masks masks =
+        requireNonNull(mapped.result().keyMasks, "the dense fixture predicate must carry prepared masks");
     for (final long[] leaf : leaves) {
-      for (final long word : mapped.result().keyMasks.byFirstKey().get(leaf[0])) {
+      for (final long word : masks.byFirstKey().get(leaf[0])) {
         members += Long.bitCount(word);
       }
     }
@@ -369,7 +416,7 @@ final class RecordKeySetPredicateTest {
     return sorted;
   }
 
-  private static long treeCount(final Fixture fx, final ColumnPredicate[] leaves, final PredicateTree tree) {
+  private static long treeCount(final Fixture fx, final PredicateTree tree) {
     final ColumnPredicate[] none = new ColumnPredicate[0];
     final long[] keep = ProjectionColumnScan.predicateKeepMask(fx.store(), none, tree, fx.fetcher());
     final ColumnSlice[][] treeCols =

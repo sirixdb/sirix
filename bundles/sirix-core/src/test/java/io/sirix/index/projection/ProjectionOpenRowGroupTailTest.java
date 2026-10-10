@@ -443,19 +443,21 @@ final class ProjectionOpenRowGroupTailTest {
                                             return Arrays.asList(ProjectionIndexHOTStorage.readDirectoryWindow(counted,
                                                 INDEX, new int[] {1, groups}, 0, 2, false));
                                           }
-                                          return ProjectionIndexHOTStorage.readRowGroupDirectoriesWithoutTailMaterialization(
-                                              counted, INDEX, groups, physicalOrder, route == 0
-                                                  ? null
-                                                  : worker -> {
-                                                    try (JsonNodeReadOnlyTrx workerTrx =
-                                                        session.beginNodeReadOnlyTrx(revision)) {
-                                                      worker.accept(
-                                                          countPayloadReads(workerTrx.getStorageEngineReader(),
-                                                              baseOffsets, hashesOffset, baseReads, hashReads));
-                                                      workers.incrementAndGet();
-                                                    }
-                                                  },
-                                              route == 2);
+                                          return requireNonNull(
+                                              ProjectionIndexHOTStorage.readRowGroupDirectoriesWithoutTailMaterialization(
+                                                  counted, INDEX, groups, physicalOrder, route == 0
+                                                      ? null
+                                                      : worker -> {
+                                                        try (JsonNodeReadOnlyTrx workerTrx =
+                                                            session.beginNodeReadOnlyTrx(revision)) {
+                                                          worker.accept(
+                                                              countPayloadReads(workerTrx.getStorageEngineReader(),
+                                                                  baseOffsets, hashesOffset, baseReads, hashReads));
+                                                          workers.incrementAndGet();
+                                                        }
+                                                      },
+                                                  route == 2),
+                                              "the masked fixture directories must exist");
                                         });
           assertNotNull(masked.result(), "an open tail stays lazy in masked directory route " + route);
           assertFalse(masked.result().getFirst().logicalSlots());
@@ -472,10 +474,12 @@ final class ProjectionOpenRowGroupTailTest {
                     "masked admission never starts tail BODY hydration");
           final var keys =
               WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
-                         .call(() -> ProjectionIndexHOTStorage.readVerifiedColumnSegment(counted, INDEX,
-                             ProjectionSlotLayout.ROW_GROUP_MAJOR, 1, masked.result().getFirst().descriptor(),
-                             ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
-                             ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS));
+                         .call(() -> requireNonNull(
+                             ProjectionIndexHOTStorage.readVerifiedColumnSegment(counted, INDEX,
+                                 ProjectionSlotLayout.ROW_GROUP_MAJOR, 1, masked.result().getFirst().descriptor(),
+                                 ProjectionIndexColumnSegmentCodec.keysColumnSegmentId(),
+                                 ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS),
+                             "the fixture KEYS segment must exist"));
           assertArrayEquals(expectedEncoded.segments()[0], keys.result(), "tail KEYS match the full encoding");
           keys.work()
               .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0,

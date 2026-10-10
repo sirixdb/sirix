@@ -15017,7 +15017,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
   public record GroupRouting(long @Nullable [] rowKeys, ComputedLane @Nullable [] computed) {
-    public GroupRouting {
+    public GroupRouting(final long @Nullable [] rowKeys, final ComputedLane @Nullable [] computed) {
       if (rowKeys != null) {
         for (int i = 1; i < rowKeys.length; i++) {
           if (rowKeys[i] <= rowKeys[i - 1]) {
@@ -15025,6 +15025,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
       }
+      this.rowKeys = rowKeys;
+      this.computed = computed;
     }
 
     /** The derived lane named {@code field} ({@code "prog:<i>"}), or {@code null}. */

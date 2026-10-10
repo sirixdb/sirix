@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.GlobalValueDictionary.ReadView;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
@@ -4409,7 +4411,7 @@ public final class ProjectionIndexByteScan {
     return fnv1a64(utf8, 0, utf8.length);
   }
 
-  static void validateStringLengthModes(final byte[] modes, final int aggregateCount) {
+  static void validateStringLengthModes(final byte @Nullable [] modes, final int aggregateCount) {
     if (modes == null) {
       return;
     }
@@ -5760,7 +5762,8 @@ public final class ProjectionIndexByteScan {
         }
         System.arraycopy(membership, 0, s.colMask, 0, stride);
       } else {
-        evalRecordKeysInBytes(payload, keysOff, rowCount, p.sortedKeys, s.colMask);
+        evalRecordKeysInBytes(payload, keysOff, rowCount,
+            requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"), s.colMask);
       }
       return;
     }
@@ -6000,7 +6003,8 @@ public final class ProjectionIndexByteScan {
     if (p.op == ProjectionIndexScan.Op.KEY_IN) {
       // The virtual KEYS slice's zone is the leaf's exact key range: skip the leaf when no key of the
       // set falls inside it.
-      return !ProjectionRecordKeySet.anyIn(p.sortedKeys, min, max);
+      return !ProjectionRecordKeySet.anyIn(requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"),
+          min, max);
     }
     // A STRING predicate can never be zone-skipped, whatever its op. A string column's zone map
     // holds min/max DICTIONARY IDS — which say nothing about the values' order or content — while

@@ -63,6 +63,7 @@ public final class ProjectionComputedColumn {
     final ColumnSlice[] out = new ColumnSlice[leaves];
     final long[] stack = new long[MAX_STACK];
     final long[] operandValues = new long[operands.length];
+    final long[][] operandLanes = new long[operands.length][];
     for (int leaf = 0; leaf < leaves; leaf++) {
       final boolean kept =
           keepWords == null || ((leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L);
@@ -70,13 +71,13 @@ public final class ProjectionComputedColumn {
         out[leaf] = ProjectionColumnStore.prunedSlice();
         continue;
       }
-      out[leaf] = evaluateLeaf(operands, leaf, code, consts, stack, operandValues);
+      out[leaf] = evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandLanes);
     }
     return out;
   }
 
   private static ColumnSlice evaluateLeaf(final ColumnSlice[][] operands, final int leaf, final int[] code,
-      final long[] consts, final long[] stack, final long[] operandValues) {
+      final long[] consts, final long[] stack, final long[] operandValues, final long[][] operandLanes) {
     final int operandCount = operands.length;
     int rowCount = -1;
     for (int c = 0; c < operandCount; c++) {
@@ -84,9 +85,11 @@ public final class ProjectionComputedColumn {
       if (slice == null || slice.rowCount() <= 0) {
         return ProjectionColumnStore.prunedSlice();
       }
-      if (slice.numericValues() == null) {
+      final long[] lane = slice.numericValues();
+      if (lane == null) {
         throw new IllegalArgumentException("computed operand " + c + " is not a long-lane column on leaf " + leaf);
       }
+      operandLanes[c] = lane;
       if (rowCount < 0) {
         rowCount = slice.rowCount();
       } else if (rowCount != slice.rowCount()) {
@@ -115,7 +118,7 @@ public final class ProjectionComputedColumn {
         word &= word - 1L;
         final int row = rowBase + bit;
         for (int c = 0; c < operandCount; c++) {
-          operandValues[c] = operands[c][leaf].numericValues()[row];
+          operandValues[c] = operandLanes[c][row];
         }
         final long v = run(code, consts, operandValues, stack);
         values[row] = v;

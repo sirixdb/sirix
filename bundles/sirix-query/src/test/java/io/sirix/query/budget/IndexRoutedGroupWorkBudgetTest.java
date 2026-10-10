@@ -1,5 +1,7 @@
 package io.sirix.query.budget;
 
+import static java.util.Objects.requireNonNull;
+
 import io.brackit.query.Query;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.DatabaseConfiguration;
@@ -11,6 +13,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
+import io.sirix.budget.WorkReport;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
@@ -47,9 +50,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
@@ -126,8 +131,10 @@ final class IndexRoutedGroupWorkBudgetTest {
       try (var ctx = SirixQueryContext.createWithJsonStore(observedStore);
           var referenceChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(observedStore);
           var chain = SirixCompileChain.createWithJsonStore(observedStore)) {
-        final String prolog = "declare variable $T := xs:dateTime('2024-02-01T00:00:00Z');\n"
-            + "declare variable $P := xs:dateTime('2024-06-01T00:00:00Z');\n";
+        final String prolog = """
+            declare variable $T := xs:dateTime('2024-02-01T00:00:00Z');
+            declare variable $P := xs:dateTime('2024-06-01T00:00:00Z');
+            """;
         final String body = """
             for $c in SRC
             let $grade := $c.grade, $qty := $c.qty, $value := $c.cost * $c.qty
@@ -265,10 +272,12 @@ final class IndexRoutedGroupWorkBudgetTest {
            .assertAtMost(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES, rows + 1 + columns.leafCount(),
                "dense advances remain linear");
       final Masks sparse = fetcher.recordKeyMasks(handle.defId(), keys);
-      assertEquals(sparse.physicalSlots(), dense.result().keyMasks.physicalSlots());
-      assertEquals(sparse.byFirstKey().size(), dense.result().keyMasks.byFirstKey().size());
+      final Masks denseMasks =
+          requireNonNull(dense.result().keyMasks, "the dense fixture predicate must carry prepared masks");
+      assertEquals(sparse.physicalSlots(), denseMasks.physicalSlots());
+      assertEquals(sparse.byFirstKey().size(), denseMasks.byFirstKey().size());
       for (final var entry : sparse.byFirstKey().long2ObjectEntrySet()) {
-        assertArrayEquals(entry.getValue(), dense.result().keyMasks.byFirstKey().get(entry.getLongKey()));
+        assertArrayEquals(entry.getValue(), denseMasks.byFirstKey().get(entry.getLongKey()));
       }
     }
   }
@@ -348,20 +357,20 @@ final class IndexRoutedGroupWorkBudgetTest {
             assertEquals(dictionary
                 ? "{\"k1\":\"2024-01-01T00:00:00Z\",\"k2\":\"2025-01-01T00:00:00Z\",\"total\":1100}"
                 : "{\"k1\":0,\"k2\":6,\"total\":1100}", expected);
+            final @Nullable ServedGroups[] directResult = new ServedGroups[1];
             for (int repeat = 0; repeat < 4; repeat++) {
-              final WorkCapture.Captured<ServedGroups> direct =
+              final WorkReport direct =
                   WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                              .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
                              .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
-                             .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, fields,
-                                 new String[] {"k1", "k2"}, new String[] {"sum"}, new String[] {"cost"},
+                             .run(() -> directResult[0] = executor.executeGroupByAggregate(ctx, new String[] {"[]"},
+                                 null, fields, new String[] {"k1", "k2"}, new String[] {"sum"}, new String[] {"cost"},
                                  new String[] {"total"}, new int[] {0, 1}, new boolean[] {true, true},
                                  new boolean[] {true, true}, 10L, null, null, null, null, null, null, null, null, null,
                                  null, new GroupRouting(keys, null)));
-              assertNull(direct.result());
-              direct.work()
-                    .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
-                        "decline precedes whole-leaf fetches")
+              assertNull(directResult[0]);
+              direct.assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
+                  "decline precedes whole-leaf fetches")
                     .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "capped composite mask declines")
                     .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0,
                         "decline is an ordinary route decision");
@@ -408,18 +417,18 @@ final class IndexRoutedGroupWorkBudgetTest {
         final var executor = new SirixVectorizedExecutor(session, revision, 1);
         final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
         try {
+          final @Nullable ServedGroups[] result = new ServedGroups[1];
           for (int repeat = 0; repeat < 4; repeat++) {
-            final WorkCapture.Captured<ServedGroups> result =
+            final WorkReport work =
                 WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                            .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
                            .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
-                           .call(() -> group(executor, ctx, "count-distinct", "vf", new GroupRouting(keys, null)));
-            assertNull(result.result());
-            result.work()
-                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "no column body is fetched")
-                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
-                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0,
-                      "a budget refusal is an ordinary decline");
+                           .run(() -> result[0] =
+                               group(executor, ctx, "count-distinct", "vf", new GroupRouting(keys, null)));
+            assertNull(result[0]);
+            work.assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "no column body is fetched")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "a budget refusal is an ordinary decline");
           }
           assertFalse(handle.payloadsMaterialized());
           assertEquals(0, handle.slicedRouteTick());
@@ -474,7 +483,8 @@ final class IndexRoutedGroupWorkBudgetTest {
         return null;
       }).when(observedFetcher).fetchRange(any(), anyInt(), anyInt(), any());
       doAnswer(invocation -> {
-        final byte[][] out = realFetcher.fetchAll(invocation.getArgument(0));
+        final byte[][] out = requireNonNull(realFetcher.fetchAll(invocation.getArgument(0)),
+            "the observed fixture fetch must return its segments");
         countBodyRequests(out, 0, out.length, bodyRequests);
         return out;
       }).when(observedFetcher).fetchAll(any());
@@ -505,17 +515,17 @@ final class IndexRoutedGroupWorkBudgetTest {
             () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
                .thenReturn(observedHandle);
         catalog.when(() -> ProjectionIndexCatalog.columnSegmentFetcher(session, revision)).thenReturn(observedFetcher);
+        final @Nullable ServedGroups[] result = new ServedGroups[1];
         for (int repeat = 0; repeat < 4; repeat++) {
           bodyRequests.set(0);
-          final WorkCapture.Captured<ServedGroups> result =
+          final WorkReport work =
               WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
                          .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
-                         .call(() -> group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
-          assertAll(() -> assertNull(result.result(), "a masked request must decline the unmasked window decoder"),
+                         .run(() -> result[0] = group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
+          assertAll(() -> assertNull(result[0], "a masked request must decline the unmasked window decoder"),
               () -> assertEquals(0, bodyRequests.get(), "decline must precede actual BODY requests"));
-          result.work()
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "a budget refusal is an ordinary decline");
+          work.assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the unsupported masked arm declines")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "a budget refusal is an ordinary decline");
           final WorkCapture.Captured<String> fallback = WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
                                                                    .and(QueryWorkCounters.GROUP_AGGREGATES)
                                                                    .call(() -> run(chain, ctx, query));
@@ -560,19 +570,18 @@ final class IndexRoutedGroupWorkBudgetTest {
         catalog.when(
             () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
                .thenReturn(observedHandle);
+        final @Nullable ServedGroups[] result = new ServedGroups[1];
         for (int repeat = 0; repeat < 4; repeat++) {
           clearInvocations(refusing);
-          final WorkCapture.Captured<ServedGroups> result =
+          final WorkReport work =
               WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                          .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
                          .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
-                         .call(() -> group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
-          assertNull(result.result());
-          result.work()
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1,
-                    "the resident fill refusal declines once")
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
-                .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
+                         .run(() -> result[0] = group(executor, ctx, "sum", "cost", new GroupRouting(keys, null)));
+          assertNull(result[0]);
+          work.assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the resident fill refusal declines once")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
           verify(refusing).columnMaskedView(anyInt(), any(), any());
           verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
         }
@@ -621,30 +630,29 @@ final class IndexRoutedGroupWorkBudgetTest {
         catalog.when(
             () -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any(), eq(true)))
                .thenReturn(observedHandle);
+        final @Nullable ServedGroups[] result = new ServedGroups[1];
         for (final long remainder : new long[] {qtyBytes - 1, qtyBytes + derivedBytes - 1}) {
           ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained + remainder);
           clearInvocations(observedColumns);
-          final WorkCapture.Captured<ServedGroups> result =
+          final WorkReport work =
               WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                          .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
-                         .call(() -> group(executor, ctx, "sum", "prog:0",
-                             new GroupRouting(null, new ComputedLane[] {lane})));
-          assertNull(result.result());
-          result.work()
-                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1,
-                    "one decision declines the resident route")
-                .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "decline precedes any operand fill");
+                         .run(() -> result[0] =
+                             group(executor, ctx, "sum", "prog:0", new GroupRouting(null, new ComputedLane[] {lane})));
+          assertNull(result[0]);
+          work.assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "one decision declines the resident route")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "decline precedes any operand fill");
           verify(observedColumns).columnsFitWithinBudget(any(), eq(-1), eq(derivedBytes));
           verify(observedColumns, never()).columnMaskedView(anyInt(), any(), any());
           assertFalse(columns.columnFilled(handle.columnOf("qty")));
         }
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained + qtyBytes + derivedBytes);
-        final WorkCapture.Captured<ServedGroups> accepted =
+        final WorkReport accepted =
             WorkCapture.of(QueryWorkCounters.GROUP_AGGREGATES)
-                       .call(() -> group(executor, ctx, "sum", "prog:0",
-                           new GroupRouting(null, new ComputedLane[] {lane})));
-        assertNotNull(accepted.result());
-        accepted.work().assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the complete computed footprint fits");
+                       .run(() -> result[0] =
+                           group(executor, ctx, "sum", "prog:0", new GroupRouting(null, new ComputedLane[] {lane})));
+        assertNotNull(result[0]);
+        accepted.assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "the complete computed footprint fits");
       } finally {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
         executor.close();
@@ -720,7 +728,8 @@ final class IndexRoutedGroupWorkBudgetTest {
       assertNotNull(metadata);
       assertEquals(ProjectionSlotLayout.ROW_GROUP_MAJOR, metadata.slotLayout());
       assertEquals(3, metadata.rowGroupCount());
-      final byte[] descriptor = ProjectionIndexHOTStorage.readBlob(reader, index, 3L << 16);
+      final byte[] descriptor = requireNonNull(ProjectionIndexHOTStorage.readBlob(reader, index, 3L << 16),
+          "the reopened fixture tail descriptor must exist");
       assertTrue(RowGroupDescriptor.isTailed(descriptor), "the reopened last leaf has an appended row tail");
       final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
       final var keys = WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
@@ -733,7 +742,9 @@ final class IndexRoutedGroupWorkBudgetTest {
           .assertExactly(EngineWorkCounters.PROJECTION_TAIL_BODY_READS, 0, "KEYS lookup reads no BODY segments");
       final var positive =
           WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
-                     .call(() -> ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, index, 3));
+                     .call(() -> requireNonNull(
+                         ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, index, 3),
+                         "the positive-control fixture leaf must exist"));
       assertNotNull(positive.result());
       assertEquals(ROWS - 2 * ProjectionIndexRowGroupPage.MAX_ROWS + 1,
           ProjectionIndexRowGroupPage.deserialize(positive.result()).getRowCount());
@@ -742,11 +753,12 @@ final class IndexRoutedGroupWorkBudgetTest {
                   "an authorized whole-tail read is visible at the storage source");
       assertNotNull(ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
           revision, new String[] {"[]"}, new String[] {"cost"}));
-      final var masked = WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
-                                    .and(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
-                                    .call(() -> ProjectionIndexCatalog.lookupCovering(session,
-                                        session.getResourceConfig().getResource().toString(), revision,
-                                        new String[] {"[]"}, new String[] {"cost"}, true));
+      final var masked =
+          WorkCapture.of(EngineWorkCounters.PROJECTION_TAIL_BODY_READS)
+                     .and(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS)
+                     .call(() -> requireNonNull(ProjectionIndexCatalog.lookupCovering(session,
+                         session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+                         new String[] {"cost"}, true), "the masked fixture projection must be admitted"));
       assertNotNull(masked.result(), "masked admission retains lazy tail payloads despite an unmasked cache entry");
       masked.work()
             .assertExactly(EngineWorkCounters.PROJECTION_MASKED_TAIL_DEFERRALS, 1,
@@ -877,7 +889,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
-  private static ServedGroups group(final SirixVectorizedExecutor executor, final SirixQueryContext ctx,
+  private static @Nullable ServedGroups group(final SirixVectorizedExecutor executor, final SirixQueryContext ctx,
       final String func, final String field, final GroupRouting routing) {
     return executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, new String[] {"grade"},
         new String[] {"grade"}, new String[] {func}, new String[] {field}, new String[] {"n"}, null, null, null, -1L,
@@ -905,10 +917,11 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
       throws Exception {
-    try (final ByteArrayOutputStream out = new ByteArrayOutputStream(); final PrintWriter pw = new PrintWriter(out)) {
+    try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        final PrintWriter pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
       new Query(chain, query).serialize(ctx, pw);
       pw.flush();
-      return out.toString().trim();
+      return out.toString(StandardCharsets.UTF_8).trim();
     }
   }
 

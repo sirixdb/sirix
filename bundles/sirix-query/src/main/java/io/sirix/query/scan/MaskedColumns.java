@@ -1,9 +1,12 @@
 package io.sirix.query.scan;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jspecify.annotations.Nullable;
@@ -93,7 +96,7 @@ public final class MaskedColumns {
 
   /** The long value of {@code field} on a PRESENT row. */
   public long longValue(final int field, final int leaf, final int row) {
-    return slices[field][leaf].numericValues()[row];
+    return requireNonNull(slices[field][leaf].numericValues(), "an admitted long field needs a numeric lane")[row];
   }
 
   /**
@@ -102,6 +105,7 @@ public final class MaskedColumns {
    */
   public int stringId(final int field, final int leaf, final int row) {
     final ColumnSlice slice = slices[field][leaf];
+    final int[] ids = requireNonNull(slice.stringDictIds(), "an admitted string field needs dictionary ids");
     int[] table = dictToInterned[field][leaf];
     if (table == null) {
       final int dictSize = slice.dictSize();
@@ -111,7 +115,7 @@ public final class MaskedColumns {
       }
       dictToInterned[field][leaf] = table;
     }
-    return table[slice.stringDictIds()[row]];
+    return table[ids[row]];
   }
 
   /** The string behind an interned id. */
@@ -163,7 +167,7 @@ public final class MaskedColumns {
         continue;
       }
       final long[] presence = slice.presenceWords();
-      final long[] lane = slice.numericValues();
+      final long[] lane = requireNonNull(slice.numericValues(), "an admitted long field needs a numeric lane");
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w] & presence[w];
         final int rowBase = w << 6;
@@ -196,8 +200,8 @@ public final class MaskedColumns {
           ? null
           : slice.presenceWords();
       final long[] lane = pruned
-          ? null
-          : slice.numericValues();
+          ? LongArrays.EMPTY_ARRAY
+          : requireNonNull(slice.numericValues(), "an admitted membership field needs a numeric lane");
       final long[] leafKeys = recordKeys[leaf];
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
@@ -224,6 +228,7 @@ public final class MaskedColumns {
   /** The interned id of a string on a PRESENT row, through the shared interner when adopted. */
   public int sharedStringId(final int field, final int leaf, final int row) {
     final ColumnSlice slice = slices[field][leaf];
+    final int[] ids = requireNonNull(slice.stringDictIds(), "an admitted string field needs dictionary ids");
     int[] table = dictToInterned[field][leaf];
     if (table == null) {
       final int dictSize = slice.dictSize();
@@ -233,7 +238,7 @@ public final class MaskedColumns {
       }
       dictToInterned[field][leaf] = table;
     }
-    return table[slice.stringDictIds()[row]];
+    return table[ids[row]];
   }
 
 }

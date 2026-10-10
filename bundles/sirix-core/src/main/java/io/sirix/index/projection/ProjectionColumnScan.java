@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
@@ -2496,7 +2498,8 @@ public final class ProjectionColumnScan {
           mask[w] &= membership[w];
         }
       } else {
-        ProjectionRecordKeySet.andMembership(values, rowCount, p.sortedKeys, mask);
+        ProjectionRecordKeySet.andMembership(values, rowCount,
+            requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"), mask);
       }
       return;
     }
@@ -3507,7 +3510,7 @@ public final class ProjectionColumnScan {
   private static int pruneRecordKeyLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
       final ColumnSegmentFetcher fetcher) {
     final int n = store.leafCount();
-    final long[] sortedKeys = p.sortedKeys;
+    final long[] sortedKeys = requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys");
     final ProjectionRecordKeySet.Masks masks = p.keyMasks == null
         ? store.recordKeyMasks(sortedKeys, fetcher)
         : p.keyMasks;
