@@ -3640,6 +3640,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       mostRecentDeweyIdPage = null;
       pathSummaryRecordPage = null;
       Arrays.fill(mostRecentNamePages, null);
+      Arrays.fill(namesByOffset, null);
+      namePage = null;
 
       isClosed = true;
     }
@@ -3648,7 +3650,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public int getNameCount(final int key, final NodeKind kind) {
     assertNotClosed();
-    return namePage().getCount(key, kind, this);
+    final Names names = alreadyBuiltNames(kind);
+    return names != null
+        ? names.getCount(key)
+        : namePage().getCount(key, kind, this);
   }
 
   @Override
