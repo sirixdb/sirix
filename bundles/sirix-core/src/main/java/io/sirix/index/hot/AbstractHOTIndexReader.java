@@ -455,9 +455,8 @@ public abstract class AbstractHOTIndexReader<K> {
                 stop = true;
                 break;
               }
-              if (cmp == 0 && leaf.getKeyLength(idx) == compositeLen) {
-                final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-                if (!accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16, trie)) {
+              if (cmp == 0) {
+                if (!accumulateChunkOrDelta(leaf, idx, prefixLen, compositeLen, accumulator, trie)) {
                   torn = true;
                   break;
                 }
@@ -492,6 +491,25 @@ public abstract class AbstractHOTIndexReader<K> {
       trie.close(); // clears the reader's leaf snapshot + path; the object stays reusable
       pooledWalkState.compareAndSet(null, state);
     }
+  }
+
+  /** Decode one matching slot; the caller validates the leaf stamp before keeping its additions. */
+  private boolean accumulateChunkOrDelta(final HOTLeafPage leaf, final int index, final int prefixLen,
+      final int compositeLen, final NodeReferencesSerializer.ChunkAccumulator accumulator, final HOTTrieReader trie) {
+    final int keyLength = leaf.getKeyLength(index);
+    if (keyLength == compositeLen) {
+      final long trailer = leaf.readKeyIntBE(index, prefixLen) & 0xFFFFFFFFL;
+      return accumulator.addChunk(leaf, leaf.valueRef(index), trailer << 16, trie);
+    }
+    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
+        && keyLength == compositeLen + PostingDeltas.SUFFIX_BYTES) {
+      final long suffix = leaf.readKeyIntBE(index, compositeLen) & 0xFFFFFFFFL;
+      if (PostingDeltas.isDelta(suffix)) {
+        final long chunkIdx = leaf.readKeyIntBE(index, prefixLen) & 0xFFFFFFFFL;
+        return accumulator.applyDelta(leaf, leaf.valueRef(index), chunkIdx, suffix, trie);
+      }
+    }
+    return true;
   }
 
 
@@ -765,6 +783,11 @@ public abstract class AbstractHOTIndexReader<K> {
     return Arrays.copyOf(buffer, length);
   }
 
+  /** Logical key boundary of a stored base or delta slot; object readers use their serializer. */
+  protected int logicalKeyLength(final byte[] composite) {
+    return composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+  }
+
   /** {@code prefix ‖ chunkIdx_be4} — a composite bound for the range cursor. */
   private static byte[] compositeBound(final byte[] prefix, final int chunkIdx) {
     requireNonNull(prefix, "prefix");
@@ -782,28 +805,18 @@ public abstract class AbstractHOTIndexReader<K> {
    *
    * <h2>Why bounds are checked here and not by the caller</h2>
    * <p>
-   * The cursor's composite bounds are a coarse <em>byte</em> window, not the logical key range: index
-   * keys are not prefix-free (a CAS string value is raw UTF-8 with no terminator), so the upper
-   * composite {@code serialize(max) ‖ 0xFFFFFFFF} also covers every key that byte-extends {@code max}
-   * — "carpet" sorts below the ceiling built for "car". Callers that trimmed bounds positionally
-   * afterwards (skip the first group if it equals min, the last if it equals max) were wrong twice
-   * over: they let prefix-extensions through, and the equal group need not be first or last. The
-   * exact bound test therefore lives here, comparing each group's LOGICAL key bytes (composite minus
-   * the chunk trailer) against the serialized bound — at most two {@link Arrays#compareUnsigned} per
-   * emitted group, and no key deserialization, so {@link LazyKeyEntry}'s laziness survives.
-   *
-   * <p>
-   * Out-of-range groups are skipped defensively because the composite byte window is deliberately
-   * coarser than the logical-key interval. The canonical HOT path walk itself is lex-monotonic under
-   * the writer-enforced disjoint-subtree invariant.
+   * The cursor's byte window is derived from the logical bounds. CAS keys are prefix-free and
+   * VALIDTIME keys have fixed width; all their base and delta slots share the same logical prefix.
+   * NAME keys may still extend one another, so their bounds compare the logical key with its chunk
+   * trailer removed. In either case, an exclusive bound rejects every slot of the excluded group,
+   * including its delta suffixes. No key deserialization is needed for this check.
    */
   protected final class ChunkAggregatingIterator implements Iterator<Map.Entry<K, NodeReferences>>, AutoCloseable {
     private final @Nullable HOTTrieReader trieReader;
     private final @Nullable HOTRangeCursor cursor;
     /**
      * Serialized logical lower bound, or {@code null} for unbounded. Doubles as the cheap per-slot
-     * filter required because the composite byte window is not the logical-key interval: serializers
-     * such as raw UTF-8 CAS strings are not prefix-free.
+     * filter for every slot of an excluded group, including delta slots.
      */
     private final byte @Nullable [] lowerBoundKey;
     private final boolean lowerInclusive;
@@ -911,17 +924,26 @@ public abstract class AbstractHOTIndexReader<K> {
     }
 
     /**
-     * Whether the slot's logical key (composite minus the chunk trailer) lies inside both bounds, read
-     * straight off the leaf. Zero-copy on purpose: the composite ceiling is wider than the logical
-     * range (index keys are not prefix-free), so a bounded scan visits groups it must reject, and
-     * rejecting them here means {@link HOTLeafPage#getKey} is only ever paid for a group that is
-     * actually emitted.
+     * Whether the slot's logical key lies inside both bounds, read straight off the leaf. Rejecting
+     * excluded groups here covers every base and delta slot without allocating their keys. NAME keys
+     * can also extend a bound's logical prefix, so their comparison removes the chunk trailer.
      */
     private boolean slotWithinBounds(final HOTLeafPage leaf, final int idx) {
       final byte[] lower = lowerBoundKey;
+      if (indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) {
+        if (lower != null && !lowerInclusive && leaf.compareKeyPrefix(idx, lower, lower.length) == 0) {
+          return false;
+        }
+        final byte[] upper = upperBoundKey;
+        if (upper == null) {
+          return true;
+        }
+        final int cmp = leaf.compareKeyPrefix(idx, upper, upper.length);
+        return cmp < 0 || (cmp == 0 && upperInclusive);
+      }
       // Only the EXCLUSIVE case needs a logical compare. The cursor's seek bound is
       // `lower ‖ chunk0` (derived in the constructor, so they cannot drift apart) and
-      // HOTRangeCursor#isOutOfRange rejects every slot below it on every step — and
+      // the cursor rejects every slot below it on every step — and
       // `composite >= lower ‖ 0` is exactly `logical >= lower`, since the composite is the logical
       // key followed by the chunk trailer. So for an inclusive lower bound this compare could only
       // ever repeat the cursor's answer, once per slot, over the whole sweep.
@@ -1011,8 +1033,14 @@ public abstract class AbstractHOTIndexReader<K> {
           }
           groupComposite = candidate;
         }
-        final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-        final int compositeLen = groupComposite.length;
+        final int prefixLen = logicalKeyLength(groupComposite);
+        final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
+        if (prefixLen <= 0 || (groupComposite.length != compositeLen
+            && (groupComposite.length != compositeLen + PostingDeltas.SUFFIX_BYTES
+                || (indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) || !PostingDeltas.isDelta(
+                    HOTKeySerializer.readChunkIdx(groupComposite, 0, groupComposite.length) & 0xFFFFFFFFL)))) {
+          throw new IllegalArgumentException("malformed posting composite key length: " + groupComposite.length);
+        }
 
         // Merge the group's chunk slots. A torn read voids the WHOLE aggregate (the merge writes
         // into the accumulator as it goes), so recovery is wholesale: reset the accumulator,
@@ -1024,11 +1052,20 @@ public abstract class AbstractHOTIndexReader<K> {
             final int idx = cursor.currentEntryIndex();
             final boolean groupEnd;
             try {
+              final int keyLength = leaf.getKeyLength(idx);
+              final boolean delta = (indexType == IndexType.CAS || indexType == IndexType.VALIDTIME)
+                  && keyLength == compositeLen + PostingDeltas.SUFFIX_BYTES
+                  && leaf.compareKeyPrefix(idx, groupComposite, prefixLen) == 0
+                  && PostingDeltas.isDelta(leaf.readKeyIntBE(idx, compositeLen) & 0xFFFFFFFFL);
               groupEnd =
-                  leaf.getKeyLength(idx) != compositeLen || leaf.compareKeyPrefix(idx, groupComposite, prefixLen) != 0;
+                  !delta && (keyLength != compositeLen || leaf.compareKeyPrefix(idx, groupComposite, prefixLen) != 0);
               if (!groupEnd) {
-                final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-                if (!accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16, trieReader)) {
+                final long trailer = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
+                final boolean ok = delta
+                    ? accumulator.applyDelta(leaf, leaf.valueRef(idx), trailer,
+                        leaf.readKeyIntBE(idx, compositeLen) & 0xFFFFFFFFL, trieReader)
+                    : accumulator.addChunk(leaf, leaf.valueRef(idx), trailer << 16, trieReader);
+                if (!ok) {
                   accumulator.reset();
                   cursor.restartAtComposite(groupComposite);
                   continue group;

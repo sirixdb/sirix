@@ -60,6 +60,8 @@ import java.util.Arrays;
  */
 public interface HOTKeySerializer<K> {
 
+  int MAX_KEY_BYTES = 1 << Byte.SIZE;
+
   /**
    * Serializes the key into the destination buffer.
    *
@@ -112,6 +114,15 @@ public interface HOTKeySerializer<K> {
   K deserialize(byte[] bytes, int offset, int length);
 
   /**
+   * Logical prefix length of a stored posting key. Ordinary base keys end in a four-byte chunk index.
+   * Serializers used with posting deltas must identify the logical boundary independently of the
+   * optional suffix, either by fixed width or by self-delimiting framing.
+   */
+  default int logicalKeyLength(final byte[] key, final int offset, final int length) {
+    return length - CHUNK_IDX_BYTES;
+  }
+
+  /**
    * Compares two serialized keys lexicographically (unsigned byte comparison).
    *
    * <p>
@@ -145,8 +156,8 @@ public interface HOTKeySerializer<K> {
    */
   default int serializeTo(K key, MemorySegment dest, long offset) {
     // Default: use byte array intermediary
-    byte[] temp = new byte[256];
-    int len = serialize(key, temp, 0);
+    final byte[] temp = new byte[maxSerializedLength(key)];
+    final int len = serialize(key, temp, 0);
     MemorySegment.copy(temp, 0, dest, ValueLayout.JAVA_BYTE, offset, len);
     return len;
   }
@@ -219,4 +230,3 @@ public interface HOTKeySerializer<K> {
     dest[offset + 3] = (byte) chunkIdx;
   }
 }
-

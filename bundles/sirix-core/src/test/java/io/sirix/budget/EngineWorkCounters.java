@@ -7,6 +7,7 @@ import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelWriter;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -130,6 +131,18 @@ public final class EngineWorkCounters {
   public static final WorkCounter HOT_SIDE_REFERENCE_READS =
       WorkCounter.gated("hot.sideReferenceReads", "one overflow-reference map probe", HOTLeafPage::sideReferenceReads,
           "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /** Append-only posting changes, excluding operations folded directly into the base. */
+  public static final WorkCounter POSTING_DELTA_WRITES =
+      WorkCounter.gated("hot.postingDeltaWrites", "one single-posting delta slot written",
+          HOTIndexWriter::postingDeltaWrites, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /** A bounded set of changes materialized into one base posting chunk. */
+  public static final WorkCounter POSTING_DELTA_FOLDS =
+      WorkCounter.gated("hot.postingDeltaFolds", "one posting chunk folded in memory and replaced",
+          HOTIndexWriter::postingDeltaFolds, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  public static final List<WorkCounter> HOT_POSTINGS = List.of(POSTING_DELTA_WRITES, POSTING_DELTA_FOLDS);
 
   // ===== Batched page reads (FILE_CHANNEL) ==================================
 

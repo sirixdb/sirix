@@ -49,8 +49,9 @@ job and all remaining classes in another. Expected baseline-equivalent job times
 are approximately 18 and 15 minutes including setup/compilation/cleanup, giving
 both jobs substantial margin under the unchanged 35-minute timeout. Keep one
 serial test fork per job to avoid multiplying the existing heap budget or
-introducing shared test-database races. Do not change the HOT property test or
-its oracles, workload parameters, seeds, versioning types or assertions.
+introducing shared test-database races. Preserve the HOT property workload
+parameters, seeds, versioning types and assertions; oracle checks and cadence are
+specified in [Verification](VERIFICATION.md#running-the-layers).
 
 ## Coverage and gating
 

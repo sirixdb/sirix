@@ -2,7 +2,8 @@
 
 Status: **specification based on the code on `main` after PR
 [#1214](https://github.com/sirixdb/sirix/pull/1214)** (merged 2026-09-19), with subsequent branch-split
-candidate handling reflected in §4.5.4 case 4 and regression coverage in §5.2. First written 2026-09-17
+candidate handling reflected in §4.5.4 case 4, and current posting-delta and referenced-chunk
+behavior reflected in §§2.2–2.5, 4.2, 4.4–4.6 and 6.2. First written 2026-09-17
 against commit `739e46288` and revised 2026-09-20 against the merged tree, by reading the code only;
 nothing in this document was verified by running code. Where a statement could only be settled by
 execution it says so.
@@ -214,7 +215,7 @@ Every posting-list index (PATH, CAS, NAME, VALIDTIME) stores a logical posting l
 **chunks**:
 
 ```
-stored key   = serialize(logicalKey) ‖ chunkIdx          (chunkIdx: u32 big-endian, 4 bytes)
+base key     = serialize(logicalKey) ‖ chunkIdx          (chunkIdx: u32 big-endian, 4 bytes)
 chunkIdx     = (int) (nodeKey >>> 16)
 chunk value  = the set { nodeKey & 0xFFFF } of the chunk's node keys
 nodeKey      = ((chunkIdx & 0xFFFFFFFF) << 16) | bit16
@@ -231,27 +232,18 @@ nodeKey      = ((chunkIdx & 0xFFFFFFFF) << 16) | bit16
   `hot/NodeReferencesSerializer.java:995-1014`).
 - A logical key's chunks occupy the contiguous key range `[k ‖ 00000000, k ‖ FFFFFFFF]`
   (`hot/HOTIndexWriter.java:284-290`).
-- **Composite keys are not prefix-free.** `"car" ‖ FFFFFFFF` sorts above `"carpet" ‖ 00000000`
-  only if the bytes say so, and a logical key can be a byte prefix of another. Readers therefore
-  filter every candidate by comparing the logical prefix and requiring
-  `keyLength == prefixLength + 4` (`hot/AbstractHOTIndexReader.java:783-799`, `:915-936`,
-  `:959-962`; `hot/NodeReferencesSerializer.java:402`, `:412-413`).
+- The authoritative CAS/VALIDTIME base and delta key layout, referenced marker, and compatibility
+  policy are in [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks). Readers use the
+  serializer's `logicalKeyLength` to distinguish a base from its delta slots. NAME logical keys may
+  still extend one another, so NAME readers compare the logical prefix with its chunk trailer removed.
 
-**Chunk value format** (`hot/NodeReferencesSerializer.java:57-93`):
-
-| First byte | Name | Layout | Constraint |
-|---|---|---|---|
-| `0xFE` | tombstone | `[0xFE]` | exactly 1 byte; written for an empty set |
-| `0x00` | packed | `[0x00][count:u8][key:u64 BE] × count` | `1 ≤ count ≤ 64`; length exactly `2 + 8·count`; keys strictly increasing; `MAX_PACKED_PAYLOAD_LENGTH = 514` (`:682`) |
-| `0xFF` | Roaring | `[0xFF][Roaring64Bitmap.serialize()]` | used when cardinality > 64 |
-
-- `PACKED_THRESHOLD = 64`, choice `cardinality <= 64 ⇒ packed` (`hot/NodeReferencesSerializer.java:93`,
-  `:116`, `:191`); the class Javadoc's "< 64" is wrong (`:53`).
-- Length 0 deserializes to an empty set; an unknown marker throws (`:227-229`, `:243-245`).
-- In-place fast paths add or remove one bit of a packed payload without deserializing
-  (`:699-863`, `:865-964`).
-- A reader accumulates chunks into a sorted `long[]` up to `COMPACT_LIMIT = 512` entries and spills
-  into a `Roaring64Bitmap` on overflow or on a non-ascending append (`:453-518`).
+Inline payload encodings are owned by
+[`NodeReferencesSerializer`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/NodeReferencesSerializer.java)
+and its validation methods. Referenced bases must be resolved before decoding; a marker is not an inline bitmap.
+A reader accumulates base postings in a sorted `long[]` up to `COMPACT_LIMIT = 512`, spilling on
+capacity or a non-ascending base append. Chronological deltas use bounded sorted insertion and
+removal, so out-of-order delta additions alone need not allocate a bitmap
+([`NodeReferencesSerializer.ChunkAccumulator`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/NodeReferencesSerializer.java)).
 
 **Projection slot keys** are 8-byte sign-flipped big-endian longs without a chunk suffix
 (`hot/HOTBulkSlotLoader.java:208-222`, `proj/ProjectionIndexHOTStorage.java:123`), so projection
@@ -266,7 +258,7 @@ keys are fixed-width and prefix-free. Their values are specified in the projecti
 | 0 | 8 | `pathNodeKey ^ 0x8000_0000_0000_0000`, big-endian (`:59`, `:71-86`) |
 
 Fixed width. "serialize(-1) < serialize(0) < serialize(1)" (`:36-44`). `deserialize` rejects any
-length other than 8 (`:90-92`). The same serializer encodes projection slot keys and leaf side-map
+length other than 8 (`:90-92`). The same serializer encodes projection slot keys and projection side-map
 owner keys (`hot/AbstractHOTIndexWriter.java:5643`, `:6738`; `hot/HOTIncrementalInsert.java:228`).
 
 #### 2.3.2 NAME (`hot/NameKeySerializer.java`)
@@ -295,37 +287,31 @@ Namespaced name (with either an empty or non-empty prefix):
 
 #### 2.3.3 CAS (`hot/CASKeySerializer.java`)
 
-| Offset | Width | Field |
-|---|---|---|
-| 0 | 8 | `pathNodeKey ^ SIGN_FLIP`, big-endian (`:91`, `:171-180`) |
-| 8 | 2 | type id, big-endian `short` (`:182-186`) |
-| 10 | 0..246 | value, encoded per type (`:188-192`, `:258-265`) |
-
-`HEADER_BYTES = 10`, `MAX_STRING_VALUE_BYTES = 246`, maximum key 256 bytes, 260 with the chunk
-trailer (`:205-214`, `:259-265`; `hot/HOTIndexWriter.java:65-67`). Type ids are stable and do not
-depend on `Type.ordinal()` (`:104-153`):
+The stored framing is owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks);
+allocate serialization buffers using `maxSerializedLength`, not the former unescaped key size.
+The table below describes the **atomic codecs before framing**. Type ids are stable and do not
+depend on `Type.ordinal()` (`CASKeySerializer`'s `getTypeId` and policy table).
 
 | Id | Type | Value bytes | Encoding |
 |---|---|---|---|
-| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | ≤ 246 | string encoding (`:316-333`, `:935-941`) |
-| 1 | STRING | ≤ 246 | UTF-8, cut at 246 **bytes** (may split a multi-byte sequence), no escape, no terminator (`:316-333`) |
+| 0 | OTHER (e.g. `xs:duration`, `xs:anyURI`, untyped atomic) | bounded prefix | string encoding; stored cap owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
+| 1 | STRING | bounded prefix | UTF-8 (a multi-byte sequence may be split); stored cap owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
 | 2 | BOOLEAN | 1 | `0x00` / `0x01`; lexical `"true"` or `"1"` is true (`:305-310`, `:645-669`) |
 | 3 | DOUBLE | 8 | IEEE order-preserving transform (below) |
 | 4 | FLOAT | 8 | narrowed to `float`, then encoded as a double (`:296-304`, `:364-376`) |
 | 5 | INTEGER and subtypes | 8 | saturating conversion to `long`, `^ SIGN_FLIP`, big-endian (`:289-291`, `:604-643`, `:688-718`) |
 | 6 | burned | — | intentionally unused (`:745-748`) |
-| 7 | DECIMAL | 8 + ≤ 237 + 1 | double prefix, exact suffix, terminator (`:449-535`) |
+| 7 | DECIMAL | 8 + bounded suffix + 1 | double prefix, normalized exact suffix, sign-dependent terminator; suffix budget owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) |
 | 8, 9, 10 | DATETIME, DATE, TIME | 10 | `InstantKeyCodec`: year `^0x8000` (u16 BE), month, day, hours, minutes, micros (u32 BE), after UTC canonicalization; untimezoned = UTC (`idx/InstantKeyCodec.java:51-57`, `:81-82`, `:102-120`) |
 
 Double encoding (`:349-426`): non-numeric atomics are parsed with `Double.parseDouble` (failure →
 0.0); `-0.0` becomes `+0.0`; NaN becomes `0xFFFF_FFFF_FFFF_FFFF`, above `+∞`; otherwise
-`bits ^ 0x8000…` for `d ≥ 0` and `bits ^ 0xFFFF…` for `d < 0`, written big-endian. The comments
-at `:344` and `:848-849` still say NaN maps onto `Double.MAX_VALUE`; the code does not.
+`bits ^ 0x8000…` for `d ≥ 0` and `bits ^ 0xFFFF…` for `d < 0`, written big-endian.
 
-Decimal encoding: the 8-byte double prefix, then `stripTrailingZeros().toPlainString()` as ASCII
+Atomic decimal codec: the 8-byte double prefix, then `stripTrailingZeros().toPlainString()` as ASCII
 (bitwise complemented for negative values), then a terminator `0x00` (positive) or `0xFF`
-(negative). The complemented alphabet `0xC6..0xD2` never contains `0x00` or `0xFF`, so no escaping
-is needed (`:499-534`, `:517-520`). The suffix is omitted for NaN, infinities and unparseable input
+(negative). The complemented alphabet `0xC6..0xD2` never contains `0x00` or `0xFF`, so the atomic
+suffix needs no internal escaping before CAS framing (`:499-534`, `:517-520`). The suffix is omitted for NaN, infinities and unparseable input
 (`:493-498`). `1.50` and `1.5` share a key (`:470-476`).
 
 A per-type policy table, checked at class initialization, records whether a type is lexical,
@@ -339,8 +325,8 @@ numeric and byte-ordered (`:721-766`; a type without a policy fails with
 | BOOLEAN; DATETIME, DATE, TIME | BYTE_ORDERED |
 | DOUBLE, FLOAT, INTEGER, DECIMAL | NUMERIC, BYTE_ORDERED |
 
-Stored CAS indexes written before the boolean, float and out-of-range integer encodings changed
-must be rebuilt (`:83-86`).
+Stored-format replacement policy is owned by
+[On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks).
 
 #### 2.3.4 VALIDTIME (`idx/interval/ValidTimeKeySerializer.java`)
 
@@ -367,9 +353,10 @@ Byte order equals key order within each serializer, except:
 
 | Case | Why | Where compensated |
 |---|---|---|
-| CAS strings of ≥ 246 UTF-8 bytes | truncated; a 246-byte value collides with every longer value sharing that prefix, hence `≥` not `>` (`hot/CASKeySerializer.java:965-973`) | `CASIndex` re-checks candidates against the documents when `losesInformation` holds (`idx/cas/CASIndex.java:613-623`) |
+| Capped CAS lexical values | the stored prefix can collide with longer values, including when the next zero escape cannot fit | `CASKeySerializer.truncates` selects the document-value residual described in §4.4.3 |
+| Capped CAS decimal suffixes | distinct normalized decimals can share the stored suffix | `CASKeySerializer.truncates` selects residual equality comparisons; `hasCappedDecimalSuffix` detects capped candidates requiring original document values (§4.4.3) |
 | CAS string bounds containing unpaired surrogates | UTF-8 encoding would replace the original literal | open that side of the scan and compare the original bounds as residuals; see §4.4.3 |
-| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`hot/CASKeySerializer.java:478-483`) | `narrowsNumeric` (`:829-928`) |
+| CAS decimals that map to the same double | "WITHIN one double … the suffix decides, and that is not value order" (`CASKeySerializer.encodeDecimalOrderPreserving`) | all ordered decimal bounds expand outside their equal-double buckets through `CASIndex.residualScanBound`, followed by exact original numeric comparisons (§4.4.3); uncapped single-PCR equality keeps its exact seek |
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
@@ -401,13 +388,12 @@ Variants for `MemorySegment` pairs and same-segment ranges have the same semanti
 `computeDiscriminativeMask` (`:367-402`), which ORs the XORs of adjacent sorted keys over an 8-byte
 window.
 
-**Prefix edge case (open, §7).** For `K` and `K ‖ 0x00…`, step 4 returns `len(K)*8`, but `isBitSet`
-reports that bit as 0 for both keys, so the returned bit does not separate them. The production leaf
-split selects "first existing key with bit msdb = 1" (`page/HOTLeafPage.java:3326-3333`) and would
-then find no such key and put every entry on one side. Composite keys make this reachable only if one
-stored key is a strict byte prefix of another whose continuation starts with a zero bit (for example
-CAS strings containing U+0000 bytes at the position of another key's chunk trailer). Whether real
-data reaches it was not established; no test for it was found.
+**Prefix edge case (open for NAME, §7).** For `K` and `K ‖ 0x00…`, step 4 returns `len(K)*8`, but
+`isBitSet` reports that bit as 0 for both keys, so the returned bit does not separate them. NAME's
+unframed variable-length keys retain this question. CAS/VALIDTIME logical framing and delta suffixes
+exclude this zero-continuation pair; see the authoritative layout in
+[On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) and `CASKeyPrefixPropertyTest` /
+`PostingDeltaKeyCollisionTest`.
 
 ### 2.6 Partial keys and routing
 
@@ -557,7 +543,7 @@ container pages; it contains no body layout for either HOT page kind. This secti
 | `MAX_KEY_VALUE_LENGTH` | 0xFFFF | suffix and value length limit (u16 fields) | `:184`, `:2227-2234` |
 | `FLAG_OVERFLOW_PAGE_REFS` | 0x01 | envelope flag: side-reference map present | `:124` |
 | min free space before split | 128 bytes | `needsSplit()` is true below 128 free bytes or at 512 entries | `:2324-2333` |
-| side-map key | `(ownerSlotKey << 16) \| subId` with `abs(ownerSlotKey) < 2^47` and `subId ≤ 0xFFFF` | | `:127`, `:148-162` |
+| side-map key | validated by `HOTLeafPage.overflowPageRefKey` | projection owner slot or posting owner token, plus sub-id; posting layout in [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) | `HOTLeafPage.overflowPageRefKey` |
 | `MAX_HOT_LEAF_SIDE_REFERENCES` | 512 × 65 536 | format ceiling of the side map | `page/PageKind.java:6460-6461` |
 
 #### 3.2.2 In-memory layout
@@ -610,7 +596,7 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
   verified against the full suffix, otherwise binary search over suffixes; result is the index or
   `−(insertionPoint + 1)` (`:619-686`, `:833`, `:844-928`, `:1037-1046`).
 - **Side-reference map**: `PageReference`s to overflow pages owned by entries (used by projection
-  storage for values larger than an entry), with a lifecycle ACTIVE → RETIRED → RELEASING → RELEASED
+  segments and referenced CAS/VALIDTIME posting chunks), with a lifecycle ACTIVE → RETIRED → RELEASING → RELEASED
   (`:294-299`, `:347-445`, `:4331-4342`).
 - **Versioning state**: `completePageRef` (the source image a copy was made from, `:450-454`) and
   `completeDump` (this page holds every entry of its key range, `:456-460`).
@@ -733,7 +719,9 @@ revision must equal its fragment key's revision, otherwise `SirixIOException`
   2. newest image has `completeDump` → return it;
   3. `result = newest.copy()`, clear `completePageRef` and dirty bits;
   4. for each older image, newest to oldest: insert every key **absent** from `result`, tombstones
-     included (first value seen wins; PROJECTION via `fillProjectionEntry`, others via `mergeWithNodeRefs`);
+     included (first value seen wins; PROJECTION via `fillProjectionEntry`, CAS/VALIDTIME via
+     `fillPostingEntry`, others via `mergeWithNodeRefs`). The fill paths retain the insertion point
+     from one binary search and copy stored bytes directly, including tombstones and chunk markers;
      failure to fit throws;
   5. **stop after an image with `completeDump`**: "A complete dump is a replacement snapshot, not
      another delta … entries moved to the right-hand leaf are absent from this page but still exist
@@ -784,7 +772,9 @@ Called by `AbstractHOTIndexWriter.cowHOTLeafForModificationUnpoisoned`
 
 The serialized result is sparse unless FULL, no `completePageRef`, or no dirty entry (§3.2.3).
 
-### 3.6 What `docs/DISK_FORMAT.md` does not cover or gets wrong for HOT
+### 3.6 HOT format and integrity
+
+Additional HOT details owned by this specification, beyond the scope of `docs/DISK_FORMAT.md`:
 
 1. No body layout for `HOT_LEAF_PAGE` or `HOT_INDIRECT_PAGE` (§3.2.3, §3.3.2).
 2. The side-map framing: the leading varlong count and signed-ascending composite keys
@@ -793,12 +783,14 @@ The serialized result is sparse unless FULL, no `completePageRef`, or no dirty e
 4. The logical page key in HOT headers vs. the disk key in references (§1.2).
 5. `NamePage` also serializes the HOT allocator map (`page/PageKind.java:5333`, `:5382`); the document
    lists only CAS, Path, Projection and ValidTime pages (`docs/DISK_FORMAT.md:201-206`).
-6. **Integrity claim is too strong.** "Every page's XXH3-64 … stored in its parent's PageReference"
-   (`docs/DISK_FORMAT.md:275-276`) does not hold for HOT: indirect child references are serialized
-   without a hash (`page/PageKind.java:6135-6155`), side-map references are key-only
-   (`:6743-6745`, `:6758-6762`), and "Fragment keys don't include hashes - only the first fragment can
-   be verified" (`trx/NodeStorageEngineReader.java:4014`). No other verification of HOT children was
-   found.
+6. **HOT references are not a complete Merkle chain.** Indirect child references, side-map
+   references, and older fragment keys persist offsets without hashes (`PageKind.HOT_INDIRECT_PAGE`,
+   `PageKind.HOT_LEAF_PAGE`, `NodeStorageEngineReader`). Only a hash-bearing head reference enables
+   the ordinary page checksum check. Referenced posting payloads instead carry a content hash in
+   their leaf marker, with verification owned by
+   [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks). Projection side-page descriptor
+   hashes are specified in [Segment projection indexes](SEGMENT_PROJECTION_INDEXES.md). These
+   payload checks do not add hashes to indirect child or older fragment references.
 
 ---
 
@@ -911,10 +903,10 @@ because the lookup-cache key does not include the mode (`hot/AbstractHOTIndexRea
 1. Probe `HOTLookupCache` with a borrowed key; a hit returns a fresh copy, `long[0]` means absent
    (`:304-315`).
 2. On a miss copy the key and **capture the cache generation before the walk** (`:322`, `:328`).
-3. `collectChunksViaLowerBoundWalk` (`:411-495`): seek `lowerBound(prefix ‖ 00000000)`; for each
-   leaf entry compare the logical prefix: greater → stop; equal and `keyLength == prefixLen + 4` →
-   read the chunk index and add the chunk; longer keys sharing the prefix are skipped; validate once
-   per leaf; advance to the next leaf; on a torn read restart the whole walk (≤ 64 attempts).
+3. `collectChunksViaLowerBoundWalk`: seek the first chunk of the logical prefix, then accumulate
+   bases and apply CAS/VALIDTIME deltas in stored order. Referenced bases are resolved through the
+   revision's side-page reader before decoding. Validate once per leaf; advance to the next leaf;
+   on a torn read restart the whole walk (≤ 64 attempts). Slot layouts are owned by §2.2's references.
 4. `memoize`: store `ABSENT` for a null result; skip lists longer than 256 node keys; refuse (with a
    warning) a non-ascending array; `cache.put(key, nodeKeys, generation)` (`:342-388`).
 
@@ -1020,15 +1012,20 @@ Amortized O(1) stack work per leaf plus the popped levels.
 #### 4.4.3 Index-level ranges
 
 `ChunkAggregatingIterator` (`hot/AbstractHOTIndexReader.java:800-1076`) turns chunk slots back into
-logical entries: cursor window `[lower ‖ 00000000, upper ‖ FFFFFFFF]`; exact logical bounds checked
-in `slotWithinBounds` because keys are not prefix-free; slots with `keyLength ≤ 4` skipped; for each
-group the key is copied once and chunks with equal logical prefix are merged; on a torn read the
-group restarts at its composite key (≤ 64 attempts); groups whose chunks are all tombstones are
-skipped; emitted entries deserialize their key lazily.
+logical entries. `slotWithinBounds` rejects every slot of an excluded logical group, including its
+deltas; NAME keys also need a logical comparison because they may extend one another. Each group
+uses the serializer's logical boundary, accumulates resolved bases and applies live deltas. On a
+torn read the group restarts at its composite key (≤ 64 attempts); groups with no live postings are
+skipped; emitted entries deserialize their key lazily. Slot layouts are owned by §2.2's references.
 
-How callers map search modes: CAS uses `get` for EQUAL, `iteratorFrom`/`iteratorTo`/`range` for
-ordered modes when `isByteOrderPreserving(type)` (relaxing a truncating bound to inclusive), and a
-full scan with a filter otherwise (`idx/cas/CASIndex.java:59-140`, `:516-700`); PATH and NAME use
+How callers map search modes: CAS uses `get` for encodable, uncapped single-PCR EQUAL probes,
+including decimals; capped probes and lexical probes containing unpaired surrogates use the residual
+path below. Single-PCR ordered modes and ranges can use
+`iteratorFrom`/`iteratorTo`/`range` when `isByteOrderPreserving(type)`. All ordered decimal
+comparisons and decimal range filters use the candidate expansion and exact numeric residual below;
+capped lexical bounds use inclusive candidate bounds. Ordered queries over several PCRs or types
+without byte ordering use a filtered full scan (`idx/cas/CASIndex.java`,
+`openHOTIndexWithFilter` and `openHOTIndexWithRangeFilter`); PATH and NAME use
 `get` for a single PCR or name and a filtered full scan otherwise
 (`idx/path/PathIndex.java:24-73`; `idx/name/NameIndex.java:29-81`). PATH and CAS first return an empty
 iterator without opening HOT when supplied paths resolve to no PCRs; see the
@@ -1036,22 +1033,54 @@ iterator without opening HOT when supplied paths resolve to no PCRs; see the
 revision's node keys while the path summary describes the query revision, so CAS checks for stale
 PCRs (`idx/cas/CASIndex.java:599-605`).
 
-For an `xs:string` ordering bound containing an unpaired surrogate, the shared `CASIndex`
-boundary opens that side without serializing replacement bytes. An encodable opposite
-bound remains eligible for a bounded scan. Every returned key is checked against both
-original bounds, with their original inclusivity, using the
+`CASIndex.openRangeWithResidual` handles capped lexical values (including OTHER types), capped or
+multi-PCR decimal equality, and all ordered decimal comparisons and range filters, with one or
+several requested path classes. Encodable capped lexical bounds stay on an eligible byte-ordered cursor,
+relaxed to inclusive so values sharing the bound's stored key are retained. A lexical bound
+containing an unpaired surrogate opens that side without serializing replacement bytes; an
+encodable opposite bound can still constrain the cursor.
+
+For decimal bounds on this residual path, `residualScanBound` moves the lower cursor bound to
+`Math.nextDown` of its double value and the upper cursor bound to `Math.nextUp`. If the outward
+double is infinite, that cursor side is unbounded. The expanded candidate bounds are inclusive,
+retaining the entire equal-double bucket even when the exact suffix is uncapped. A single-PCR
+query can use these bounds on the cursor; several PCRs require a full scan.
+
+Path-class filtering and both original bounds, with their original inclusivity, remain in force
+for every residual comparison. Decimal comparisons use the original numeric bounds. Comparisons
+use the index's declared type and, for `xs:string`, the
 [string ordering contract](SEGMENT_PROJECTION_INDEXES.md#41-three-representations).
-Path-class filtering still applies. If a stored key reaches the 246-byte cap, the
-residual reads each candidate's original document value rather than comparing the
-decoded prefix; a separate record reader preserves the index cursor for read-only
-transactions, while a writer supplies its own uncommitted records. Losslessly encodable
-bounds keep their existing scan path. This boundary serves `IndexExpr`, the vectorized
-executor and the public JSON/XML CAS scan functions (`CASIndex.openStringRangeWithResidual`,
-`exactStringRangeMatches`).
+
+`exactRangeMatches` reads original document values for capped candidates. A capped decimal
+candidate is detected from its stored suffix length, not its decoded normalized value: decoding
+can shorten a truncated suffix ending in zeros and hide the information loss. An unpaired-surrogate
+bound requires document values for every candidate;
+otherwise uncapped candidates can be compared from their decoded keys. Read-only transactions use
+a separate record reader; a writer-backed view uses `getTransactionView()` and preserves the caller's
+pinned record-page guard with `preserveRecordPageGuard()`. Uncapped, byte-ordered single-PCR bounds
+for nondecimal types keep their existing bounded scan path. Uncapped single-PCR decimal equality
+keeps its exact seek; ordered decimal queries always apply the exact original numeric bounds after
+candidate expansion. This boundary serves `IndexExpr`, the vectorized executor and
+the public JSON/XML CAS scan functions. `CASCappedLexicalViewTest` and `CASCappedDecimalViewTest` cover
+uncommitted, historical, and cold-reopened comparisons across all four versioning types.
 
 ### 4.5 Incremental insert
 
 #### 4.5.1 Driver
+
+Before the ordinary mutation driver, `HOTIndexWriter` checks a hot CAS/VALIDTIME chunk's membership
+against its base and bounded live deltas. `ChunkView` retains decoded membership for up to 256 hot
+chunks under the transaction intent log's generation and per-index writer-ownership epoch. A cache
+hit avoids rereading the base and deltas; a miss reads the base under its leaf guard, with no second
+descent when every delta is on that leaf, and a stamp-validated batch walk otherwise. Successful
+delta writes update the cached membership. An addition above its high-water mark is provably new;
+other additions and removals check membership. A fold removes that view; posting replacements,
+structural publications, writer switches, and generation changes invalidate the index's views.
+Reaching the cache bound clears the retained views. Reuse lasts only between invalidations and
+folds. An effective update appends a slot or folds in memory and replaces the base once. Failed
+delta writes or folds mark the transaction rollback-only.
+The thresholds and stored layout are owned by
+[On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks).
 
 `doMutation` (`hot/AbstractHOTIndexWriter.java:1939-2012`):
 
@@ -1095,8 +1124,10 @@ executor and the public JSON/XML CAS scan functions (`CASIndex.openStringRangeWi
 
 `mergeIntoLeaf` (`hot/AbstractHOTIndexWriter.java:3964-4036`):
 
-1. `leaf.mergeWithNodeRefs(key, value)` (OR into the existing chunk, or insert) or `putOrReplace`
-   for PROJECTION; if it fits, done — no structural change, no validation.
+1. A referenced CAS/VALIDTIME base is resolved and merged through `mergeIntoReferencedChunk`,
+   retaining its marker and replacing its immutable side payload. Other postings use
+   `leaf.mergeWithNodeRefs(key, value)`; PROJECTION uses `putOrReplace`. If it fits, done — no
+   structural change, no validation.
 2. Otherwise `compact()` and retry once.
 3. `!canSplit()` → `SirixIOException("single value exceeds page capacity")`.
 4. `splitLeafPage(leaf ∪ {K})` (§2.7; the source leaf is not mutated; side references move to the half
@@ -1126,25 +1157,27 @@ executor and the public JSON/XML CAS scan functions (`CASIndex.openStringRangeWi
    union, or for a projection the new bytes — and the split drops the stale entry from the boundary
    leaf (§4.5.4 case 9).
 
-   **A dropped entry's side references follow it to `K`'s fresh leaf.**
-   `rehomeSplitLeafSideReferences` looks each side reference's owning slot up in the two halves of
-   the boundary leaf; a reference whose owner is the entry the split just dropped is handed back
-   (`StructuralKeySplit.droppedOwnerSideReferences`, carried unchanged through the indirect levels of
-   the split) and `trySpliceCompleteFrontier` attaches it to the one-entry leaf it builds for `K`,
-   counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES`; a reference whose owner is in neither
-   half and is not the dropped entry still fails closed before publication, so a segment page is
-   never silently orphaned. Only a **PROJECTION** index can reach the carry: side references are
-   attached to a HOT leaf in exactly one place, `ProjectionIndexHOTStorage.putSegmentPage`
-   (`index/projection/ProjectionIndexHOTStorage.java`, whose writer is hardwired to
-   `IndexType.PROJECTION` by its constructor); every other `setPageReference` call on a HOT leaf
-   copies or re-homes an existing reference. The posting indexes — **PATH, CAS, NAME and VALIDTIME**
-   — therefore never carry one, `segmentRefCount()` is zero on their leaves, and the re-homing
-   returns immediately. The producer is a blob slot whose referenced payload is replaced by an inline
-   one: `putBlobPayload` rewrites the owner marker with the inline value first and releases the side
-   page afterwards, so at the moment the larger value overflows the leaf the dropped entry still owns
-   the page; the owner's next step, `removeSegmentPage`, then finds the reference on `K`'s leaf and
-   releases it. Before this the split threw, `spliceOverflowThroughFrontier` marked the transaction
-   rollback-only and the load stopped with nothing wrong written.
+   **Side references follow their owners, including a dropped projection entry.**
+   `rehomeSplitLeafSideReferences` routes projection references by stored slot key and posting
+   references by their marker. A reference whose owner is the projection entry the split just
+   dropped is handed back (`StructuralKeySplit.droppedOwnerSideReferences`, carried unchanged
+   through the indirect levels of the split), and `trySpliceCompleteFrontier` attaches it to the
+   one-entry leaf it builds for `K`, counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES`.
+   A reference whose owner is in neither half and is not the dropped entry still fails closed
+   before publication; `spliceOverflowThroughFrontier` marks the transaction rollback-only, so a
+   side page is never silently orphaned.
+
+   A projection blob reaches the carry when its referenced payload is replaced by an inline one:
+   `putBlobPayload` rewrites the owner marker with the inline value first and releases the side
+   page afterwards, so at the moment the larger value overflows the leaf the dropped entry still
+   owns the page. The owner's next step, `removeSegmentPage`, then finds the reference on `K`'s
+   leaf and releases it. Before the carry, the split threw and the load stopped with nothing wrong
+   written. `HOTFrontierSideReferenceCarryTest` constructs this route and fails without the carry.
+
+   CAS and VALIDTIME leaves also carry referenced posting pages. Referenced posting merges update
+   the marker in place, and a fold that replaces it with an inline value removes its old side
+   reference before any reinsertion. `ReferencedPostingTest` covers boundary ownership,
+   missing-owner refusal, and collision renaming during frontier reattachment.
 
 #### 4.5.3 `integrate`: propagating a BiNode
 
@@ -1541,22 +1574,12 @@ Cases, in order:
   so both regressions start from a constructed state.
 - A cascade level whose split bit is the node's own MSB remains unguarded as described in §4.5.3;
   adding a guard belongs with the scenario that reaches it.
-- A **PROJECTION** leaf overflowing by bytes on a key it already holds, routed through the frontier,
-  drops the stale entry; when that entry owns a side reference — a segment page — that reference no
-  longer has to find a home in the two halves of the boundary leaf. It is handed back
-  (`StructuralKeySplit.droppedOwnerSideReferences`) and attached to the one-entry leaf the splice
-  builds for `K`, counted by `FRONTIER_SPLIT_CARRIED_OWNER_SIDE_REFERENCES` (§4.5.2 step 7);
-  `HOTFrontierSideReferenceCarryTest` constructs the trie that reaches the split and fails without
-  the carry. A reference whose owner is in neither half and is *not* the dropped entry still fails
-  closed before publication, so a segment page is never silently orphaned. **Every entry to that
-  route reaches the same split**: the integrate arm's cascade pre-check — which also refuses the fold
-  declined at the leaf's own parent (§4.5.2 step 7) — and the full-parent handler's both end in the
-  same `spliceOverflowThroughFrontier`. Only PROJECTION carries side references at all: they
-  originate in `ProjectionIndexHOTStorage.putSegmentPage` alone, so PATH, CAS, NAME and VALIDTIME
-  leaves have `segmentRefCount() == 0` and the re-homing returns at once. Before the carry the split
-  threw on the routed path — where the document node was written while the index entry was not — so
-  `spliceOverflowThroughFrontier` marked the transaction rollback-only and the load stopped with
-  nothing wrong written.
+- Side-reference ownership, dropped projection-owner carry, and missing-owner refusal are
+  specified in §4.5.2. `HOTFrontierSideReferenceCarryTest` constructs the replacing projection split
+  and fails without the carry. Every entry to that route reaches the same split: the integrate arm's
+  cascade pre-check and the full-parent handler both end in `spliceOverflowThroughFrontier`.
+  CAS and VALIDTIME leaves can carry referenced posting pages, so the side-map invariant also
+  applies to them.
 
 #### 4.5.7 Complexity (derived from the code, not measured)
 
@@ -1570,6 +1593,11 @@ Cases, in order:
 | consolidation | O(32) every 4096 inserts, plus one O(h) route re-validation when it publishes a changed parent (§4.8) |
 
 ### 4.6 Delete
+
+`HOTIndexWriter.remove` first uses the membership and delta/fold path of §4.5.1 for hot CAS/VALIDTIME
+chunks. The direct path below resolves a referenced base before mutation; a nonempty replacement
+updates both marker and side page, while an empty replacement tombstones the slot and removes the
+side reference.
 
 `removePostingBit` (`hot/AbstractHOTIndexWriter.java:2023-2074`):
 
@@ -1767,7 +1795,7 @@ flowchart TD
   G -- "indirect" --> H["PEXT extract + SIMD subset search → child; push path"]
   H --> D
   G -- "leaf" --> I["snapshot binding+stamp; findEntry"]
-  I --> J["walk chunk slots with equal prefix; addChunk"]
+  I --> J["walk logical group; resolve bases; addChunk / applyDelta"]
   J --> K{"validateStamp"}
   K -- "torn" --> C
   K -- "ok, more chunks" --> L["advanceToNextLeaf (sibling window hint)"]
@@ -1804,11 +1832,11 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Area | Suites | Establishes |
 |---|---|---|
 | Formal model | `index/hot/HOTFormalModelTest` (3) | clean-room model (64-bit keys, leaf capacity 4, fanout 4): `validate(bulkBuild(S))` empty over 6 generators × 8 sizes × 100 seeds = 4 800 key sets; in-order leaves sorted; every indirect subtree equals the bulk build of its keys (`:22-26`, `:351`, `:403-430`). Independent of production code |
-| Bulk builder | `index/hot/HOTBulkBuilderTest` (7) | production `HOTBulkBuilder` against the test validator and a routing oracle: adversarial, variable-length, degenerate sizes, determinism, multi-mask, leaf count = fitting-subtree oracle (`:31-56`) |
+| Bulk builder | [`index/hot/HOTBulkBuilderTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTBulkBuilderTest.java) | production `HOTBulkBuilder` against the test validator and a routing oracle: adversarial, variable-length, degenerate sizes, determinism, multi-mask, leaf count = fitting-subtree oracle, CAS/VALIDTIME key-length limits |
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
-| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I4, I11, leaf-insert precondition |
+| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest` (25), `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
@@ -1820,7 +1848,8 @@ Gating: `@Tag("heavy")` suites are excluded only with `-PexcludeHeavyTests`; the
 `sirix.hot.mergeDiag=true` so the "walked past a complete dump" sentinel is live and asserted
 (see [the core test configuration](../bundles/sirix-core/build.gradle)).
 There are no jqwik property tests of the trie; jqwik covers
-`CASKeySerializer` (`test/property/CASKeySerializerPropertyTest.java`).
+`CASKeySerializer` (`test/property/CASKeySerializerPropertyTest.java`) and prefix-free CAS
+framing (`test/index/hot/CASKeyPrefixPropertyTest.java`).
 
 ### 5.3 What remains asserted only
 
@@ -1837,9 +1866,9 @@ There are no jqwik property tests of the trie; jqwik covers
    16 released-leaf forwards, detector depth 64); the ≤ H + 1 pages-touched bound is not tested.
 5. **Delete, tombstone and consolidation paths.** No proof; tests only.
 6. **Copy-on-write and multi-revision isolation.** No proof; tests only.
-7. **Validator self-coverage.** No fault-injection test shows that the test validator's I1-I3, I5-I10,
-   I12 and sparse-path checks, or the detector's I12 check, fire on a broken tree.
-8. **The prefix discriminative-bit case** of §2.5.
+7. **Remaining validator self-coverage.** No fault-injection test shows that the test validator's
+   I2-I3, I5, I7-I10, I12 and sparse-path checks, or the detector's I12 check, fire on a broken tree.
+8. **The NAME prefix discriminative-bit case** of §2.5.
 9. **Campaign figures** in the archive documents cannot be reproduced at HEAD (reproducer and flags removed).
 
 ---
@@ -1875,7 +1904,16 @@ SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). HOT cache budgets and their con
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); fragment-work semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | `set/VersioningType.java`, `page/HOTLeafPage.java` |
+| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); **on in the sirix-core and sirix-query test JVMs**; read-counter semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads); posting-counter semantics below | `set/VersioningType.java`, `page/HOTLeafPage.java`, `hot/HOTIndexWriter.java`, `hot/AbstractHOTIndexWriter.java` |
+
+**Posting counters** (enabled only by `-Dsirix.hot.mergeDiag=true`):
+`HOTIndexWriter.postingDeltaWrites()` counts single-posting delta slots, excluding the operation
+incorporated directly into a fold; `postingDeltaFolds()` counts in-memory base replacements;
+`AbstractHOTIndexWriter.REFERENCED_CHUNK_WRITES` counts folds stored as referenced side pages.
+These are process-wide monotonic totals; capture differences around an operation. Disabled
+instrumentation does not increment them. `EngineWorkCounters.HOT_POSTINGS` catalogs the first two
+for work-budget tests; the catalog and budget rules are owned by
+[`budget/README.md`](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
 
 Always-on counters (public `AtomicLong`s): `STRUCTURAL_VALIDATION_FAILURE` ("Must stay zero"),
 `STRUCTURAL_PUT_NOT_READABLE` (also "must stay zero"; §4.8),
@@ -1924,7 +1962,7 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 | tree height | 64 | `trx/HOTTrieReader.java:93` |
 | fragments per child reference | 255 | `page/PageKind.java:6135-6156` |
 | node keys in posting indexes | < 2^48 | `hot/AbstractHOTIndexWriter.java:1477` |
-| CAS value bytes in the key | 246 (longer strings are truncated and re-checked) | §2.4 |
+| CAS string bytes before framing | truncation and candidate re-checking as described in §2.4; stored framing in [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) | `CASKeySerializer.MAX_STRING_VALUE_BYTES` |
 | cached posting list | 256 node keys | `cache/HOTLookupCache.java:81` |
 | bulk loader memory | ≈ n × (key bytes + 20), all in memory; bulk only into an empty tree | §4.7.2 |
 | deletes | never shrink the tree; tombstones stay until a split or complete dump drops their image from the window | §4.6, §3.5 |
@@ -1932,8 +1970,9 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 
 ### 7.2 Open questions
 
-1. **Prefix discriminative bit** (§2.5): can a strict-prefix key pair with a zero continuation bit occur
-   in a real index, and what does the MSDB leaf split then do? Needs a targeted test.
+1. **NAME prefix discriminative bit** (§2.5): can a strict-prefix NAME key pair with a zero
+   continuation bit occur, and what does the MSDB leaf split then do? CAS/VALIDTIME framing excludes
+   this pair; their regression coverage is linked in §2.5.
 2. **Transaction state after a failed frontier splice**: `spliceCompleteFrontierIncrementally` throws
    after intent-log copies exist, but the insert arm of `doMutation` has no catch that marks the
    transaction rollback-only (`hot/AbstractHOTIndexWriter.java:1939-2012`, `:5401-5402`). Whether a
@@ -1966,7 +2005,7 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 
 | Document | Covers | Verdict on the merged tree |
 |---|---|---|
-| `docs/DISK_FORMAT.md` | file layout, envelope, kind ids, index container pages, projection slot layout | current for what it covers; no HOT body layouts; integrity claim too strong for HOT (§3.6). PR #1214 added a projection *Compatibility* section (`:526-564`), which does not bear on HOT |
+| `docs/DISK_FORMAT.md` | file layout, envelope, kind ids, index container pages, projection slot layout, CAS/VALIDTIME posting layout | owns posting key and marker formats; HOT page-body details and integrity limits remain in §3.6 |
 | `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | mostly current; "zero-self-heal witness" (`:57-58`) and "Stage-3c machinery" (`:125`, now `propagateStructuralSpliceUpSpine`) are stale; the stale-heights open item is unverified |
 | `docs/HOT_FORMAL_FOUNDATION.md` | formal model, Theorems 1-3 | theorems current; §8 detect-and-rebuild not implemented; "right-padded keys" model (`:34-36`) differs from unsigned-prefix order (§2.5); line references stale (`findChildIndex` at `:71`) |
 | `docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md` | Binna split proofs | archive note; design basis of `HOTIncrementalInsert`; does not cover SirixDB-specific handlers |
@@ -1983,14 +2022,8 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 
 ### 8.2 Code comments that contradict the code
 
-- `hot/NodeReferencesSerializer.java:53` "< 64 entries" vs `<= 64` (`:116`).
-- `hot/CASKeySerializer.java:344`, `:848-849` (NaN onto `Double.MAX_VALUE`) vs all-ones key (`:392-409`);
-  `:612-613` ("narrowed by `Numeric#longValue()`") vs saturation (`:688-718`); `:948-950` (decimal via
-  `doubleValue()`) vs exact suffix.
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
 - `page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
-- `hot/AbstractHOTIndexReader.java` Javadoc cites `HOTRangeCursor#isOutOfRange`, which does not exist
-  (the method is `classifyAgainstBounds`, `trx/HOTRangeCursor.java:318`).
 - `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
   repair.
 - `trx/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation

@@ -4,6 +4,7 @@ import io.sirix.utils.Iterators;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.ChangeListener;
@@ -20,6 +21,9 @@ import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.path.summary.PathSummaryReader;
 import org.jspecify.annotations.Nullable;
@@ -49,7 +53,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     if (filter != null && filter.hasPathConstraint() && filter.getPCRs().isEmpty()) {
       return Collections.emptyIterator();
     }
-    return openHOTIndexWithRangeFilter(storageEngineReader, indexDef, filter);
+    return openHOTIndexWithRangeFilter(transactionView(storageEngineReader), indexDef, filter);
   }
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
@@ -57,7 +61,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     if (filter != null && filter.hasPathConstraint() && filter.getPCRs().isEmpty()) {
       return Collections.emptyIterator();
     }
-    return openHOTIndexWithFilter(storageEngineReader, indexDef, filter);
+    return openHOTIndexWithFilter(transactionView(storageEngineReader), indexDef, filter);
+  }
+
+  private static StorageEngineReader transactionView(final StorageEngineReader reader) {
+    return reader.hasTrxIntentLog()
+        ? reader.getTransactionView()
+        : reader;
   }
 
   /**
@@ -69,52 +79,32 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    if (filter != null && (hasLossyStringBound(filter.getMin(), indexDef.getContentType())
-        || hasLossyStringBound(filter.getMax(), indexDef.getContentType()))) {
-      return openStringRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
+    final Type contentType = indexDef.getContentType();
+    if (filter != null
+        && (requiresValueResidual(filter.getMin(), contentType) || requiresValueResidual(filter.getMax(), contentType)
+            || !CASKeySerializer.isByteOrderPreserving(contentType) || isDecimalType(contentType))) {
+      return openRangeWithResidual(storageEngineReader, reader, indexDef, filter.getPCRs(), filter.getMin(),
           filter.getMax(), filter.isMinInclusive(), filter.isMaxInclusive());
     }
 
-    // Bounded-cursor fast path. Bound inclusivity is enforced INSIDE the cursor, on each group's
-    // logical key bytes: index keys are not prefix-free (a string value is raw UTF-8 with no
-    // terminator), so the composite byte window is wider than the logical range — "carpet" sorts
-    // below the ceiling built for "car" — and trimming positionally here would both admit those
-    // extensions and miss an equal group that is not first or last.
+    // Bounded-cursor fast path. Bound inclusivity is enforced inside the cursor, on each group's
+    // logical key bytes. Decimal suffix order must not exclude candidates within an equal-double
+    // bucket; those ranges take the residual path above, as do lossy lexical bounds.
     // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
     // order over the serialized key, which is the value order only for the families
     // CASKeySerializer encodes deliberately. Types for which isByteOrderPreserving reports false
     // fall through to the full scan below, which compares typed atomics via CASFilterRange#inRange.
     //
-    // For losslessly encodable bounds, the cursor is not gated on losesInformation. The ordinary
-    // full scan below is not a more accurate answer for a capped or narrowed bound — it is the
-    // SAME answer at O(index) cost, because
-    // CASKeySerializer#decodeAtomic rebuilds its comparison value out of the very key the cursor
-    // already compared. A decimal key decodes to Dec(BigDecimal.valueOf(d)) — the same double; a
-    // truncated string key decodes to the truncated string. So the scan compares narrowed values
-    // exactly as the cursor does, only after materializing a CASValue for every entry in the index.
-    //
-    // Worse, for a truncating bound the scan is strictly WORSE than the cursor. With a 247-byte bound
-    // V, the stored key for V and the bound's key are byte-identical, so an inclusive cursor returns
-    // V; the scan deserializes the stored key to its 246-byte prefix, finds that prefix < V, and
-    // DROPS V — a missing row where the cursor merely over-matched.
-    //
-    // Truncation still has to be handled, because it does break the cursor in one direction: a bound
-    // at or past the cap collapses onto the same key as every stored value sharing its 246-byte
-    // prefix, so an EXCLUSIVE bound drops that whole group, matching records included. The remedy is
-    // to relax that bound to inclusive rather than to abandon the cursor — it keeps the scan O(result)
-    // and turns the drop into an over-match, which is the direction this index errs in everywhere
-    // else. Numeric narrowing needs no such relaxation: its encoder is monotone and the collapsed
-    // group is one ULP wide, so relaxing would pull every `= bound` row into a `> bound` query.
+    // Numeric narrowing is separate from capped decimal suffixes and lexical values. Preserve the
+    // ordinary bounded numeric path rather than gating it on every kind of information loss.
     if (filter != null && filter.getPCRs().size() == 1 && (filter.getMin() != null || filter.getMax() != null)
         && CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
       final Set<Long> pcrsRequested = filter.getPCRs();
       final long pcr = pcrsRequested.iterator().next();
       final Atomic min = filter.getMin();
       final Atomic max = filter.getMax();
-      final boolean minInclusive =
-          filter.isMinInclusive() || CASKeySerializer.truncates(min, indexDef.getContentType());
-      final boolean maxInclusive =
-          filter.isMaxInclusive() || CASKeySerializer.truncates(max, indexDef.getContentType());
+      final boolean minInclusive = filter.isMinInclusive();
+      final boolean maxInclusive = filter.isMaxInclusive();
 
       // Two-sided: the logical range is ONE contiguous composite range. CAS keys serialize
       // PCR-major (the sign-flipped pathNodeKey is the first 8 bytes), so BOTH bounds pin the same
@@ -204,8 +194,21 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
+  private static boolean requiresValueResidual(final @Nullable Atomic bound, final Type type) {
+    return CASKeySerializer.truncates(bound, type) || hasLossyStringBound(bound, type);
+  }
+
+  private static boolean isDecimalType(final Type type) {
+    return type.instanceOf(Type.DEC) && !type.instanceOf(Type.INR);
+  }
+
+  private static boolean hasCappedDecimalSuffix(final Map.Entry<CASValue, NodeReferences> entry) {
+    return !(entry instanceof AbstractHOTIndexReader.RawKeyBytes raw)
+        || CASKeySerializer.hasCappedDecimalSuffix(raw.rawKeyBytes(), 0, raw.rawKeyLength());
+  }
+
   private static boolean hasLossyStringBound(final @Nullable Atomic bound, final Type type) {
-    if (bound == null || !type.instanceOf(Type.STR)) {
+    if (bound == null || !CASKeySerializer.isLexicalFamily(type)) {
       return false;
     }
     final String literal = bound.stringValue();
@@ -222,40 +225,25 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  // Replacement encoding would change the range. Open only the unencodable side and keep both
-  // original bounds as residuals; capped stored keys require document values to decide exactly.
-  private static Iterator<NodeReferences> openStringRangeWithResidual(final StorageEngineReader storageEngineReader,
+  private static Iterator<NodeReferences> openRangeWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final Set<Long> pcrs, final @Nullable Atomic min,
       final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
     final Type type = indexDef.getContentType();
-    final Atomic scanMin = hasLossyStringBound(min, type)
+    final Atomic minBound = min == null
         ? null
-        : min;
-    final Atomic scanMax = hasLossyStringBound(max, type)
+        : AtomicUtil.toType(min, type);
+    final Atomic maxBound = max == null
         ? null
-        : max;
-    final Iterator<Map.Entry<CASValue, NodeReferences>> entries;
-    if (pcrs.size() == 1 && (scanMin != null || scanMax != null)) {
-      final long pcr = pcrs.iterator().next();
-      final boolean includeMin = minInclusive || CASKeySerializer.truncates(scanMin, type);
-      final boolean includeMax = maxInclusive || CASKeySerializer.truncates(scanMax, type);
-      entries = scanMin == null
-          ? reader.iteratorTo(new CASValue(scanMax, type, pcr), includeMax)
-          : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
-    } else {
-      entries = reader.iterator();
-    }
+        : AtomicUtil.toType(max, type);
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entries =
+        residualRangeEntries(reader, type, pcrs, minBound, maxBound, minInclusive, maxInclusive);
     final long[] acceptedPCRs = new long[pcrs.size()];
     int i = 0;
     for (final Long pcr : pcrs) {
       acceptedPCRs[i++] = pcr;
     }
-    final String minLiteral = min == null
-        ? null
-        : min.stringValue();
-    final String maxLiteral = max == null
-        ? null
-        : max.stringValue();
+    final boolean readValues = hasLossyStringBound(minBound, type) || hasLossyStringBound(maxBound, type);
+    final boolean decimal = isDecimalType(type);
     return new CloseForwardingIterator(entries) {
       private @Nullable NodeReferences next;
 
@@ -270,11 +258,12 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
             continue;
           }
           final CASValue key = entry.getKey();
-          if (CASKeySerializer.truncates(key.getAtomicValue(), type)) {
-            next = exactStringRangeMatches(storageEngineReader, entry.getValue(), minLiteral, maxLiteral, minInclusive,
-                maxInclusive);
-          } else if (inStringRange(key.getAtomicValue().stringValue(), minLiteral, maxLiteral, minInclusive,
-              maxInclusive)) {
+          if (readValues || (decimal
+              ? hasCappedDecimalSuffix(entry)
+              : CASKeySerializer.truncates(key.getAtomicValue(), type))) {
+            next = exactRangeMatches(storageEngineReader, entry.getValue(), minBound, maxBound, minInclusive,
+                maxInclusive, type);
+          } else if (inRange(key.getAtomicValue(), minBound, maxBound, minInclusive, maxInclusive, type)) {
             next = entry.getValue();
           }
           if (next != null) {
@@ -296,48 +285,98 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     };
   }
 
-  private static boolean inStringRange(final String value, final @Nullable String min, final @Nullable String max,
-      final boolean minInclusive, final boolean maxInclusive) {
-    final int lower = min == null
-        ? 1
-        : compareCodePoints(value, min);
-    final int upper = max == null
-        ? -1
-        : compareCodePoints(value, max);
-    return (lower > 0 || lower == 0 && minInclusive) && (upper < 0 || upper == 0 && maxInclusive);
+  private static Iterator<Map.Entry<CASValue, NodeReferences>> residualRangeEntries(
+      final HOTIndexReader<CASValue> reader, final Type type, final Set<Long> pcrs, final @Nullable Atomic min,
+      final @Nullable Atomic max, final boolean minInclusive, final boolean maxInclusive) {
+    final Atomic scanMin = residualScanBound(min, type, true);
+    final Atomic scanMax = residualScanBound(max, type, false);
+    if (pcrs.size() == 1 && CASKeySerializer.isByteOrderPreserving(type) && (scanMin != null || scanMax != null)) {
+      final long pcr = pcrs.iterator().next();
+      final boolean includeMin = minInclusive || isDecimalType(type) || CASKeySerializer.truncates(scanMin, type);
+      final boolean includeMax = maxInclusive || isDecimalType(type) || CASKeySerializer.truncates(scanMax, type);
+      if (scanMin != null && scanMax != null) {
+        return reader.range(new CASValue(scanMin, type, pcr), new CASValue(scanMax, type, pcr), includeMin, includeMax);
+      }
+      return scanMin == null
+          ? reader.iteratorTo(new CASValue(requireNonNull(scanMax), type, pcr), includeMax)
+          : reader.iteratorFrom(new CASValue(scanMin, type, pcr), includeMin);
+    }
+    return reader.iterator();
   }
 
-  private static @Nullable NodeReferences exactStringRangeMatches(final StorageEngineReader storageEngineReader,
-      final NodeReferences candidates, final @Nullable String min, final @Nullable String max,
-      final boolean minInclusive, final boolean maxInclusive) {
+  private static @Nullable Atomic residualScanBound(final @Nullable Atomic bound, final Type type,
+      final boolean lower) {
+    if (bound == null || hasLossyStringBound(bound, type)) {
+      return null;
+    }
+    if (!isDecimalType(type)) {
+      return bound;
+    }
+    final double value = ((Numeric) bound).doubleValue();
+    final double outside = lower
+        ? Math.nextDown(value)
+        : Math.nextUp(value);
+    return Double.isInfinite(outside)
+        ? null
+        : new Dbl(outside);
+  }
+
+  private static boolean inRange(final Atomic value, final @Nullable Atomic min, final @Nullable Atomic max,
+      final boolean minInclusive, final boolean maxInclusive, final Type type) {
+    final boolean string = type.instanceOf(Type.STR);
+    // Matching the exact type descriptor avoids a redundant cast; distinct descriptors still cast.
+    @SuppressWarnings("ReferenceEquality")
+    final Atomic typed = value.type() == type
+        ? value
+        : AtomicUtil.toType(value, type);
+    final int lower = min == null
+        ? 1
+        : string
+            ? compareCodePoints(typed.stringValue(), min.stringValue())
+            : typed.compareTo(min);
+    final int upper = max == null
+        ? -1
+        : string
+            ? compareCodePoints(typed.stringValue(), max.stringValue())
+            : typed.compareTo(max);
+    return (lower > 0 || (lower == 0 && minInclusive)) && (upper < 0 || (upper == 0 && maxInclusive));
+  }
+
+  private static @Nullable NodeReferences exactRangeMatches(final StorageEngineReader storageEngineReader,
+      final NodeReferences candidates, final @Nullable Atomic min, final @Nullable Atomic max,
+      final boolean minInclusive, final boolean maxInclusive, final Type type) {
     final long candidateCount = candidates.cardinality();
     long[] matching = new long[(int) Math.min(candidateCount, 16)];
     int kept = 0;
-    try (final StorageEngineReader separateReader = storageEngineReader instanceof StorageEngineWriter
+    try (final StorageEngineReader separateReader = storageEngineReader.hasTrxIntentLog()
         ? null
         : storageEngineReader.getResourceSession().createStorageEngineReader(storageEngineReader.getRevisionNumber())) {
       final StorageEngineReader records = separateReader == null
           ? storageEngineReader
           : separateReader;
-      final LongIterator it = candidates.nodeKeyIterator();
-      while (it.hasNext()) {
-        final long nodeKey = it.next();
-        final DataRecord record = records.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-        final String value;
-        if (record instanceof ValueNode valueNode) {
-          value = valueNode.getValue();
-        } else if (record instanceof NumericValueNode numericNode) {
-          value = String.valueOf(numericNode.getValue());
-        } else if (record instanceof BooleanValueNode booleanNode) {
-          value = Boolean.toString(booleanNode.getValue());
-        } else {
-          continue;
-        }
-        if (inStringRange(value, min, max, minInclusive, maxInclusive)) {
-          if (kept == matching.length) {
-            matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
+      try (final RecordPageGuard guard = separateReader == null
+          ? records.preserveRecordPageGuard()
+          : null) {
+        final LongIterator it = candidates.nodeKeyIterator();
+        while (it.hasNext()) {
+          final long nodeKey = it.next();
+          final DataRecord record = records.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+          final String value;
+          if (record instanceof ValueNode valueNode) {
+            value = valueNode.getValue();
+          } else if (record instanceof NumericValueNode numericNode) {
+            value = String.valueOf(numericNode.getValue());
+          } else if (record instanceof BooleanValueNode booleanNode) {
+            value = Boolean.toString(booleanNode.getValue());
+          } else {
+            continue;
           }
-          matching[kept++] = nodeKey;
+          if (inRange(new Str(value), min, max, minInclusive, maxInclusive, type)) {
+            if (kept == matching.length) {
+              matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
+            }
+            matching[kept++] = nodeKey;
+          }
         }
       }
     }
@@ -435,109 +474,38 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return key.getPathNodeKey();
   }
 
-  /**
-   * Keep only the candidates whose stored value really equals {@code wanted}.
-   *
-   * <p>
-   * Runs ONLY when {@link CASKeySerializer#losesInformation} reports that the probe cannot be
-   * represented exactly, which is the rare case — a value past the serializer's string cap.
-   * Everything inside that cap is decided by the seek alone and never reaches here, so the ordinary
-   * equality query pays nothing for this.
-   * </p>
-   *
-   * <p>
-   * Reads through its OWN {@link StorageEngineReader}, never the query's. {@code getRecordPage} calls
-   * {@code closeCurrentPageGuard()}, which releases the guard keeping alive the page the caller's
-   * flyweight current node is bound to — so fetching candidates on the query's reader would leave
-   * that node a dangling view into a frame the sweeper may free, and the caller's next field read
-   * would be a use-after-free. {@code AbstractResourceSession#getRecordChangeRevisions} opens its own
-   * reader for exactly this reason.
-   * </p>
-   *
-   * <p>
-   * A WRITER-backed reader cannot be shadowed that way: it represents {@code lastCommitted + 1}, a
-   * revision the session will not open a second reader on, and its uncommitted changes live in a trx
-   * intent log no other reader can see. Re-checking on the caller's own reader instead is not an
-   * option — an index scan inside an updating transaction is precisely a query holding a live cursor,
-   * so that is the hazard above rather than an exception to it. This therefore declines to filter
-   * there and returns the candidates unchanged, which is the superset the branch answered with before
-   * the re-check existed. De-pinning the record-page path would remove the hazard, and with it this
-   * carve-out.
-   * </p>
-   *
-   * <p>
-   * Two rejection rules, and the distinction matters. A candidate whose record this cannot judge is
-   * KEPT: erring towards the superset preserves the behaviour that shipped before, where dropping
-   * would turn an over-match into silently missing rows — the worse of the two failures. A candidate
-   * whose record is NULL is DROPPED: the posting lists span every revision, so a node key that does
-   * not resolve at the query revision provably is not a match, and keeping it hands the caller a key
-   * that {@code moveTo} cannot resolve.
-   * </p>
-   *
-   * <p>
-   * The survivors stay in the COMPACT representation: {@code nodeKeyIterator} yields ascending and
-   * filtering preserves that, so an exactly-sized {@code long[]} is ascending by construction and
-   * {@link NodeReferences#ofSortedArray} adopts it directly. Rebuilding a {@code Roaring64Bitmap}
-   * here would reintroduce the container tree the compact form exists to avoid, and would hand every
-   * downstream {@code cardinality}/{@code contains}/{@code nodeKeyIterator} call the slower branch —
-   * making a FILTERED result more expensive than the unfiltered one it replaces. When nothing is
-   * filtered out, which is the common case, the seek's own instance is handed straight back and
-   * nothing is allocated at all.
-   * </p>
-   *
-   * @param storageEngineReader reader for fetching the candidate records
-   * @param candidates the posting list the seek returned
-   * @param wanted the atomic the query asked for
-   * @param contentType the index's content type, which decides numeric versus lexical comparison
-   * @return the matching references, or {@code null} when none match
-   */
-  private static @Nullable NodeReferences exactMatches(final StorageEngineReader storageEngineReader,
-      final NodeReferences candidates, final Atomic wanted, final Type contentType) {
-    if (storageEngineReader.hasTrxIntentLog()) {
-      return candidates; // writer-backed: cannot be shadowed, and must not be borrowed — see above
-    }
-    // ONE type dispatch, not two. isNumericFamily walks Type#instanceOf's parent chain, which
-    // getTypeId's own comment calls a pointer chase worth ordering by frequency, and the answer is
-    // loop-invariant. Two calls also coupled the branches by convention alone: editing one to a
-    // different type would have silently changed what the null check below meant.
-    final boolean numeric = CASKeySerializer.isNumericFamily(contentType);
-    final BigDecimal wantedNumber = numeric
-        ? parseOrNull(wanted.stringValue())
-        : null;
-    if (numeric && wantedNumber == null) {
-      // A numeric probe that is not a finite number — NaN or an infinity. The encoder canonicalizes
-      // NaN onto a real value's key, so the seek's posting list is other values entirely; and XQuery
-      // gives NaN no equals, so the answer is empty rather than that posting list.
+  private static @Nullable NodeReferences exactNumericMatches(final StorageEngineReader storageEngineReader,
+      final NodeReferences candidates, final Atomic wanted) {
+    final BigDecimal wantedNumber = parseOrNull(wanted.stringValue());
+    if (wantedNumber == null) {
       return null;
     }
-    // Built only where it is read. matchesExactly consults it on the lexical path, and on the
-    // numeric path only to short-circuit an exact byte hit, so a numeric index still needs it — but
-    // a writer-backed reader, which returned above, now allocates neither this nor the BigDecimal.
     final byte[] wantedBytes = wanted.stringValue().getBytes(StandardCharsets.UTF_8);
     final long candidateCount = candidates.cardinality();
-    // GROWN, not sized from the cardinality. A posting list is unbounded — a value shared by a
-    // 246-byte prefix across millions of documents is exactly what drives a probe into this method —
-    // and sizing eagerly turned a query that answers from a handful of survivors into a
-    // hundreds-of-megabytes allocation, or an ArithmeticException out of Math.toIntExact past 2^31
-    // postings. Doubling from a small floor costs log(kept) copies and never over-allocates by more
-    // than a factor of two on what actually SURVIVES.
     long[] matching = new long[(int) Math.min(candidateCount, 16)];
     int kept = 0;
-    final var session = storageEngineReader.getResourceSession();
-    try (final StorageEngineReader records =
-        session.createStorageEngineReader(storageEngineReader.getRevisionNumber())) {
-      final LongIterator it = candidates.nodeKeyIterator();
-      while (it.hasNext()) {
-        final long nodeKey = it.next();
-        final DataRecord record = records.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-        if (record == null) {
-          continue; // does not resolve at this revision, so it cannot be a match
-        }
-        if (matchesExactly(record, wantedBytes, wantedNumber)) {
-          if (kept == matching.length) {
-            matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
+    try (final StorageEngineReader separateReader = storageEngineReader.hasTrxIntentLog()
+        ? null
+        : storageEngineReader.getResourceSession().createStorageEngineReader(storageEngineReader.getRevisionNumber())) {
+      final StorageEngineReader records = separateReader == null
+          ? storageEngineReader
+          : separateReader;
+      try (final RecordPageGuard guard = separateReader == null
+          ? records.preserveRecordPageGuard()
+          : null) {
+        final LongIterator it = candidates.nodeKeyIterator();
+        while (it.hasNext()) {
+          final long nodeKey = it.next();
+          final DataRecord record = records.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+          if (record == null) {
+            continue; // does not resolve at this revision, so it cannot be a match
           }
-          matching[kept++] = nodeKey;
+          if (matchesNumericValue(record, wantedBytes, wantedNumber)) {
+            if (kept == matching.length) {
+              matching = Arrays.copyOf(matching, Math.max(matching.length << 1, 16));
+            }
+            matching[kept++] = nodeKey;
+          }
         }
       }
     }
@@ -549,50 +517,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         : NodeReferences.ofSortedArray(Arrays.copyOf(matching, kept));
   }
 
-  /**
-   * Whether {@code record}'s stored value really is {@code wanted}.
-   *
-   * <p>
-   * Which comparison applies is decided by the caller from the INDEX's content type, not from the
-   * candidate's node kind, and arrives as {@code wantedNumber} being non-{@code null}. A numeric
-   * index compares NUMBERS — {@code 1.50} and {@code 1.5} are one value and both must match a probe
-   * of {@code 1.5}, and the same logical number reaches here as a {@link NumericValueNode} in JSON
-   * but as a lexical {@link ValueNode} in XML, so a byte comparison would drop the XML row. Every
-   * other index compares BYTES against the probe's UTF-8, which is what the truncating string encoder
-   * lost.
-   * </p>
-   *
-   * <p>
-   * A candidate this cannot read — an unrecognized node kind, or a numeric index over a node whose
-   * value will not parse — is KEPT, preserving the superset rather than risking dropped rows on
-   * something the re-check cannot judge.
-   * </p>
-   *
-   * @param record the candidate's record, never {@code null}
-   * @param wantedBytes the probe's lexical form in UTF-8, computed once by the caller
-   * @param wantedNumber the probe as a number on a numeric index, {@code null} on every other index
-   * @return {@code true} when the candidate matches, or cannot be judged
-   */
-  private static boolean matchesExactly(final DataRecord record, final byte[] wantedBytes,
-      final @Nullable BigDecimal wantedNumber) {
-    // BYTES FIRST, on both paths, because byte-identical settles a match either way and this runs
-    // once per candidate. The numeric branch below allocates a String and a BigDecimal per candidate
-    // and then parses a decimal, while the overwhelmingly common case is that the stored lexical
-    // bytes are exactly the probe's — so the vectorized Arrays.equals answers nearly every candidate
-    // and the decimal machinery is left for the case it exists to handle, where 1.50 must still match
-    // a probe of 1.5.
+  private static boolean matchesNumericValue(final DataRecord record, final byte[] wantedBytes,
+      final BigDecimal wantedNumber) {
     if (record instanceof final ValueNode valueNode && Arrays.equals(valueNode.getRawValue(), wantedBytes)) {
       return true;
     }
-    if (wantedNumber != null) {
-      // Numeric index: compare NUMBERS, whatever shape the node stores them in. The same logical
-      // number reaches here as a NumericValueNode in JSON and as raw lexical bytes in XML, and 1.50
-      // and 1.5 are one value — a byte comparison alone would drop rows for both reasons.
-      final BigDecimal stored = storedNumber(record);
-      return stored == null || stored.compareTo(wantedNumber) == 0;
-    }
-    // A lexical index whose bytes did not match is a non-match; anything this cannot read is KEPT.
-    return !(record instanceof ValueNode);
+    final BigDecimal stored = storedNumber(record);
+    return stored != null && stored.compareTo(wantedNumber) == 0;
   }
 
   /**
@@ -668,15 +599,22 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     return false;
   }
 
-  private static Iterator<NodeReferences> openLossyStringComparison(final StorageEngineReader storageEngineReader,
+  private static Iterator<NodeReferences> openComparisonWithResidual(final StorageEngineReader storageEngineReader,
       final HOTIndexReader<CASValue> reader, final IndexDef indexDef, final CASFilter filter,
       final Set<Long> pcrsRequested) {
     if (pcrsRequested.size() == 1 && resolvesToADifferentPathClass(filter, indexDef, pcrsRequested)) {
       return Collections.emptyIterator();
     }
     final SearchMode mode = filter.getMode();
+    if (!CASKeySerializer.isOfType(filter.getKey(), indexDef.getContentType())) {
+      return Collections.emptyIterator();
+    }
+    if (mode == SearchMode.EQUAL) {
+      return openRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, filter.getKey(),
+          filter.getKey(), true, true);
+    }
     final boolean lower = mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL;
-    return openStringRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
+    return openRangeWithResidual(storageEngineReader, reader, indexDef, pcrsRequested, lower
         ? filter.getKey()
         : null,
         lower
@@ -698,9 +636,13 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         ? Set.of()
         : filter.getPCRs();
 
-    if (filter != null && filter.getMode() != SearchMode.EQUAL
-        && hasLossyStringBound(filter.getKey(), indexDef.getContentType())) {
-      return openLossyStringComparison(storageEngineReader, reader, indexDef, filter, pcrsRequested);
+    if (filter != null && filter.getKey() != null
+        && (requiresValueResidual(filter.getKey(), indexDef.getContentType())
+            || (isDecimalType(indexDef.getContentType())
+                && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1))
+            || (!CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())
+                && (filter.getMode() != SearchMode.EQUAL || pcrsRequested.size() != 1)))) {
+      return openComparisonWithResidual(storageEngineReader, reader, indexDef, filter, pcrsRequested);
     }
 
     // Gated on what the QUERY pins, not on what the INDEX spans. A seek needs one exact key, so it
@@ -748,30 +690,6 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // returned, without the path-summary walk it costs. HOTIndexMemoizationJsoniqTest's crossed
       // probe pins exactly that (an index on one path, probed with another, must answer 0).
       if (mode == SearchMode.EQUAL) {
-        // Byte-exact seek, and the CAS key encoding is LOSSY, so for some probes the seek alone
-        // answers with a superset rather than an answer. CASKeySerializer truncates a string value at
-        // MAX_STRING_VALUE_BYTES, so two values sharing that prefix share one key and one posting
-        // list; the integer/decimal encoders narrow similarly.
-        //
-        // That is why the seek is not the whole answer here: losesInformation decides whether the
-        // probe survives the encoding, and only when it does NOT is the posting list re-checked
-        // against the real document values by exactMatches below. The disambiguating bytes were never
-        // stored, so nothing in the INDEX can separate the collided values — reaching the document
-        // nodes is the only thing that can, which is exactly what the re-check does. Do not drop it on
-        // the reasoning that a byte-exact seek must already be exact; CASKeyTruncationTest fails if it
-        // goes (it asserts 1, not 2, for two titles sharing a 246-byte prefix).
-        //
-        // The re-check is TYPED, not lexical: it picks its comparison from the index's content type,
-        // so it closes the numeric-narrowing case as well as the truncation one. That matters because
-        // the same logical number arrives as a NumericValueNode in JSON and as raw lexical bytes in
-        // XML, and because 1.50 and 1.5 are one value — a byte comparison would drop rows for both
-        // reasons. See exactMatches.
-        //
-        // Relaxing the pcrsAvailable gate above did not introduce the truncation defect, which is
-        // worth stating because it is easy to misread. A SINGLE-path index has always taken this
-        // branch and returned 2; a multi-path index returned 0 before (the scan compares the truncated
-        // STORED value against the full probe and matches nothing). The relaxation made multi-path
-        // consistent with single-path, and the re-check then made BOTH exact.
         final NodeReferences refs = reader.get(value, mode);
         if (refs == null) {
           return Collections.emptyIterator();
@@ -793,11 +711,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         if (!CASKeySerializer.losesInformation(atomic, indexDef.getContentType())) {
           return Iterators.forArray(refs);
         }
-        // The probe does not fit the key encoding, so the seek answered with a superset: every value
-        // sharing the truncated prefix collapses onto this one key. The index cannot separate them —
-        // the distinguishing bytes were never stored — so the only thing that can is the document.
-        // Re-check the candidates against their real values.
-        final NodeReferences exact = exactMatches(storageEngineReader, refs, atomic, indexDef.getContentType());
+        final NodeReferences exact = exactNumericMatches(storageEngineReader, refs, atomic);
         return exact == null
             ? Collections.emptyIterator()
             : Iterators.forArray(exact);
@@ -816,24 +730,8 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // with the PCR check hoisted out nothing in these scans deserializes a key at all. Same
       // content-type gate as the range-filter path: byte order decides these bounds, so a type whose
       // key bytes are its raw lexical form must use the typed comparison in the full scan instead.
-      //
-      // A TRUNCATING bound is handled by relaxing the bound, not by abandoning the cursor — the same
-      // reversal as in openHOTIndexWithRangeFilter, for the same reason. The full scan below is not
-      // the more accurate answer for such a bound: CASFilterRange#inRange judges the atomic that
-      // CASKeySerializer#decodeAtomic rebuilt out of the stored key, and for a truncated value that
-      // is its 246-byte prefix. So the scan compares the bound against the prefix, finds the prefix
-      // below it, and DROPS the record the cursor would have returned — a missing row bought with an
-      // O(index) scan. Once the bound reaches the cap it collapses onto the same key as every stored
-      // value sharing that prefix, and only the EXCLUSIVE cursors mishandle the collapsed group (they
-      // drop it whole, matching records included); making the bound inclusive keeps the group and
-      // errs towards the superset, which is the direction this index errs in everywhere else.
-      //
-      // Note this is NOT a consequence of relaxing the pcrsAvailable gate above; a SINGLE-path index
-      // has always reached this cursor. The relaxation extended the exposure to multi-path indexes,
-      // which is what made the pre-existing hole worth closing at the same time.
       if (CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
-        final boolean inclusive = mode == SearchMode.GREATER_OR_EQUAL || mode == SearchMode.LOWER_OR_EQUAL
-            || CASKeySerializer.truncates(atomic, indexDef.getContentType());
+        final boolean inclusive = mode == SearchMode.GREATER_OR_EQUAL || mode == SearchMode.LOWER_OR_EQUAL;
         final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = switch (mode) {
           case GREATER, GREATER_OR_EQUAL -> reader.iteratorFrom(value, inclusive);
           case LOWER, LOWER_OR_EQUAL -> reader.iteratorTo(value, inclusive);

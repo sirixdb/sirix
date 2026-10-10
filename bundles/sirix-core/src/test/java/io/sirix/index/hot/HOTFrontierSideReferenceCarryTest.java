@@ -178,7 +178,8 @@ final class HOTFrontierSideReferenceCarryTest {
           height = Math.max(height, indirect.getHeight() + 1);
         }
       }
-      return register(HOTBulkBuilder.assembleIndirect(bits, partials, children, height, 1, pageKeys::getAndIncrement));
+      return register(HOTBulkBuilder.assembleIndirect(bits, partials, children, height, 1, IndexType.PROJECTION,
+          pageKeys::getAndIncrement));
     }
 
     private PageReference register(final Page page) {

@@ -9,14 +9,18 @@ import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTKeySerializer;
-import io.sirix.index.hot.NodeReferencesSerializer;
+import io.sirix.index.hot.NodeReferencesSerializer.ChunkAccumulator;
 import io.sirix.index.hot.HOTIndexWriter;
+import io.sirix.index.hot.PostingDeltas;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
@@ -133,10 +137,9 @@ public final class HotOrderedStore implements OrderedStore {
     final byte[] key = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(new ValidTimeKey(store, forkNode, endpoint),
         (int) (ref >>> 16), key, 0);
-    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
-        final HOTRangeCursor cursor = trie.range(root, key, key)) {
-      return cursor.hasNext()
-          ? postingChunk(cursor.next())
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, key, key)) {
+      return chunks.hasNext()
+          ? chunks.next()
           : null;
     }
   }
@@ -165,17 +168,13 @@ public final class HotOrderedStore implements OrderedStore {
     final byte[] to = new byte[from.length];
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
-    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
-        final HOTRangeCursor cursor = trie.range(root, from, to)) {
-      while (cursor.hasNext()) {
-        final HOTRangeCursor.Entry entry = cursor.next();
-        final NodeReferences refs = postingChunk(entry);
-        if (!refs.hasNodeKeys()) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+      while (chunks.hasNext()) {
+        final NodeReferences refs = chunks.next();
+        if (refs == null) {
           continue;
         }
-        final byte[] composite = entry.keyBytes();
-        final long chunkBase = (HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL) << 16;
-        final NodeReferences otherRefs = other.chunk(otherForkNode, otherEndpoint, chunkBase);
+        final NodeReferences otherRefs = other.chunk(otherForkNode, otherEndpoint, chunks.chunkBase());
         if (otherRefs != null && Roaring64Bitmap.intersects(refs.getNodeKeys(), otherRefs.getNodeKeys())) {
           return true;
         }
@@ -199,10 +198,12 @@ public final class HotOrderedStore implements OrderedStore {
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
     long count = 0;
-    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
-        final HOTRangeCursor cursor = trie.range(root, from, to)) {
-      while (cursor.hasNext()) {
-        count += postingChunk(cursor.next()).cardinality();
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+      while (chunks.hasNext()) {
+        final NodeReferences refs = chunks.next();
+        if (refs != null) {
+          count += refs.cardinality();
+        }
         if (stopAtFirst && count != 0) {
           break;
         }
@@ -211,11 +212,137 @@ public final class HotOrderedStore implements OrderedStore {
     return count;
   }
 
-  private static NodeReferences postingChunk(final HOTRangeCursor.Entry entry) {
-    if (SCAN_DIAGNOSTICS) {
-      POSTING_CHUNKS_READ.increment();
+  /** Reads one bounded chunk at a time, including its chronological deltas and side payload. */
+  private static final class PostingChunkCursor implements AutoCloseable {
+    private static final int COMPOSITE_BYTES = ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES;
+    private final HOTTrieReader trie;
+    private final HOTRangeCursor cursor;
+    private final byte[] composite;
+    private final ChunkAccumulator accumulator = ChunkAccumulator.forChunkLookup();
+    private long chunkBase;
+
+    private PostingChunkCursor(final HOTIndexReader<ValidTimeKey> reader, final PageReference root, final byte[] from,
+        final byte[] to) {
+      trie = new HOTTrieReader(reader.getStorageEngineReader());
+      composite = Arrays.copyOf(from, COMPOSITE_BYTES);
+      // A point bound ending at the base excludes every suffix delta. Include the complete
+      // suffix domain of the last chunk without admitting the next chunk or logical key.
+      final byte[] upper = Arrays.copyOf(to, COMPOSITE_BYTES + PostingDeltas.SUFFIX_BYTES);
+      Arrays.fill(upper, COMPOSITE_BYTES, upper.length, (byte) 0xFF);
+      try {
+        cursor = trie.range(root, from, upper);
+      } catch (RuntimeException | Error e) {
+        trie.close();
+        throw e;
+      }
     }
-    return NodeReferencesSerializer.deserializeChunk(entry.valueBytes());
+
+    private boolean hasNext() {
+      return cursor.hasNext();
+    }
+
+    private long chunkBase() {
+      return chunkBase;
+    }
+
+    private @Nullable NodeReferences next() {
+      positionAtChunk();
+      merge: for (int attempt = 0;; attempt++) {
+        checkRetries(attempt);
+        while (cursor.hasNext()) {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int index = cursor.currentEntryIndex();
+          final boolean end;
+          try {
+            end = leaf.compareKeyPrefix(index, composite, COMPOSITE_BYTES) != 0;
+            if (!end) {
+              final int length = leaf.getKeyLength(index);
+              final boolean ok;
+              if (length == COMPOSITE_BYTES) {
+                ok = accumulator.addChunk(leaf, leaf.valueRef(index), 0, trie);
+              } else if (length == COMPOSITE_BYTES + PostingDeltas.SUFFIX_BYTES
+                  && PostingDeltas.isDelta(leaf.readKeyIntBE(index, COMPOSITE_BYTES) & 0xFFFFFFFFL)) {
+                // OrderedStore.chunk returns chunk-local low-16-bit references on both sides
+                // of an intersection; expanding either side to document keys would miscompare.
+                ok = accumulator.applyDelta(leaf, leaf.valueRef(index), 0,
+                    leaf.readKeyIntBE(index, COMPOSITE_BYTES) & 0xFFFFFFFFL, trie);
+              } else {
+                throw new IllegalArgumentException("Malformed VALIDTIME posting chunk key length: " + length);
+              }
+              if (!ok) {
+                accumulator.reset();
+                cursor.restartAtComposite(composite);
+                continue merge;
+              }
+            }
+          } catch (RuntimeException e) {
+            if (cursor.validateLeaf()) {
+              throw e;
+            }
+            accumulator.reset();
+            cursor.restartAtComposite(composite);
+            continue merge;
+          }
+          if (!cursor.validateLeaf()) {
+            accumulator.reset();
+            cursor.restartAtComposite(composite);
+            continue merge;
+          }
+          if (end) {
+            break;
+          }
+          cursor.advance();
+        }
+        break;
+      }
+      chunkBase = (HOTKeySerializer.readChunkIdx(composite, 0, COMPOSITE_BYTES) & 0xFFFFFFFFL) << 16;
+      if (SCAN_DIAGNOSTICS) {
+        POSTING_CHUNKS_READ.increment();
+      }
+      return accumulator.toNodeReferencesAndReset();
+    }
+
+    private void positionAtChunk() {
+      boolean positioned = false;
+      for (int attempt = 0; !positioned; attempt++) {
+        checkRetries(attempt);
+        try {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int index = cursor.currentEntryIndex();
+          if (leaf.getKeyLength(index) < COMPOSITE_BYTES
+              || leaf.compareKeyPrefix(index, composite, ValidTimeKeySerializer.KEY_BYTES) != 0) {
+            throw new IllegalArgumentException("Unreadable VALIDTIME posting chunk key");
+          }
+          final int chunkIndex = leaf.readKeyIntBE(index, ValidTimeKeySerializer.KEY_BYTES);
+          if (cursor.validateLeaf()) {
+            HOTKeySerializer.writeChunkIdxBE(composite, ValidTimeKeySerializer.KEY_BYTES, chunkIndex);
+            positioned = true;
+          } else {
+            cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
+          }
+        } catch (RuntimeException e) {
+          if (cursor.validateLeaf()) {
+            throw e;
+          }
+          cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
+        }
+      }
+    }
+
+    private static void checkRetries(final int attempt) {
+      if (attempt > HOTTrieReader.MAX_STAMP_RETRIES) {
+        throw HOTTrieReader.stampRetriesExhausted("VALIDTIME posting chunk");
+      }
+    }
+
+    @Override
+    public void close() {
+      try {
+        cursor.close();
+      } finally {
+        trie.close();
+      }
+    }
   }
 
   @Override

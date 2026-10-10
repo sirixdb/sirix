@@ -7,9 +7,11 @@ package io.sirix.index.hot;
 
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.page.OverflowPage;
 import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +66,8 @@ final class HOTConsolidationPrefixShrinkTest {
     final AtomicLong allocator = new AtomicLong(1);
     final FrameSlotAllocator frameAllocator = FrameSlotAllocator.getInstance();
     final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final long shrinksBefore = HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get();
+    final long pairsBefore = HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get();
     final Fixture fixture = fixture(allocator, FULL_LEAF_ENTRIES);
     final int liveBefore = frameAllocator.liveSlotCount(frameClass);
     final List<PageReference> dropped = new ArrayList<>();
@@ -73,6 +77,10 @@ final class HOTConsolidationPrefixShrinkTest {
       final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(fixture.parent,
           CONSOLIDATION_TARGET, 2, IndexType.VALIDTIME, allocator::getAndIncrement, dropped);
 
+      assertTrue(HOTIncrementalInsert.PREFIX_SHRINK_REFUSED_FOR_CAPACITY.get() > shrinksBefore,
+          "the explicit pair must reach the capacity-refused prefix shrink");
+      assertTrue(HOTIncrementalInsert.CONSOLIDATION_PAIR_DID_NOT_FIT.get() > pairsBefore,
+          "the refused pair must stay unmerged");
       assertSame(fixture.parent, consolidated, "an unmergeable pair must leave the node as it is");
       assertTrue(dropped.isEmpty(), "no source leaf may be handed to retirement when nothing merged");
       assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
@@ -118,6 +126,30 @@ final class HOTConsolidationPrefixShrinkTest {
     }
   }
 
+  @Test
+  void consolidationDeclinesPairWithReferencedPostingPayload() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final Fixture fixture = fixture(allocator, 20);
+    final long refKey = PostingDeltas.referenceKey(heavyKey(0), heavyKey(0).length);
+    final PageReference reference = new PageReference();
+    final byte[] payload = fixture.heavy.copyStoredValue(0);
+    reference.setPage(new OverflowPage(payload));
+    assertTrue(fixture.heavy.updateValue(0, NodeReferencesSerializer.encodeReferenced(refKey, payload.length,
+        ProjectionIndexColumnSegmentCodec.contentHash(payload))));
+    fixture.heavy.setPageReference(refKey, reference);
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final HOTIndirectPage result = HOTIncrementalInsert.consolidateNodeLeaves(fixture.parent, CONSOLIDATION_TARGET, 2,
+          IndexType.VALIDTIME, allocator::getAndIncrement, dropped);
+      assertSame(fixture.parent, result);
+      assertTrue(dropped.isEmpty());
+      assertSame(reference, fixture.heavy.getPageReference(refKey));
+      assertEquals(0, fixture.heavy.findReferencedPostingOwner(refKey));
+    } finally {
+      closeAll(fixture.parent);
+    }
+  }
+
   // ===== Fixtures =====
 
   private static final byte[] LIGHT_VALUE = {0x01, 0x02, 0x03};
@@ -145,7 +177,7 @@ final class HOTConsolidationPrefixShrinkTest {
       assertTrue(fourth.put(new byte[] {(byte) 0x80}, LIGHT_VALUE));
       final PageReference[] references = {swizzle(heavy), swizzle(light), swizzle(third), swizzle(fourth)};
       final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
-          references, 1, 1, allocator::getAndIncrement);
+          references, 1, 1, IndexType.VALIDTIME, allocator::getAndIncrement);
       return new Fixture(parent, heavy, light);
     } catch (final RuntimeException | Error failure) {
       for (final HOTLeafPage leaf : leaves) {

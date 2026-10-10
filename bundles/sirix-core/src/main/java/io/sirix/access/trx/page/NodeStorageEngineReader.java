@@ -37,6 +37,8 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.HOTReadIntent;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
@@ -227,6 +229,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private final TransactionIntentLog trxIntentLog;
 
+  private StorageEngineReader transactionView = this;
+
   /**
    * The transaction-ID.
    */
@@ -254,10 +258,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Guard lifecycle: - Acquired when cursor moves to a page - Released when cursor moves to a
    * DIFFERENT page - Released on transaction close
    * <p>
-   * This matches database cursor semantics: only the "current" page is guarded. Node keys are
-   * primitives (copied from MemorySegments), so old pages can be evicted after cursor moves away.
+   * Temporary record reads can retain a saved pin through {@link #preserveRecordPageGuard()}.
+   * Otherwise only the current page is guarded. Node keys are primitives (copied from
+   * MemorySegments), so old pages can be evicted after the cursor moves away.
    */
-  private PageGuard currentPageGuard;
+  private @Nullable PageGuard currentPageGuard;
 
   /**
    * Cached name page of this revision.
@@ -462,6 +467,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public boolean hasTrxIntentLog() {
     return trxIntentLog != null;
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    assertNotClosed();
+    return transactionView;
+  }
+
+  void bindTransactionView(final StorageEngineWriter writer) {
+    transactionView = requireNonNull(writer);
   }
 
   @Nullable
@@ -3551,6 +3566,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return currentPageGuard != null
         ? currentPageGuard.page()
         : null;
+  }
+
+  @Override
+  public RecordPageGuard preserveRecordPageGuard() {
+    assertNotClosed();
+    final PageGuard saved = currentPageGuard;
+    currentPageGuard = null;
+    return () -> {
+      try {
+        closeCurrentPageGuard();
+      } finally {
+        currentPageGuard = saved;
+      }
+    };
   }
 
   @Override

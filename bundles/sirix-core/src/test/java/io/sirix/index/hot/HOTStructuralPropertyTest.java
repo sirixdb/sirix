@@ -48,6 +48,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -55,6 +57,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.SplittableRandom;
 import java.util.TreeMap;
@@ -64,6 +67,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A seeded, property-based exercise of every HOT index kind the writer serves, against the complete
@@ -254,6 +259,46 @@ final class HOTStructuralPropertyTest {
   @DisplayName("VALIDTIME index: every generated stream keeps the structural invariant and the reference answers")
   void validTimeIndex() {
     runBudget(Kind.VALIDTIME, DEFAULT_SEEDS, DEFAULT_OPS, false, true);
+  }
+
+  @Test
+  void casDeltaSlotsPreserveTheReferenceAcrossReopen() {
+    final long writesBefore = HOTIndexWriter.postingDeltaWrites();
+    for (final VersioningType versioning : VERSIONINGS) {
+      replay(Kind.CAS, versioning, 0, true, temporaryDirectory.resolve("cas-deltas-" + versioning), """
+          M -5922294211774243601 69638 7 245094 51
+          C
+          O
+          """);
+    }
+    assertTrue(HOTIndexWriter.postingDeltaWrites() > writesBefore, "the stream must write posting deltas");
+  }
+
+  @Test
+  void validTimeDeltaSlotsPreserveTheReferenceAcrossReopen() {
+    final long writesBefore = HOTIndexWriter.postingDeltaWrites();
+    for (final VersioningType versioning : VERSIONINGS) {
+      replay(Kind.VALIDTIME, versioning, 0, true, temporaryDirectory.resolve("validtime-deltas-" + versioning), """
+          P 1 5620492334958379008 167280 219717
+          M 0 3377554456395116098 9598 90537 60
+          C
+          O
+          """);
+    }
+    assertTrue(HOTIndexWriter.postingDeltaWrites() > writesBefore, "the stream must write posting deltas");
+  }
+
+  @Test
+  void emptyDeltaChunkIsNotALiveReferenceSlot() {
+    for (final VersioningType versioning : VERSIONINGS) {
+      replay(Kind.VALIDTIME, versioning, 0, true, temporaryDirectory.resolve("empty-delta-chunk-" + versioning), """
+          M 1 -3530497225942938245 47134 49397 1
+          M 0 3602879701896396800 60 240298 612
+          X 0 3602879701896396800 60 240298 612
+          C
+          O
+          """);
+    }
   }
 
   @Test
@@ -975,12 +1020,14 @@ final class HOTStructuralPropertyTest {
   private static final class Logical<K> {
     final K key;
     final LongAVLTreeSet nodeKeys;
+    private final long[] sortedNodeKeys;
     /** Distinct {@code nodeKey >>> 16} values, ascending: the chunk slots this key occupies. */
     final int[] chunks;
 
     Logical(final K key, final LongAVLTreeSet nodeKeys) {
       this.key = key;
       this.nodeKeys = nodeKeys;
+      sortedNodeKeys = nodeKeys.toLongArray();
       int count = 0;
       int last = -1;
       for (final long nodeKey : nodeKeys) {
@@ -1003,7 +1050,7 @@ final class HOTStructuralPropertyTest {
     }
 
     long[] sortedNodeKeys() {
-      return nodeKeys.toLongArray();
+      return sortedNodeKeys;
     }
   }
 
@@ -1045,6 +1092,10 @@ final class HOTStructuralPropertyTest {
     abstract int maxPrefixLength(K key);
 
     abstract int serializePrefix(K key, byte[] dest);
+
+    abstract int logicalKeyLength(byte[] storedKey);
+
+    abstract K deserializePrefix(byte[] storedKey, int prefixLength);
 
     abstract void writerPut(K key, long nodeKey);
 
@@ -1124,7 +1175,7 @@ final class HOTStructuralPropertyTest {
       final StorageEngineReader reader = writer.getStorageEngineReader();
       final PageReference root = writer.getRootReference();
       noteValidation(HOTInvariantValidator.validate(root, reader));
-      compareSlots("writer-slot-walk", liveSlotKeys(reader, root, true), expectedSlots(model));
+      comparePostingSlots("writer-slot-walk", reader, root, model);
       final PostingLookup<K> lookup = writerLookup();
       if (exhaustive) {
         checkEveryLookup(lookup, model);
@@ -1141,7 +1192,7 @@ final class HOTStructuralPropertyTest {
       noteValidation(root == null
           ? new HOTInvariantValidator.Result(List.of(), 0, 0)
           : HOTInvariantValidator.validate(root, reader));
-      compareSlots("reader-slot-walk", liveSlotKeys(reader, root, true), expectedSlots(expected));
+      comparePostingSlots("reader-slot-walk", reader, root, expected);
       final PostingLookup<K> lookup = readerLookup(reader);
       if (exact) {
         // The logical iterator decodes every posting list of the revision; with bulk postings that
@@ -1154,6 +1205,80 @@ final class HOTStructuralPropertyTest {
       } else {
         sampleLookups(lookup, expected, LOOKUP_SAMPLE);
       }
+    }
+
+    private void comparePostingSlots(final String check, final StorageEngineReader reader,
+        final @Nullable PageReference root, final Map<ByteKey, Logical<K>> source) {
+      final SortedSet<ByteKey> expected = expectedSlots(source);
+      final List<ByteKey> physical = liveSlotKeys(reader, root, true);
+      final List<ByteKey> chunks = new ArrayList<>(expected.size());
+      final boolean supportsDeltas = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
+      final Set<ByteKey> membership = supportsDeltas
+          ? new HashSet<>(expected)
+          : expected;
+      final Set<ByteKey> emptyBases = supportsDeltas
+          ? emptyPostingBases(reader, physical, membership)
+          : Set.of();
+      for (int i = 0; i < physical.size(); i++) {
+        final ByteKey key = physical.get(i);
+        // Delta slots participate in the physical ordering even though they are not extra chunks.
+        if (i > 0 && physical.get(i - 1).compareTo(key) >= 0) {
+          throw new PropertyViolation(check,
+              "slot " + i + " (" + key + ") does not sort above slot " + (i - 1) + " (" + physical.get(i - 1) + ")");
+        }
+        if (supportsDeltas && !membership.contains(key) && key.bytes.length > PostingDeltas.SUFFIX_BYTES) {
+          final long suffix = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
+          if (PostingDeltas.isDelta(suffix)
+              && suffix <= (PostingDeltas.suffix(PostingDeltas.MAX_SEQ, true) & 0xFFFFFFFFL)) {
+            final ByteKey base = new ByteKey(Arrays.copyOf(key.bytes, key.bytes.length - PostingDeltas.SUFFIX_BYTES));
+            // Establish the logical boundary through the reference, not a chunk trailer's high bit.
+            // A full unsigned chunk index is a base key, and unrelated keys must still fail below.
+            if ((membership.contains(base) || emptyBases.contains(base))
+                && (HOTKeySerializer.readChunkIdx(base.bytes, 0, base.bytes.length)
+                    & 0xFFFFFFFFL) <= PostingDeltas.MAX_CHUNK_IDX) {
+              continue;
+            }
+          }
+        }
+        if (!emptyBases.contains(key)) {
+          chunks.add(key);
+        }
+      }
+      compareSlots(check, chunks, expected);
+    }
+
+    private Set<ByteKey> emptyPostingBases(final StorageEngineReader reader, final List<ByteKey> physical,
+        final Set<ByteKey> expected) {
+      final Set<ByteKey> emptyBases = new HashSet<>();
+      final Map<ByteKey, long[]> postingsByPrefix = new HashMap<>();
+      final PostingLookup<K> lookup = readerLookup(reader);
+      for (final ByteKey key : physical) {
+        final int prefixLength = logicalKeyLength(key.bytes);
+        if (key.bytes.length != prefixLength + HOTKeySerializer.CHUNK_IDX_BYTES || expected.contains(key)) {
+          continue;
+        }
+        // An append-only removal may empty a chunk before its next fold. Require the public
+        // posting view to contain no node keys in that independently absent reference chunk.
+        final long chunk = HOTKeySerializer.readChunkIdx(key.bytes, 0, key.bytes.length) & 0xFFFFFFFFL;
+        final ByteKey prefix = new ByteKey(Arrays.copyOf(key.bytes, prefixLength));
+        long[] nodeKeys = postingsByPrefix.get(prefix);
+        if (nodeKeys == null) {
+          final NodeReferences refs = lookup.get(deserializePrefix(key.bytes, prefixLength));
+          nodeKeys = refs == null
+              ? new long[0]
+              : refs.toSortedArray();
+          postingsByPrefix.put(prefix, nodeKeys);
+        }
+        final int found = Arrays.binarySearch(nodeKeys, chunk << 16);
+        final int first = found >= 0
+            ? found
+            : -found - 1;
+        final boolean empty = first == nodeKeys.length || (nodeKeys[first] >>> 16) != chunk;
+        if (empty) {
+          emptyBases.add(key);
+        }
+      }
+      return emptyBases;
     }
 
     private SortedSet<ByteKey> expectedSlots(final Map<ByteKey, Logical<K>> source) {
@@ -1188,7 +1313,7 @@ final class HOTStructuralPropertyTest {
           throw new PropertyViolation("reader-iterator-order",
               "logical key " + position + " is " + actualPrefix + ", reference expects " + wanted.getKey());
         }
-        final long[] wantedArray = wanted.getValue().nodeKeys.toLongArray();
+        final long[] wantedArray = wanted.getValue().sortedNodeKeys();
         final long[] actualArray = actual.getValue().toSortedArray();
         if (!Arrays.equals(wantedArray, actualArray)) {
           throw new PropertyViolation("reader-iterator-postings",
@@ -1291,6 +1416,16 @@ final class HOTStructuralPropertyTest {
     }
 
     @Override
+    int logicalKeyLength(final byte[] storedKey) {
+      return serializer.logicalKeyLength(storedKey, 0, storedKey.length);
+    }
+
+    @Override
+    K deserializePrefix(final byte[] storedKey, final int prefixLength) {
+      return serializer.deserialize(storedKey, 0, prefixLength);
+    }
+
+    @Override
     void writerPut(final K key, final long nodeKey) {
       writer().indexNodeKey(key, nodeKey);
     }
@@ -1364,6 +1499,16 @@ final class HOTStructuralPropertyTest {
     @Override
     int serializePrefix(final Long key, final byte[] dest) {
       return PathKeySerializer.INSTANCE.serialize(key, dest, 0);
+    }
+
+    @Override
+    int logicalKeyLength(final byte[] storedKey) {
+      return HOTLongKeySerializer.SERIALIZED_SIZE;
+    }
+
+    @Override
+    Long deserializePrefix(final byte[] storedKey, final int prefixLength) {
+      return PathKeySerializer.INSTANCE.deserialize(storedKey, 0, prefixLength);
     }
 
     @Override

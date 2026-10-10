@@ -10,7 +10,9 @@ import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.LongSupplier;
 
@@ -116,16 +118,18 @@ public final class HOTBulkBuilder {
    * @param sortedEntries entries sorted strictly ascending by unsigned big-endian key; must contain
    *        no duplicate keys
    * @param revision the revision number stamped onto every created page
-   * @param indexType the index type ({@code PATH} / {@code CAS} / {@code NAME})
+   * @param indexType the index type stamped onto the leaves and used to enforce key limits
    * @param pageKeyAllocator supplier of fresh persistent page keys; called once per created page
    *        (leaf and indirect)
    * @return the build result; {@code rootPage} is {@code null}-free
    * @throws NullPointerException if any argument is {@code null}
    * @throws IllegalArgumentException if {@code sortedEntries} is empty, not strictly ascending,
-   *         contains a duplicate key, or contains a single entry whose bytes cannot fit a leaf page
+   *         contains a duplicate key, contains a CAS/VALIDTIME key exceeding
+   *         {@link HOTKeySerializer#MAX_KEY_BYTES}, or contains a single entry whose bytes cannot fit
+   *         a leaf page
    */
-  public static BuildResult build(final java.util.List<Entry> sortedEntries, final int revision,
-      final IndexType indexType, final LongSupplier pageKeyAllocator) {
+  public static BuildResult build(final List<Entry> sortedEntries, final int revision, final IndexType indexType,
+      final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(sortedEntries, "sortedEntries");
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
@@ -137,10 +141,14 @@ public final class HOTBulkBuilder {
     // Snapshot into primitive-friendly arrays; validate strict ascending order + distinctness.
     final byte[][] keys = new byte[n][];
     final byte[][] values = new byte[n][];
+    final boolean cappedKeys = indexType == IndexType.CAS || indexType == IndexType.VALIDTIME;
     for (int i = 0; i < n; i++) {
       final Entry e = sortedEntries.get(i);
       keys[i] = e.key();
       values[i] = e.value();
+      if (cappedKeys && keys[i].length > HOTKeySerializer.MAX_KEY_BYTES) {
+        throw new IllegalArgumentException("HOT key exceeds maximum stored length");
+      }
       if (i > 0) {
         final int cmp = Arrays.compareUnsigned(keys[i - 1], keys[i]);
         if (cmp == 0) {
@@ -481,7 +489,7 @@ public final class HOTBulkBuilder {
           }
         }
         final HOTIndirectPage result =
-            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, pageKeyAllocator);
+            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType, pageKeyAllocator);
         indirectCount++;
         return result;
       } catch (final RuntimeException | Error failure) {
@@ -561,10 +569,15 @@ public final class HOTBulkBuilder {
    * @return a freshly allocated compound node
    */
   static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials, final PageReference[] children,
-      final int height, final int revision, final LongSupplier pageKeyAllocator) {
+      final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(indexType, "indexType");
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
+    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) && lastByte - firstByte >= 8
+        && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
+      throw new IllegalArgumentException("HOT discriminative bit exceeds maximum key length");
+    }
     final long pageKey = pageKeyAllocator.getAsLong();
 
     if (lastByte - firstByte < 8) {
@@ -582,7 +595,7 @@ public final class HOTBulkBuilder {
     }
 
     // MultiMask: discriminative bits span more than 8 bytes. Group them by key byte.
-    final java.util.TreeMap<Integer, Integer> maskByByte = new java.util.TreeMap<>();
+    final TreeMap<Integer, Integer> maskByByte = new TreeMap<>();
     for (final int absBit : discBits) {
       final int bytePos = absBit >>> 3;
       final int maskBit = 1 << (7 - (absBit & 7));

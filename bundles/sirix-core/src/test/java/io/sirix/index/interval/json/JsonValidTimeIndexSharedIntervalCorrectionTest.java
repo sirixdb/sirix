@@ -16,8 +16,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
-import io.sirix.index.hot.AbstractHOTIndexWriter;
-import io.sirix.index.hot.HOTIncrementalInsert;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.hot.HOTInvariantValidator;
 import io.sirix.index.interval.IntervalDomain;
 import io.sirix.index.interval.RelationalIntervalTree;
@@ -63,14 +62,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Nothing about the data is unusual, but which structural handlers a load reaches depends on the
  * record layout — it fixes the node keys, hence the chunk each posting falls into and the shape of
- * the trie — and on the order of the corrections: that placement is met about once in several
- * thousand of them. The publication therefore opens with the {@link #LEADING_CORRECTIONS} that meet
- * it at once, and continues with a generated stream for breadth. That the load still reaches the
- * placement that went wrong is asserted, through the counter incremented where that placement is
- * declined; an unrelated layout change can move the case but no longer silently remove it. The same
- * holds for the join a declined fold falls back to, which has to split a side a bit of its block
- * cuts through. {@code HOTStraddlingLeafSpliceTest} pins both with the shortest sequences that
- * reach them.
+ * the trie — and on the order of the corrections. The publication opens with the original
+ * {@link #LEADING_CORRECTIONS} and continues with a generated stream for breadth. Posting payloads
+ * now live in referenced side pages, so this end-to-end load asserts delta writes and folds rather
+ * than placements that depended on inline payload sizes. {@code HOTStraddlingLeafSpliceTest} builds
+ * that inline geometry directly and asserts both the declined fold and its frontier-join split.
  * </p>
  *
  * <p>
@@ -146,8 +142,8 @@ final class JsonValidTimeIndexSharedIntervalCorrectionTest {
     int records = RECORDS;
     final int firstRevision;
     final int latestRevision;
-    final long foldsDeclinedBefore = HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get();
-    final long joinSplitsBefore = AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get();
+    final long deltaWritesBefore = HOTIndexWriter.postingDeltaWrites();
+    final long deltaFoldsBefore = HOTIndexWriter.postingDeltaFolds();
 
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(
@@ -206,15 +202,10 @@ final class JsonValidTimeIndexSharedIntervalCorrectionTest {
       Arrays.fill(toDayAtFirstRevision, HORIZON_DAYS);
       assertExactStabs(database, firstRevision, RECORDS, objectKeys, new int[RECORDS], toDayAtFirstRevision);
 
-      // Last, so that a broken writer is reported as the defect it is and not as a load that no longer
-      // reaches it.
-      assertTrue(HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get() > foldsDeclinedBefore,
-          "the load must reach a fold whose upper half would not land beside its slot; without one it no "
-              + "longer covers the placement that was published out of order and its record layout must be "
-              + "re-tuned");
-      assertTrue(AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get() > joinSplitsBefore,
-          "the load must reach a complete-frontier join that has to split a side a bit of its block cuts "
-              + "through; without one it no longer covers the join a declined fold falls back to");
+      assertTrue(HOTIndexWriter.postingDeltaWrites() > deltaWritesBefore,
+          "the correction stream must append posting deltas");
+      assertTrue(HOTIndexWriter.postingDeltaFolds() > deltaFoldsBefore,
+          "the correction stream must fold posting deltas");
     }
   }
 

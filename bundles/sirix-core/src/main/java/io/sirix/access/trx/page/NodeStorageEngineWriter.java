@@ -1074,6 +1074,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     LEAK_CLEANER.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
     bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+    storageEngineReader.bindTransactionView(this);
   }
 
   @Override
@@ -5461,6 +5462,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public StorageEngineReader getStorageEngineReader() {
     return storageEngineReader;
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    storageEngineReader.assertNotClosed();
+    return this;
   }
 
   @Override
