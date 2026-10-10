@@ -4,6 +4,8 @@
 package io.sirix.query.budget;
 
 import io.sirix.budget.WorkCounter;
+import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 import java.util.List;
@@ -31,6 +33,11 @@ public final class QueryWorkCounters {
   private QueryWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  public static final WorkCounter VALID_TIME_CANDIDATE_WORDS = WorkCounter.gated("validTime.candidateWords",
+      "one companion bitmap word inspected during candidate intersection, tie removal or emission",
+      ValidTimeIntervalIndex::candidateWordsVisited, "-Dsirix.validTime.scanDiag=true",
+      HotOrderedStore::scanDiagnosticsEnabled);
 
   /** {@code count(for ... where p return $r)} answered from the projection. */
   public static final WorkCounter PREDICATE_COUNTS = WorkCounter.alwaysOn("served.predicateCounts",

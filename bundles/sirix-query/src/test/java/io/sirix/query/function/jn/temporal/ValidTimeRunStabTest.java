@@ -8,14 +8,18 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.io.StorageType;
+import io.sirix.index.interval.PostingMask;
+import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.ChunkCandidates;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -36,6 +40,49 @@ final class ValidTimeRunStabTest {
   @AfterEach
   void clearCaches() {
     Databases.clearGlobalCaches();
+  }
+
+  @Test
+  void chunkRunsMergeDuplicatesAndRemoveOnlyExactStarts() {
+    final PostingMask membership = PostingMask.from(NodeReferences.ofSortedArray(new long[] {1, 63, 64, 1000, 65535}));
+    final PostingMask verification = PostingMask.from(NodeReferences.ofSortedArray(new long[] {64, 1000}));
+    for (final boolean bitmap : new boolean[] {false, true}) {
+      final var candidates = new ChunkCandidates(base -> membership, base -> verification);
+      final NodeReferences first = NodeReferences.ofSortedArray(new long[] {1, 64, 65535});
+      final NodeReferences second = NodeReferences.ofSortedArray(new long[] {1, 63, 64, 1000});
+      if (bitmap) {
+        first.getNodeKeys();
+        second.getNodeKeys();
+      }
+      candidates.accept(65536, first, false);
+      candidates.accept(0, second, false);
+      candidates.accept(65536, second, true);
+      candidates.accept(0, first, false);
+      candidates.removeExactStarts(65536, first, false);
+      candidates.removeExactStarts(0, first, false);
+      final var evidence = candidates.evidence();
+      assertArrayEquals(new long[] {63, 64, 1000, 65536 + 64, 65536 + 1000}, evidence.keys());
+      assertArrayEquals(new long[] {64, 1000, 65536 + 64, 65536 + 1000}, evidence.unverified().toArray());
+    }
+  }
+
+  @Test
+  void fullyRemovedAndRejectedRunsEmitNoKeys() {
+    final NodeReferences references = NodeReferences.ofSortedArray(new long[] {0, 65535});
+    final PostingMask membership = PostingMask.from(references);
+    final PostingMask empty = PostingMask.from(null);
+    final var removed = new ChunkCandidates(base -> membership, base -> empty);
+    removed.accept(0, references, false);
+    removed.accept(0, references, false);
+    removed.removeExactStarts(0, references, false);
+    assertArrayEquals(new long[0], removed.evidence().keys());
+    final var rejected = new ChunkCandidates(base -> membership, base -> empty);
+    rejected.accept(0, references, true);
+    rejected.removeExactStarts(0, references, false);
+    assertArrayEquals(new long[0], rejected.evidence().keys());
+    final var nonMember = new ChunkCandidates(base -> empty, base -> empty);
+    nonMember.accept(0, references, false);
+    assertArrayEquals(new long[0], nonMember.evidence().keys());
   }
 
   @ParameterizedTest

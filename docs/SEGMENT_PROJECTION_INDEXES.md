@@ -2062,8 +2062,9 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 `sirix.projection.bulkDiag`, `sirix.segBuildDiag`, `sirix.projection.verifyDirectAssembly` (parity check),
 `sirix.hft.telemetry`, `sirix.fadvise.diag`, `sirix.lz77Codec.diag`, `sirix.lz77Codec.diag.counters`,
 `sirix.chunkedBody.diag`, `sirix.projection.groupPasses.planDiag`, `sirix.debug.ast`.
-Valid-time interval/posting references emitted, posting lookups, and compressed posting chunks read
-are gated by `sirix.validTime.scanDiag` in `HotOrderedStore` and cataloged with their requirements in the
+Valid-time interval/posting references emitted, posting lookups, compressed posting chunks read,
+and companion bitmap words inspected by `ValidTimeIntervalIndex` during candidate assembly
+are gated by `sirix.validTime.scanDiag` and cataloged with their requirements in the
 [work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
 The [work-budget counter reference](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
 also owns the JSON provider registry diagnostics and their requirements.

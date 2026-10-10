@@ -79,7 +79,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `CASLookupWorkBudgetTest` | runtime-revision CAS point lookups | the FLWOR source scans instead of taking 50 bounded point lookups, or repeats revision-by-instant resolution for identical publication timestamps (two resolutions become 50); both mutations retain the same numeric answer |
 | `sirix-query` `CASMultiMatchWorkBudgetTest` | CAS row-source fallback in FLWOR and array filters | candidate navigation exceeds its bound before declining an unordered result or postings from an unrelated duplicate array, including with Dewey IDs enabled |
 | `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
-| `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks |
+| `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks; one match in each of 1,000 chunks retains dense candidate bitmaps or scans unoccupied words |
 | `sirix-core` `NodeReferencesReadAllocationBudgetTest` | packed chunk reads | reading a small sorted posting builds a bitmap tree instead of its owned run; also verifies decoded ownership, bitmap promotion and corruption rejection |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
@@ -211,6 +211,12 @@ maintains, so a budget quotes the same numbers an investigation would:
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
   `docs/SEGMENT_PROJECTION_INDEXES.md`.
+- `QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS`: companion mask words inspected during candidate
+  intersection, strict-start removal and unverified-key emission, gated by `sirix.validTime.scanDiag`.
+  Sparse run fixtures require one occupied word per matching chunk; a full chunk requires 1,024.
+  The allocation budget measures the same collector with prepared immutable masks at 16 and 1,000
+  matches, allowing 32 KiB fixed scratch/overhead plus 512 bytes per match. It excludes mask-cache
+  construction and runs where thread allocation accounting is supported, without timing assertions.
 - `BasicJsonDBStore.getCollectionClassificationCount()` (`sirix-query`): provider type checks,
   gated by `sirix.json.registryDiag`. Registration establishes a nonzero floor; guarded query
   evaluation must add none, independent of registry size.

@@ -20,15 +20,24 @@ import io.sirix.index.interval.PostingChunkConsumer;
 import io.sirix.index.interval.PostingMask;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectHeapPriorityQueue;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 import java.util.function.LongConsumer;
+import java.util.function.LongFunction;
 
 public final class ValidTimeIntervalIndex {
+  private static final boolean SCAN_DIAGNOSTICS = HotOrderedStore.scanDiagnosticsEnabled();
+  private static final LongAdder CANDIDATE_WORDS_VISITED = new LongAdder();
+
+  public static long candidateWordsVisited() {
+    return CANDIDATE_WORDS_VISITED.sum();
+  }
 
   @SuppressWarnings("ArrayRecordComponent")
   record Evidence(long[] keys, Roaring64Bitmap unverified) {
@@ -123,26 +132,37 @@ public final class ValidTimeIntervalIndex {
     final long point = domain.point(instant);
     final boolean exact = domain.isExact(instant);
     tree.stabChunks(point, exact && strictEnd, candidates);
-    if (exact && strictStart && candidates.hasCandidates) {
+    if (exact && strictStart && !candidates.runKeys.isEmpty()) {
       tree.startingAtChunks(point, candidates::removeExactStarts);
     }
     return candidates.evidence();
   }
 
-  private static final class ChunkCandidates implements PostingChunkConsumer, LongConsumer {
+  static final class ChunkCandidates implements PostingChunkConsumer, LongConsumer {
     private static final int WORDS = 1024;
-    private final JsonDBItem document;
-    private final @Nullable HotOrderedStore members;
-    private final HotOrderedStore verification;
+    private final LongFunction<PostingMask> membership;
+    private final LongFunction<PostingMask> verification;
     private final Long2ObjectAVLTreeMap<Chunk> chunks = new Long2ObjectAVLTreeMap<>();
+    private final LongArrayList runKeys = new LongArrayList();
     private final long[] scratch = new long[WORDS];
     private final int[] touchedWords = new int[WORDS];
     private int touchedCount;
-    private boolean hasCandidates;
+
+    private static final class Run {
+      private int position;
+      private int limit;
+      private @Nullable Run next;
+
+      private Run(final int position, final int limit) {
+        this.position = position;
+        this.limit = limit;
+      }
+    }
 
     private static final class Chunk {
       private final PostingMask membership;
-      private long @Nullable [] selected;
+      private @Nullable Run first;
+      private @Nullable Run last;
       private @Nullable PostingMask unverified;
 
       private Chunk(final PostingMask membership) {
@@ -151,12 +171,23 @@ public final class ValidTimeIntervalIndex {
     }
 
     private ChunkCandidates(final JsonDBItem document, final int indexId) {
-      this.document = document;
       final var reader = document.getTrx().getStorageEngineReader();
-      members = document instanceof Array
-          ? ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
-          : null;
-      verification = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+      final long documentKey = document.getNodeKey();
+      if (document instanceof Array) {
+        final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId);
+        membership = base -> members.chunkMask(documentKey, 0, base);
+      } else {
+        membership = base -> (documentKey & ~0xFFFFL) == base
+            ? PostingMask.from(NodeReferences.ofSortedArray(new long[] {documentKey & 0xFFFFL}))
+            : PostingMask.from(null);
+      }
+      final HotOrderedStore unverified = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+      verification = base -> unverified.chunkMask(0, 0, base);
+    }
+
+    ChunkCandidates(final LongFunction<PostingMask> membership, final LongFunction<PostingMask> verification) {
+      this.membership = Objects.requireNonNull(membership);
+      this.verification = Objects.requireNonNull(verification);
     }
 
     @Override
@@ -173,16 +204,7 @@ public final class ValidTimeIntervalIndex {
       if (chunk != null) {
         return chunk;
       }
-      final PostingMask membership;
-      if (members != null) {
-        membership = members.chunkMask(document.getNodeKey(), 0, base);
-      } else {
-        final long key = document.getNodeKey();
-        membership = (key & ~0xFFFFL) == base
-            ? PostingMask.from(NodeReferences.ofSortedArray(new long[] {key & 0xFFFFL}))
-            : PostingMask.from(null);
-      }
-      chunk = new Chunk(membership);
+      chunk = new Chunk(membership.apply(base));
       chunks.put(base, chunk);
       return chunk;
     }
@@ -198,6 +220,10 @@ public final class ValidTimeIntervalIndex {
       }
       references.forEachNodeKey(this);
       try {
+        final int start = runKeys.size();
+        if (SCAN_DIAGNOSTICS) {
+          CANDIDATE_WORDS_VISITED.add(touchedCount);
+        }
         for (int index = 0; index < touchedCount; index++) {
           final int word = touchedWords[index];
           final long memberBits = scratch[word] & chunk.membership.word(word);
@@ -205,35 +231,61 @@ public final class ValidTimeIntervalIndex {
             continue;
           }
           if (chunk.unverified == null) {
-            chunk.unverified = verification.chunkMask(0, 0, base);
+            chunk.unverified = verification.apply(base);
+          }
+          if (SCAN_DIAGNOSTICS && verifyOnly) {
+            CANDIDATE_WORDS_VISITED.increment();
           }
           final long selectedBits = verifyOnly
               ? memberBits & chunk.unverified.word(word)
               : memberBits;
-          if (selectedBits != 0) {
-            if (chunk.selected == null) {
-              chunk.selected = new long[WORDS];
-            }
-            chunk.selected[word] |= selectedBits;
-            hasCandidates = true;
+          long bits = selectedBits;
+          final long prefix = base | ((long) word << 6);
+          while (bits != 0) {
+            runKeys.add(prefix | Long.numberOfTrailingZeros(bits));
+            bits &= bits - 1;
           }
+        }
+        if (runKeys.size() != start) {
+          final Run run = new Run(start, runKeys.size());
+          if (chunk.last == null) {
+            chunk.first = run;
+          } else {
+            chunk.last.next = run;
+          }
+          chunk.last = run;
         }
       } finally {
         resetScratch();
       }
     }
 
-    private void removeExactStarts(final long base, final NodeReferences references, final boolean ignored) {
+    void removeExactStarts(final long base, final NodeReferences references, final boolean ignored) {
       final Chunk chunk = chunks.get(base);
-      if (chunk == null || chunk.selected == null) {
+      if (chunk == null || chunk.first == null) {
         return;
       }
       references.forEachNodeKey(this);
       try {
         final PostingMask unverified = Objects.requireNonNull(chunk.unverified);
-        for (int index = 0; index < touchedCount; index++) {
-          final int word = touchedWords[index];
-          chunk.selected[word] &= ~(scratch[word] & ~unverified.word(word));
+        final long[] keys = runKeys.elements();
+        for (Run run = chunk.first; run != null; run = run.next) {
+          int position = run.position;
+          for (int index = run.position; index < run.limit; index++) {
+            final long key = keys[index];
+            final int word = (int) ((key & 0xFFFFL) >>> 6);
+            final long bit = 1L << key;
+            if ((scratch[word] & bit) != 0) {
+              if (SCAN_DIAGNOSTICS) {
+                CANDIDATE_WORDS_VISITED.increment();
+              }
+              if ((unverified.word(word) & bit) == 0) {
+                continue;
+              }
+            }
+            keys[position++] = key;
+          }
+          run.limit = position;
         }
       } finally {
         resetScratch();
@@ -247,51 +299,65 @@ public final class ValidTimeIntervalIndex {
       touchedCount = 0;
     }
 
-    private Evidence evidence() {
-      long cardinality = 0;
-      for (final Chunk chunk : chunks.values()) {
-        if (chunk.selected != null) {
-          for (final long bits : chunk.selected) {
-            cardinality += Long.bitCount(bits);
-          }
-        }
-      }
-      final long[] keys = new long[Math.toIntExact(cardinality)];
+    Evidence evidence() {
+      final long[] keys = new long[runKeys.size()];
+      final long[] source = runKeys.elements();
       final Roaring64Bitmap unverifiedKeys = new Roaring64Bitmap();
+      ObjectHeapPriorityQueue<Run> runs = null;
       int position = 0;
-      for (final var entry : chunks.long2ObjectEntrySet()) {
-        final Chunk chunk = entry.getValue();
-        if (chunk.selected == null) {
+      for (final Chunk chunk : chunks.values()) {
+        final Run first = chunk.first;
+        if (first == null) {
           continue;
         }
-        final long base = entry.getLongKey();
         final PostingMask unverified = Objects.requireNonNull(chunk.unverified);
-        position = emitChunk(base, chunk.selected, keys, position);
-        if (!unverified.isEmpty()) {
-          for (int word = 0; word < WORDS; word++) {
-            long verify = chunk.selected[word] & unverified.word(word);
-            while (verify != 0) {
-              unverifiedKeys.addLong(base | ((long) word << 6) | Long.numberOfTrailingZeros(verify));
-              verify &= verify - 1;
+        if (first.next == null) {
+          final int count = first.limit - first.position;
+          System.arraycopy(source, first.position, keys, position, count);
+          if (!unverified.isEmpty()) {
+            for (int index = first.position; index < first.limit; index++) {
+              markUnverified(source[index], unverified, unverifiedKeys);
             }
+          }
+          position += count;
+          continue;
+        }
+        if (runs == null) {
+          runs = new ObjectHeapPriorityQueue<>(
+              (left, right) -> Long.compare(source[left.position], source[right.position]));
+        }
+        for (Run run = first; run != null; run = run.next) {
+          if (run.position < run.limit) {
+            runs.enqueue(run);
+          }
+        }
+        long previous = -1;
+        while (!runs.isEmpty()) {
+          final Run run = runs.dequeue();
+          final long key = source[run.position++];
+          if (key != previous) {
+            keys[position++] = key;
+            if (!unverified.isEmpty()) {
+              markUnverified(key, unverified, unverifiedKeys);
+            }
+            previous = key;
+          }
+          if (run.position < run.limit) {
+            runs.enqueue(run);
           }
         }
       }
-      return new Evidence(keys, unverifiedKeys);
+      return new Evidence(position == keys.length ? keys : Arrays.copyOf(keys, position), unverifiedKeys);
     }
   }
 
-  private static int emitChunk(final long base, final long[] words, final long[] keys, final int offset) {
-    int position = offset;
-    for (int word = 0; word < words.length; word++) {
-      long bits = words[word];
-      final long prefix = base | ((long) word << 6);
-      while (bits != 0) {
-        keys[position++] = prefix | Long.numberOfTrailingZeros(bits);
-        bits &= bits - 1;
-      }
+  private static void markUnverified(final long key, final PostingMask unverified, final Roaring64Bitmap keys) {
+    if (SCAN_DIAGNOSTICS) {
+      CANDIDATE_WORDS_VISITED.increment();
     }
-    return position;
+    if ((unverified.word((int) ((key & 0xFFFFL) >>> 6)) & (1L << key)) != 0) {
+      keys.addLong(key);
+    }
   }
 
   private static @Nullable IndexDef findValidTimeIndex(final JsonDBItem document) {

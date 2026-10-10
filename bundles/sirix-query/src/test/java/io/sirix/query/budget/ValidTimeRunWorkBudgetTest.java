@@ -1,5 +1,6 @@
 package io.sirix.query.budget;
 
+import com.sun.management.ThreadMXBean;
 import io.brackit.query.Query;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -9,9 +10,12 @@ import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
 import io.sirix.budget.WorkReport;
 import io.sirix.io.StorageType;
+import io.sirix.index.interval.PostingMask;
+import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
+import io.sirix.query.function.jn.temporal.ValidTimeRunProbe;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
@@ -19,19 +23,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
+import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Isolated
 final class ValidTimeRunWorkBudgetTest {
   private static final int ROWS = 20_000;
   private static final WorkCapture WORK = WorkCapture.of(EngineWorkCounters.INDEX_ROOT_LOADS,
       EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS,
-      EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, EngineWorkCounters.VALID_TIME_MASK_HITS);
+      EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, EngineWorkCounters.VALID_TIME_MASK_HITS,
+      QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS);
 
   @TempDir
   Path directory;
@@ -39,6 +46,55 @@ final class ValidTimeRunWorkBudgetTest {
   @AfterEach
   void clearCaches() {
     Databases.clearGlobalCaches();
+  }
+
+  @Test
+  void sparseSlicesVisitOnlyTheirOccupiedWords() throws Exception {
+    final NodeReferences references = NodeReferences.ofSortedArray(new long[] {7});
+    final PostingMask membership = PostingMask.from(references);
+    final PostingMask verification = PostingMask.from(null);
+    final WorkCapture words = WorkCapture.of(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS);
+    for (final int chunks : new int[] {16, 1000}) {
+      final var capture = words.call(() -> ValidTimeRunProbe.select(chunks, references, membership, verification));
+      capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, chunks,
+          "one selected key per chunk must inspect only its occupied word, without full bitmap scans");
+      final long[] expected = new long[chunks];
+      for (int chunk = 0; chunk < chunks; chunk++) {
+        expected[chunk] = ((long) chunk << 16) | 7;
+      }
+      assertArrayEquals(expected, capture.result());
+    }
+    final long[] denseKeys = new long[65536];
+    for (int key = 0; key < denseKeys.length; key++) {
+      denseKeys[key] = key;
+    }
+    final NodeReferences dense = NodeReferences.ofSortedArray(denseKeys);
+    final PostingMask denseMembership = PostingMask.from(dense);
+    final var capture = words.call(() -> ValidTimeRunProbe.select(1, dense, denseMembership, verification));
+    capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, 1024,
+        "the dense positive control must inspect every occupied word once");
+    assertArrayEquals(denseKeys, capture.result());
+  }
+
+  @Test
+  void sparseSliceAllocationScalesWithMatches() {
+    final var threads = ManagementFactory.getThreadMXBean();
+    assumeTrue(threads instanceof ThreadMXBean);
+    final ThreadMXBean bean = (ThreadMXBean) threads;
+    assumeTrue(bean.isThreadAllocatedMemorySupported() && bean.isThreadAllocatedMemoryEnabled());
+    final NodeReferences references = NodeReferences.ofSortedArray(new long[] {7});
+    final PostingMask membership = PostingMask.from(references);
+    final PostingMask verification = PostingMask.from(null);
+    for (int warmup = 0; warmup < 32; warmup++) {
+      assertEquals(1000, ValidTimeRunProbe.select(1000, references, membership, verification).length);
+    }
+    for (final int chunks : new int[] {16, 1000}) {
+      final long start = bean.getCurrentThreadAllocatedBytes();
+      final long[] keys = ValidTimeRunProbe.select(chunks, references, membership, verification);
+      final long allocated = bean.getCurrentThreadAllocatedBytes() - start;
+      assertEquals(chunks, keys.length);
+      assertTrue(allocated <= 32768L + chunks * 512L, "candidate allocation bytes=" + allocated);
+    }
   }
 
   @Test
@@ -77,6 +133,8 @@ final class ValidTimeRunWorkBudgetTest {
       final WorkReport cold =
           WORK.run(() -> keys[0] = ValidTimeIntervalIndex.keys(collection.getDocument("rows"), point, true));
       cold.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, ROWS, "each interval must be stabbed once")
+          .assertBetween(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, 1, ROWS,
+              "dense run assembly must inspect only occupied words")
           .assertAtLeast(EngineWorkCounters.INDEX_ROOT_LOADS, 1, "the cold witness must read index metadata");
       assertEquals(ROWS, keys[0].length);
       assertTrue(keys[0][keys[0].length - 1] > 65535, "the fixture must cross the posting chunk boundary");
@@ -90,6 +148,8 @@ final class ValidTimeRunWorkBudgetTest {
             "a repeated stab in a fresh transaction must reuse index roots")
             .assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, ROWS,
                 "repeat stabs must still make only one pass")
+            .assertBetween(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, 1, ROWS,
+                "cached dense masks must still emit runs without rescanning full bitmaps")
             .assertZero(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS,
                 "warm stabs must not decode companion chunks again")
             .assertAtLeast(EngineWorkCounters.VALID_TIME_MASK_HITS, 2, "both companion masks must be reused");
