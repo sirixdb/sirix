@@ -45,25 +45,8 @@ public final class SirixStringSerializer extends StringSerializer {
     try (final Iter iterator = sequence.iterate()) {
       final Item head = iterator.next();
       if (!ColumnarJsonWriter.isBatchRecord(head)) {
-        // Replay the peeked item with the same iterator: never evaluate a lazy sequence twice.
         delegated = true;
-        super.serialize(new AbstractSequence() {
-          public Iter iterate() {
-            return new BaseIter() {
-              private boolean pending = true;
-
-              public Item next() {
-                if (pending) {
-                  pending = false;
-                  return head;
-                }
-                return iterator.next();
-              }
-
-              public void close() {}
-            };
-          }
-        });
+        super.serialize(remaining(head, iterator));
         return;
       }
       if (columnarWriter == null) {
@@ -77,9 +60,11 @@ public final class SirixStringSerializer extends StringSerializer {
         }
         if (!buffer.record(item)) {
           buffer.drain();
-          super.serialize(item);
+          delegated = true;
+          super.serialize(remaining(item, iterator));
+          return;
         }
-        first = item instanceof Node<?>;
+        first = false;
       }
       buffer.drain();
     } catch (final IOException exception) {
@@ -97,6 +82,26 @@ public final class SirixStringSerializer extends StringSerializer {
         }
       }
     }
+  }
+
+  private static Sequence remaining(final Item head, final Iter iterator) {
+    return new AbstractSequence() {
+      public Iter iterate() {
+        return new BaseIter() {
+          private boolean pending = true;
+
+          public Item next() {
+            if (pending) {
+              pending = false;
+              return head;
+            }
+            return iterator.next();
+          }
+
+          public void close() {}
+        };
+      }
+    };
   }
 
 }

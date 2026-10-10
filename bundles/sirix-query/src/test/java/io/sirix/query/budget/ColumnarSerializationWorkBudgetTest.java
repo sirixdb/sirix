@@ -5,15 +5,18 @@ import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.module.Module;
 import io.brackit.query.util.serialize.StringSerializer;
+import io.brackit.query.util.serialize.SubtreePrinter;
 import io.sirix.query.ColumnarRecordSequence;
 import io.sirix.query.SirixStringSerializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.mockito.MockedConstruction;
 
 import java.io.PrintWriter;
 import java.io.Writer;
@@ -21,6 +24,7 @@ import java.io.Writer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.when;
 
 /** Counts output writes, not elapsed time; the reference is the positive control. */
@@ -85,9 +89,66 @@ final class ColumnarSerializationWorkBudgetTest {
     assertTrue(reference.writes > actual.writes * 1000, "batching applies to existing grouped answers too");
   }
 
+  @Test
+  void mixedRecordsDelegateTheSuffixWithConstantPrintersAndFlushes() {
+    final int size = 8000;
+    final Sequence records = new Query("({'v':1}, for $i in 1 to " + size + " return {'v':[$i]})")
+        .execute(new BrackitQueryContext());
+    final CountingWriter actual = new CountingWriter();
+    try (final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(actual))) {
+      serializer.serialize(records);
+    }
+    final CountingWriter reference = new CountingWriter();
+    try (final StringSerializer serializer = new StringSerializer(new PrintWriter(reference))) {
+      serializer.serialize(records);
+    }
+    final StringBuilder expected = new StringBuilder("{\"v\":1}");
+    for (int row = 1; row <= size; row++) {
+      expected.append(" {\"v\":[").append(row).append("]}");
+    }
+    assertEquals(expected.toString(), reference.output.toString());
+    assertEquals(reference.output.toString(), actual.output.toString());
+    assertTrue(actual.flushes > 0, "the mixed result must exercise the flush counter");
+    assertTrue(actual.flushes <= 2, "the entire fallback suffix must use one flush pair: " + actual.flushes);
+
+    final CountingWriter perItem = new CountingWriter();
+    try (final StringSerializer serializer = new StringSerializer(new PrintWriter(perItem));
+        final Iter iterator = records.iterate()) {
+      boolean first = true;
+      for (Item item = iterator.next(); item != null; item = iterator.next()) {
+        if (!first) {
+          perItem.write(' ');
+        }
+        serializer.serialize(item);
+        first = false;
+      }
+    }
+    assertEquals(expected.toString(), perItem.output.toString());
+    assertTrue(perItem.flushes >= size * 2, "per-item fallback must violate the constant flush budget");
+
+    final CountingWriter allocationOutput = new CountingWriter();
+    try (final MockedConstruction<SubtreePrinter> printers = mockConstruction(SubtreePrinter.class)) {
+      try (final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(allocationOutput))) {
+        serializer.serialize(records);
+      }
+      assertEquals(reference.output.toString(), allocationOutput.output.toString());
+      final int suffixPrinters = printers.constructed().size();
+      assertEquals(1, suffixPrinters, "all unsupported records must share one fallback printer");
+      try (final StringSerializer serializer = new StringSerializer(new PrintWriter(new CountingWriter()));
+          final Iter iterator = records.iterate()) {
+        for (Item item = iterator.next(); item != null; item = iterator.next()) {
+          serializer.serialize(item);
+        }
+      }
+      assertEquals(size + 1, printers.constructed().size() - suffixPrinters,
+          "per-item serialization must expose growing printer allocations");
+    }
+  }
+
   private static final class CountingWriter extends Writer {
     private final StringBuilder output = new StringBuilder(512 * 1024);
     private int writes;
+    private int flushes;
 
     @Override
     public void write(final char[] chars, final int offset, final int length) {
@@ -108,7 +169,9 @@ final class ColumnarSerializationWorkBudgetTest {
     }
 
     @Override
-    public void flush() {}
+    public void flush() {
+      flushes++;
+    }
 
     @Override
     public void close() {}

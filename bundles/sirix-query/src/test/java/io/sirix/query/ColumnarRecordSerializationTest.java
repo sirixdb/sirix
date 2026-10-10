@@ -109,8 +109,9 @@ final class ColumnarRecordSerializationTest {
     for (final String expression : expressions) {
       final Sequence value = new Query(expression).execute(context);
       final ColumnarRecordSequence columns = new ColumnarRecordSequence(names,
-          new ColumnarRecordSequence.Column[] {ColumnarRecordSequence.sequences(new Sequence[] {value})},
+          new ColumnarRecordSequence.Column[] {ColumnarRecordSequence.longs(new long[] {0}, new boolean[] {true})},
           new int[] {0});
+      ((Object) columns.get(Int32.ONE)).replace(names[0], value);
       final ArrayObject reference = new ArrayObject(names, new Sequence[] {value});
       assertEquals(serialize(reference, false, false), serialize(columns, true, false), expression);
       assertEquals(serialize(reference, false, true), serialize(columns, true, true), expression);
@@ -194,6 +195,13 @@ final class ColumnarRecordSerializationTest {
     final ItemSequence mixed = new ItemSequence(columns.get(Int32.ONE), new Str("plain"), columns.get(new Int32(2)),
         new Query("[1,2]").execute(new BrackitQueryContext()).get(Int32.ONE));
     assertEquals(serialize(mixed, false, false), serialize(mixed, true, false));
+    final BrackitQueryContext context = new BrackitQueryContext();
+    final String[] suffixes = {"[1,2], {'v':3}, 'plain'", "<x/>, {'v':3}, <y/>, <z/>, 'plain', 4",
+        "'plain', <x/>, 4, {'v':[5]}, {'v':6}", "{'v':[2]}, <x/>, {'v':3}"};
+    for (final String suffix : suffixes) {
+      final Sequence sequence = new Query("({'v':1}, " + suffix + ")").execute(context);
+      assertEquals(serialize(sequence, false, false), serialize(sequence, true, false), suffix);
+    }
     final StringWriter actual = new StringWriter();
     final StringWriter expected = new StringWriter();
     try (final SirixStringSerializer fast = new SirixStringSerializer(new PrintWriter(actual));
@@ -243,6 +251,38 @@ final class ColumnarRecordSerializationTest {
   }
 
   @Test
+  void lazyMixedSuffixIsReadAndClosedOnce() {
+    final ColumnarRecordSequence columns = fixture();
+    final Item unsupported = new Query("{'v':[1]}").execute(new BrackitQueryContext()).get(Int32.ONE);
+    ((Object) columns.get(new Int32(2))).replace(new QNm("v"), new ItemSequence(new Int64(3), new Int64(4)));
+    final Item[] items = {columns.get(Int32.ONE), unsupported, columns.get(new Int32(2)), new Str("end")};
+    final int[] events = new int[3];
+    final Sequence lazy = new AbstractSequence() {
+      public Iter iterate() {
+        events[0]++;
+        return new BaseIter() {
+          private int position;
+
+          public Item next() {
+            events[1]++;
+            return position < items.length
+                ? items[position++]
+                : null;
+          }
+
+          public void close() {
+            events[2]++;
+          }
+        };
+      }
+    };
+    assertEquals(serialize(new ItemSequence(items), false, false), serialize(lazy, true, false));
+    assertEquals(1, events[0]);
+    assertEquals(items.length + 1, events[1]);
+    assertEquals(1, events[2]);
+  }
+
+  @Test
   void oversizedStringsAndSurrogatesAcrossBufferEdgesRemainByteIdentical() {
     final String text = "x".repeat(32758) + "\ud83d\ude00" + "\u0000" + "y".repeat(70000);
     assertParity(new long[] {Long.MIN_VALUE}, new boolean[] {true}, new String[] {text}, new int[] {0, 0});
@@ -283,6 +323,38 @@ final class ColumnarRecordSerializationTest {
       assertThrows(IllegalStateException.class, () -> serializer.serialize(failing));
     }
     assertEquals("{\"v\":2}", output.toString());
+    assertEquals(1, closed[0]);
+  }
+
+  @Test
+  void delegatedSuffixFailureFlushesCompletedRecordsAndClosesOnce() {
+    final int[] closed = new int[1];
+    final ColumnarRecordSequence columns = fixture();
+    final Item unsupported = new Query("{'v':[1]}").execute(new BrackitQueryContext()).get(Int32.ONE);
+    final Sequence failing = new AbstractSequence() {
+      public Iter iterate() {
+        return new BaseIter() {
+          private int position;
+
+          public Item next() {
+            return switch (position++) {
+              case 0 -> columns.get(Int32.ONE);
+              case 1 -> unsupported;
+              default -> throw new IllegalStateException("after unsupported record");
+            };
+          }
+
+          public void close() {
+            closed[0]++;
+          }
+        };
+      }
+    };
+    final StringWriter output = new StringWriter();
+    try (final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(output))) {
+      assertThrows(IllegalStateException.class, () -> serializer.serialize(failing));
+    }
+    assertEquals("{\"v\":2} {\"v\":[1]}", output.toString());
     assertEquals(1, closed[0]);
   }
 

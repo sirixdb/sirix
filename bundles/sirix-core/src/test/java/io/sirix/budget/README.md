@@ -69,7 +69,7 @@ failure table and tells the reader where the work went.
 
 | Test | Path | Fails when |
 |---|---|---|
-| `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar and computed primitive record output | execution-scoped rows or grouped records stop using batched writer calls; identical output and an unbatched positive control prevent vacuous bounds |
+| `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar, computed primitive and mixed record output | execution-scoped rows or grouped records stop batching writer calls, or an unsupported suffix allocates and flushes per item; output parity and unbatched/per-item positive controls prevent vacuous bounds |
 | `sirix-query` `ProjectionQueryWorkBudgetTest` | count-only group-by | it is no longer answered from the value-count summary the build maintained (three build paths), or the summary answers wrongly |
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
 | | grouped top-K, clean range | the sorted view stops serving it, or reads data leaves, or reads more summaries than the range has leaves |

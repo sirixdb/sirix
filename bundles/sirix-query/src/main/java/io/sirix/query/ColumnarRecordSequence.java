@@ -30,12 +30,11 @@ public final class ColumnarRecordSequence extends AbstractSequence {
   private final Column[] columns;
   private final int[] rows;
   private final Record[] records;
-  private final boolean primitiveColumns;
   private final IntNumeric count;
   private final IntNumeric width;
 
   /** A column owns its values. Factory methods copy caller arrays. */
-  public sealed interface Column permits LongColumn, StringColumn, SequenceColumn {
+  public sealed interface Column permits LongColumn, StringColumn {
     int size();
 
     Sequence value(int row);
@@ -65,16 +64,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     }
   }
 
-  private record SequenceColumn(Sequence[] values) implements Column {
-    public int size() {
-      return values.length;
-    }
-
-    public Sequence value(final int row) {
-      return values[row];
-    }
-  }
-
   public static Column longs(final long[] values, final boolean[] present) {
     Objects.requireNonNull(values);
     Objects.requireNonNull(present);
@@ -88,11 +77,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     return new StringColumn(Objects.requireNonNull(values).clone());
   }
 
-  /** Other JDM values are retained by reference; the caller owns their lifetime. */
-  public static Column sequences(final Sequence[] values) {
-    return new SequenceColumn(Objects.requireNonNull(values).clone());
-  }
-
   public ColumnarRecordSequence(final QNm[] names, final Column[] columns, final int[] rows) {
     this.names = Objects.requireNonNull(names).clone();
     this.columns = Objects.requireNonNull(columns).clone();
@@ -104,13 +88,11 @@ public final class ColumnarRecordSequence extends AbstractSequence {
         ? 0
         : Objects.requireNonNull(columns[0]).size();
     prefixes = new String[names.length];
-    boolean primitive = true;
     for (int i = 0; i < names.length; i++) {
       Objects.requireNonNull(names[i]);
       if (Objects.requireNonNull(columns[i]).size() != length) {
         throw new IllegalArgumentException("Column lengths differ");
       }
-      primitive &= !(columns[i] instanceof SequenceColumn);
       final StringBuilder prefix = new StringBuilder();
       appendString(prefix, names[i].stringValue());
       prefixes[i] = prefix.append(':').toString();
@@ -121,7 +103,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
       }
     }
     records = new Record[rows.length];
-    primitiveColumns = primitive;
     count = new Int32(rows.length);
     width = new Int32(names.length);
   }
@@ -173,10 +154,7 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     return record;
   }
 
-  private boolean appendRow(final ColumnarJsonWriter buffer, final int row) throws IOException {
-    if (!primitiveColumns) {
-      return false;
-    }
+  private void appendRow(final ColumnarJsonWriter buffer, final int row) throws IOException {
     buffer.append('{');
     for (int field = 0; field < columns.length; field++) {
       if (field != 0) {
@@ -194,7 +172,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
       }
     }
     buffer.append('}');
-    return true;
   }
 
   /** Appends exactly Brackit's JSON string spelling, including short control escapes. */
@@ -235,15 +212,15 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     }
 
     boolean isBatchWritable() {
-      return materialized == null
-          ? primitiveColumns
-          : ColumnarJsonWriter.isBatchRecord(materialized);
+      return materialized == null || ColumnarJsonWriter.isBatchRecord(materialized);
     }
 
     boolean append(final ColumnarJsonWriter buffer) throws IOException {
-      return materialized == null
-          ? appendRow(buffer, row)
-          : buffer.record(materialized);
+      if (materialized == null) {
+        appendRow(buffer, row);
+        return true;
+      }
+      return buffer.record(materialized);
     }
 
     private ArrayObject materialize() {

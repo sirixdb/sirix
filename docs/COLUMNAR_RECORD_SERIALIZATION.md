@@ -26,10 +26,13 @@ row answers such as SH1 Q8 without changing their query routes. Other values and
 use Brackit's serializer. REST fallback records use a character writer so the fallback does not
 add an encoding round trip.
 
+When an unsupported item follows batched records, the adapter drains the buffer and delegates
+the remaining suffix to one Brackit call. The original iterator is consumed and closed once,
+and fallback printer allocations and flushes stay constant regardless of the suffix length.
+
 Any route producing columns can use the public column factories or `ColumnarRecordSequence.Builder`.
 Factory and constructor arrays are copied. A row selection may reorder, repeat, or select a subset
-of the column rows. Generic `Sequence` columns preserve other JDM types through the ordinary path. Their values are
-retained by reference, and the caller owns the lifetime of those values.
+of the column rows.
 
 Iteration and positional access return normal JDM object items. Field access materializes their
 values, and mutation retains normal object behavior across repeated iteration. Serialization can
@@ -39,6 +42,7 @@ API.
 
 Parity tests are in `ColumnarRecordSerializationTest`; the query work-budget suite includes
 `ColumnarSerializationWorkBudgetTest`, which bounds writer calls for both columnar and grouped
-answers and checks the unbatched serializer as a positive control. The serializer-only JMH fixture
+answers, bounds printers and flushes for mixed output, and checks unbatched and per-item
+serialization as positive controls. The serializer-only JMH fixture
 is `ColumnarRecordSerializationBenchmark` in `sirix-benchmarks`, with 5,412 and 8,000 rows and
 numeric or mixed string columns. Benchmark timing is separate from the deterministic budgets.
