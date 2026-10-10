@@ -175,8 +175,7 @@ final class ValidTimeCasFallbackTest {
     }
     boolean changed = false;
     final QNm formatName = new QNm("validTimeFormat");
-    for (Node<?> definition = persisted.getFirstChild(); definition != null; definition =
-        definition.getNextSibling()) {
+    for (Node<?> definition = persisted.getFirstChild(); definition != null; definition = definition.getNextSibling()) {
       if (definition.getAttribute(formatName) != null) {
         definition.deleteAttribute(formatName);
         definition.setAttribute(formatName, new Str("5"));
