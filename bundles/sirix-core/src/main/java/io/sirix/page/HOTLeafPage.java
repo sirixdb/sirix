@@ -984,9 +984,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (indexType != IndexType.PROJECTION || older.indexType != IndexType.PROJECTION) {
       throw new IllegalArgumentException("projection fragments required");
     }
+    return fillMissingFragmentEntry(older, row);
+  }
+
+  /**
+   * Fill a missing CAS or VALIDTIME fragment slot byte-for-byte, including posting delta tombstones
+   * and referenced-chunk markers. A newer slot always wins. Reconstruction must not merge postings
+   * for the same physical key or repeat its search when inserting an absent key.
+   */
+  public boolean fillPostingEntry(final HOTLeafPage older, final int row) {
+    Objects.requireNonNull(older);
+    if ((indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) || older.indexType != indexType) {
+      throw new IllegalArgumentException("matching CAS or VALIDTIME fragments required");
+    }
+    return fillMissingFragmentEntry(older, row);
+  }
+
+  private boolean fillMissingFragmentEntry(final HOTLeafPage older, final int row) {
     final byte[] key = older.getKey(row);
     if (key == null) {
-      throw new IllegalStateException("Cannot read projection fragment key " + row);
+      throw new IllegalStateException("Cannot read HOT fragment key " + row);
     }
     final int position = findEntry(key, key.length, false);
     if (position >= 0) {

@@ -1381,6 +1381,13 @@ public enum VersioningType {
         }
         final int olderCount = olderPage.getEntryCount();
         for (int j = 0; j < olderCount; j++) {
+          if (result.getIndexType() == IndexType.CAS || result.getIndexType() == IndexType.VALIDTIME) {
+            if (!result.fillPostingEntry(olderPage, j)) {
+              throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()
+                  + " into leaf " + result.getPageKey());
+            }
+            continue;
+          }
           if (result.getIndexType() == IndexType.PROJECTION) {
             if (!result.fillProjectionEntry(olderPage, j)) {
               throw new IllegalStateException("HOT fragment merge cannot fit key from leaf " + olderPage.getPageKey()

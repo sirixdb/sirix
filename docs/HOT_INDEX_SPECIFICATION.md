@@ -719,7 +719,9 @@ revision must equal its fragment key's revision, otherwise `SirixIOException`
   2. newest image has `completeDump` → return it;
   3. `result = newest.copy()`, clear `completePageRef` and dirty bits;
   4. for each older image, newest to oldest: insert every key **absent** from `result`, tombstones
-     included (first value seen wins; PROJECTION via `fillProjectionEntry`, others via `mergeWithNodeRefs`);
+     included (first value seen wins; PROJECTION via `fillProjectionEntry`, CAS/VALIDTIME via
+     `fillPostingEntry`, others via `mergeWithNodeRefs`). The fill paths retain the insertion point
+     from one binary search and copy stored bytes directly, including tombstones and chunk markers;
      failure to fit throws;
   5. **stop after an image with `completeDump`**: "A complete dump is a replacement snapshot, not
      another delta … entries moved to the right-hand leaf are absent from this page but still exist
