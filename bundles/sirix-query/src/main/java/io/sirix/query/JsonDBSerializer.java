@@ -39,6 +39,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.serialize.StringValue;
+import org.jspecify.annotations.Nullable;
 
 import java.io.StringWriter;
 import java.io.IOException;
@@ -60,7 +61,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
   private boolean first;
 
-  private ColumnarJsonWriter columnarWriter;
+  private @Nullable ColumnarJsonWriter columnarWriter;
 
   private final Set<JsonNodeReadOnlyTrx> trxSet;
 

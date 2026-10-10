@@ -17,6 +17,7 @@ import io.brackit.query.sequence.AbstractSequence;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.serialize.StringSerializer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import java.io.PrintWriter;
@@ -111,7 +112,7 @@ final class ColumnarRecordSerializationTest {
       final ColumnarRecordSequence columns = new ColumnarRecordSequence(names,
           new ColumnarRecordSequence.Column[] {ColumnarRecordSequence.longs(new long[] {0}, new boolean[] {true})},
           new int[] {0});
-      ((Object) columns.get(Int32.ONE)).replace(names[0], value);
+      assertInstanceOf(Object.class, columns.get(Int32.ONE)).replace(names[0], value);
       final ArrayObject reference = new ArrayObject(names, new Sequence[] {value});
       assertEquals(serialize(reference, false, false), serialize(columns, true, false), expression);
       assertEquals(serialize(reference, false, true), serialize(columns, true, true), expression);
@@ -129,7 +130,7 @@ final class ColumnarRecordSerializationTest {
     final Sequence wrapped = new Query(module).execute(new BrackitQueryContext());
     assertFalse(wrapped instanceof ColumnarRecordSequence, "exercise Brackit's real execution wrapper");
     assertEquals("{\"v\":2} {\"v\":1}", serialize(wrapped, true, false));
-    assertEquals("{\"v\":2}", serialize(columns.get(Int32.ONE), true, false));
+    assertEquals("{\"v\":2}", serialize(assertInstanceOf(Item.class, columns.get(Int32.ONE)), true, false));
     try (final Iter iterator = wrapped.iterate()) {
       final Object object = assertInstanceOf(Object.class, iterator.next());
       assertEquals(new Int64(2), object.get(new QNm("v")));
@@ -142,7 +143,7 @@ final class ColumnarRecordSerializationTest {
   @Test
   void mutationAndRepeatedIterationPreserveNormalObjectSemantics() {
     final ColumnarRecordSequence columns = fixture();
-    final Object first = (Object) columns.get(Int32.ONE);
+    final Object first = assertInstanceOf(Object.class, columns.get(Int32.ONE));
     assertSame(first, columns.get(Int32.ONE));
     first.replace(new QNm("v"), new Str("new"));
     first.insert(new QNm("z"), null);
@@ -224,12 +225,14 @@ final class ColumnarRecordSerializationTest {
   void lazyNonColumnarSequenceIsReadAndClosedOnce() {
     final int[] events = new int[3];
     final Sequence lazy = new AbstractSequence() {
+      @Override
       public Iter iterate() {
         events[0]++;
         return new BaseIter() {
           private boolean emitted;
 
-          public Item next() {
+          @Override
+          public @Nullable Item next() {
             events[1]++;
             if (emitted) {
               return null;
@@ -238,6 +241,7 @@ final class ColumnarRecordSerializationTest {
             return new Str("x");
           }
 
+          @Override
           public void close() {
             events[2]++;
           }
@@ -254,22 +258,26 @@ final class ColumnarRecordSerializationTest {
   void lazyMixedSuffixIsReadAndClosedOnce() {
     final ColumnarRecordSequence columns = fixture();
     final Item unsupported = new Query("{'v':[1]}").execute(new BrackitQueryContext()).get(Int32.ONE);
-    ((Object) columns.get(new Int32(2))).replace(new QNm("v"), new ItemSequence(new Int64(3), new Int64(4)));
+    assertInstanceOf(Object.class, columns.get(new Int32(2))).replace(new QNm("v"),
+        new ItemSequence(new Int64(3), new Int64(4)));
     final Item[] items = {columns.get(Int32.ONE), unsupported, columns.get(new Int32(2)), new Str("end")};
     final int[] events = new int[3];
     final Sequence lazy = new AbstractSequence() {
+      @Override
       public Iter iterate() {
         events[0]++;
         return new BaseIter() {
           private int position;
 
-          public Item next() {
+          @Override
+          public @Nullable Item next() {
             events[1]++;
             return position < items.length
                 ? items[position++]
                 : null;
           }
 
+          @Override
           public void close() {
             events[2]++;
           }
@@ -300,11 +308,13 @@ final class ColumnarRecordSerializationTest {
     final int[] closed = new int[1];
     final ColumnarRecordSequence columns = fixture();
     final Sequence failing = new AbstractSequence() {
+      @Override
       public Iter iterate() {
         return new BaseIter() {
           private boolean emitted;
 
-          public Item next() {
+          @Override
+          public @Nullable Item next() {
             if (emitted) {
               throw new IllegalStateException("after first record");
             }
@@ -312,6 +322,7 @@ final class ColumnarRecordSerializationTest {
             return columns.get(Int32.ONE);
           }
 
+          @Override
           public void close() {
             closed[0]++;
           }
@@ -332,11 +343,13 @@ final class ColumnarRecordSerializationTest {
     final ColumnarRecordSequence columns = fixture();
     final Item unsupported = new Query("{'v':[1]}").execute(new BrackitQueryContext()).get(Int32.ONE);
     final Sequence failing = new AbstractSequence() {
+      @Override
       public Iter iterate() {
         return new BaseIter() {
           private int position;
 
-          public Item next() {
+          @Override
+          public @Nullable Item next() {
             return switch (position++) {
               case 0 -> columns.get(Int32.ONE);
               case 1 -> unsupported;
@@ -344,6 +357,7 @@ final class ColumnarRecordSerializationTest {
             };
           }
 
+          @Override
           public void close() {
             closed[0]++;
           }

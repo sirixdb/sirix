@@ -14,6 +14,7 @@ import io.brackit.query.jsonitem.object.AbstractObject;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.sequence.AbstractSequence;
 import io.brackit.query.sequence.BaseIter;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -30,7 +31,7 @@ public final class ColumnarRecordSequence extends AbstractSequence {
   private final String[] prefixes;
   private final Column[] columns;
   private final int[] rows;
-  private final Record[] records;
+  private final RowRecord[] records;
   private final IntNumeric count;
   private final IntNumeric width;
 
@@ -38,27 +39,46 @@ public final class ColumnarRecordSequence extends AbstractSequence {
   public sealed interface Column permits LongColumn, StringColumn {
     int size();
 
+    @Nullable
     Sequence value(int row);
   }
 
-  private record LongColumn(long[] values, boolean[] present) implements Column {
+  private static final class LongColumn implements Column {
+    private final long[] values;
+    private final boolean[] present;
+
+    private LongColumn(final long[] values, final boolean[] present) {
+      this.values = values;
+      this.present = present;
+    }
+
+    @Override
     public int size() {
       return values.length;
     }
 
-    public Sequence value(final int row) {
+    @Override
+    public @Nullable Sequence value(final int row) {
       return present[row]
           ? new Int64(values[row])
           : null;
     }
   }
 
-  private record StringColumn(String[] values) implements Column {
+  private static final class StringColumn implements Column {
+    private final String[] values;
+
+    private StringColumn(final String[] values) {
+      this.values = values;
+    }
+
+    @Override
     public int size() {
       return values.length;
     }
 
-    public Sequence value(final int row) {
+    @Override
+    public @Nullable Sequence value(final int row) {
       return values[row] == null
           ? null
           : new Str(values[row]);
@@ -103,7 +123,7 @@ public final class ColumnarRecordSequence extends AbstractSequence {
         throw new IllegalArgumentException("Row outside columns: " + row);
       }
     }
-    records = new Record[rows.length];
+    records = new RowRecord[rows.length];
     count = new Int32(rows.length);
     width = new Int32(names.length);
   }
@@ -124,7 +144,7 @@ public final class ColumnarRecordSequence extends AbstractSequence {
   }
 
   @Override
-  public Item get(final IntNumeric position) {
+  public @Nullable Item get(final IntNumeric position) {
     Objects.requireNonNull(position);
     return position.cmp(Int32.ZERO) <= 0 || position.cmp(size()) > 0
         ? null
@@ -136,20 +156,22 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     return new BaseIter() {
       private int position;
 
-      public Item next() {
+      @Override
+      public @Nullable Item next() {
         return position < rows.length
             ? record(position++)
             : null;
       }
 
+      @Override
       public void close() {}
     };
   }
 
-  private Record record(final int position) {
-    Record record = records[position];
+  private RowRecord record(final int position) {
+    RowRecord record = records[position];
     if (record == null) {
-      record = new Record(rows[position]);
+      record = new RowRecord(rows[position]);
       records[position] = record;
     }
     return record;
@@ -204,11 +226,11 @@ public final class ColumnarRecordSequence extends AbstractSequence {
   }
 
   /** A normal JDM record, with copy-on-access materialization and persistent mutation semantics. */
-  final class Record extends AbstractObject {
+  final class RowRecord extends AbstractObject {
     private final int row;
-    private ArrayObject materialized;
+    private @Nullable ArrayObject materialized;
 
-    private Record(final int row) {
+    private RowRecord(final int row) {
       this.row = row;
     }
 
@@ -235,72 +257,87 @@ public final class ColumnarRecordSequence extends AbstractSequence {
       return materialized;
     }
 
-    public Object replace(final QNm field, final Sequence value) {
+    @Override
+    public Object replace(final QNm field, final @Nullable Sequence value) {
       materialize().replace(field, value);
       return this;
     }
 
+    @Override
     public Object rename(final QNm field, final QNm name) {
       materialize().rename(field, name);
       return this;
     }
 
-    public Object insert(final QNm field, final Sequence value) {
+    @Override
+    public Object insert(final QNm field, final @Nullable Sequence value) {
       materialize().insert(field, value);
       return this;
     }
 
+    @Override
     public Object remove(final QNm field) {
       materialize().remove(field);
       return this;
     }
 
+    @Override
     public Object remove(final IntNumeric index) {
       materialize().remove(index);
       return this;
     }
 
+    @Override
     public Object remove(final int index) {
       materialize().remove(index);
       return this;
     }
 
-    public Sequence get(final QNm field) {
+    @Override
+    public @Nullable Sequence get(final QNm field) {
       return materialize().get(field);
     }
 
-    public Sequence value(final IntNumeric index) {
+    @Override
+    public @Nullable Sequence value(final IntNumeric index) {
       return materialize().value(index);
     }
 
-    public Sequence value(final int index) {
+    @Override
+    public @Nullable Sequence value(final int index) {
       return materialize().value(index);
     }
 
+    @Override
     public Array names() {
       return materialize().names();
     }
 
+    @Override
     public Array values() {
       return materialize().values();
     }
 
+    @Override
     public QNm name(final IntNumeric index) {
       return materialize().name(index);
     }
 
+    @Override
     public QNm name(final int index) {
       return materialized == null && index >= 0 && index < names.length
           ? names[index]
           : materialize().name(index);
     }
 
+    @Override
     public IntNumeric length() {
       return materialized == null
           ? width
           : materialized.length();
     }
 
+    @Override
     public int len() {
       return materialized == null
           ? names.length
@@ -374,7 +411,7 @@ public final class ColumnarRecordSequence extends AbstractSequence {
     }
 
     /** Brackit's Ordering still owns comparisons; materialize only requested sort keys. */
-    public Sequence value(final int field, final int row) {
+    public @Nullable Sequence value(final int field, final int row) {
       Objects.checkIndex(row, size);
       Objects.checkIndex(field, names.length);
       return stringColumns[field]

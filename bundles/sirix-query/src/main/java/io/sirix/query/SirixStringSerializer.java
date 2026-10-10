@@ -7,6 +7,7 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.sequence.AbstractSequence;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.util.serialize.StringSerializer;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -21,7 +22,7 @@ import java.util.Objects;
  */
 public final class SirixStringSerializer extends StringSerializer {
   private final PrintWriter out;
-  private ColumnarJsonWriter columnarWriter;
+  private @Nullable ColumnarJsonWriter columnarWriter;
 
   public SirixStringSerializer(final PrintWriter out) {
     super(Objects.requireNonNull(out));
@@ -29,14 +30,14 @@ public final class SirixStringSerializer extends StringSerializer {
   }
 
   public SirixStringSerializer(final PrintStream out) {
-    this(new PrintWriter(Objects.requireNonNull(out)));
+    this(new PrintWriter(Objects.requireNonNull(out), false, out.charset()));
   }
 
   @Override
-  public void serialize(final Sequence sequence) {
+  public void serialize(final @Nullable Sequence sequence) {
     if (sequence == null
         || (sequence instanceof Item
-            && (!(sequence instanceof ColumnarRecordSequence.Record record) || !record.isBatchWritable()))
+            && (!(sequence instanceof ColumnarRecordSequence.RowRecord record) || !record.isBatchWritable()))
         || isFormat()) {
       super.serialize(sequence);
       return;
@@ -52,45 +53,39 @@ public final class SirixStringSerializer extends StringSerializer {
       if (columnarWriter == null) {
         columnarWriter = new ColumnarJsonWriter(out);
       }
-      final ColumnarJsonWriter buffer = columnarWriter;
-      boolean first = true;
-      for (Item item = head; item != null; item = iterator.next()) {
-        if (!first && !(item instanceof Node<?>)) {
-          buffer.append(' ');
+      try (final ColumnarJsonWriter buffer = columnarWriter) {
+        boolean first = true;
+        for (Item item = head; item != null; item = iterator.next()) {
+          if (!first && !(item instanceof Node<?>)) {
+            buffer.append(' ');
+          }
+          if (!buffer.record(item)) {
+            buffer.drain();
+            delegated = true;
+            super.serialize(remaining(item, iterator));
+            return;
+          }
+          first = false;
         }
-        if (!buffer.record(item)) {
-          buffer.drain();
-          delegated = true;
-          super.serialize(remaining(item, iterator));
-          return;
-        }
-        first = false;
       }
-      buffer.drain();
     } catch (final IOException exception) {
       throw new UncheckedIOException(exception);
     } finally {
       if (!delegated) {
-        try {
-          if (columnarWriter != null) {
-            columnarWriter.drain();
-          }
-        } catch (final IOException exception) {
-          throw new UncheckedIOException(exception);
-        } finally {
-          out.flush();
-        }
+        out.flush();
       }
     }
   }
 
-  private static Sequence remaining(final Item head, final Iter iterator) {
+  private static Sequence remaining(final @Nullable Item head, final Iter iterator) {
     return new AbstractSequence() {
+      @Override
       public Iter iterate() {
         return new BaseIter() {
           private boolean pending = true;
 
-          public Item next() {
+          @Override
+          public @Nullable Item next() {
             if (pending) {
               pending = false;
               return head;
@@ -98,6 +93,7 @@ public final class SirixStringSerializer extends StringSerializer {
             return iterator.next();
           }
 
+          @Override
           public void close() {}
         };
       }

@@ -8,13 +8,14 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.Writer;
 import java.util.Objects;
 
 /** One bounded buffer for columnar JSON, with allocation-free integral conversion. */
-final class ColumnarJsonWriter {
+final class ColumnarJsonWriter implements AutoCloseable {
   private static final int CAPACITY = 32 * 1024;
   private static final String HEX = "0123456789abcdef";
   private final Appendable out;
@@ -25,8 +26,8 @@ final class ColumnarJsonWriter {
     this.out = Objects.requireNonNull(out);
   }
 
-  static boolean isBatchRecord(final Item item) {
-    if (item instanceof ColumnarRecordSequence.Record record) {
+  static boolean isBatchRecord(final @Nullable Item item) {
+    if (item instanceof ColumnarRecordSequence.RowRecord record) {
       return record.isBatchWritable();
     }
     if (!(item instanceof ArrayObject record)) {
@@ -43,7 +44,7 @@ final class ColumnarJsonWriter {
   }
 
   boolean record(final Item item) throws IOException {
-    if (item instanceof ColumnarRecordSequence.Record record) {
+    if (item instanceof ColumnarRecordSequence.RowRecord record) {
       return record.append(this);
     }
     if (!isBatchRecord(item)) {
@@ -125,7 +126,7 @@ final class ColumnarJsonWriter {
     position += length;
   }
 
-  void string(final String value) throws IOException {
+  void string(final @Nullable String value) throws IOException {
     if (value == null) {
       append("null");
       return;
@@ -155,6 +156,12 @@ final class ColumnarJsonWriter {
     }
     append(value, plainFrom, value.length());
     append('"');
+  }
+
+  /** Drains pending output without closing the caller-owned appendable. */
+  @Override
+  public void close() throws IOException {
+    drain();
   }
 
   void drain() throws IOException {

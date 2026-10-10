@@ -41,10 +41,16 @@ public class ColumnarRecordSerializationBenchmark {
   @Param({"false", "true"})
   public boolean stringColumn;
 
+  // JMH invokes @Setup before any benchmark; NullAway does not recognize that lifecycle.
+  @SuppressWarnings("NullAway.Init")
   private ItemSequence records;
+  @SuppressWarnings("NullAway.Init")
   private ColumnarRecordSequence columns;
+  @SuppressWarnings("NullAway.Init")
   private StringWriter output;
+  @SuppressWarnings("NullAway.Init")
   private StringSerializer brackit;
+  @SuppressWarnings("NullAway.Init")
   private SirixStringSerializer sirix;
 
   @Setup
