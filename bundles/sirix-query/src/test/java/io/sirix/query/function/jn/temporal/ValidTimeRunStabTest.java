@@ -67,6 +67,85 @@ final class ValidTimeRunStabTest {
   }
 
   @Test
+  void manyInterleavedRunsMergeAcrossChunksWithStrictStartTies() {
+    final long[] memberKeys = new long[53];
+    for (int key = 0; key <= 50; key++) {
+      memberKeys[key] = key;
+    }
+    memberKeys[51] = 63;
+    memberKeys[52] = 65535;
+    final PostingMask membership = PostingMask.from(NodeReferences.ofSortedArray(memberKeys));
+    final PostingMask verification = PostingMask.from(NodeReferences.ofSortedArray(new long[] {17, 63}));
+    for (final boolean bitmap : new boolean[] {false, true}) {
+      final var candidates = new ChunkCandidates(base -> membership, base -> verification);
+      for (int chunk = 2; chunk >= 0; chunk--) {
+        final long base = (long) chunk << 16;
+        for (int run = 16; run >= 0; run--) {
+          final NodeReferences refs =
+              NodeReferences.ofSortedArray(new long[] {run, 17 + run, 34 + run, 63, 65535});
+          if (bitmap) {
+            refs.getNodeKeys();
+          }
+          candidates.accept(base, refs, false);
+        }
+        candidates.removeExactStarts(base, NodeReferences.ofSortedArray(new long[] {0, 17, 63, 65535}), false);
+      }
+      final long[] expected = new long[153];
+      final long[] unverified = new long[6];
+      for (int chunk = 0; chunk < 3; chunk++) {
+        final long base = (long) chunk << 16;
+        for (int key = 1; key <= 50; key++) {
+          expected[chunk * 51 + key - 1] = base | key;
+        }
+        expected[chunk * 51 + 50] = base | 63;
+        unverified[chunk * 2] = base | 17;
+        unverified[chunk * 2 + 1] = base | 63;
+      }
+      final var evidence = candidates.evidence();
+      assertArrayEquals(expected, evidence.keys());
+      assertArrayEquals(unverified, evidence.unverified().toArray());
+    }
+  }
+
+  @Test
+  void adaptiveChunkPromotionPreservesTiesAndVerification() {
+    final long[] members = new long[8192];
+    for (int key = 0; key < members.length; key++) {
+      members[key] = key;
+    }
+    final PostingMask membership = PostingMask.from(NodeReferences.ofSortedArray(members));
+    final PostingMask verification = PostingMask.from(NodeReferences.ofSortedArray(new long[] {0, 4096, 8191}));
+    for (final boolean bitmap : new boolean[] {false, true}) {
+      final var candidates = new ChunkCandidates(base -> membership, base -> verification);
+      for (int offset = 0; offset < members.length; offset += 512) {
+        final NodeReferences references =
+            NodeReferences.ofSortedArray(Arrays.copyOfRange(members, offset, offset + 512));
+        if (bitmap) {
+          references.getNodeKeys();
+        }
+        candidates.accept(65536, references, false);
+      }
+      candidates.accept(0, NodeReferences.ofSortedArray(new long[] {0, 1, 4096, 8191}), true);
+      candidates.accept(65536, NodeReferences.ofSortedArray(members), false);
+      candidates.removeExactStarts(65536, NodeReferences.ofSortedArray(new long[] {0, 1, 4096, 8191}), false);
+      candidates.removeExactStarts(0, NodeReferences.ofSortedArray(new long[] {0, 4096, 8191}), false);
+      final long[] expected = new long[8194];
+      expected[0] = 0;
+      expected[1] = 4096;
+      expected[2] = 8191;
+      int position = 3;
+      for (int key = 0; key < members.length; key++) {
+        if (key != 1) {
+          expected[position++] = 65536L | key;
+        }
+      }
+      final var evidence = candidates.evidence();
+      assertArrayEquals(expected, evidence.keys());
+      assertArrayEquals(new long[] {0, 4096, 8191, 65536, 69632, 73727}, evidence.unverified().toArray());
+    }
+  }
+
+  @Test
   void fullyRemovedAndRejectedRunsEmitNoKeys() {
     final NodeReferences references = NodeReferences.ofSortedArray(new long[] {0, 65535});
     final PostingMask membership = PostingMask.from(references);

@@ -212,8 +212,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   `predicateScans`, ...). What each route reads is section 7.3 of
   `docs/SEGMENT_PROJECTION_INDEXES.md`.
 - `QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS`: companion mask words inspected during candidate
-  intersection, strict-start removal and unverified-key emission, gated by `sirix.validTime.scanDiag`.
+  intersection, run union, strict-start removal and unverified-key checks, gated by `sirix.validTime.scanDiag`.
   Sparse run fixtures require one occupied word per matching chunk; a full chunk requires 1,024.
+  Chunks stay as sorted runs below 1,024 unique matches (8 KiB / eight-byte keys), and use a bitmap at or above
+  that threshold. `VALID_TIME_CANDIDATE_BITMAPS` counts these allocations; sparse slices require zero.
   The allocation budget measures the same collector with prepared immutable masks at 16 and 1,000
   matches, allowing 32 KiB fixed scratch/overhead plus 512 bytes per match. It excludes mask-cache
   construction and runs where thread allocation accounting is supported, without timing assertions.

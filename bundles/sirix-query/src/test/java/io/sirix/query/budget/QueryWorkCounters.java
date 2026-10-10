@@ -35,8 +35,13 @@ public final class QueryWorkCounters {
   }
 
   public static final WorkCounter VALID_TIME_CANDIDATE_WORDS = WorkCounter.gated("validTime.candidateWords",
-      "one companion bitmap word inspected during candidate intersection, tie removal or emission",
+      "one bitmap word inspected during candidate intersection, union, tie removal or verification",
       ValidTimeIntervalIndex::candidateWordsVisited, "-Dsirix.validTime.scanDiag=true",
+      HotOrderedStore::scanDiagnosticsEnabled);
+
+  public static final WorkCounter VALID_TIME_CANDIDATE_BITMAPS = WorkCounter.gated("validTime.candidateBitmaps",
+      "one dense candidate bitmap allocated at 1024 unique chunk matches",
+      ValidTimeIntervalIndex::candidateBitmapsCreated, "-Dsirix.validTime.scanDiag=true",
       HotOrderedStore::scanDiagnosticsEnabled);
 
   /** {@code count(for ... where p return $r)} answered from the projection. */
