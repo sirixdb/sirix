@@ -91,8 +91,8 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Determine whether a physical temporal aggregate tree id has ever been initialized without creating a
-   * structural reference.
+   * Determine whether a physical temporal aggregate tree id has ever been initialized without
+   * creating a structural reference.
    *
    * @param index the physical index number
    * @return {@code true} if allocator metadata or a non-virgin root reserves the id
@@ -108,7 +108,8 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage {
   }
 
   /**
-   * Return the first uninitialized physical temporal aggregate tree id at or after {@code fromInclusive}.
+   * Return the first uninitialized physical temporal aggregate tree id at or after
+   * {@code fromInclusive}.
    *
    * <p>
    * The scan is read-only: neither sparse nor full delegates gain placeholder references.
@@ -125,8 +126,8 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException("Temporal aggregate index reference space exhausted at or after " + fromInclusive + ": "
-        + Constants.INP_REFERENCE_COUNT + " physical ids available");
+    throw new IllegalStateException("Temporal aggregate index reference space exhausted at or after " + fromInclusive
+        + ": " + Constants.INP_REFERENCE_COUNT + " physical ids available");
   }
 
   public long getMaxHotPageKey(final int indexNo) {
@@ -164,8 +165,8 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage {
       case ReferencesPage4 references -> references.referenceAtOffset(index);
       case BitmapReferencesPage references -> references.referenceAtOffset(index);
       case FullReferencesPage references -> references.referenceAt(index);
-      default ->
-        throw new IllegalStateException("Unknown TemporalAggregateIndexPage delegate type: " + delegate.getClass().getName());
+      default -> throw new IllegalStateException(
+          "Unknown TemporalAggregateIndexPage delegate type: " + delegate.getClass().getName());
     };
   }
 
@@ -201,7 +202,8 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage {
     for (final Int2LongMap.Entry entry : allocatorMap.int2LongEntrySet()) {
       checkIndex(entry.getIntKey());
       if (entry.getLongValue() < 0L) {
-        throw new IllegalArgumentException("Negative temporal aggregate HOT page-key high-water mark: " + entry.getLongValue());
+        throw new IllegalArgumentException(
+            "Negative temporal aggregate HOT page-key high-water mark: " + entry.getLongValue());
       }
     }
     return allocatorMap;

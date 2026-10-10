@@ -85,8 +85,18 @@ public final class TemporalAggregateParts {
         data[offset] = Math.addExact(data[offset], sign);
         if (hasSum(lane)) {
           final long value = values[lane];
-          addWide(offset + 1, sign > 0 ? value : -value,
-              sign > 0 ? (value < 0 ? -1 : 0) : (value == Long.MIN_VALUE ? 0 : value > 0 ? -1 : 0));
+          addWide(offset + 1, sign > 0
+              ? value
+              : -value,
+              sign > 0
+                  ? (value < 0
+                      ? -1
+                      : 0)
+                  : (value == Long.MIN_VALUE
+                      ? 0
+                      : value > 0
+                          ? -1
+                          : 0));
         }
       }
     }
@@ -94,18 +104,25 @@ public final class TemporalAggregateParts {
     private void addWide(final int offset, final long low, final long high) {
       final long previous = data[offset];
       data[offset] += low;
-      data[offset + 1] += high + (Long.compareUnsigned(data[offset], previous) < 0 ? 1 : 0);
+      data[offset + 1] += high + (Long.compareUnsigned(data[offset], previous) < 0
+          ? 1
+          : 0);
     }
 
     private void add(final Sums other, final boolean subtract) {
-      data[0] = subtract ? Math.subtractExact(data[0], other.data[0]) : Math.addExact(data[0], other.data[0]);
+      data[0] = subtract
+          ? Math.subtractExact(data[0], other.data[0])
+          : Math.addExact(data[0], other.data[0]);
       for (int lane = 0; lane < lanes; lane++) {
         final int offset = 1 + 3 * lane;
-        data[offset] = subtract ? Math.subtractExact(data[offset], other.data[offset])
+        data[offset] = subtract
+            ? Math.subtractExact(data[offset], other.data[offset])
             : Math.addExact(data[offset], other.data[offset]);
         if (subtract) {
           final long low = -other.data[offset + 1];
-          addWide(offset + 1, low, ~other.data[offset + 2] + (low == 0 ? 1 : 0));
+          addWide(offset + 1, low, ~other.data[offset + 2] + (low == 0
+              ? 1
+              : 0));
         } else {
           addWide(offset + 1, other.data[offset + 1], other.data[offset + 2]);
         }
@@ -171,8 +188,8 @@ public final class TemporalAggregateParts {
     private @Nullable List<IntervalChange> raw = new ArrayList<>();
 
     public void add(final long from, final long to, final long[] values, final long mask, final int sign) {
-      if (from < 0 || from >= to || to > (1L << height) || values.length != lanes
-          || (mask >>> lanes) != 0 || (sign != -1 && sign != 1)) {
+      if (from < 0 || from >= to || to > (1L << height) || values.length != lanes || (mask >>> lanes) != 0
+          || (sign != -1 && sign != 1)) {
         throw new IllegalArgumentException("Invalid temporal aggregate interval delta");
       }
       endpoint(from).row(values, mask, sign);
@@ -330,8 +347,8 @@ public final class TemporalAggregateParts {
             }
             long count = 0;
             for (final IntervalChange candidate : raw) {
-              if (candidate.from == change.from && candidate.to == change.to
-                  && (candidate.mask & (1L << lane)) != 0 && candidate.values[lane] == change.values[lane]) {
+              if (candidate.from == change.from && candidate.to == change.to && (candidate.mask & (1L << lane)) != 0
+                  && candidate.values[lane] == change.values[lane]) {
                 count += candidate.sign;
               }
             }
@@ -385,12 +402,23 @@ public final class TemporalAggregateParts {
       for (int at = ordered.length - 1; at >= 0; at--) {
         final Node node = nodes.get(ordered[at]);
         final boolean leaf = Long.SIZE - 1 - Long.numberOfLeadingZeros(node.id) == height;
-        final Node left = leaf ? null : nodes.get(node.id << 1);
-        final Node right = leaf ? null : nodes.get((node.id << 1) | 1);
-        node.left = left == null ? 0 : left.head;
-        node.right = right == null ? 0 : right.head;
-        node.head = node.hasValues() || (node.left != 0 && node.right != 0) ? node.id
-            : node.left != 0 ? node.left : node.right;
+        final Node left = leaf
+            ? null
+            : nodes.get(node.id << 1);
+        final Node right = leaf
+            ? null
+            : nodes.get((node.id << 1) | 1);
+        node.left = left == null
+            ? 0
+            : left.head;
+        node.right = right == null
+            ? 0
+            : right.head;
+        node.head = node.hasValues() || (node.left != 0 && node.right != 0)
+            ? node.id
+            : node.left != 0
+                ? node.left
+                : node.right;
       }
       final List<Node> compact = new ArrayList<>(nodes.size());
       final Long2IntOpenHashMap positions = new Long2IntOpenHashMap(nodes.size());
@@ -433,8 +461,15 @@ public final class TemporalAggregateParts {
       }
       final ByteBuffer buffer = ByteBuffer.allocate(length);
       final Node root = nodes.get(1);
-      buffer.putInt(MAGIC).putInt(height).putLong(length).putInt(points.size()).putInt(compact.size())
-          .putInt(root == null ? -1 : positions.get(root.head)).putInt(lanes);
+      buffer.putInt(MAGIC)
+            .putInt(height)
+            .putLong(length)
+            .putInt(points.size())
+            .putInt(compact.size())
+            .putInt(root == null
+                ? -1
+                : positions.get(root.head))
+            .putInt(lanes);
       for (final long point : points) {
         buffer.putLong(point);
       }
@@ -447,7 +482,12 @@ public final class TemporalAggregateParts {
         for (int lane = 0; lane < lanes; lane++) {
           if (frequencyOffsets[lane] >= 0) {
             final FrequencyValues vector = vectors[index][lane];
-            buffer.putLong(vector == null ? 0 : unique.get(vector)).putLong(vector == null ? 0 : vector.values.length / 2);
+            buffer.putLong(vector == null
+                ? 0
+                : unique.get(vector))
+                  .putLong(vector == null
+                      ? 0
+                      : vector.values.length / 2);
           }
         }
       }
@@ -459,6 +499,7 @@ public final class TemporalAggregateParts {
       }
       return buffer.array();
     }
+
     private byte[] encodeRaw(final List<Long> points, final List<Sums> prefixes) {
       final List<IntervalChange> changes = Objects.requireNonNull(raw);
       final int directory = Math.addExact(HEADER_BYTES, Math.multiplyExact(points.size(), Long.BYTES + sumsBytes));
@@ -564,13 +605,14 @@ public final class TemporalAggregateParts {
       endpointCount = header.getInt();
       nodeCount = header.getInt();
       root = header.getInt();
-      if (header.getInt() != lanes || length < HEADER_BYTES || endpointCount < 0 || nodeCount < 0
-          || root < -1 || root >= nodeCount || first.length != Math.min(length, CHUNK_BYTES)) {
+      if (header.getInt() != lanes || length < HEADER_BYTES || endpointCount < 0 || nodeCount < 0 || root < -1
+          || root >= nodeCount || first.length != Math.min(length, CHUNK_BYTES)) {
         throw new IllegalStateException("Invalid temporal aggregate part dimensions");
       }
       nodeStart = Math.addExact(HEADER_BYTES, Math.multiplyExact(endpointCount, Long.BYTES + sumsBytes));
-      if ((raw && (nodeCount != 0 || root != -1))
-          || Math.addExact(nodeStart, raw ? nodeBytes - 16 : Math.multiplyExact(nodeCount, nodeBytes)) > length) {
+      if ((raw && (nodeCount != 0 || root != -1)) || Math.addExact(nodeStart, raw
+          ? nodeBytes - 16
+          : Math.multiplyExact(nodeCount, nodeBytes)) > length) {
         throw new IllegalStateException("Truncated temporal aggregate node directory");
       }
     }
@@ -632,19 +674,20 @@ public final class TemporalAggregateParts {
       final int offset = nodeOffset(index) + frequencyOffsets[lane];
       final int start = Math.toIntExact(longAt(offset));
       final int size = Math.toIntExact(longAt(offset + Long.BYTES));
-      if (size < 0 || (size > 0 && (start < nodeStart + nodeCount * nodeBytes
-          || start > length - Math.multiplyExact(size, 16)))) {
+      if (size < 0 || (size > 0
+          && (start < nodeStart + nodeCount * nodeBytes || start > length - Math.multiplyExact(size, 16)))) {
         throw new IllegalStateException("Invalid temporal aggregate frequency vector");
       }
-      return size == 0 ? null : new Vector(this, start, size);
+      return size == 0
+          ? null
+          : new Vector(this, start, size);
     }
 
     private RawVector rawVector(final int lane) {
       final int directory = nodeStart + frequencyOffsets[lane] - 16;
       final int start = Math.toIntExact(longAt(directory));
       final int size = Math.toIntExact(longAt(directory + Long.BYTES));
-      if (size < 0 || size > MAX_RAW_CHANGES || start < nodeStart + nodeBytes - 16
-          || start > length - size * 32) {
+      if (size < 0 || size > MAX_RAW_CHANGES || start < nodeStart + nodeBytes - 16 || start > length - size * 32) {
         throw new IllegalStateException("Invalid temporal aggregate candidate vector");
       }
       return new RawVector(start, size);
@@ -678,7 +721,9 @@ public final class TemporalAggregateParts {
           }
         }
       }
-      return size == 0 ? null : new Vector(selected, size);
+      return size == 0
+          ? null
+          : new Vector(selected, size);
     }
 
     private void point(final long point, final Sums sums, final List<List<Vector>> vectors) {
@@ -733,7 +778,9 @@ public final class TemporalAggregateParts {
         if (shift == 0) {
           return;
         }
-        index = intAt(offset + (point - lower < (1L << (shift - 1)) ? 8 : 12));
+        index = intAt(offset + (point - lower < (1L << (shift - 1))
+            ? 8
+            : 12));
       }
     }
   }
@@ -759,16 +806,21 @@ public final class TemporalAggregateParts {
     }
 
     private long value(final int index) {
-      return selected == null ? Objects.requireNonNull(part).longAt(start + 16 * index) : selected[2 * index];
+      return selected == null
+          ? Objects.requireNonNull(part).longAt(start + 16 * index)
+          : selected[2 * index];
     }
 
     private long prefix(final int index) {
-      return selected == null ? Objects.requireNonNull(part).longAt(start + 16 * index + Long.BYTES)
+      return selected == null
+          ? Objects.requireNonNull(part).longAt(start + 16 * index + Long.BYTES)
           : selected[2 * index + 1];
     }
 
     private long frequency(final int index) {
-      return Math.subtractExact(prefix(index), index == 0 ? 0 : prefix(index - 1));
+      return Math.subtractExact(prefix(index), index == 0
+          ? 0
+          : prefix(index - 1));
     }
 
     private long through(final long value) {
@@ -782,7 +834,9 @@ public final class TemporalAggregateParts {
           high = mid;
         }
       }
-      return low == 0 ? 0 : prefix(low - 1);
+      return low == 0
+          ? 0
+          : prefix(low - 1);
     }
   }
 
@@ -826,13 +880,17 @@ public final class TemporalAggregateParts {
       }
     }
     for (int attempt = 0; attempt < CANDIDATE_LIMIT; attempt++) {
-      long candidate = maximum ? Long.MIN_VALUE : Long.MAX_VALUE;
+      long candidate = maximum
+          ? Long.MIN_VALUE
+          : Long.MAX_VALUE;
       boolean found = false;
       for (int i = 0; i < positions.length; i++) {
         final Vector vector = vectors.get(i);
         if (positions[i] >= 0 && positions[i] < vector.size) {
           final long value = vector.value(positions[i]);
-          candidate = maximum ? Math.max(candidate, value) : Math.min(candidate, value);
+          candidate = maximum
+              ? Math.max(candidate, value)
+              : Math.min(candidate, value);
           found = true;
         }
       }
@@ -844,7 +902,9 @@ public final class TemporalAggregateParts {
         final Vector vector = vectors.get(i);
         if (positions[i] >= 0 && positions[i] < vector.size && vector.value(positions[i]) == candidate) {
           count = Math.addExact(count, vector.frequency(positions[i]));
-          positions[i] += maximum ? -1 : 1;
+          positions[i] += maximum
+              ? -1
+              : 1;
         }
       }
       if (count < 0) {
@@ -861,7 +921,9 @@ public final class TemporalAggregateParts {
       low = Math.min(low, vector.value(0));
       high = Math.max(high, vector.value(vector.size - 1));
     }
-    final long rank = maximum ? present : 1;
+    final long rank = maximum
+        ? present
+        : 1;
     while (low < high) {
       final long mid = (low & high) + ((low ^ high) >> 1);
       long count = 0;

@@ -18,8 +18,8 @@ import java.util.Set;
  */
 public final class IndexDefs {
   /** Declare grouped valid-time summaries backed by an existing covering projection. */
-  public static IndexDef createTemporalAggregateIdxDef(final Path<QNm> rootPath,
-      final TemporalAggregateSpec spec, final int indexNumber) {
+  public static IndexDef createTemporalAggregateIdxDef(final Path<QNm> rootPath, final TemporalAggregateSpec spec,
+      final int indexNumber) {
     return new IndexDef(rootPath, spec, indexNumber);
   }
 

@@ -16,7 +16,9 @@ import java.util.Objects;
 import java.util.Arrays;
 import java.util.function.Supplier;
 
-/** Small raw HOT slots; all mutation and revision ownership use the standard secondary-index path. */
+/**
+ * Small raw HOT slots; all mutation and revision ownership use the standard secondary-index path.
+ */
 public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[]> implements AutoCloseable {
   static final byte[] HEADER = {0};
   private byte[] keyBuffer = new byte[32];
@@ -51,8 +53,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
 
   public void putPart(final long id, final byte[] bytes) {
     for (int offset = 0, chunk = 0; offset < bytes.length; offset += TemporalAggregateParts.CHUNK_BYTES, chunk++) {
-      put(partKey(id, chunk), Arrays.copyOfRange(bytes, offset,
-          Math.min(bytes.length, offset + TemporalAggregateParts.CHUNK_BYTES)));
+      put(partKey(id, chunk),
+          Arrays.copyOfRange(bytes, offset, Math.min(bytes.length, offset + TemporalAggregateParts.CHUNK_BYTES)));
     }
   }
 
@@ -60,7 +62,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
   public record GroupHead(long rows, int revision, long checkpointBytes, long deltaBytes, long[] parts) {
     public GroupHead {
       Objects.requireNonNull(parts);
-      if (rows < 0 || revision < 0 || checkpointBytes < 1 || deltaBytes < 0 || parts.length == 0 || parts.length > TemporalAggregateParts.MAX_PARTS) {
+      if (rows < 0 || revision < 0 || checkpointBytes < 1 || deltaBytes < 0 || parts.length == 0
+          || parts.length > TemporalAggregateParts.MAX_PARTS) {
         throw new IllegalArgumentException("Invalid temporal aggregate group head");
       }
       parts = parts.clone();
@@ -139,8 +142,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     private final Supplier<@Nullable PageReference> root;
 
     public Reader(final StorageEngineReader storage, final int index) {
-      this(storage, () -> storage.getTemporalAggregateIndexPage(storage.getActualRevisionRootPage())
-          .getIndexReference(index));
+      this(storage,
+          () -> storage.getTemporalAggregateIndexPage(storage.getActualRevisionRootPage()).getIndexReference(index));
     }
 
     private Reader(final StorageEngineReader storage, final Supplier<@Nullable PageReference> root) {
@@ -169,7 +172,9 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
         try {
           final byte[] copy = value.toArray(ValueLayout.JAVA_BYTE);
           if (trie.validateCurrentLeaf()) {
-            return copy.length == 0 ? null : copy;
+            return copy.length == 0
+                ? null
+                : copy;
           }
         } catch (final RuntimeException failure) {
           if (trie.validateCurrentLeaf()) {
@@ -195,7 +200,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
 
     public TemporalAggregateParts.Store parts() {
-      return (part, chunk) -> Objects.requireNonNull(get(partKey(part, chunk)), "Missing temporal aggregate part chunk");
+      return (part, chunk) -> Objects.requireNonNull(get(partKey(part, chunk)),
+          "Missing temporal aggregate part chunk");
     }
 
     @Override

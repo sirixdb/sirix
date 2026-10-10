@@ -58,8 +58,8 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
     if (!(item instanceof JsonDBArray source)) {
       return null;
     }
-    final JsonIndexController controller = source.getResourceSession()
-        .getRtxIndexController(source.getTrx().getRevisionNumber());
+    final JsonIndexController controller =
+        source.getResourceSession().getRtxIndexController(source.getTrx().getRevisionNumber());
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0) {
       return null;
     }
@@ -89,7 +89,8 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
     }
     final Item value = point.evaluateToItem(ctx, tuple);
     return value instanceof DateTime dateTime && dateTime.getTimezone() != null
-        ? new TemporalAggregateRoute.Point(source, new DateTimeToInstant().convert(dateTime)) : null;
+        ? new TemporalAggregateRoute.Point(source, new DateTimeToInstant().convert(dateTime))
+        : null;
   }
 
   @Nullable

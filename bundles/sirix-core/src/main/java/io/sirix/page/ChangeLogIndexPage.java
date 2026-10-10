@@ -125,8 +125,8 @@ public final class ChangeLogIndexPage extends AbstractForwardingPage {
         return index;
       }
     }
-    throw new IllegalStateException("Temporal aggregate index reference space exhausted at or after " + fromInclusive + ": "
-        + Constants.INP_REFERENCE_COUNT + " physical ids available");
+    throw new IllegalStateException("Temporal aggregate index reference space exhausted at or after " + fromInclusive
+        + ": " + Constants.INP_REFERENCE_COUNT + " physical ids available");
   }
 
   public long getMaxHotPageKey(final int indexNo) {

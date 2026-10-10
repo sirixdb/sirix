@@ -52,8 +52,7 @@ public final class TemporalAggregateRoute {
   private static final DateTimeToInstant INSTANT = new DateTimeToInstant();
   private static final LongAdder SERVED = new LongAdder();
 
-  private TemporalAggregateRoute() {
-  }
+  private TemporalAggregateRoute() {}
 
   public static long servedCount() {
     return SERVED.sum();
@@ -75,7 +74,8 @@ public final class TemporalAggregateRoute {
     if (reader instanceof StorageEngineWriter || reader.hasTrxIntentLog()) {
       return null;
     }
-    final Indexes indexes = document.getResourceSession().getRtxIndexController(reader.getRevisionNumber()).getIndexes();
+    final Indexes indexes =
+        document.getResourceSession().getRtxIndexController(reader.getRevisionNumber()).getIndexes();
     if (indexes.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0) {
       return null;
     }
@@ -92,8 +92,8 @@ public final class TemporalAggregateRoute {
       if (projection == null || !"/[]".equals(projection.getProjectionRootPath().toString())) {
         continue;
       }
-      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
-          ProjectionIndexHOTStorage.readMetadataBlob(reader, spec.projectionId()));
+      final ProjectionIndexMetadata metadata =
+          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, spec.projectionId()));
       if (metadata == null || metadata.isStale()) {
         continue;
       }
@@ -157,12 +157,14 @@ public final class TemporalAggregateRoute {
   static @Nullable Point point(final QueryContext ctx, final Tuple tuple,
       final SirixGroupAggregateExpr.RoutedSource routed) {
     if (routed.indexed() != null) {
-      return routed.indexed() instanceof SirixValidTimeScanExpr scan ? scan.aggregatePoint(ctx, tuple) : null;
+      return routed.indexed() instanceof SirixValidTimeScanExpr scan
+          ? scan.aggregatePoint(ctx, tuple)
+          : null;
     }
     final Item tx = Objects.requireNonNull(routed.txTime()).evaluateToItem(ctx, tuple);
     final Item valid = routed.validTime().evaluateToItem(ctx, tuple);
-    if (!(tx instanceof DateTime txTime) || !(valid instanceof DateTime validTime)
-        || txTime.getTimezone() == null || validTime.getTimezone() == null) {
+    if (!(tx instanceof DateTime txTime) || !(valid instanceof DateTime validTime) || txTime.getTimezone() == null
+        || validTime.getTimezone() == null) {
       return null;
     }
     try {
@@ -173,7 +175,8 @@ public final class TemporalAggregateRoute {
       }
       final JsonDBItem document = collection.getDocument(routed.resource(), transaction);
       return document == null || document.getResourceSession().getResourceConfig().getValidTimeConfig() == null
-          ? null : new Point(document, INSTANT.convert(validTime));
+          ? null
+          : new Point(document, INSTANT.convert(validTime));
     } catch (final RuntimeException unservable) {
       // Preserve the routed opener's normal fallback and error semantics.
       return null;
@@ -236,7 +239,9 @@ public final class TemporalAggregateRoute {
       final SirixVectorizedExecutor.ComputedLane @Nullable [] computed, final String[] columns) {
     if (!field.startsWith(SirixVectorizedExecutor.COMPUTED_LANE_PREFIX)) {
       final int column = Arrays.asList(columns).indexOf(field);
-      return column < 0 ? null : new Lane(column);
+      return column < 0
+          ? null
+          : new Lane(column);
     }
     final int id = Integer.parseInt(field.substring(SirixVectorizedExecutor.COMPUTED_LANE_PREFIX.length()));
     if (computed == null || id < 0 || id >= computed.length) {
@@ -244,22 +249,31 @@ public final class TemporalAggregateRoute {
     }
     final SirixVectorizedExecutor.ComputedLane lane = computed[id];
     final int[] code = lane.code();
-    if (code.length != 3 || code[2] != ProjectionIndexByteScan.COMPUTED_OP_MUL
-        || code[0] < 0 || code[0] >= lane.fields().length || code[1] < 0 || code[1] >= lane.fields().length) {
+    if (code.length != 3 || code[2] != ProjectionIndexByteScan.COMPUTED_OP_MUL || code[0] < 0
+        || code[0] >= lane.fields().length || code[1] < 0 || code[1] >= lane.fields().length) {
       return null;
     }
     final int left = Arrays.asList(columns).indexOf(lane.fields()[code[0]]);
     final int right = Arrays.asList(columns).indexOf(lane.fields()[code[1]]);
-    return left < 0 || right < 0 ? null : new Lane(left, right);
+    return left < 0 || right < 0
+        ? null
+        : new Lane(left, right);
   }
 
   private static @Nullable Sequence aggregate(final AggregateSummary summary, final String function, final int lane) {
     return switch (function) {
-      case "count" -> new Int64(lane < 0 ? summary.count() : summary.present(lane));
-      case "sum" -> summary.sumFitsLong(lane) ? new Int64(summary.sumLongExact(lane))
+      case "count" -> new Int64(lane < 0
+          ? summary.count()
+          : summary.present(lane));
+      case "sum" -> summary.sumFitsLong(lane)
+          ? new Int64(summary.sumLongExact(lane))
           : new Int(new BigDecimal(summary.sum(lane)));
-      case "min" -> summary.present(lane) == 0 ? null : new Int64(summary.min(lane));
-      case "max" -> summary.present(lane) == 0 ? null : new Int64(summary.max(lane));
+      case "min" -> summary.present(lane) == 0
+          ? null
+          : new Int64(summary.min(lane));
+      case "max" -> summary.present(lane) == 0
+          ? null
+          : new Int64(summary.max(lane));
       default -> throw new IllegalStateException("Unadmitted aggregate function");
     };
   }
@@ -283,7 +297,9 @@ public final class TemporalAggregateRoute {
           buffer.get(utf8);
           yield new Str(new String(utf8, StandardCharsets.UTF_8));
         }
-        case 3 -> buffer.get() == 0 ? Bool.FALSE : Bool.TRUE;
+        case 3 -> buffer.get() == 0
+            ? Bool.FALSE
+            : Bool.TRUE;
         default -> throw new IllegalStateException("Invalid temporal group value kind");
       };
     }

@@ -23,7 +23,8 @@ final class ChangeLogStorageTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       database.createResource(ResourceConfiguration.newBuilder("data").storageType(StorageType.FILE_CHANNEL).build());
-      try (JsonResourceSession session = database.beginResourceSession("data"); JsonNodeTrx writer = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession("data");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
         writer.insertObjectAsFirstChild();
         final byte[] kinds = new byte[4096];
         Arrays.fill(kinds, ChangeLogSlab.LONG);

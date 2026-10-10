@@ -6,8 +6,9 @@ import java.util.Objects;
 
 /**
  * Immutable declaration of aggregate lanes over a covering projection. A lane contains either one
- * integer column or the checked product of two integer columns. The declaration records the required operations so sum-only lanes do not maintain extrema.
- * The index also supplies the number of records in each group.
+ * integer column or the checked product of two integer columns. The declaration records the
+ * required operations so sum-only lanes do not maintain extrema. The index also supplies the number
+ * of records in each group.
  */
 public record TemporalAggregateSpec(int projectionId, List<Integer> groupColumns, List<Lane> lanes) {
   public static final int COUNT = 1;

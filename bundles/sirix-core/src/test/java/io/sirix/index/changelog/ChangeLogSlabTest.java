@@ -26,10 +26,9 @@ final class ChangeLogSlabTest {
     after.numbers[0] = 42;
     final ChangeLogSlab slab = new ChangeLogSlab(3, 9, 2, new byte[] {ChangeLogSlab.LONG, ChangeLogSlab.STRING},
         List.of(new Entry(11, new long[] {1}, before, after), new Entry(15, new long[] {3}, after, null)));
-    final byte[] golden = HexFormat.of().parseHex(
-        "53434c47000000010000000300000009000000020000000200020102000000010178"
-        + "0b000000000000000101010d01000101540100"
-        + "040000000000000003010154010000");
+    final byte[] golden = HexFormat.of()
+                                   .parseHex("53434c47000000010000000300000009000000020000000200020102000000010178"
+                                       + "0b000000000000000101010d01000101540100" + "040000000000000003010154010000");
     assertArrayEquals(golden, slab.encode());
     final ChangeLogSlab decoded = ChangeLogSlab.decode(golden);
     assertEquals(2, decoded.baseRevision());
@@ -53,8 +52,8 @@ final class ChangeLogSlabTest {
     row.text[5] = new String[] {"", "x", "x"};
     row.numbers[6] = -1000;
     row.flags[7] = ChangeLogSlab.PRESENT | ChangeLogSlab.UNREPRESENTABLE;
-    final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, kinds,
-        List.of(new Entry(Long.MAX_VALUE, new long[] {-1}, null, row)));
+    final ChangeLogSlab slab =
+        new ChangeLogSlab(0, 1, 0, kinds, List.of(new Entry(Long.MAX_VALUE, new long[] {-1}, null, row)));
     final ChangeLogSlab decoded = ChangeLogSlab.decode(slab.encode());
     final Row actual = decoded.entries().getFirst().after();
     assertFalse(actual.object);

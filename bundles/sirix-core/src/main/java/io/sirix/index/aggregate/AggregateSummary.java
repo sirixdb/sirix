@@ -70,7 +70,9 @@ public final class AggregateSummary {
   }
 
   public boolean sumFitsLong(final int lane) {
-    return high[lane] == (low[lane] < 0 ? -1 : 0);
+    return high[lane] == (low[lane] < 0
+        ? -1
+        : 0);
   }
 
   public long sumLongExact(final int lane) {
@@ -90,7 +92,9 @@ public final class AggregateSummary {
       present[lane] = Math.addExact(present[lane], other.present[lane]);
       final long previous = low[lane];
       final long next = previous + other.low[lane];
-      final long carry = Long.compareUnsigned(next, previous) < 0 ? 1 : 0;
+      final long carry = Long.compareUnsigned(next, previous) < 0
+          ? 1
+          : 0;
       high[lane] = high[lane] + other.high[lane] + carry;
       low[lane] = next;
       min[lane] = Math.min(min[lane], other.min[lane]);

@@ -5,8 +5,8 @@ import java.time.Instant;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Exact millisecond coordinates with UTC days aligned to a binary radix. Unused coordinates at
- * the end of each day are never queried. This preserves order while avoiding fragmentation of
+ * Exact millisecond coordinates with UTC days aligned to a binary radix. Unused coordinates at the
+ * end of each day are never queried. This preserves order while avoiding fragmentation of
  * day-aligned intervals into millisecond-sized canonical covers.
  */
 public final class TemporalAggregateDomain {
@@ -27,7 +27,9 @@ public final class TemporalAggregateDomain {
   }
 
   public long lowerBound(final @Nullable Instant instant) {
-    return instant == null ? 0 : point(instant);
+    return instant == null
+        ? 0
+        : point(instant);
   }
 
   public long point(final Instant instant) {

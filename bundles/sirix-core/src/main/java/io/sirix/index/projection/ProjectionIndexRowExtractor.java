@@ -412,7 +412,9 @@ public final class ProjectionIndexRowExtractor {
     return out;
   }
 
-  /** Snapshot the current extraction without navigating or decoding the persisted projection again. */
+  /**
+   * Snapshot the current extraction without navigating or decoding the persisted projection again.
+   */
   Row captureChangeRow(final boolean object, final Row previous, final long[] selected) {
     final Row row = new Row(object, columnKinds.length);
     if (previous != null && selected != null) {
@@ -424,24 +426,35 @@ public final class ProjectionIndexRowExtractor {
       if (selected != null && (selected[column >>> 6] & (1L << column)) == 0) {
         continue;
       }
-      row.flags[column] = (byte) ((rowPresent[column] ? ChangeLogSlab.PRESENT : 0)
-          | (rowUnrepresentable[column] ? ChangeLogSlab.UNREPRESENTABLE : 0)
-          | (rowNonIntegral[column] ? ChangeLogSlab.NON_INTEGRAL : 0)
-          | (rowNonDoubleSource[column] ? ChangeLogSlab.NON_DOUBLE : 0));
+      row.flags[column] = (byte) ((rowPresent[column]
+          ? ChangeLogSlab.PRESENT
+          : 0)
+          | (rowUnrepresentable[column]
+              ? ChangeLogSlab.UNREPRESENTABLE
+              : 0)
+          | (rowNonIntegral[column]
+              ? ChangeLogSlab.NON_INTEGRAL
+              : 0)
+          | (rowNonDoubleSource[column]
+              ? ChangeLogSlab.NON_DOUBLE
+              : 0));
       row.text[column] = null;
       row.numbers[column] = rowLongs[column];
       if (!rowPresent[column] || rowUnrepresentable[column]) {
         continue;
       }
       switch (columnKinds[column]) {
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT -> row.text[column] =
-                new String(rowStringUtf8[column], 0, rowStringUtf8Lengths[column], StandardCharsets.UTF_8);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> row.text[column] =
-            rowStringSetLen[column] == 0 ? EMPTY_SET : Arrays.copyOf(rowStringSets[column], rowStringSetLen[column]);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> row.numbers[column] = rowBools[column] ? 1 : 0;
-        default -> { }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT ->
+          row.text[column] = new String(rowStringUtf8[column], 0, rowStringUtf8Lengths[column], StandardCharsets.UTF_8);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> row.text[column] = rowStringSetLen[column] == 0
+            ? EMPTY_SET
+            : Arrays.copyOf(rowStringSets[column], rowStringSetLen[column]);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> row.numbers[column] = rowBools[column]
+            ? 1
+            : 0;
+        default -> {
+        }
       }
     }
     return row;

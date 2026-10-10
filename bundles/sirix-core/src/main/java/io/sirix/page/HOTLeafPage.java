@@ -2900,7 +2900,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   private static final byte[] TOMBSTONE_VALUE = {(byte) 0xFE};
 
-  /** Opaque-slot values use a physical zero-length tombstone; the tombstone is the physically present zero-length value. */
+  /**
+   * Opaque-slot values use a physical zero-length tombstone; the tombstone is the physically present
+   * zero-length value.
+   */
   private static final byte[] OPAQUE_TOMBSTONE_VALUE = new byte[0];
 
   /**
@@ -2928,8 +2931,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Delete an entry by key (tombstone-based).
    *
    * <p>
-   * Replaces the value with the index type's tombstone (zero length for opaque slots, {@code 0xFE} for
-   * posting indexes) rather than physically removing the entry. This is essential for versioning
+   * Replaces the value with the index type's tombstone (zero length for opaque slots, {@code 0xFE}
+   * for posting indexes) rather than physically removing the entry. This is essential for versioning
    * correctness: INCREMENTAL and DIFFERENTIAL modes reconstruct pages by merging fragments from
    * newest to oldest. If an entry were physically removed, the older fragment's copy would be
    * resurrected during reconstruction.

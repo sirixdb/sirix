@@ -2088,7 +2088,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     applyPendingMaintenance();
     final Long2ObjectOpenHashMap<long[]> aggregateChanges = aggregateDirtyColumnWords;
     aggregateDirtyColumnWords = null;
-    if (!invalidated && (aggregateChanges != null || TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef))) {
+    if (!invalidated
+        && (aggregateChanges != null || TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef))) {
       try {
         changeLogRevision();
         final ChangeLogSlab slab = ProjectionChangeLog.slab(storageEngineWriter, indexDef.getID(),
@@ -2240,8 +2241,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
-  private void queueAggregateMaintenance(final LongSet dirty,
-      final Long2ObjectOpenHashMap<long[]> changedColumns) {
+  private void queueAggregateMaintenance(final LongSet dirty, final Long2ObjectOpenHashMap<long[]> changedColumns) {
     if (!TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)) {
       return;
     }
@@ -2251,7 +2251,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     for (final LongIterator records = dirty.iterator(); records.hasNext();) {
       final long record = records.nextLong();
       final long[] changed = changedColumns.get(record);
-      final long[] columns = changed == null ? allColumnWords : changed;
+      final long[] columns = changed == null
+          ? allColumnWords
+          : changed;
       final long[] previous = aggregateDirtyColumnWords.get(record);
       if (previous == null) {
         aggregateDirtyColumnWords.put(record, columns.clone());
@@ -2431,7 +2433,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         ProjectionSetSummaryChunks.open(storage, meta.setValueRowCounts());
     changeLogRevision();
     try (ProjectionChangeLog capture = TemporalAggregateIndexes.hasDependents(storageEngineWriter, indexDef)
-        ? new ProjectionChangeLog(storageEngineWriter, indexDef.getID(), meta, dirty, dirtyColumnWords, changeLogEntries)
+        ? new ProjectionChangeLog(storageEngineWriter, indexDef.getID(), meta, dirty, dirtyColumnWords,
+            changeLogEntries)
         : null) {
       changeCapture = capture;
       return applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas, relabelled, storage,
@@ -2819,7 +2822,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               return false;
             }
             if (changeCapture != null) {
-              changeCapture.after(key, extractor, extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
+              changeCapture.after(key, extractor,
+                  extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
             }
             final boolean orderException = edit.orderExceptions.getBoolean(from);
             final boolean appended = extractor.appendTo(page, key, orderException, orderLabel);
@@ -3574,7 +3578,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         return false;
       }
       if (changeCapture != null) {
-        changeCapture.after(recordKey, extractor, rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
+        changeCapture.after(recordKey, extractor,
+            rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
       }
       for (int column = 0; column < persistedKinds.length; column++) {
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];

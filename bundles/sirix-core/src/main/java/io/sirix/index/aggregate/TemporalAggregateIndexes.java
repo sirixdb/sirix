@@ -31,7 +31,10 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.Map;
 
-/** Declaration validation, initial column build, and maintenance driven by the projection's dirty rows. */
+/**
+ * Declaration validation, initial column build, and maintenance driven by the projection's dirty
+ * rows.
+ */
 public final class TemporalAggregateIndexes {
   private static final int FORMAT = 3;
   private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
@@ -44,8 +47,7 @@ public final class TemporalAggregateIndexes {
     return lastMaintenance;
   }
 
-  private TemporalAggregateIndexes() {
-  }
+  private TemporalAggregateIndexes() {}
 
   public static void validate(final IndexDef aggregate, final IndexDef projection, final ValidTimeConfig config) {
     Objects.requireNonNull(config, "Temporal aggregate indexes require valid-time configuration");
@@ -77,7 +79,9 @@ public final class TemporalAggregateIndexes {
     if (!(writer.getResourceSession() instanceof JsonResourceSession session)) {
       return false;
     }
-    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber()).getIndexes().getIndexDefs()) {
+    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDefs()) {
       if (definition.isTemporalAggregateIndex()
           && definition.getTemporalAggregateSpec().projectionId() == projection.getID()) {
         return true;
@@ -99,7 +103,9 @@ public final class TemporalAggregateIndexes {
     final byte[] kinds = slab.kinds();
     // One endpoint parse per distinct value across both old/new rows and all declarations.
     final Map<String, Long> instants = new HashMap<>();
-    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber()).getIndexes().getIndexDefs()) {
+    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDefs()) {
       if (!definition.isTemporalAggregateIndex()
           || definition.getTemporalAggregateSpec().projectionId() != projection.getID()) {
         continue;
@@ -136,8 +142,11 @@ public final class TemporalAggregateIndexes {
           if (!affected(dependencies, entry.changed())) {
             continue;
           }
-          final Row previous = state.rows.containsKey(entry.record()) ? state.rows.get(entry.record())
-              : state.built ? null : fromLog(entry.before(), kinds, from, to, spec, instants);
+          final Row previous = state.rows.containsKey(entry.record())
+              ? state.rows.get(entry.record())
+              : state.built
+                  ? null
+                  : fromLog(entry.before(), kinds, from, to, spec, instants);
           final Row next = fromLog(entry.after(), kinds, from, to, spec, instants);
           maintenance.change(previous, next);
           state.rows.put(entry.record(), next);
@@ -157,8 +166,8 @@ public final class TemporalAggregateIndexes {
     return false;
   }
 
-  private static @Nullable Row fromLog(final ChangeLogSlab.@Nullable Row row, final byte[] kinds,
-      final int fromColumn, final int toColumn, final TemporalAggregateSpec spec, final Map<String, Long> instants) {
+  private static @Nullable Row fromLog(final ChangeLogSlab.@Nullable Row row, final byte[] kinds, final int fromColumn,
+      final int toColumn, final TemporalAggregateSpec spec, final Map<String, Long> instants) {
     if (row == null) {
       return null;
     }
@@ -210,10 +219,12 @@ public final class TemporalAggregateIndexes {
           requireSupported(row, lane.right());
         }
         if (row.present(lane.left()) && (lane.right() < 0 || row.present(lane.right()))) {
-          if (kinds[lane.left()] != ChangeLogSlab.LONG || lane.right() >= 0 && kinds[lane.right()] != ChangeLogSlab.LONG) {
+          if (kinds[lane.left()] != ChangeLogSlab.LONG
+              || lane.right() >= 0 && kinds[lane.right()] != ChangeLogSlab.LONG) {
             throw new UnsupportedCell();
           }
-          values[at] = lane.right() < 0 ? row.numbers[lane.left()]
+          values[at] = lane.right() < 0
+              ? row.numbers[lane.left()]
               : Math.multiplyExact(row.numbers[lane.left()], row.numbers[lane.right()]);
           present |= 1L << at;
         }
@@ -226,11 +237,13 @@ public final class TemporalAggregateIndexes {
     }
   }
 
-  private static long endpoint(final ChangeLogSlab.Row row, final byte[] kinds, final int column,
-      final boolean upper, final Map<String, Long> instants) {
+  private static long endpoint(final ChangeLogSlab.Row row, final byte[] kinds, final int column, final boolean upper,
+      final Map<String, Long> instants) {
     requireSupported(row, column);
     if (!row.present(column)) {
-      return upper ? DOMAIN.maxValue() + 1 : DOMAIN.lowerBound(null);
+      return upper
+          ? DOMAIN.maxValue() + 1
+          : DOMAIN.lowerBound(null);
     }
     if (kinds[column] != ChangeLogSlab.STRING) {
       throw new UnsupportedCell();
@@ -252,17 +265,21 @@ public final class TemporalAggregateIndexes {
 
   private static final class UnsupportedCell extends RuntimeException {
     private static final long serialVersionUID = 1L;
-    private UnsupportedCell() { super(null, null, false, false); }
+
+    private UnsupportedCell() {
+      super(null, null, false, false);
+    }
   }
 
   private static void dependOn(final long[] dependencies, final int column) {
     dependencies[column >>> 6] |= 1L << (column & 63);
   }
 
-  private static void buildColumns(final StorageEngineWriter writer, final IndexDef definition, final IndexDef projection,
-      final ValidTimeConfig config) {
-    final ProjectionIndexMetadata metadata = Objects.requireNonNull(ProjectionIndexMetadata.parse(
-        ProjectionIndexHOTStorage.readMetadataBlob(writer, projection.getID())), "Missing covering projection");
+  private static void buildColumns(final StorageEngineWriter writer, final IndexDef definition,
+      final IndexDef projection, final ValidTimeConfig config) {
+    final ProjectionIndexMetadata metadata = Objects.requireNonNull(
+        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(writer, projection.getID())),
+        "Missing covering projection");
     if (metadata.isStale()) {
       throw new IllegalStateException("Cannot maintain a temporal aggregate from a stale projection");
     }
@@ -271,24 +288,28 @@ public final class TemporalAggregateIndexes {
       if (prior != null) {
         throw new IllegalStateException("Temporal aggregate build/maintenance lifecycle mismatch");
       }
-      final Header header = prior == null ? new Header(1, 0) : header(prior);
+      final Header header = prior == null
+          ? new Header(1, 0)
+          : header(prior);
       final ProjectionIndexChangeListener listener = listener(writer, projection.getID());
       final TransactionState state = listener.aggregateState(definition.getID());
       state.atRevision(writer.getRevisionNumber());
       state.built = true;
-      final Maintenance maintenance = new Maintenance(storage, definition.getTemporalAggregateSpec(), header,
-          writer.getRevisionNumber());
+      final Maintenance maintenance =
+          new Maintenance(storage, definition.getTemporalAggregateSpec(), header, writer.getRevisionNumber());
       final Source current = new Source(writer, metadata, projection, config, listener);
       ProjectionAggregateRows.visit(writer, projection.getID(), metadata, null, (record, page, row) -> {
-          final Row next = current.row(record, page, row, maintenance.spec);
-          maintenance.change(null, next);
-          state.rows.put(record, next);
-        });
+        final Row next = current.row(record, page, row, maintenance.spec);
+        maintenance.change(null, next);
+        state.rows.put(record, next);
+      });
       maintenance.finish();
     }
   }
 
-  /** Header binds availability to this revision, including exactness and unsupported source values. */
+  /**
+   * Header binds availability to this revision, including exactness and unsupported source values.
+   */
   public record Header(long nextPart, long unsupportedRows) {
   }
 
@@ -352,7 +373,8 @@ public final class TemporalAggregateIndexes {
 
     private boolean same(final @Nullable Row other) {
       return other != null && from == other.from && to == other.to && present == other.present
-          && unsupported == other.unsupported && Arrays.equals(group, other.group) && Arrays.equals(values, other.values);
+          && unsupported == other.unsupported && Arrays.equals(group, other.group)
+          && Arrays.equals(values, other.values);
     }
   }
 
@@ -365,8 +387,8 @@ public final class TemporalAggregateIndexes {
     private final int toColumn;
     private final ProjectionIndexChangeListener listener;
 
-    private Source(final StorageEngineReader reader, final ProjectionIndexMetadata metadata,
-        final IndexDef projection, final ValidTimeConfig config, final ProjectionIndexChangeListener listener) {
+    private Source(final StorageEngineReader reader, final ProjectionIndexMetadata metadata, final IndexDef projection,
+        final ValidTimeConfig config, final ProjectionIndexChangeListener listener) {
       this.reader = reader;
       columns = new TemporalAggregateColumns(reader, metadata);
       this.projection = projection;
@@ -411,13 +433,20 @@ public final class TemporalAggregateIndexes {
       try {
         final String fromText = columns.string(page, fromColumn, row);
         final String toText = columns.string(page, toColumn, row);
-        final Instant fromInstant = fromText == null ? null : Instant.parse(fromText);
-        final Instant toInstant = toText == null ? null : Instant.parse(toText);
-        if ((fromInstant != null && !DOMAIN.isExact(fromInstant)) || (toInstant != null && !DOMAIN.isExact(toInstant))) {
+        final Instant fromInstant = fromText == null
+            ? null
+            : Instant.parse(fromText);
+        final Instant toInstant = toText == null
+            ? null
+            : Instant.parse(toText);
+        if ((fromInstant != null && !DOMAIN.isExact(fromInstant))
+            || (toInstant != null && !DOMAIN.isExact(toInstant))) {
           return Row.UNSUPPORTED;
         }
         final long from = DOMAIN.lowerBound(fromInstant);
-        final long to = toInstant == null ? DOMAIN.maxValue() + 1 : DOMAIN.point(toInstant);
+        final long to = toInstant == null
+            ? DOMAIN.maxValue() + 1
+            : DOMAIN.point(toInstant);
         if (from >= to) {
           return Row.EMPTY;
         }
@@ -433,7 +462,8 @@ public final class TemporalAggregateIndexes {
           if (TemporalAggregateColumns.present(page, lane.left(), row)
               && (lane.right() < 0 || TemporalAggregateColumns.present(page, lane.right(), row))) {
             final long left = TemporalAggregateColumns.number(page, lane.left(), row);
-            values[at] = lane.right() < 0 ? left
+            values[at] = lane.right() < 0
+                ? left
                 : Math.multiplyExact(left, TemporalAggregateColumns.number(page, lane.right(), row));
             present |= 1L << at;
           }
@@ -462,13 +492,17 @@ public final class TemporalAggregateIndexes {
 
       private Group(final byte[] key) {
         final byte[] bytes = storage.reader().get(key);
-        head = bytes == null ? null : GroupHead.decode(bytes);
-        rows = head == null ? 0 : head.rows();
+        head = bytes == null
+            ? null
+            : GroupHead.decode(bytes);
+        rows = head == null
+            ? 0
+            : head.rows();
       }
     }
 
-    private Maintenance(final TemporalAggregateStorage storage, final TemporalAggregateSpec spec,
-        final Header header, final int revision) {
+    private Maintenance(final TemporalAggregateStorage storage, final TemporalAggregateSpec spec, final Header header,
+        final int revision) {
       this.storage = storage;
       this.spec = spec;
       parts = new TemporalAggregateParts(spec, DOMAIN.height());
@@ -505,11 +539,14 @@ public final class TemporalAggregateIndexes {
           continue;
         }
         final GroupHead prior = group.head;
-        final long[] previous = prior == null ? new long[0] : prior.parts();
+        final long[] previous = prior == null
+            ? new long[0]
+            : prior.parts();
         final boolean sameRevision = prior != null && prior.revision() == revision;
         // Bound query fan-in, and compact when accumulated deltas are material relative to the base.
         // The floor avoids rewriting tiny groups for every small publication.
-        final boolean checkpoint = previous.length == 0 || sameRevision && previous.length == 1 || previous.length == TemporalAggregateParts.MAX_PARTS
+        final boolean checkpoint = previous.length == 0 || sameRevision && previous.length == 1
+            || previous.length == TemporalAggregateParts.MAX_PARTS
             || !sameRevision && prior.deltaBytes() > Math.max(2048, prior.checkpointBytes() / 2);
         final long[] ids;
         final long id;
@@ -535,8 +572,12 @@ public final class TemporalAggregateIndexes {
         }
         final byte[] encoded = group.delta.encode(checkpoint);
         storage.putPart(id, encoded);
-        final long checkpointBytes = checkpoint ? encoded.length : prior.checkpointBytes();
-        final long deltaBytes = checkpoint ? 0 : Math.addExact(prior.deltaBytes() - replacedBytes, encoded.length);
+        final long checkpointBytes = checkpoint
+            ? encoded.length
+            : prior.checkpointBytes();
+        final long deltaBytes = checkpoint
+            ? 0
+            : Math.addExact(prior.deltaBytes() - replacedBytes, encoded.length);
         storage.put(entry.getKey(), new GroupHead(group.rows, revision, checkpointBytes, deltaBytes, ids).encode());
       }
       if (unsupported < 0 || nextPart < 1) {

@@ -223,9 +223,8 @@ public final class JNFun {
     Functions.predefine(
         new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
 
-    Functions.predefine(new CreateTemporalAggregateIndex(new Signature(SequenceType.JSON_ITEM,
-        SequenceType.JSON_ITEM, new SequenceType(AtomicType.STR, Cardinality.One),
-        new SequenceType(AtomicType.STR, Cardinality.OneOrMany),
+    Functions.predefine(new CreateTemporalAggregateIndex(new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
+        new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.OneOrMany),
         new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
 
     // create-valid-time-index (bitemporal interval index; backend forced to HOT)
@@ -236,9 +235,9 @@ public final class JNFun {
 
     Functions.predefine(new DropTemporalAggregateIndex(DropTemporalAggregateIndex.DROP_TEMPORAL_AGGREGATE_INDEX,
         new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM)));
-    Functions.predefine(new DropTemporalAggregateIndex(DropTemporalAggregateIndex.DROP_TEMPORAL_AGGREGATE_INDEX,
-        new Signature(SequenceType.JSON_ITEM, SequenceType.JSON_ITEM,
-            new SequenceType(AtomicType.INR, Cardinality.One))));
+    Functions.predefine(
+        new DropTemporalAggregateIndex(DropTemporalAggregateIndex.DROP_TEMPORAL_AGGREGATE_INDEX, new Signature(
+            SequenceType.JSON_ITEM, SequenceType.JSON_ITEM, new SequenceType(AtomicType.INR, Cardinality.One))));
 
     // drop-projection-index
     Functions.predefine(

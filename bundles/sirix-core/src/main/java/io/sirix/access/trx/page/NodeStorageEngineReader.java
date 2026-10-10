@@ -528,7 +528,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     requireNonNull(storageEngineReader);
     requireNonNull(indexType);
     if (indexType == IndexType.PATH || indexType == IndexType.CAS || indexType == IndexType.PROJECTION
-        || indexType == IndexType.VALIDTIME || indexType == IndexType.TEMPORAL_AGGREGATE || indexType == IndexType.CHANGE_LOG) {
+        || indexType == IndexType.VALIDTIME || indexType == IndexType.TEMPORAL_AGGREGATE
+        || indexType == IndexType.CHANGE_LOG) {
       throw new IllegalArgumentException(indexType + " indexes use HOT storage");
     }
     if (indexType != IndexType.NAME) {
@@ -3456,7 +3457,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case NAME -> getNamePage(revisionRoot).getNameDictionaryReference(databaseType(), index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
-      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
+      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
+        throw new IllegalArgumentException(indexType + " indexes use HOT storage");
       default ->
         throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -3538,7 +3540,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> throw new IllegalArgumentException(indexType + " indexes use HOT storage");
+      case PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
+        throw new IllegalArgumentException(indexType + " indexes use HOT storage");
     };
 
     return maxLevel;

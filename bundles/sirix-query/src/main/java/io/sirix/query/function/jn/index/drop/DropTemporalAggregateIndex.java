@@ -67,7 +67,8 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
       }
 
       if (requestedId != null && toDrop.isEmpty()) {
-        throw new QueryException(new QNm("No TEMPORAL_AGGREGATE index with id " + requestedId + " found on the resource."));
+        throw new QueryException(
+            new QNm("No TEMPORAL_AGGREGATE index with id " + requestedId + " found on the resource."));
       }
 
       dropAll(toDrop, controller, wtx);

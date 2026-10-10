@@ -381,7 +381,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         case PROJECTION ->
           storageEngineWriter.getProjectionIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
-        case TEMPORAL_AGGREGATE -> storageEngineWriter.getTemporalAggregateIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case TEMPORAL_AGGREGATE ->
+          storageEngineWriter.getTemporalAggregateIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         default -> false;
       };
       if (physicalIdWasInitialized) {

@@ -14,11 +14,10 @@ import java.util.Set;
 
 /** Public declaration API shared by query DDL and data loaders. */
 public final class TemporalAggregateDeclarations {
-  private TemporalAggregateDeclarations() {
-  }
+  private TemporalAggregateDeclarations() {}
 
-  public static IndexDef declare(final JsonIndexController controller, final JsonNodeTrx transaction,
-      final String root, final List<String> groups, final List<String> aggregates) {
+  public static IndexDef declare(final JsonIndexController controller, final JsonNodeTrx transaction, final String root,
+      final List<String> groups, final List<String> aggregates) {
     Objects.requireNonNull(controller);
     Objects.requireNonNull(transaction);
     Objects.requireNonNull(root);
@@ -51,7 +50,9 @@ public final class TemporalAggregateDeclarations {
           throw new IllegalArgumentException("An aggregate operand must be a field or product of two fields");
         }
         final int left = column(projection, fields[0].trim());
-        final int right = fields.length == 1 ? -1 : column(projection, fields[1].trim());
+        final int right = fields.length == 1
+            ? -1
+            : column(projection, fields[1].trim());
         if (left < 0 || (fields.length == 2 && right < 0)) {
           covered = false;
         } else {
@@ -74,8 +75,8 @@ public final class TemporalAggregateDeclarations {
       if (!covered) {
         continue;
       }
-      final TemporalAggregateSpec spec = new TemporalAggregateSpec(projection.getID(), groupColumns,
-          new ArrayList<>(lanes));
+      final TemporalAggregateSpec spec =
+          new TemporalAggregateSpec(projection.getID(), groupColumns, new ArrayList<>(lanes));
       for (final IndexDef existing : controller.getIndexes().getIndexDefs()) {
         if (existing.isTemporalAggregateIndex() && existing.getTemporalAggregateSpec().equals(spec)) {
           return existing;
@@ -94,7 +95,8 @@ public final class TemporalAggregateDeclarations {
     if (field.isEmpty()) {
       return -1;
     }
-    final String path = field.startsWith("/") ? field
+    final String path = field.startsWith("/")
+        ? field
         : projection.getProjectionRootPath() + "/" + field.replace('.', '/');
     for (int i = 0; i < projection.getProjectionFields().size(); i++) {
       if (projection.getProjectionFields().get(i).toString().equals(path)) {

@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class TemporalAggregatePartsTest {
-  private static final TemporalAggregateSpec SPEC = new TemporalAggregateSpec(0, List.of(0),
-      List.of(new TemporalAggregateSpec.Lane(1)));
+  private static final TemporalAggregateSpec SPEC =
+      new TemporalAggregateSpec(0, List.of(0), List.of(new TemporalAggregateSpec.Lane(1)));
 
   private static final class Store implements TemporalAggregateParts.Store {
     private final Map<Long, byte[]> parts = new HashMap<>();
@@ -33,7 +33,9 @@ final class TemporalAggregatePartsTest {
 
   private record Row(long from, long to, long value, boolean present) {
     private void add(final TemporalAggregateParts.Builder builder, final int sign) {
-      builder.add(from, to, new long[] {value}, present ? 1 : 0, sign);
+      builder.add(from, to, new long[] {value}, present
+          ? 1
+          : 0, sign);
     }
   }
 
@@ -58,8 +60,8 @@ final class TemporalAggregatePartsTest {
         }
         if (random.nextInt(4) != 0) {
           final long from = random.nextInt(256);
-          final Row row = new Row(from, from + 1 + random.nextInt((int) (256 - from)), random.nextLong(),
-              random.nextBoolean());
+          final Row row =
+              new Row(from, from + 1 + random.nextInt((int) (256 - from)), random.nextLong(), random.nextBoolean());
           rows.put(id, row);
           row.add(builder, 1);
         }
@@ -137,10 +139,10 @@ final class TemporalAggregatePartsTest {
 
   @Test
   void declaredLanesDeduplicateCanonicalExtremaAndCancelSwaps() {
-    final TemporalAggregateSpec spec = new TemporalAggregateSpec(0, List.of(0), List.of(
-        new TemporalAggregateSpec.Lane(1, -1, TemporalAggregateSpec.SUM),
-        new TemporalAggregateSpec.Lane(2, -1, TemporalAggregateSpec.SUM),
-        new TemporalAggregateSpec.Lane(3, -1, TemporalAggregateSpec.MIN | TemporalAggregateSpec.MAX)));
+    final TemporalAggregateSpec spec = new TemporalAggregateSpec(0, List.of(0),
+        List.of(new TemporalAggregateSpec.Lane(1, -1, TemporalAggregateSpec.SUM),
+            new TemporalAggregateSpec.Lane(2, -1, TemporalAggregateSpec.SUM),
+            new TemporalAggregateSpec.Lane(3, -1, TemporalAggregateSpec.MIN | TemporalAggregateSpec.MAX)));
     final TemporalAggregateParts index = new TemporalAggregateParts(spec, 49);
     final TemporalAggregateParts.Builder build = index.builder();
     for (int row = 0; row < 25_000; row++) {

@@ -661,21 +661,22 @@ public final class IndexDef implements Materializable {
           if (temporalAggregateSpec != null || type != IndexType.TEMPORAL_AGGREGATE) {
             throw new DocumentException("Invalid or duplicate temporal aggregate declaration");
           }
-          final int projection = Integer.parseInt(requireNonNull(child.getAttribute(AGGREGATE_PROJECTION))
-              .getValue().stringValue());
+          final int projection =
+              Integer.parseInt(requireNonNull(child.getAttribute(AGGREGATE_PROJECTION)).getValue().stringValue());
           final List<Integer> groups = new ArrayList<>();
           final List<Lane> lanes = new ArrayList<>();
           try (Stream<? extends Node<?>> entries = child.getChildren()) {
             Node<?> entry;
             while ((entry = entries.next()) != null) {
-              final int left = Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_LEFT))
-                  .getValue().stringValue());
+              final int left =
+                  Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_LEFT)).getValue().stringValue());
               if (entry.getName().equals(AGGREGATE_GROUP)) {
                 groups.add(left);
               } else if (entry.getName().equals(AGGREGATE_LANE)) {
-                lanes.add(new Lane(left, Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_RIGHT))
-                    .getValue().stringValue()), Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_OPERATIONS))
-                    .getValue().stringValue())));
+                lanes.add(new Lane(left,
+                    Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_RIGHT)).getValue().stringValue()),
+                    Integer.parseInt(
+                        requireNonNull(entry.getAttribute(AGGREGATE_OPERATIONS)).getValue().stringValue())));
               } else {
                 throw new DocumentException("Unknown temporal aggregate entry");
               }

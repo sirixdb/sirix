@@ -753,10 +753,11 @@ public abstract class AbstractHOTIndexWriter<K> {
                                      .incrementAndGetMaxHotPageKey(indexNo);
       case VALIDTIME -> () -> writer.<ValidTimeIndexPage>prepareSecondaryIndexPage(IndexType.VALIDTIME)
                                     .incrementAndGetMaxHotPageKey(indexNo);
-      case TEMPORAL_AGGREGATE -> () -> writer.<TemporalAggregateIndexPage>prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
-                                    .incrementAndGetMaxHotPageKey(indexNo);
+      case TEMPORAL_AGGREGATE ->
+        () -> writer.<TemporalAggregateIndexPage>prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
+                    .incrementAndGetMaxHotPageKey(indexNo);
       case CHANGE_LOG -> () -> writer.<ChangeLogIndexPage>prepareSecondaryIndexPage(IndexType.CHANGE_LOG)
-                                    .incrementAndGetMaxHotPageKey(indexNo);
+                                     .incrementAndGetMaxHotPageKey(indexNo);
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -869,7 +870,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void prepareIndexPage() {
     switch (indexType) {
-      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> storageEngineWriter.prepareSecondaryIndexPage(indexType);
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
+        storageEngineWriter.prepareSecondaryIndexPage(indexType);
       default -> {
         /* ignore */ }
     }
@@ -1912,7 +1914,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeTemporalAggregateIndex() {
     try {
-      final TemporalAggregateIndexPage vtPage = storageEngineWriter.prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE);
+      final TemporalAggregateIndexPage vtPage =
+          storageEngineWriter.prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE);
 
       // Get existing reference first to check if index already exists
       final PageReference existingRef = vtPage.getIndirectPageReference(indexNumber);

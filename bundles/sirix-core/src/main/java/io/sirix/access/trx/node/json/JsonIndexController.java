@@ -129,8 +129,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     validateProjectionDefinitions(indexDefs, nodeWriteTrx);
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isTemporalAggregateIndex()) {
-        final IndexDef projection = requireNonNull(getIndexes().getIndexDef(
-            indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
+        final IndexDef projection = requireNonNull(
+            getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
             "Create the covering projection before its temporal aggregate index");
         TemporalAggregateIndexes.validate(indexDef, projection,
             nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig());
@@ -380,8 +380,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isTemporalAggregateIndex()) {
-        final IndexDef source = requireNonNull(getIndexes().getIndexDef(
-            indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
+        final IndexDef source = requireNonNull(
+            getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
             "Temporal aggregate index has no covering projection");
         TemporalAggregateIndexes.validate(indexDef, source,
             nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig());

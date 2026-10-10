@@ -94,8 +94,8 @@ public final class ChangeLogSlab {
 
   public ChangeLogSlab(final int projection, final int revision, final int baseRevision, final byte[] kinds,
       final List<Entry> entries) {
-    if (projection < 0 || revision < 1 || baseRevision < 0 || baseRevision >= revision
-        || kinds.length < 1 || kinds.length > 65535) {
+    if (projection < 0 || revision < 1 || baseRevision < 0 || baseRevision >= revision || kinds.length < 1
+        || kinds.length > 65535) {
       throw new IllegalArgumentException("Invalid change-log header");
     }
     for (final byte kind : kinds) {
@@ -119,11 +119,25 @@ public final class ChangeLogSlab {
     }
   }
 
-  public int projection() { return projection; }
-  public int revision() { return revision; }
-  public int baseRevision() { return baseRevision; }
-  public byte[] kinds() { return kinds.clone(); }
-  public List<Entry> entries() { return entries; }
+  public int projection() {
+    return projection;
+  }
+
+  public int revision() {
+    return revision;
+  }
+
+  public int baseRevision() {
+    return baseRevision;
+  }
+
+  public byte[] kinds() {
+    return kinds.clone();
+  }
+
+  public List<Entry> entries() {
+    return entries;
+  }
 
   public byte[] encode() {
     final Map<String, Integer> dictionary = new LinkedHashMap<>();
@@ -182,9 +196,13 @@ public final class ChangeLogSlab {
     }
   }
 
-  private void writeRow(final DataOutputStream out, final @Nullable Row row,
-      final Map<String, Integer> dictionary) throws IOException {
-    out.writeByte(row == null ? 0 : row.object ? 1 : 2);
+  private void writeRow(final DataOutputStream out, final @Nullable Row row, final Map<String, Integer> dictionary)
+      throws IOException {
+    out.writeByte(row == null
+        ? 0
+        : row.object
+            ? 1
+            : 2);
     if (row == null) {
       return;
     }
@@ -254,8 +272,8 @@ public final class ChangeLogSlab {
     }
   }
 
-  private static @Nullable Row readRow(final DataInputStream in, final byte[] kinds,
-      final String[] dictionary) throws IOException {
+  private static @Nullable Row readRow(final DataInputStream in, final byte[] kinds, final String[] dictionary)
+      throws IOException {
     final int kind = in.readUnsignedByte();
     if (kind == 0) {
       return null;

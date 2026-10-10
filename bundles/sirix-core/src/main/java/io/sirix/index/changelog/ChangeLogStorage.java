@@ -14,7 +14,9 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** One revision-owned change-log tree per source projection. Values are bounded inline HOT slots. */
+/**
+ * One revision-owned change-log tree per source projection. Values are bounded inline HOT slots.
+ */
 public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> implements AutoCloseable {
   public static final int CHUNK_BYTES = 2048;
   private static final byte[] HEADER = {0};
@@ -26,8 +28,12 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   private boolean headerDirty;
   private static volatile WriteWork lastWrite = new WriteWork(0, 0, 0);
 
-  public record WriteWork(int records, int bytes, long slots) { }
-  public static WriteWork lastWrite() { return lastWrite; }
+  public record WriteWork(int records, int bytes, long slots) {
+  }
+
+  public static WriteWork lastWrite() {
+    return lastWrite;
+  }
 
   public ChangeLogStorage(final StorageEngineWriter writer, final int projection) {
     super(writer, IndexType.CHANGE_LOG, projection);
@@ -49,28 +55,36 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
   }
 
-  public long slotsWritten() { return slotsWritten; }
+  public long slotsWritten() {
+    return slotsWritten;
+  }
 
   public void initialize(final int firstRevision, final byte[] kinds) {
     if (header == null) {
       if (firstRevision < 1 || kinds.length < 1 || kinds.length > 65535) {
         throw new IllegalArgumentException("Invalid change-log schema");
       }
-      header = ByteBuffer.allocate(20).putInt(ChangeLogSlab.FORMAT)
-          .putInt(firstRevision).putInt(kinds.length).putLong(0).array();
+      header = ByteBuffer.allocate(20)
+                         .putInt(ChangeLogSlab.FORMAT)
+                         .putInt(firstRevision)
+                         .putInt(kinds.length)
+                         .putLong(0)
+                         .array();
       put(HEADER, header);
     }
   }
 
-  public boolean initialized() { return header != null; }
+  public boolean initialized() {
+    return header != null;
+  }
 
   public void write(final ChangeLogSlab slab) {
     final long before = slotsWritten;
     final byte[] bytes = slab.encode();
     final int chunks = (bytes.length + CHUNK_BYTES - 1) / CHUNK_BYTES;
     for (int chunk = 0; chunk < chunks; chunk++) {
-      put(slabKey(slab.revision(), chunk), Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES,
-          Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
+      put(slabKey(slab.revision(), chunk),
+          Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES, Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
     }
     put(slabKey(slab.revision(), -1), ByteBuffer.allocate(8).putInt(bytes.length).putInt(chunks).array());
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
@@ -84,14 +98,17 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
     if (row != null && row.exceptional()) {
       final byte[] value = new byte[1 + row.flags.length];
-      value[0] = (byte) (row.object ? 1 : 2);
+      value[0] = (byte) (row.object
+          ? 1
+          : 2);
       for (int column = 0; column < row.flags.length; column++) {
         value[column + 1] = (byte) (row.flags[column] & ~ChangeLogSlab.PRESENT);
       }
       final byte[] previous = provenance(record);
       if (!Arrays.equals(value, previous)) {
         for (int offset = 0, chunk = 0; offset < value.length; offset += CHUNK_BYTES, chunk++) {
-          put(provenanceKey(record, chunk), Arrays.copyOfRange(value, offset, Math.min(value.length, offset + CHUNK_BYTES)));
+          put(provenanceKey(record, chunk),
+              Arrays.copyOfRange(value, offset, Math.min(value.length, offset + CHUNK_BYTES)));
         }
         put(key, ByteBuffer.allocate(4).putInt(value.length).array());
         if (previous == null) {
@@ -138,8 +155,8 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   }
 
   public static ChangeLogSlab read(final StorageEngineReader storage, final int projection, final int revision) {
-    final PageReference root = storage.getChangeLogIndexPage(storage.getActualRevisionRootPage())
-        .getIndexReference(projection);
+    final PageReference root =
+        storage.getChangeLogIndexPage(storage.getActualRevisionRootPage()).getIndexReference(projection);
     if (root == null) {
       throw new IllegalStateException("Missing change log");
     }
@@ -156,7 +173,8 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       }
       final byte[] bytes = new byte[length];
       for (int chunk = 0; chunk < chunks; chunk++) {
-        final byte[] part = Objects.requireNonNull(read(reader, root, slabKey(revision, chunk)), "Missing change-log chunk");
+        final byte[] part =
+            Objects.requireNonNull(read(reader, root, slabKey(revision, chunk)), "Missing change-log chunk");
         final int expected = Math.min(CHUNK_BYTES, length - chunk * CHUNK_BYTES);
         if (part.length != expected) {
           throw new IllegalStateException("Invalid change-log chunk length");
@@ -171,7 +189,9 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
   }
 
-  private byte @Nullable [] get(final byte[] key) { return read(reader, rootReference, key); }
+  private byte @Nullable [] get(final byte[] key) {
+    return read(reader, rootReference, key);
+  }
 
   private static byte @Nullable [] read(final HOTTrieReader reader, final PageReference root, final byte[] key) {
     for (int attempt = 0; attempt < 16; attempt++) {
@@ -182,7 +202,9 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       try {
         final byte[] copy = value.toArray(ValueLayout.JAVA_BYTE);
         if (reader.validateCurrentLeaf()) {
-          return copy.length == 0 ? null : copy;
+          return copy.length == 0
+              ? null
+              : copy;
         }
       } catch (final RuntimeException failure) {
         if (reader.validateCurrentLeaf()) {
@@ -202,14 +224,21 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   }
 
   @Override
-  protected byte[] getKeyBuffer() { return keyBuffer; }
+  protected byte[] getKeyBuffer() {
+    return keyBuffer;
+  }
+
   @Override
-  protected void setKeyBuffer(final byte[] buffer) { keyBuffer = buffer; }
+  protected void setKeyBuffer(final byte[] buffer) {
+    keyBuffer = buffer;
+  }
+
   @Override
   protected int serializeKey(final byte[] key, final byte[] buffer, final int offset) {
     System.arraycopy(key, 0, buffer, offset, key.length);
     return key.length;
   }
+
   @Override
   public void close() {
     try {

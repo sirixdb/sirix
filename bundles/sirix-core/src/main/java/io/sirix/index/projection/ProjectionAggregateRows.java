@@ -18,8 +18,7 @@ public final class ProjectionAggregateRows {
     void accept(long record, @Nullable ProjectionIndexRowGroupPage page, int row);
   }
 
-  private ProjectionAggregateRows() {
-  }
+  private ProjectionAggregateRows() {}
 
   /** Recover row-local provenance only when a projection leaf carries a conservative poison flag. */
   public static ProjectionIndexRowGroupPage extract(final IndexDef definition, final PathSummaryReader paths,
@@ -65,8 +64,8 @@ public final class ProjectionAggregateRows {
         continue;
       }
       final int slot = ProjectionPersistedRecordLookup.slot(location);
-      final ProjectionIndexRowGroupPage page = pages.computeIfAbsent(slot,
-          id -> readPage(reader, projection, metadata, id));
+      final ProjectionIndexRowGroupPage page =
+          pages.computeIfAbsent(slot, id -> readPage(reader, projection, metadata, id));
       consumer.accept(key, page, ProjectionPersistedRecordLookup.row(location));
     }
   }

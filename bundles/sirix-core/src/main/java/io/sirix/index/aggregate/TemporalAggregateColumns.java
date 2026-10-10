@@ -90,7 +90,8 @@ final class TemporalAggregateColumns {
     }
   }
 
-  @Nullable String string(final ProjectionIndexRowGroupPage page, final int column, final int row) {
+  @Nullable
+  String string(final ProjectionIndexRowGroupPage page, final int column, final int row) {
     requireRepresentable(page, column);
     if (!present(page, column, row)) {
       return null;
@@ -101,20 +102,23 @@ final class TemporalAggregateColumns {
         yield new String(page.stringDictionaryEntryBacking(column, id), page.stringDictionaryEntryOffset(column, id),
             page.stringDictionaryEntryLength(column, id), StandardCharsets.UTF_8);
       }
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> Objects.requireNonNull(
-          GlobalValueDictionary.value(metadata.valueDictionaryHeaderKey(column),
-              Math.toIntExact(page.numericColumn(column)[row]), reader), "Missing aggregate dictionary value");
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+        Objects.requireNonNull(GlobalValueDictionary.value(metadata.valueDictionaryHeaderKey(column),
+            Math.toIntExact(page.numericColumn(column)[row]), reader), "Missing aggregate dictionary value");
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT -> {
         final long cell = page.numericColumn(column)[row];
-        yield Objects.requireNonNull(GlobalValueDictionary.value(
-            anchors.headerKeyOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), column),
-            ProjectionIndexRowGroupPage.idOfCell(cell), reader), "Missing aggregate segment dictionary value");
+        yield Objects.requireNonNull(
+            GlobalValueDictionary.value(anchors.headerKeyOf(ProjectionIndexRowGroupPage.segmentOfCell(cell), column),
+                ProjectionIndexRowGroupPage.idOfCell(cell), reader),
+            "Missing aggregate segment dictionary value");
       }
       default -> throw new Unservable();
     };
   }
 
-  /** Unsupported source data declines serving; corruption and missing persisted pages remain errors. */
+  /**
+   * Unsupported source data declines serving; corruption and missing persisted pages remain errors.
+   */
   static final class Unservable extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
