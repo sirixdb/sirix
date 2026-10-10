@@ -246,31 +246,7 @@ public final class HotOrderedStore implements OrderedStore {
     }
 
     private @Nullable NodeReferences next() {
-      boolean positioned = false;
-      for (int attempt = 0; !positioned; attempt++) {
-        checkRetries(attempt);
-        try {
-          final HOTLeafPage leaf = cursor.currentLeafPage();
-          final int index = cursor.currentEntryIndex();
-          if (leaf.getKeyLength(index) < COMPOSITE_BYTES
-              || leaf.compareKeyPrefix(index, composite, ValidTimeKeySerializer.KEY_BYTES) != 0) {
-            throw new IllegalArgumentException("Unreadable VALIDTIME posting chunk key");
-          }
-          final int chunkIndex = leaf.readKeyIntBE(index, ValidTimeKeySerializer.KEY_BYTES);
-          if (cursor.validateLeaf()) {
-            HOTKeySerializer.writeChunkIdxBE(composite, ValidTimeKeySerializer.KEY_BYTES, chunkIndex);
-            positioned = true;
-          } else {
-            cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
-          }
-        } catch (RuntimeException e) {
-          if (cursor.validateLeaf()) {
-            throw e;
-          }
-          cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
-        }
-      }
-
+      positionAtChunk();
       merge: for (int attempt = 0;; attempt++) {
         checkRetries(attempt);
         while (cursor.hasNext()) {
@@ -324,6 +300,33 @@ public final class HotOrderedStore implements OrderedStore {
         POSTING_CHUNKS_READ.increment();
       }
       return accumulator.toNodeReferencesAndReset();
+    }
+
+    private void positionAtChunk() {
+      boolean positioned = false;
+      for (int attempt = 0; !positioned; attempt++) {
+        checkRetries(attempt);
+        try {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int index = cursor.currentEntryIndex();
+          if (leaf.getKeyLength(index) < COMPOSITE_BYTES
+              || leaf.compareKeyPrefix(index, composite, ValidTimeKeySerializer.KEY_BYTES) != 0) {
+            throw new IllegalArgumentException("Unreadable VALIDTIME posting chunk key");
+          }
+          final int chunkIndex = leaf.readKeyIntBE(index, ValidTimeKeySerializer.KEY_BYTES);
+          if (cursor.validateLeaf()) {
+            HOTKeySerializer.writeChunkIdxBE(composite, ValidTimeKeySerializer.KEY_BYTES, chunkIndex);
+            positioned = true;
+          } else {
+            cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
+          }
+        } catch (RuntimeException e) {
+          if (cursor.validateLeaf()) {
+            throw e;
+          }
+          cursor.recoverTorn(attempt + 1, "VALIDTIME posting chunk");
+        }
+      }
     }
 
     private static void checkRetries(final int attempt) {

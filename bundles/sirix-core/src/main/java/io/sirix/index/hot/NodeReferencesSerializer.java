@@ -982,24 +982,7 @@ public final class NodeReferencesSerializer {
         return true;
       }
       if (format == PACKED_FORMAT) {
-        if (bytes.length < 2) {
-          throw new IllegalArgumentException("Packed referenced payload has no count byte");
-        }
-        final int chunkCount = bytes[1] & 0xFF;
-        if (chunkCount == 0 || chunkCount > PACKED_THRESHOLD || 2 + chunkCount * Long.BYTES != bytes.length) {
-          throw new IllegalArgumentException(
-              "Packed referenced payload is malformed: count=" + chunkCount + ", length=" + bytes.length);
-        }
-        long previousBit16 = 0L;
-        for (int i = 0; i < chunkCount; i++) {
-          final long bit16 = requireChunkBit16(readKeyBE(bytes, 2 + i * Long.BYTES));
-          if (i > 0 && Long.compareUnsigned(previousBit16, bit16) >= 0) {
-            throw new IllegalArgumentException("Packed posting-list chunk bits must be strictly increasing");
-          }
-          add(high | bit16);
-          previousBit16 = bit16;
-        }
-        return true;
+        return addPackedChunkFromBytes(bytes, high);
       }
       if (format == ROARING_FORMAT) {
         if (bytes.length < 2) {
@@ -1025,6 +1008,27 @@ public final class NodeReferencesSerializer {
         return true;
       }
       throw new IllegalArgumentException("Unknown NodeReferences format in a referenced payload: " + format);
+    }
+
+    private boolean addPackedChunkFromBytes(final byte[] bytes, final long high) {
+      if (bytes.length < 2) {
+        throw new IllegalArgumentException("Packed referenced payload has no count byte");
+      }
+      final int chunkCount = bytes[1] & 0xFF;
+      if (chunkCount == 0 || chunkCount > PACKED_THRESHOLD || 2 + chunkCount * Long.BYTES != bytes.length) {
+        throw new IllegalArgumentException(
+            "Packed referenced payload is malformed: count=" + chunkCount + ", length=" + bytes.length);
+      }
+      long previousBit16 = 0L;
+      for (int i = 0; i < chunkCount; i++) {
+        final long bit16 = requireChunkBit16(readKeyBE(bytes, 2 + i * Long.BYTES));
+        if (i > 0 && Long.compareUnsigned(previousBit16, bit16) >= 0) {
+          throw new IllegalArgumentException("Packed posting-list chunk bits must be strictly increasing");
+        }
+        add(high | bit16);
+        previousBit16 = bit16;
+      }
+      return true;
     }
 
     /**
