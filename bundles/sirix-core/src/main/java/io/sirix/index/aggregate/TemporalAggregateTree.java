@@ -3,7 +3,7 @@ package io.sirix.index.aggregate;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import it.unimi.dsi.fastutil.longs.Long2LongRBTreeMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongRBTreeSet;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.ByteBuffer;
@@ -205,7 +205,7 @@ public final class TemporalAggregateTree {
         }
         writeRow(key, next);
       }
-      final LongOpenHashSet ancestors = new LongOpenHashSet();
+      final LongRBTreeSet pending = new LongRBTreeSet();
       for (final var entry : changes.long2ObjectEntrySet()) {
         final long segment = entry.getLongKey();
         final Change change = entry.getValue();
@@ -232,14 +232,14 @@ public final class TemporalAggregateTree {
             change.prior.summary().extrema(lane, 0, 0);
           }
         }
-        for (long ancestor = segment; ancestor != 0; ancestor >>>= 1) {
-          ancestors.add(ancestor);
-        }
+        pending.add(segment);
       }
-      final long[] ordered = ancestors.toLongArray();
-      Arrays.sort(ordered);
-      for (int at = ordered.length - 1; at >= 0; at--) {
-        final long id = ordered[at];
+      // Descendants have larger heap IDs, so every child is final before its parent is visited.
+      // Parents store compressed child heads, not rolled-up summaries. A value-only change at a
+      // stable head therefore requires no ancestor work; only a changed head propagates upward.
+      while (!pending.isEmpty()) {
+        final long id = pending.lastLong();
+        pending.remove(id);
         final Change change = changes.get(id);
         final Segment previous = change == null ? readSegment(id) : change.prior;
         final boolean leaf = Long.SIZE - 1 - Long.numberOfLeadingZeros(id) == height;
@@ -247,6 +247,9 @@ public final class TemporalAggregateTree {
         final long right = leaf ? 0 : readSegment((id << 1) | 1).head();
         final long head = previous.summary().count() != 0 || (left != 0 && right != 0) ? id : left != 0 ? left : right;
         writeSegment(id, new Segment(head, left, right, previous.roots(), previous.summary(), previous.encoded()));
+        if (id != 1 && head != previous.head()) {
+          pending.add(id >>> 1);
+        }
       }
     }
   }

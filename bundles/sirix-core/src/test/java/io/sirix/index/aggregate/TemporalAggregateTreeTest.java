@@ -192,6 +192,28 @@ final class TemporalAggregateTreeTest {
     assertTrue(store.written.isEmpty(), "An identical row must produce no persisted changes");
   }
 
+  @Test
+  void valueOnlyChangeDoesNotReadTheEmptyAncestorChain() {
+    final MemoryStore store = new MemoryStore();
+    final TemporalAggregateTree tree = new TemporalAggregateTree(store, 48,
+        List.of(new TemporalAggregateSpec.Lane(0, -1, TemporalAggregateSpec.SUM)));
+    final TemporalAggregateTree.Batch initial = tree.batch();
+    initial.replace(1, 1024, 2048, AggregateSummary.row(new long[] {5}, 1));
+    initial.apply();
+    store.reset();
+    final TemporalAggregateTree.Batch change = tree.batch();
+    change.replace(1, 1024, 2048, AggregateSummary.row(new long[] {9}, 1));
+    change.apply();
+    assertTrue(store.reads <= 4, "Stable heads must not revisit their empty ancestors: " + store.reads);
+    assertEquals(2, store.written.size());
+    assertEquals(BigInteger.valueOf(9), tree.point(1500).sum(0));
+    store.reset();
+    final TemporalAggregateTree.Batch remove = tree.batch();
+    remove.replace(1, 1024, 2048, null);
+    remove.apply();
+    assertEquals(0, tree.point(1500).count(), "Removing the last contributor must propagate the new empty head");
+  }
+
   private static void verify(final TemporalAggregateTree tree, final Map<Long, Row> rows, final int domain) {
     for (int point = 0; point < domain; point++) {
       long count = 0;
