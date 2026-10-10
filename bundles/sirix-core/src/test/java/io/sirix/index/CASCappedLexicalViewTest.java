@@ -71,18 +71,18 @@ final class CASCappedLexicalViewTest {
     for (final VersioningType versioning : VersioningType.values()) {
       for (final boolean bulk : new boolean[] {false, true}) {
         for (final Type type : types) {
-          final String prefix = type == Type.AURI
+          final String prefix = Type.AURI.equals(type)
               ? "urn:" + "a".repeat(235)
-              : type == Type.HEX
+              : Type.HEX.equals(type)
                   ? "AA".repeat(119)
-                  : type == Type.B64
+                  : Type.B64.equals(type)
                       ? "QUFB".repeat(59)
                       : "a".repeat(239);
-          final String[] suffixes = type == Type.HEX
+          final String[] suffixes = Type.HEX.equals(type)
               ? new String[] {"00", "11", "22", "33"}
-              : type == Type.B64
+              : Type.B64.equals(type)
                   ? new String[] {"QQ==", "Qg==", "Qw==", "RA=="}
-                  : type == Type.AURI
+                  : Type.AURI.equals(type)
                       ? new String[] {"a", "b", "c", "d"}
                       : new String[] {"w", "x", "y", "z"};
           final String[] values = new String[suffixes.length];
@@ -248,9 +248,9 @@ final class CASCappedLexicalViewTest {
         ? 0
         : page.getGuardCount();
     final Type type = definition.getContentType();
-    final String shortValue = type == Type.HEX || type == Type.B64
+    final String shortValue = Type.HEX.equals(type) || Type.B64.equals(type)
         ? ""
-        : type == Type.AURI
+        : Type.AURI.equals(type)
             ? "urn:a"
             : "a";
     final String[] probes = {shortValue, values[0], values[1], values[2], values[3]};

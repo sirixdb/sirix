@@ -41,7 +41,7 @@ final class PostingDeltaLeafBatchTest {
   @Test
   void reclaimingAnInvalidatedOwnerCannotReviveAnOlderView() {
     try (final Fixture fixture = new Fixture(false)) {
-      final TransactionIntentLog log = fixture.storage.getLog();
+      final TransactionIntentLog log = fixture.log;
       when(log.claimHOTPostingViewOwner(anyLong(), any())).thenCallRealMethod();
       doAnswer(invocation -> invocation.callRealMethod()).when(log).invalidateHOTPostingViews(anyLong());
       fixture.writer.indexNodeKey(KEY, 1001);
@@ -57,7 +57,7 @@ final class PostingDeltaLeafBatchTest {
   @Test
   void reusedViewAnswersNoOpsWithoutReadingPagesAgain() {
     try (final Fixture fixture = new Fixture(false)) {
-      when(fixture.storage.getLog().claimHOTPostingViewOwner(anyLong(), any())).thenCallRealMethod();
+      when(fixture.log.claimHOTPostingViewOwner(anyLong(), any())).thenCallRealMethod();
       fixture.writer.indexNodeKey(KEY, 1001);
       clearInvocations(fixture.storage);
       for (int i = 0; i < 10; i++) {
@@ -110,6 +110,7 @@ final class PostingDeltaLeafBatchTest {
     private final Arena arena = Arena.ofShared();
     private final List<HOTLeafPage> leaves = new ArrayList<>();
     private final StorageEngineWriter storage = mock(StorageEngineWriter.class);
+    private final TransactionIntentLog log = mock(TransactionIntentLog.class);
     private final PageReference root = new PageReference().setKey(123L);
     private final HOTIndexWriter<ValidTimeKey> writer;
     private final boolean malformed;
@@ -119,7 +120,7 @@ final class PostingDeltaLeafBatchTest {
 
     private Fixture(final boolean malformed) {
       this.malformed = malformed;
-      when(storage.getLog()).thenReturn(mock(TransactionIntentLog.class));
+      when(storage.getLog()).thenReturn(log);
       final ValidTimeIndexPage page = new ValidTimeIndexPage();
       page.setOrCreateReference(0, root);
       when(storage.<ValidTimeIndexPage>prepareSecondaryIndexPage(IndexType.VALIDTIME)).thenReturn(page);

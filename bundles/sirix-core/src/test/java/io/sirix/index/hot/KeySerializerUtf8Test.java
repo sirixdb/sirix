@@ -137,6 +137,7 @@ final class KeySerializerUtf8Test {
 
   @Test
   @DisplayName("CAS MemorySegment serialization preserves argument and bounds validation")
+  @SuppressWarnings("NullAway") // Null inputs deliberately exercise the serializer's rejection contract.
   void casMemorySegmentSerializationRejectsInvalidArguments() {
     final CASValue key = new CASValue(new Str("x".repeat(CAS_MAX_VALUE_BYTES)), Type.STR, 7);
     final byte[] serialized = new byte[CASKeySerializer.INSTANCE.maxSerializedLength(key)];

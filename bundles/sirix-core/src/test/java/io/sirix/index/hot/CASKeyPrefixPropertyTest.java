@@ -66,7 +66,7 @@ final class CASKeyPrefixPropertyTest {
     final byte[] encodedA = encode(keyA);
     final byte[] encodedB = encode(keyB);
     // Boolean value order is false < true; do not use Brackit's inverted Bool.compareTo here.
-    final int order = type == Type.BOOL
+    final int order = Type.BOOL.equals(type)
         ? Boolean.compare(a.booleanValue(), b.booleanValue())
         : Integer.signum(keyA.compareTo(keyB));
     assertEquals(order, Integer.signum(Arrays.compareUnsigned(encodedA, encodedB)), type.toString());

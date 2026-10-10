@@ -28,7 +28,6 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -92,8 +91,8 @@ public final class HOTInvariantValidator {
   private final int maxHeight;
 
   /** A validation pass is read-only; resolve each reference through the TIL once per pass. */
-  private final Map<PageReference, Page> resolvedPages = new IdentityHashMap<>();
-  private final Map<HOTLeafPage, byte[][]> decodedKeys = new IdentityHashMap<>();
+  private final IdentityHashMap<PageReference, Page> resolvedPages = new IdentityHashMap<>();
+  private final IdentityHashMap<HOTLeafPage, byte[][]> decodedKeys = new IdentityHashMap<>();
 
   /** Collected violations (empty == validation passed). */
   private final List<Violation> violations = new ArrayList<>();
