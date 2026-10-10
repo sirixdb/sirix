@@ -35,8 +35,8 @@ slots with replacement semantics and zero-length tombstones, like projection slo
 rollback, fragment reconstruction and sliding-snapshot carry-forward use the normal Sirix storage
 engine. There is no separately published sidecar or process-local authority for committed answers.
 
-Each typed group head points to at most sixteen immutable parts. A part contains sorted valid-time
-endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
+Each typed group head points to one checkpoint and at most fifteen immutable delta parts per tier.
+A part contains sorted valid-time endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
 value-frequency vectors for declared extrema. Deltas with at most 64 extrema changes instead store
 sorted `(from, to, value, sign)` candidates. A point read filters this bounded list into a signed
 frequency prefix; checkpoints and larger deltas use the time tree. Equal frequency vectors within
@@ -47,8 +47,8 @@ reads load only the chunks reached by binary search and the compressed tree path
 day boundaries aligned without losing arbitrary millisecond precision. Its admitted instant range
 matches `IntervalDomain`. Fixed coordinates allow new endpoints without changing the canonical
 cover of older intervals. Each signed interval change contributes extrema frequencies to that
-cover. A point query combines prefix sums and frequency vectors from at most sixteen parts. Extrema
-first check up to 32 candidates, then use weighted binary selection over the combined frequency
+cover. A point query combines prefix sums and frequency vectors from the checkpoint and the tiered
+delta parts. Extrema first check up to 32 candidates, then use weighted binary selection over the combined frequency
 prefixes, bounding work even when a deletion removes a long run of minimum or maximum values.
 Raw deltas inspect at most 64 candidates per extrema lane per part, independent of the stored record
 population. The index never enumerates the matching records during a point query.
@@ -64,11 +64,16 @@ represented-revision reader opens. Columns outside a declaration cause no aggreg
 transaction-local cache accounts for index creation and repeated explicit barriers; rollback
 removes all unpublished changes through normal page ownership.
 
-Changes are accumulated in sorted group, endpoint and value order. A touched group appends one
-compact signed part per revision. Repeated barriers fold into that revision's part. A batched fold
-creates a checkpoint at fan-in sixteen, or when accumulated delta bytes exceed half the checkpoint
-size (with a 2,048-byte floor for small groups). This bounds read fan-out but periodically performs
-work proportional to the touched group's accumulated summaries; it is not constant-cost maintenance.
+Changes are accumulated in sorted group, endpoint and value order. Each publication or explicit
+barrier appends a signed part with its own immutable id. Parts carry a size tier: sixteen parts of
+one tier merge into one part of the next tier, leaving other tiers untouched. Encoded byte growth
+can raise the result's tier, but cannot trigger a separate whole-group fold. The checkpoint's tier
+is one above its byte-size tier, using 2,048-byte units and powers of sixteen. Only a cascade reaching
+that top tier merges the checkpoint and remaining deltas into a new checkpoint. Signed intermediate
+parts retain negative counts and frequencies; only complete checkpoints and query results require
+nonnegative counts. At most six delta tiers fit the part format's signed-int byte-length limit, so a
+head holds at most 91 parts. Folding work is amortized across changed records and tier promotions;
+a top-tier cascade can still perform a large synchronous checkpoint rewrite.
 Capture and slab persistence run only while the projection has a declared aggregate consumer.
 Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
@@ -108,7 +113,9 @@ these declarations. `SIRIX_COMMIT` output separates publication apply and commit
 both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning
-types. `TemporalAggregateMaintenanceWorkBudgetTest` bounds node work and copied aggregate leaf
+types. `TemporalAggregateMaintenanceWorkBudgetTest` also drives 528 small publications, including
+repeated barriers and tier cascades, bounds cumulative chunk, endpoint and summary-node reads/writes,
+and checks all committed historical roots. Its first-publication case bounds copied aggregate leaf
 pages for 20 changed rows beside differently sized untouched populations, and requires zero new
 readers during maintenance. `ChangeLogWorkBudgetTest` bounds slab slots and verifies cold historical
 reads and reverted bases under all four versioning types. The work-budget commands

@@ -205,9 +205,10 @@ fail-fast lookups, never ordinals.
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
 - **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
-  reference offset 11. Prefix 0 holds format 3, the part-id allocator and unsupported-row count;
-  prefix 1 maps typed grouping values to live-row counts, last-modified revision, checkpoint/delta byte totals and at most sixteen
-  part ids. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
+  reference offset 11. Prefix 0 holds format 4, the part-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to `(live rows i64, checkpoint tier i32, part count i32)`
+  followed by `(part id i64, tier u8)` pairs. The first part is the checkpoint; each lower tier holds
+  fewer than sixteen deltas. There are at most six delta tiers and 91 parts, within one inline slot. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
   endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
   deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
   deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane

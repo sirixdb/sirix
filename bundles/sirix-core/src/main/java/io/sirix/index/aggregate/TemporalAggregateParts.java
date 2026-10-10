@@ -21,7 +21,9 @@ import java.util.Objects;
 /** Immutable group parts: endpoint prefix sums and compact, signed extrema-frequency vectors. */
 public final class TemporalAggregateParts {
   public static final int CHUNK_BYTES = 2048;
-  public static final int MAX_PARTS = 16;
+  public static final int FAN_IN = 16;
+  public static final int MAX_TIERS = 6;
+  public static final int MAX_PARTS = 1 + (FAN_IN - 1) * MAX_TIERS;
   private static final VarHandle LONG_BE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
   private static final VarHandle INT_BE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
   private static final int MAGIC = 0x54415031;
@@ -186,6 +188,26 @@ public final class TemporalAggregateParts {
     private final Long2ObjectRBTreeMap<Sums> endpoints = new Long2ObjectRBTreeMap<>();
     private final Long2ObjectRBTreeMap<Node> nodes = new Long2ObjectRBTreeMap<>();
     private @Nullable List<IntervalChange> raw = new ArrayList<>();
+    private long endpointsRead;
+    private long endpointsWritten;
+    private long summaryNodesRead;
+    private long summaryNodesWritten;
+
+    public long endpointsRead() {
+      return endpointsRead;
+    }
+
+    public long endpointsWritten() {
+      return endpointsWritten;
+    }
+
+    public long summaryNodesRead() {
+      return summaryNodesRead;
+    }
+
+    public long summaryNodesWritten() {
+      return summaryNodesWritten;
+    }
 
     public void add(final long from, final long to, final long[] values, final long mask, final int sign) {
       if (from < 0 || from >= to || to > (1L << height) || values.length != lanes || (mask >>> lanes) != 0
@@ -273,11 +295,11 @@ public final class TemporalAggregateParts {
       }
     }
 
-    /** Fold an immutable prior part, used only when the bounded part list needs a checkpoint. */
     public void merge(final Store store, final long partId) {
       final Part part = new Part(store, partId);
       materializeRaw();
       Sums previous = new Sums();
+      endpointsRead += part.endpointCount;
       for (int i = 0; i < part.endpointCount; i++) {
         final Sums current = part.sums(i);
         final Sums difference = current.copy();
@@ -291,6 +313,7 @@ public final class TemporalAggregateParts {
             continue;
           }
           final RawVector vector = part.rawVector(lane);
+          summaryNodesRead += vector.size;
           for (int at = 0; at < vector.size; at++) {
             final int offset = vector.start + 32 * at;
             final long from = part.longAt(offset);
@@ -303,6 +326,7 @@ public final class TemporalAggregateParts {
         }
         return;
       }
+      summaryNodesRead += part.nodeCount;
       for (int index = 0; index < part.nodeCount; index++) {
         final int offset = part.nodeOffset(index);
         final long id = part.longAt(offset);
@@ -384,6 +408,7 @@ public final class TemporalAggregateParts {
           previous = prefix.data;
         }
       }
+      endpointsWritten += points.size();
       if (!checkpoint && raw != null && !raw.isEmpty()) {
         return encodeRaw(points, prefixes);
       }
@@ -429,6 +454,7 @@ public final class TemporalAggregateParts {
           compact.add(node);
         }
       }
+      summaryNodesWritten += compact.size();
       final int nodeStart = Math.addExact(HEADER_BYTES, Math.multiplyExact(points.size(), Long.BYTES + sumsBytes));
       final int valuesStart = Math.addExact(nodeStart, Math.multiplyExact(compact.size(), nodeBytes));
       int length = valuesStart;
@@ -512,6 +538,7 @@ public final class TemporalAggregateParts {
               counts[lane]++;
             }
           }
+          summaryNodesWritten += counts[lane];
           length = Math.addExact(length, Math.multiplyExact(counts[lane], 32));
         }
       }

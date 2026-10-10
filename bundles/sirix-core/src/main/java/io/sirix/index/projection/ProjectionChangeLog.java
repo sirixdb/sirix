@@ -72,7 +72,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
           && projection.getProjectionFields().stream().allMatch(path -> path.toString().matches("/\\[\\]/[^/]+"));
       final long saved = transaction.getNodeKey();
       try {
-        ProjectionAggregateRows.visit(writer, projection.getID(), metadata, null, (record, page, row) -> {
+        ProjectionAggregateRows.visit(writer, projection.getID(), metadata, (record, page, row) -> {
           boolean poisoned = false;
           boolean present = false;
           for (int column = 0; column < page.getColumnCount(); column++) {

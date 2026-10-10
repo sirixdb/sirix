@@ -58,18 +58,22 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
   }
 
-  /** Revision-owned pointers to the bounded immutable parts of one typed group. */
-  public record GroupHead(long rows, int revision, long checkpointBytes, long deltaBytes, long[] parts) {
+  public record GroupHead(long rows, int checkpointTier, long[] parts, byte[] tiers) {
     public GroupHead {
       Objects.requireNonNull(parts);
-      if (rows < 0 || revision < 0 || checkpointBytes < 1 || deltaBytes < 0 || parts.length == 0
-          || parts.length > TemporalAggregateParts.MAX_PARTS) {
+      Objects.requireNonNull(tiers);
+      if (rows < 0 || checkpointTier < 1 || checkpointTier > TemporalAggregateParts.MAX_TIERS
+          || parts.length == 0 || parts.length > TemporalAggregateParts.MAX_PARTS || tiers.length != parts.length
+          || tiers[0] != checkpointTier) {
         throw new IllegalArgumentException("Invalid temporal aggregate group head");
       }
       parts = parts.clone();
-      for (final long part : parts) {
-        if (part < 1) {
-          throw new IllegalArgumentException("Invalid temporal aggregate part id");
+      tiers = tiers.clone();
+      final int[] counts = new int[checkpointTier];
+      for (int index = 0; index < parts.length; index++) {
+        if (parts[index] < 1 || index > 0 && (tiers[index] < 0 || tiers[index] >= checkpointTier
+            || ++counts[tiers[index]] >= TemporalAggregateParts.FAN_IN)) {
+          throw new IllegalArgumentException("Invalid temporal aggregate part id/tier");
         }
       }
     }
@@ -79,33 +83,38 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
       return parts.clone();
     }
 
+    @Override
+    public byte[] tiers() {
+      return tiers.clone();
+    }
+
     public byte[] encode() {
-      final ByteBuffer bytes = ByteBuffer.allocate(32 + parts.length * Long.BYTES);
-      bytes.putLong(rows).putInt(revision).putInt(parts.length).putLong(checkpointBytes).putLong(deltaBytes);
-      for (final long part : parts) {
-        bytes.putLong(part);
+      final ByteBuffer bytes = ByteBuffer.allocate(16 + parts.length * (Long.BYTES + 1));
+      bytes.putLong(rows).putInt(checkpointTier).putInt(parts.length);
+      for (int index = 0; index < parts.length; index++) {
+        bytes.putLong(parts[index]).put(tiers[index]);
       }
       return bytes.array();
     }
 
     public static GroupHead decode(final byte[] value) {
-      if (value.length < 40 || value.length > 32 + TemporalAggregateParts.MAX_PARTS * Long.BYTES) {
+      if (value.length < 25 || value.length > 16 + TemporalAggregateParts.MAX_PARTS * (Long.BYTES + 1)) {
         throw new IllegalStateException("Invalid temporal aggregate group head length");
       }
       final ByteBuffer bytes = ByteBuffer.wrap(value);
       final long rows = bytes.getLong();
-      final int revision = bytes.getInt();
+      final int checkpointTier = bytes.getInt();
       final int count = bytes.getInt();
-      if (count < 1 || value.length != 32 + count * Long.BYTES) {
+      if (count < 1 || count > TemporalAggregateParts.MAX_PARTS || value.length != 16 + count * (Long.BYTES + 1)) {
         throw new IllegalStateException("Invalid temporal aggregate group part count");
       }
-      final long checkpointBytes = bytes.getLong();
-      final long deltaBytes = bytes.getLong();
       final long[] parts = new long[count];
-      for (int i = 0; i < count; i++) {
-        parts[i] = bytes.getLong();
+      final byte[] tiers = new byte[count];
+      for (int index = 0; index < count; index++) {
+        parts[index] = bytes.getLong();
+        tiers[index] = bytes.get();
       }
-      return new GroupHead(rows, revision, checkpointBytes, deltaBytes, parts);
+      return new GroupHead(rows, checkpointTier, parts, tiers);
     }
   }
 

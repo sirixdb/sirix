@@ -25,6 +25,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -32,6 +33,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * A 20-row publication rewrites only its contributor paths, independently of untouched population.
  */
+@Isolated
 final class TemporalAggregateMaintenanceWorkBudgetTest {
   @TempDir
   File directory;
@@ -134,7 +137,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         writer.moveToFirstChild();
         writer.setNumberValue(1);
         session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
-        assertEquals(new TemporalAggregateIndexes.MaintenanceWork(0, 0, 0), TemporalAggregateIndexes.lastMaintenance(),
+        assertEquals(new TemporalAggregateIndexes.MaintenanceWork(0, 0, 0, 0, 0, 0, 0), TemporalAggregateIndexes.lastMaintenance(),
             "Unrelated projection fields must not touch aggregate nodes");
         writer.rollback();
         for (int revision = 1; revision <= 2; revision++) {
@@ -152,6 +155,163 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             assertEquals(BigInteger.valueOf((long) rows * (rows - 1) / 2 + (revision == 2
                 ? changed * 7
                 : 0)), summary.sum(0));
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {256, 4096})
+  void tierCascadesBoundTotalWorkAcrossPublicationsAndBarriers(final int rows) throws Exception {
+    final var databasePath = directory.toPath().resolve("cascades");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final int publications = 528;
+    final int barriersPerCommit = 16;
+    final int[] checkpointTier = new int[1];
+    final long[] firstCheckpoint = new long[1];
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .validTimePaths("lo", "hi")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .buildPathSummary(true)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        final StringBuilder json = new StringBuilder(rows * 110).append('[');
+        for (int row = 0; row < rows; row++) {
+          if (row != 0) {
+            json.append(',');
+          }
+          json.append("{\"g\":1,\"amount\":")
+              .append(row)
+              .append(",\"lo\":\"")
+              .append(Instant.ofEpochMilli(2L * row + 1))
+              .append("\",\"hi\":\"")
+              .append(Instant.ofEpochMilli(2L * row + 2))
+              .append("\"}");
+        }
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append(']').toString()),
+            JsonNodeTrx.Commit.NO);
+        final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
+        final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
+            List.of(path("g"), path("amount"), path("lo"), path("hi")),
+            List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+        controller.createIndexes(Set.of(projection), writer);
+        final IndexDef aggregate = TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"),
+            List.of("sum(amount)", "min(amount)", "max(amount)"));
+        writer.commit();
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        while (!"amount".equals(writer.getName().getLocalName())) {
+          writer.moveToRightSibling();
+        }
+        writer.moveToFirstChild();
+        final long amount = writer.getNodeKey();
+        try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
+          storage.groups((key, head) -> {
+            checkpointTier[0] = head.checkpointTier();
+            firstCheckpoint[0] = head.parts()[0];
+          });
+        }
+        final AtomicInteger readers = readerIds(session);
+        long chunksRead = 0;
+        long chunksWritten = 0;
+        long endpointsRead = 0;
+        long endpointsWritten = 0;
+        long nodesRead = 0;
+        long nodesWritten = 0;
+        int promotedParts = 0;
+        int checkpointCascades = 0;
+        long checkpoint = firstCheckpoint[0];
+        for (int publication = 1; publication <= publications; publication++) {
+          writer.moveTo(amount);
+          writer.setNumberValue(publication);
+          final int beforeReaders = readers.get();
+          session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
+          assertEquals(beforeReaders, readers.get(), "Folds must not open represented-revision readers");
+          final TemporalAggregateIndexes.MaintenanceWork work = TemporalAggregateIndexes.lastMaintenance();
+          assertEquals(1, work.changedRecords());
+          chunksRead += work.nodesRead();
+          chunksWritten += work.nodesWritten();
+          endpointsRead += work.endpointsRead();
+          endpointsWritten += work.endpointsWritten();
+          nodesRead += work.summaryNodesRead();
+          nodesWritten += work.summaryNodesWritten();
+          final long expectedValue = publication;
+          final long[] currentCheckpoint = new long[1];
+          final int[] currentTier = new int[1];
+          try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
+            storage.groups((key, head) -> {
+              currentCheckpoint[0] = head.parts()[0];
+              final byte[] tiers = head.tiers();
+              currentTier[0] = tiers.length == 1 ? head.checkpointTier() : tiers[tiers.length - 1];
+              final AggregateSummary summary = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
+                  new TemporalAggregateDomain().height()).point(storage.parts(), head.parts(), 1);
+              assertEquals(1, summary.count());
+              assertEquals(BigInteger.valueOf(expectedValue), summary.sum(0));
+              assertEquals(expectedValue, summary.min(0));
+              assertEquals(expectedValue, summary.max(0));
+            });
+          }
+          assertTrue(currentCheckpoint[0] > 0, "The group dictionary must contain the published group");
+          if (currentCheckpoint[0] != checkpoint) {
+            checkpointCascades++;
+            checkpoint = currentCheckpoint[0];
+          } else if (currentTier[0] > 0) {
+            promotedParts++;
+          }
+          if (publication % barriersPerCommit == 0) {
+            writer.commit();
+          }
+        }
+        assertTrue(publications > TemporalAggregateParts.MAX_PARTS * 4);
+        assertTrue(promotedParts >= publications / TemporalAggregateParts.FAN_IN - checkpointCascades,
+            "The sequence must exercise repeated tier promotions");
+        assertEquals(checkpointTier[0] <= 2, checkpointCascades > 0,
+            "Only the fixture whose top tier cascades may rewrite its checkpoint");
+        assertTrue(chunksRead > 0 && chunksRead <= 8L * publications,
+            "Amortized part-chunk reads must be bounded by changes: " + chunksRead);
+        assertTrue(chunksWritten > 0 && chunksWritten <= 8L * publications,
+            "Amortized part-chunk writes must be bounded by changes: " + chunksWritten);
+        assertTrue(endpointsRead > 0 && endpointsRead <= 16L * publications,
+            "Amortized endpoint reads must be bounded by changes: " + endpointsRead);
+        assertTrue(endpointsWritten > 0 && endpointsWritten <= 16L * publications,
+            "Amortized endpoint writes must be bounded by changes: " + endpointsWritten);
+        assertTrue(nodesRead > 0 && nodesRead <= 128L * publications,
+            "Amortized summary-node reads must be bounded by changes: " + nodesRead);
+        assertTrue(nodesWritten > 0 && nodesWritten <= 128L * publications,
+            "Amortized summary-node writes must be bounded by changes: " + nodesWritten);
+        if (Boolean.getBoolean("sirix.workBudget.print")) {
+          System.out.printf("TEMPORAL_AGGREGATE_CASCADE_BUDGET rows=%d changed=%d chunkReads=%d chunkWrites=%d "
+              + "endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d promotions=%d checkpoints=%d%n",
+              rows, publications, chunksRead, chunksWritten, endpointsRead, endpointsWritten, nodesRead,
+              nodesWritten, promotedParts, checkpointCascades);
+        }
+        writer.rollback();
+        for (int revision = 1; revision <= 1 + publications / barriersPerCommit; revision++) {
+          final long expected = (long) (revision - 1) * barriersPerCommit;
+          try (var transaction = session.beginNodeReadOnlyTrx(revision);
+              var storage = new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
+            final int[] groups = new int[1];
+            storage.groups((key, head) -> {
+              groups[0]++;
+              final TemporalAggregateParts parts = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
+                  new TemporalAggregateDomain().height());
+              final AggregateSummary summary = parts.point(storage.parts(), head.parts(), 1);
+              assertEquals(rows, head.rows());
+              assertEquals(1, summary.count());
+              assertEquals(BigInteger.valueOf(expected), summary.sum(0));
+              assertEquals(expected, summary.min(0));
+              assertEquals(expected, summary.max(0));
+              assertEquals(0, parts.point(storage.parts(), head.parts(), 2).count());
+              assertEquals(BigInteger.valueOf(rows - 1),
+                  parts.point(storage.parts(), head.parts(), 2L * rows - 1).sum(0));
+            });
+            assertEquals(1, groups[0]);
           }
         }
       }

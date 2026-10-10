@@ -1,5 +1,6 @@
 package io.sirix.index.aggregate;
 
+import io.sirix.index.aggregate.TemporalAggregateStorage.GroupHead;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
@@ -10,7 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,7 +69,7 @@ final class TemporalAggregatePartsTest {
           row.add(builder, 1);
         }
       }
-      final boolean checkpoint = parts.size() == TemporalAggregateParts.MAX_PARTS;
+      final boolean checkpoint = parts.size() == TemporalAggregateParts.FAN_IN;
       if (checkpoint) {
         for (final long part : parts) {
           builder.merge(store, part);
@@ -221,6 +224,35 @@ final class TemporalAggregatePartsTest {
     assertEquals(-9, later.max(1));
     assertEquals(BigInteger.valueOf(-9), later.sum(1));
     assertEquals(0, index.point(store, new long[] {1, 2}, 9).count());
+  }
+
+  @Test
+  void tieredGroupHeadsRoundTripAndRejectUnfoldedTiers() {
+    final long[] ids = new long[TemporalAggregateParts.MAX_PARTS];
+    final byte[] tiers = new byte[ids.length];
+    ids[0] = 1;
+    tiers[0] = (byte) TemporalAggregateParts.MAX_TIERS;
+    for (int index = 1; index < ids.length; index++) {
+      ids[index] = index + 1;
+      tiers[index] = (byte) ((index - 1) / (TemporalAggregateParts.FAN_IN - 1));
+    }
+    final GroupHead head = new GroupHead(10, TemporalAggregateParts.MAX_TIERS, ids, tiers);
+    final byte[] bytes = head.encode();
+    assertTrue(bytes.length <= TemporalAggregateParts.CHUNK_BYTES);
+    final GroupHead decoded = GroupHead.decode(bytes);
+    assertEquals(head.rows(), decoded.rows());
+    assertEquals(head.checkpointTier(), decoded.checkpointTier());
+    assertArrayEquals(ids, decoded.parts());
+    assertArrayEquals(tiers, decoded.tiers());
+    ids[0] = -1;
+    tiers[0] = -1;
+    assertEquals(1, head.parts()[0]);
+    assertEquals(TemporalAggregateParts.MAX_TIERS, head.tiers()[0]);
+    final byte[] invalid = decoded.tiers();
+    invalid[TemporalAggregateParts.FAN_IN] = 0;
+    assertThrows(IllegalArgumentException.class,
+        () -> new GroupHead(10, TemporalAggregateParts.MAX_TIERS, decoded.parts(), invalid));
+    assertThrows(IllegalArgumentException.class, () -> new GroupHead(1, 1, new long[] {1, 2}, new byte[] {1, 1}));
   }
 
   private static long[] ids(final List<Long> parts) {

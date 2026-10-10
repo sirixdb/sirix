@@ -36,11 +36,12 @@ import java.util.Map;
  * rows.
  */
 public final class TemporalAggregateIndexes {
-  private static final int FORMAT = 3;
+  private static final int FORMAT = 4;
   private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
-  private static volatile MaintenanceWork lastMaintenance = new MaintenanceWork(0, 0, 0);
+  private static volatile MaintenanceWork lastMaintenance = new MaintenanceWork(0, 0, 0, 0, 0, 0, 0);
 
-  public record MaintenanceWork(long changedRecords, long nodesRead, long nodesWritten) {
+  public record MaintenanceWork(long changedRecords, long nodesRead, long nodesWritten, long endpointsRead,
+      long endpointsWritten, long summaryNodesRead, long summaryNodesWritten) {
   }
 
   public static MaintenanceWork lastMaintenance() {
@@ -112,14 +113,14 @@ public final class TemporalAggregateIndexes {
         }
       }
       if (changed == 0) {
-        lastMaintenance = new MaintenanceWork(0, 0, 0);
+        lastMaintenance = new MaintenanceWork(0, 0, 0, 0, 0, 0, 0);
         continue;
       }
       final TransactionState state = listener(writer, projection.getID()).aggregateState(definition.getID());
       state.atRevision(writer.getRevisionNumber());
       try (TemporalAggregateStorage storage = new TemporalAggregateStorage(writer, definition.getID())) {
         final Header header = header(Objects.requireNonNull(storage.reader().get(TemporalAggregateStorage.HEADER)));
-        final Maintenance maintenance = new Maintenance(storage, spec, header, writer.getRevisionNumber());
+        final Maintenance maintenance = new Maintenance(storage, spec, header);
         for (final ChangeLogSlab.Entry entry : slab.entries()) {
           if (!affected(dependencies, entry.changed())) {
             continue;
@@ -134,7 +135,9 @@ public final class TemporalAggregateIndexes {
           state.rows.put(entry.record(), next);
         }
         maintenance.finish();
-        lastMaintenance = new MaintenanceWork(changed, storage.reader().nodesRead(), storage.nodesWritten());
+        lastMaintenance = new MaintenanceWork(changed, storage.reader().nodesRead(), storage.nodesWritten(),
+            maintenance.endpointsRead, maintenance.endpointsWritten, maintenance.summaryNodesRead,
+            maintenance.summaryNodesWritten);
       }
     }
   }
@@ -278,9 +281,9 @@ public final class TemporalAggregateIndexes {
       state.atRevision(writer.getRevisionNumber());
       state.built = true;
       final Maintenance maintenance =
-          new Maintenance(storage, definition.getTemporalAggregateSpec(), header, writer.getRevisionNumber());
+          new Maintenance(storage, definition.getTemporalAggregateSpec(), header);
       final Source current = new Source(writer, metadata, projection, config, listener);
-      ProjectionAggregateRows.visit(writer, projection.getID(), metadata, null, (record, page, row) -> {
+      ProjectionAggregateRows.visit(writer, projection.getID(), metadata, (record, page, row) -> {
         final Row next = current.row(record, page, row, maintenance.spec);
         maintenance.change(null, next);
         state.rows.put(record, next);
@@ -385,11 +388,8 @@ public final class TemporalAggregateIndexes {
       return page.columnUnrepresentable(column) || page.columnNumericNonIntegral(column);
     }
 
-    private @Nullable Row row(final long record, final @Nullable ProjectionIndexRowGroupPage original, final int offset,
+    private Row row(final long record, final ProjectionIndexRowGroupPage original, final int offset,
         final TemporalAggregateSpec spec) {
-      if (original == null) {
-        return null;
-      }
       boolean hasField = false;
       for (int column = 0; column < original.getColumnCount(); column++) {
         hasField |= TemporalAggregateColumns.present(original, column, offset);
@@ -463,7 +463,10 @@ public final class TemporalAggregateIndexes {
     private final TemporalAggregateSpec spec;
     private final TemporalAggregateParts parts;
     private final TreeMap<byte[], Group> groups = new TreeMap<>(Arrays::compareUnsigned);
-    private final int revision;
+    private long endpointsRead;
+    private long endpointsWritten;
+    private long summaryNodesRead;
+    private long summaryNodesWritten;
     private long nextPart;
     private long unsupported;
 
@@ -483,14 +486,12 @@ public final class TemporalAggregateIndexes {
       }
     }
 
-    private Maintenance(final TemporalAggregateStorage storage, final TemporalAggregateSpec spec, final Header header,
-        final int revision) {
+    private Maintenance(final TemporalAggregateStorage storage, final TemporalAggregateSpec spec, final Header header) {
       this.storage = storage;
       this.spec = spec;
       parts = new TemporalAggregateParts(spec, DOMAIN.height());
       nextPart = header.nextPart();
       unsupported = header.unsupportedRows();
-      this.revision = revision;
     }
 
     private void change(final @Nullable Row previous, final @Nullable Row next) {
@@ -514,6 +515,11 @@ public final class TemporalAggregateIndexes {
       }
     }
 
+    private static int tierForBytes(final int bytes) {
+      final long chunks = (bytes + (long) TemporalAggregateParts.CHUNK_BYTES - 1) / TemporalAggregateParts.CHUNK_BYTES;
+      return (Long.SIZE - 1 - Long.numberOfLeadingZeros(chunks)) / 4;
+    }
+
     private void finish() {
       for (final Map.Entry<byte[], Group> entry : groups.entrySet()) {
         final Group group = entry.getValue();
@@ -521,46 +527,68 @@ public final class TemporalAggregateIndexes {
           continue;
         }
         final GroupHead prior = group.head;
-        final long[] previous = prior == null
+        long[] ids = prior == null
             ? new long[0]
             : prior.parts();
-        final boolean sameRevision = prior != null && prior.revision() == revision;
-        // Bound query fan-in, and compact when accumulated deltas are material relative to the base.
-        // The floor avoids rewriting tiny groups for every small publication.
-        final boolean checkpoint = previous.length == 0 || sameRevision && previous.length == 1
-            || previous.length == TemporalAggregateParts.MAX_PARTS
-            || !sameRevision && prior.deltaBytes() > Math.max(2048, prior.checkpointBytes() / 2);
-        final long[] ids;
-        final long id;
-        long replacedBytes = 0;
-        if (checkpoint) {
-          for (final long part : previous) {
-            group.delta.merge(storage.reader().parts(), part);
-          }
-          id = nextPart;
-          nextPart = Math.incrementExact(nextPart);
-          ids = new long[] {id};
-        } else if (sameRevision) {
-          // A second explicit barrier replaces this revision's part, never growing its read fan-out.
-          id = previous[previous.length - 1];
-          replacedBytes = ByteBuffer.wrap(storage.reader().parts().read(id, 0)).getLong(8);
-          group.delta.merge(storage.reader().parts(), id);
-          ids = previous;
-        } else {
-          id = nextPart;
-          nextPart = Math.incrementExact(nextPart);
-          ids = Arrays.copyOf(previous, previous.length + 1);
-          ids[previous.length] = id;
-        }
-        final byte[] encoded = group.delta.encode(checkpoint);
-        storage.putPart(id, encoded);
-        final long checkpointBytes = checkpoint
-            ? encoded.length
-            : prior.checkpointBytes();
-        final long deltaBytes = checkpoint
+        byte[] tiers = prior == null
+            ? new byte[0]
+            : prior.tiers();
+        int checkpointTier = prior == null
             ? 0
-            : Math.addExact(prior.deltaBytes() - replacedBytes, encoded.length);
-        storage.put(entry.getKey(), new GroupHead(group.rows, revision, checkpointBytes, deltaBytes, ids).encode());
+            : prior.checkpointTier();
+        byte[] encoded = group.delta.encode(prior == null);
+        int tier = tierForBytes(encoded.length);
+        boolean checkpoint = prior == null;
+        while (!checkpoint) {
+          if (tier >= checkpointTier) {
+            for (final long part : ids) {
+              group.delta.merge(storage.reader().parts(), part);
+            }
+            encoded = group.delta.encode(true);
+            checkpoint = true;
+            break;
+          }
+          int count = 1;
+          for (int index = 1; index < tiers.length; index++) {
+            if (tiers[index] == tier) {
+              count++;
+            }
+          }
+          if (count < TemporalAggregateParts.FAN_IN) {
+            break;
+          }
+          int retained = 1;
+          for (int index = 1; index < ids.length; index++) {
+            if (tiers[index] == tier) {
+              group.delta.merge(storage.reader().parts(), ids[index]);
+            } else {
+              ids[retained] = ids[index];
+              tiers[retained++] = tiers[index];
+            }
+          }
+          ids = Arrays.copyOf(ids, retained);
+          tiers = Arrays.copyOf(tiers, retained);
+          encoded = group.delta.encode(false);
+          tier = Math.max(tier + 1, tierForBytes(encoded.length));
+        }
+        final long id = nextPart;
+        nextPart = Math.incrementExact(nextPart);
+        if (checkpoint) {
+          checkpointTier = tierForBytes(encoded.length) + 1;
+          ids = new long[] {id};
+          tiers = new byte[] {(byte) checkpointTier};
+        } else {
+          ids = Arrays.copyOf(ids, ids.length + 1);
+          tiers = Arrays.copyOf(tiers, tiers.length + 1);
+          ids[ids.length - 1] = id;
+          tiers[tiers.length - 1] = (byte) tier;
+        }
+        storage.putPart(id, encoded);
+        storage.put(entry.getKey(), new GroupHead(group.rows, checkpointTier, ids, tiers).encode());
+        endpointsRead += group.delta.endpointsRead();
+        endpointsWritten += group.delta.endpointsWritten();
+        summaryNodesRead += group.delta.summaryNodesRead();
+        summaryNodesWritten += group.delta.summaryNodesWritten();
       }
       if (unsupported < 0 || nextPart < 1) {
         throw new IllegalStateException("Invalid temporal aggregate maintenance counters");
