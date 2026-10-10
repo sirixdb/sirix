@@ -66,6 +66,8 @@ public class SirixOptimizer extends TopDownOptimizer {
   private final JsonDBStore jsonItemStore;
   private final PlanCache planCache;
   private final String cacheNamespace;
+  private final String cacheOptions;
+  private final int cacheTargetSlot;
   private final boolean contextScoped;
   private final boolean cacheTargets;
   private final Set<Class<? extends Stage>> disabledStages = new HashSet<>(4);
@@ -90,6 +92,12 @@ public class SirixOptimizer extends TopDownOptimizer {
   /** Disable target caching for bindings whose translated state cannot be reused safely. */
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
       final PlanCache planCache, final String cacheNamespace, final boolean cacheTargets) {
+    this(options, nodeStore, jsonItemStore, planCache, cacheNamespace, cacheTargets, -1);
+  }
+
+  /** Keep the owning query fingerprint shared while identifying each declaration/body separately. */
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
+      final PlanCache planCache, final String cacheNamespace, final boolean cacheTargets, final int targetSlot) {
     // `true`: this backend DECOMPOSES predicates. SirixVectorizedExecutor answers a cross-field
     // disjunction by inclusion-exclusion and a negation by complement, anchoring each branch on its
     // OWN field, so it never depends on one field's slots enumerating every candidate record — the
@@ -97,6 +105,9 @@ public class SirixOptimizer extends TopDownOptimizer {
     // here, on the optimizer that plans for this backend, so it scopes to THIS compile chain: a
     // plain Brackit CompileChain in the same JVM keeps the conservative behaviour.
     super(options, true);
+    if (targetSlot < -1) {
+      throw new IllegalArgumentException("targetSlot must be -1 or non-negative");
+    }
     // Hoist equality membership before Brackit turns the nested FLWOR into a per-row join.
     getStages().addFirst(new HashMembershipStage());
     this.xmlNodeStore = nodeStore;
@@ -104,7 +115,9 @@ public class SirixOptimizer extends TopDownOptimizer {
     this.planCache = planCache;
     this.contextScoped = cacheNamespace == null;
     this.cacheTargets = cacheTargets;
-    this.cacheNamespace = cacheTargets ? (cacheNamespace == null ? "" : cacheNamespace) + "/options=" + options : "";
+    this.cacheNamespace = cacheNamespace == null ? "" : cacheNamespace;
+    this.cacheOptions = cacheTargets ? String.valueOf(options) : "";
+    this.cacheTargetSlot = targetSlot;
     // Before Brackit's join recognition (after its predicate split and pull-up): prefer an
     // equality key and keep single-side predicates on their own side. Brackit's stages are private
     // classes, so the slot is found by name; without join detection there is nothing to prefer, and
@@ -195,9 +208,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   @Override
   public AST optimize(StaticContext sctx, AST ast) {
     final long version = PlanCache.indexSchemaVersion();
-    final String cacheKey = cacheTargets && reusableTree(ast, sctx) ? cacheKey(ast) : null;
+    final String cacheKey = cacheTargets && reusableTree(ast, sctx) ? targetCacheKey(ast) : null;
     if (cacheKey != null) {
-      final AST cached = planCache.get(cacheKey, contextScoped ? sctx : null);
+      final AST cached = planCache.get(cacheNamespace, cacheKey, contextScoped ? sctx : null);
       if (cached != null) {
         rebindContexts(cached, sctx);
         return cached;
@@ -235,7 +248,7 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     // Cache a deep copy so the caller's subsequent mutations don't corrupt the entry.
     if (cacheKey != null && version == PlanCache.indexSchemaVersion()) {
-      planCache.put(cacheKey, contextScoped ? sctx : null, optimized.copyTree());
+      planCache.put(cacheNamespace, cacheKey, contextScoped ? sctx : null, optimized.copyTree());
     }
 
     return optimized;
@@ -243,8 +256,12 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   /** Full target identity; AST.toString() is only a root label and collides for different queries. */
   String cacheKey(final AST ast) {
+    return cacheNamespace + targetCacheKey(ast);
+  }
+
+  private String targetCacheKey(final AST ast) {
     final StringBuilder key = new StringBuilder(256);
-    key.append(cacheNamespace).append('/');
+    key.append("/target=").append(cacheTargetSlot).append("/options=").append(cacheOptions).append('/');
     appendTreeKey(ast, key);
     disabledStages.stream().map(Class::getName).sorted().forEach(name -> key.append('/').append(name));
     return key.append("@v").append(PlanCache.indexSchemaVersion()).toString();

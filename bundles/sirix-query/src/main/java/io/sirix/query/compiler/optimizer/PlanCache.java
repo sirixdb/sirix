@@ -52,15 +52,16 @@ public final class PlanCache {
   }
 
   /** Reference identity fences targets whose caller cannot supply the owning prolog. */
-  private record CacheKey(String text, StaticContext context) {
+  private record CacheKey(String namespace, String text, StaticContext context) {
     @Override
     public boolean equals(final Object other) {
-      return other instanceof CacheKey key && text.equals(key.text) && context == key.context;
+      return other instanceof CacheKey key && namespace.equals(key.namespace) && text.equals(key.text)
+          && context == key.context;
     }
 
     @Override
     public int hashCode() {
-      return 31 * text.hashCode() + System.identityHashCode(context);
+      return 31 * (31 * namespace.hashCode() + text.hashCode()) + System.identityHashCode(context);
     }
   }
 
@@ -100,7 +101,12 @@ public final class PlanCache {
 
   /** Lookup scoped to one analysis when no full-query namespace is supplied by the caller. */
   synchronized AST get(final String queryTemplate, final StaticContext context) {
-    final AST cached = queryTemplate == null ? null : cache.get(new CacheKey(queryTemplate, context));
+    return get("", queryTemplate, context);
+  }
+
+  /** Share the full-query fingerprint across target keys instead of copying it into every string. */
+  synchronized AST get(final String namespace, final String queryTemplate, final StaticContext context) {
+    final AST cached = queryTemplate == null ? null : cache.get(new CacheKey(namespace, queryTemplate, context));
     if (cached != null) {
       hits++;
       return cached.copyTree();
@@ -120,8 +126,13 @@ public final class PlanCache {
   }
 
   synchronized void put(final String queryTemplate, final StaticContext context, final AST optimizedAst) {
+    put("", queryTemplate, context, optimizedAst);
+  }
+
+  synchronized void put(final String namespace, final String queryTemplate, final StaticContext context,
+      final AST optimizedAst) {
     if (queryTemplate != null && optimizedAst != null) {
-      cache.put(new CacheKey(queryTemplate, context), optimizedAst);
+      cache.put(new CacheKey(namespace, queryTemplate, context), optimizedAst);
     }
   }
 

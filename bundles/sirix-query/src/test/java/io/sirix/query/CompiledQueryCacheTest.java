@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
@@ -60,6 +61,27 @@ final class CompiledQueryCacheTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     SequentialPipelineStrategy.setMorselEnabled(false);
+  }
+
+  @Test
+  void optimizerTargetsShareOneOwningQueryFingerprint() throws Exception {
+    try (final var store = newStore(); final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      chain.compile(BitemporalQueries.all().get(9).text());
+      final Field planCache = SirixCompileChain.class.getDeclaredField("planCache");
+      planCache.setAccessible(true);
+      final Field cache = PlanCache.class.getDeclaredField("cache");
+      cache.setAccessible(true);
+      final Map<?, ?> targets = (Map<?, ?>) cache.get(planCache.get(chain));
+      assertEquals(7, targets.size(), "six SH1 declarations and the body must retain separate target keys");
+      String fingerprint = null;
+      for (final Object key : targets.keySet()) {
+        final Field namespace = key.getClass().getDeclaredField("namespace");
+        namespace.setAccessible(true);
+        final String current = (String) namespace.get(key);
+        if (fingerprint == null) fingerprint = current;
+        assertSame(fingerprint, current, "the large full-query fingerprint must be retained only once");
+      }
+    }
   }
 
   @Test

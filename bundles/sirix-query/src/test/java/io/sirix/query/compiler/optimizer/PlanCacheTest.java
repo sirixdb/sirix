@@ -30,6 +30,15 @@ final class PlanCacheTest {
   }
 
   @Test
+  void owningNamespacesFenceIdenticalTargetKeys() {
+    cache.put("first prolog", "same target", null, new AST(XQ.Int, 1));
+    cache.put("second prolog", "same target", null, new AST(XQ.Int, 2));
+    assertEquals(1, cache.get("first prolog", "same target", null).getValue());
+    assertEquals(2, cache.get("second prolog", "same target", null).getValue());
+    assertNull(cache.get("third prolog", "same target", null));
+  }
+
+  @Test
   void analysisScopesCannotShareTargetsWithoutTheirProlog() {
     final var first = new MainModule().getStaticContext();
     final var second = new MainModule().getStaticContext();

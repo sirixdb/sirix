@@ -14,7 +14,9 @@ and debug compilations bypass query-plan caching. Imported code cannot be
 versioned by the importing query's text alone.
 
 The optimizer cache includes the full parsed query and prolog, the individual target tree, target
-slot, options, disabled stages and schema version. Parser comments do not change this identity.
+slot, options, disabled stages and schema version. Its target keys share the owning query fingerprint
+instead of retaining a copy of that potentially large string for every declaration and body.
+Parser comments do not change this identity.
 `AST.toString()` is only a root label and is not a safe query key. Cached trees are detached before
 translation and ordinary static-context references are rebound to the current analysis. Targets
 containing nested static contexts or inline functions bypass this cache; declared functions and

@@ -705,7 +705,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (!OPTIMIZE) optimizer = super.getOptimizer(options);
     else {
       lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore, planCache,
-          sharePlans ? compilingQuery + "/target=" + targetSlot++ : "", sharePlans);
+          sharePlans ? compilingQuery : "", sharePlans, targetSlot++);
       optimizer = lastOptimizer;
     }
     if (planBuilder == null || !cacheableModule) return optimizer;
