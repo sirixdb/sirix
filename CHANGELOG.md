@@ -6,6 +6,10 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Index-routed projection queries** — projection scans can consume index-selected rows,
+  with grouped computed aggregates and column-side joins. The SH1 loader now declares business
+  resource projections. Admission, count semantics and fallbacks are specified in
+  [Index-routed row source](docs/INDEX_ROUTED_ROW_SOURCE.md).
 - **Unchanged commits skip index-catalogue serialization.** Shared resource sessions cache catalogue
   lookups and parsed definitions. See the [catalogue persistence rules](docs/ARCHITECTURE.md#index-catalogues)
   and [commit work budgets](bundles/sirix-core/src/test/java/io/sirix/budget/README.md).

@@ -1101,8 +1101,10 @@ with document-rank tie-break). All projection-side budgets derive from `HeapHead
    `:1402-1484`); `SortedScanDetectionStage` marks `fn:subsequence(pipe, start, len)` limits and group-less sorted or
    predicate scans (`SortedScanDetectionStage.java:94-279`). `VectorizedDetectionStage`/`VectorizedRoutingStage` are
    commented out and serve nothing (`SirixOptimizer.java:108-116`).
-3. **Translation** (`query/compiler/translator/SirixPipelineStrategy.java:41-228`): the generic pipeline is **always**
-   compiled as the fallback; priority SORTED_SCAN → PREDICATE_SCAN → ROW_MAT → GROUP_AGG_CONST → GROUP_AGG.
+3. **Translation** (`query/compiler/translator/SirixPipelineStrategy.java`): the generic pipeline is **always**
+   compiled as the fallback. Ordinary document routes retain their priority
+   SORTED_SCAN → PREDICATE_SCAN → ROW_MAT → GROUP_AGG_CONST → GROUP_AGG; index-routed extensions
+   are specified in [Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md).
 4. **Runtime**: `SirixGroupAggregateExpr.evaluate` acquires the executor and calls `executeGroupByAggregate`;
    **`null` means the generic pipeline runs**; unordered results are sorted with Brackit's `Ordering`
    (`SirixGroupAggregateExpr.java:161-238`).
@@ -1120,6 +1122,10 @@ with document-rank tie-break). All projection-side budgets derive from `HeapHead
    (`:479-500`). The encoded prefix, and `prefixUpperExclusive` of it, bound every route (§6.1).
 
 ### 7.2 Route selection in `executeGroupByAggregate`
+
+The ordinary document-scan routes are described below. Index-selected rows and computed lanes
+follow the admission, residency and promotion rules in
+[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md#serving-a-grouped-aggregate-under-a-row-mask).
 
 `SVE:14835-17620`:
 
@@ -1157,7 +1163,10 @@ Details:
 - **Failures**: an `ArithmeticException` (sum overflow) declines; other runtime exceptions go to `failSoft`, counted,
   and rethrown only with `-Dsirix.query.strictServing=true` (`SVE:8013-8037`, `:17586-17619`).
 - **Parallelism**: a fixed pool of `sirix.vec.threads` (default CPUs) daemon threads; row groups are split into
-  `min(threads, ⌈rowGroups/64⌉)` chunks (`SVE:1081-1161`, `:15851-15852`).
+  `min(threads, ⌈rowGroups/64⌉)` chunks. A single chunk runs on the calling thread and reuses its cursor.
+  Group merges also visit all partitions on the caller when the combined scanned and spilled group count does
+  not exceed the partition count; larger merges use the worker pool (`SirixVectorizedExecutor.parallel`
+  and `mergePartitions`).
 - **`trySortedGroupTopK`'s own gate** (`SVE:17622-17691`): no write transaction, a predicate present, exactly one
   group field, every aggregate over the **same** field and each of them `min`, `max` or a span, one order index,
   `limit ∈ 1..32`, no `having`, plain keys only. The ordered aggregate picks the order — `min` ascending →
@@ -2065,6 +2074,8 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 Valid-time interval/posting references emitted, posting lookups, and compressed posting chunks read
 are gated by `sirix.validTime.scanDiag` in `HotOrderedStore` and cataloged with their requirements in the
 [work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
+The [work-budget counter reference](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
+also owns the JSON provider registry diagnostics and their requirements.
 
 **Always-on work counters.** The file-channel batch read counts unconditionally, because each event is at least one
 positional read: `FileChannelReader.runCount()` (coalesced runs), `runSpanBytes()` (bytes their span reads covered, gaps

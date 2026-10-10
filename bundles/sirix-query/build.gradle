@@ -212,6 +212,7 @@ ext.nativeDowncallPreinitializeRequested =
     project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
 
 test {
+    systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
     systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
@@ -227,6 +228,7 @@ test {
     // -Dsirix.hot.mergeDiag=false still wins, so the gated-off path stays testable.
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
     systemProperty 'sirix.validTime.scanDiag', System.getProperty('sirix.validTime.scanDiag', 'true')
+    systemProperty 'sirix.json.registryDiag', System.getProperty('sirix.json.registryDiag', 'true')
 
     // NativeImageDowncallConfigTest guards the native-image downcall configuration. It is handed what
     // THIS BUILD evaluates, not the text of this script: the argument the opt-in produces and the one

@@ -11,8 +11,13 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.ExprUtil;
+import io.brackit.query.jdm.json.Array;
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.RoutedKeys;
 import io.sirix.query.json.JsonDBItem;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -38,6 +43,24 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
   @Override
   public void setPos(final int position) {
     pointPosition = position;
+  }
+
+  @Nullable
+  RoutedKeys routedKeys(final QueryContext ctx, final Tuple tuple) {
+    final JsonDBItem source = (JsonDBItem) document.evaluateToItem(ctx, tuple);
+    if (!(source instanceof Array array)) {
+      return null;
+    }
+    if (array.len() == 0) {
+      return new RoutedKeys(new long[0], source.getTrx().getRevisionNumber());
+    }
+    final ValidTimeConfig config = source.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (config == null || !from.equals(config.getNormalizedValidFromPath())
+        || !to.equals(config.getNormalizedValidToPath())) {
+      return null;
+    }
+    return ValidTimeIntervalIndex.routedKeys(ValidTimeIntervalIndex.comparisonSequence(source,
+        () -> point.evaluate(ctx, tuple), config, (mode & 1) != 0, (mode & 2) != 0));
   }
 
   @Override

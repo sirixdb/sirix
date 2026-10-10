@@ -60,7 +60,8 @@ final class RleScanTest {
 
   /** The ops the numeric run kernel refuses by contract. */
   private static boolean isStringOp(final Op op) {
-    return op == Op.STR_LT || op == Op.STR_LE || op == Op.STR_GT || op == Op.STR_GE || op == Op.STR_CONTAINS;
+    return op == Op.STR_LT || op == Op.STR_LE || op == Op.STR_GT || op == Op.STR_GE || op == Op.STR_CONTAINS
+        || op == Op.KEY_IN; // the record-key set is refused by the run kernel too: it is not a compare
   }
 
   /** One row against one operator — the definition the run-aware kernel has to agree with. */
@@ -79,6 +80,7 @@ final class RleScanTest {
       // The RLE kernel throws on string ops; this oracle mirrors that they never apply here.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op in the RLE oracle: " + op);
+      case KEY_IN -> throw new IllegalStateException("record-key set in the RLE oracle");
     };
   }
 

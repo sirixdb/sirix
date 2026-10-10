@@ -124,6 +124,7 @@ artifacts {
 }
 
 test {
+    systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     // Partition the existing test task rather than copying its JVM flags, engine configuration,
     // or diagnostic properties into new tasks. Without this property existing test selection
     // is unchanged. The same class-file pattern and its complement cover every

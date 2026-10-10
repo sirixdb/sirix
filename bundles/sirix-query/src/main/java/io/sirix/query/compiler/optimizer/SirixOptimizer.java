@@ -130,7 +130,17 @@ public class SirixOptimizer extends TopDownOptimizer {
     // group-by-with-aggregates pipe shape Brackit's walker doesn't cover; consumed by
     // SirixPipelineStrategy. Runs AFTER Brackit's VectorizedGroupByDetection (parent
     // constructor) because it reuses its predicate/source-path annotations.
+    // 9a. Index-routed source admission: a loop over jn:open-bitemporal(...) becomes a projection
+    // scan over the resource's array members with a row mask from the valid-time index. Runs before
+    // 9b because it supplies the source-path annotation 9b requires.
+    getStages().add((sctx, ast) -> new JsonValidTimeStep(jsonItemStore).rewrite(ast));
+    getStages().add(new IndexRoutedSourceStage());
     getStages().add(new GroupAggregateDetectionStage());
+    // 9b'. Correlated index-routed grouping: an outer loop over a small table whose rows supply the
+    // opener's instants and some group keys (SH1 Q6/Q11). Runs after 9b, which declines the shape.
+    getStages().add(new CorrelatedGroupAggregateDetectionStage());
+    // 9b''. Column-side equality join with a grouped aggregate over the pairs (SH1 Q9).
+    getStages().add(new JoinedGroupAggregateDetectionStage());
     // 9c. Covered-row detection (P5b stage 7c): record-constructor returns over covered
     // fields, servable from projection segments alone. Same ordering rationale as 9b.
     getStages().add(new RowMaterializeDetectionStage());
@@ -153,6 +163,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     if (CheapFirstConjunctStage.enabled()) {
       getStages().add(new CheapFirstConjunctStage());
     }
+    // Final admission uses the physical binding scopes after every structural rewrite.
+    getStages().add(new LetMaterializationStage());
   }
 
   /**
@@ -411,10 +423,9 @@ public class SirixOptimizer extends TopDownOptimizer {
 
     @Override
     public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-      // Valid-time FIRST: fold stabbing predicates before the CAS path inspects FilterExprs.
       // Each walker is narrowly scoped and leaves
       // every non-matching query's AST untouched.
-      ast = new JsonValidTimeStep(jsonItemStore).rewrite(ast);
+      // Valid-time folding already ran as stage 9a (before the index-routed source admission).
       ast = new JsonCASSourceStep(jsonItemStore).walk(ast);
       ast = new JsonCASStep(jsonItemStore).walk(ast);
       ast = new JsonPathStep(jsonItemStore).walk(ast);

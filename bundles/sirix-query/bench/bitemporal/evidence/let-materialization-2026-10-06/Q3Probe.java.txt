@@ -1,0 +1,50 @@
+import io.brackit.query.Query;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.bench.bitemporal.BitemporalQueries;
+import io.sirix.query.bench.bitemporal.BitemporalCanonicalizer;
+import io.sirix.query.json.BasicJsonDBStore;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+
+public final class Q3Probe {
+  public static void main(final String[] args) throws Exception {
+    final Path root = Path.of(args[0]);
+    final Path oracle = Path.of(args[1]);
+    final Path out = Path.of(args[2]);
+    Files.createDirectories(out);
+    final var q3 = BitemporalQueries.all().get(2);
+    final long[][] nanos = new long[2][9];
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(root).build();
+         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain baseline = SirixCompileChain.createWithJsonStore(store);
+         final SirixCompileChain materialized = SirixCompileChain.createWithJsonStore(store)) {
+      System.setProperty("sirix.optimizer.materializeLets", "false");
+      final Query before = new Query(baseline, q3.text());
+      System.setProperty("sirix.optimizer.materializeLets", "true");
+      final Query after = new Query(materialized, q3.text());
+      final Query[] queries = {before, after};
+      for (int round = -5; round < 9; round++) {
+        for (int order = 0; order < 2; order++) {
+          final int variant = (order + (round & 1)) & 1;
+          final StringWriter output = new StringWriter();
+          final long start = System.nanoTime();
+          try (final PrintWriter writer = new PrintWriter(output)) { queries[variant].serialize(context, writer); }
+          final long elapsed = System.nanoTime() - start;
+          final Path tsv = out.resolve("q3-" + variant + ".tsv");
+          BitemporalCanonicalizer.write(q3, output.toString(), tsv);
+          if (Files.mismatch(oracle, tsv) != -1) throw new AssertionError("Q3 oracle mismatch: " + variant);
+          if (round >= 0) nanos[variant][round] = elapsed;
+          System.out.printf("Q3 variant=%s round=%d ms=%.3f oracle=exact%n", variant == 0 ? "before" : "after", round, elapsed / 1e6);
+        }
+      }
+    }
+    for (int variant = 0; variant < 2; variant++) {
+      Arrays.sort(nanos[variant]);
+      System.out.printf("MEDIAN variant=%s ms=%.3f oracle=exact%n", variant == 0 ? "before" : "after", nanos[variant][4] / 1e6);
+    }
+  }
+}
