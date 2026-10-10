@@ -12,7 +12,6 @@ import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.node.Bytes;
-import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
@@ -30,6 +29,7 @@ import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Fixed;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -159,7 +159,7 @@ public final class GoldenFormatTest {
     DeltaVarIntCodec.encodeSignedLong(sink, 1L << 40);
     DeltaVarIntCodec.encodeSignedLong(sink, Long.MIN_VALUE / 2);
     DeltaVarIntCodec.encodeDelta(sink, 1001, 1000);
-    DeltaVarIntCodec.encodeDelta(sink, io.sirix.settings.Fixed.NULL_NODE_KEY.getStandardProperty(), 1000);
+    DeltaVarIntCodec.encodeDelta(sink, Fixed.NULL_NODE_KEY.getStandardProperty(), 1000);
     DeltaVarIntCodec.encodeAbsolute(sink, 123456789L);
     assertGolden("varints", GOLDEN_VARINTS, hex(sink));
   }

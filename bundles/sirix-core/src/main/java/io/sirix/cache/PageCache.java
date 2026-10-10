@@ -3,6 +3,7 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
@@ -248,7 +249,7 @@ public final class PageCache implements Cache<PageReference, Page> {
    * Get cache statistics for diagnostics.
    */
   public CacheStatistics getStatistics() {
-    com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
+    CacheStats caffeineStats = cache.stats();
 
     int totalPages = 0;
     long totalWeight = 0;

@@ -34,6 +34,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.File;
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -119,7 +120,7 @@ final class ChangeLogWorkBudgetTest {
         final ChangeLogSlab slab = ChangeLogStorage.read(reader.getStorageEngineReader(), 0, 5);
         assertEquals(1, slab.entries().size());
         assertNull(slab.entries().getFirst().before());
-        assertArrayEquals(new String[0], (String[]) slab.entries().getFirst().after().text[4]);
+        assertArrayEquals(new String[0], (String[]) Objects.requireNonNull(slab.entries().getFirst().after()).text[4]);
       }
       for (int revision = 1; revision <= 4; revision++) {
         try (var reader = session.beginNodeReadOnlyTrx(revision)) {
@@ -136,10 +137,10 @@ final class ChangeLogWorkBudgetTest {
           for (int i = 0; i < slab.entries().size(); i++) {
             final ChangeLogSlab.Entry entry = slab.entries().get(i);
             assertEquals(records[i], entry.record());
-            assertEquals(i, entry.before().numbers[1]);
+            assertEquals(i, Objects.requireNonNull(entry.before()).numbers[1]);
             assertEquals(revision == 3
                 ? 800
-                : i + 100, entry.after().numbers[1]);
+                : i + 100, Objects.requireNonNull(entry.after()).numbers[1]);
           }
         }
       }
@@ -188,7 +189,7 @@ final class ChangeLogWorkBudgetTest {
             session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]", List.of("g"), List.of("sum(n)"));
         writer.commit(); // Revision 3 has an exceptional numeric row.
         try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
-          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(record)[2]);
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, Objects.requireNonNull(log.provenance(record))[2]);
         }
         session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
         set(writer, record, 4);
@@ -203,9 +204,9 @@ final class ChangeLogWorkBudgetTest {
         writer.commit();
         final ChangeLogSlab slab = ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 6);
         assertEquals(1, slab.entries().size());
-        assertEquals(4, slab.entries().getFirst().before().numbers[1]);
-        assertEquals(ChangeLogSlab.PRESENT, slab.entries().getFirst().before().flags[1]);
-        assertEquals(6, slab.entries().getFirst().after().numbers[1]);
+        assertEquals(4, Objects.requireNonNull(slab.entries().getFirst().before()).numbers[1]);
+        assertEquals(ChangeLogSlab.PRESENT, Objects.requireNonNull(slab.entries().getFirst().before()).flags[1]);
+        assertEquals(6, Objects.requireNonNull(slab.entries().getFirst().after()).numbers[1]);
         for (int revision = 4; revision <= 5; revision++) {
           final int uncovered = revision;
           assertThrows(NullPointerException.class,
@@ -215,7 +216,7 @@ final class ChangeLogWorkBudgetTest {
         assertTrue(ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 3).entries().isEmpty());
         writer.revertTo(3);
         try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
-          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(record)[2]);
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, Objects.requireNonNull(log.provenance(record))[2]);
         }
         writer.rollback();
       }
@@ -245,8 +246,8 @@ final class ChangeLogWorkBudgetTest {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append(']').toString()),
             JsonNodeTrx.Commit.NO);
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
-            List.of(field("g"), field("n"), field("lo"), field("hi")),
-            List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+            List.of(field("g"), field("n"), field("lo"), field("hi")), List.of(Type.LON, Type.LON, Type.STR, Type.STR),
+            0, IndexDef.DbType.JSON);
         session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(
             session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]", List.of("g"), List.of("sum(n)"));
@@ -263,8 +264,8 @@ final class ChangeLogWorkBudgetTest {
         }
         final var controller = session.getWtxIndexController(writer.getRevisionNumber());
         final long before = ProjectionChangeLog.slabsBuilt();
-        final var handle = controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"},
-            new String[] {"n"});
+        final var handle =
+            controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"}, new String[] {"n"});
         assertNotNull(handle);
         assertEquals(before + 1, ProjectionChangeLog.slabsBuilt());
         final ChangeLogStorage.WriteWork logWork = ChangeLogStorage.lastWrite();
@@ -274,25 +275,26 @@ final class ChangeLogWorkBudgetTest {
         assertEquals(rows, aggregateWork.changedRecords());
         assertTrue(aggregateWork.nodesWritten() > 0);
         for (int read = 0; read < 4; read++) {
-          assertSame(handle, controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"},
-              new String[] {"n"}));
+          assertSame(handle,
+              controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"}, new String[] {"n"}));
           assertEquals(before + 1, ProjectionChangeLog.slabsBuilt(), "Unchanged reads must sort/build zero slabs");
           assertSame(logWork, ChangeLogStorage.lastWrite(), "Unchanged reads must encode/write zero slabs");
           assertSame(aggregateWork, TemporalAggregateIndexes.lastMaintenance(),
               "Unchanged reads must replay zero aggregate batches");
         }
         set(writer, first, 999);
-        assertNotNull(controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"},
-            new String[] {"n"}));
+        assertNotNull(
+            controller.openProjectionIndex(writer.getStorageEngineWriter(), new String[] {"[]"}, new String[] {"n"}));
         assertEquals(before + 2, ProjectionChangeLog.slabsBuilt());
         final ChangeLogSlab slab = ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 2);
         assertEquals(rows, slab.entries().size());
-        assertEquals(0, slab.entries().getFirst().before().numbers[1]);
-        assertEquals(999, slab.entries().getFirst().after().numbers[1]);
+        assertEquals(0, Objects.requireNonNull(slab.entries().getFirst().before()).numbers[1]);
+        assertEquals(999, Objects.requireNonNull(slab.entries().getFirst().after()).numbers[1]);
         try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
           final AggregateSummary[] summary = new AggregateSummary[1];
-          storage.groups(Long.MAX_VALUE, (key, head) -> summary[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
-              new TemporalAggregateDomain().height()).point(storage.parts(), head.parts(), 1));
+          storage.groups(Long.MAX_VALUE,
+              (key, head) -> summary[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
+                  new TemporalAggregateDomain().height()).point(storage.parts(), head.parts(), 1));
           assertNotNull(summary[0]);
           assertEquals(rows, summary[0].count());
           assertEquals(BigInteger.valueOf((long) rows * (rows - 1) / 2 + rows * 100L + 899), summary[0].sum(0));
@@ -300,7 +302,8 @@ final class ChangeLogWorkBudgetTest {
         writer.commit();
         assertEquals(before + 2, ProjectionChangeLog.slabsBuilt());
         writer.commit();
-        assertEquals(before + 3, ProjectionChangeLog.slabsBuilt(), "A new covered revision must publish its empty slab");
+        assertEquals(before + 3, ProjectionChangeLog.slabsBuilt(),
+            "A new covered revision must publish its empty slab");
         assertEquals(0, ChangeLogStorage.lastWrite().records());
         assertTrue(ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 3).entries().isEmpty());
         assertEquals(2, ChangeLogStorage.read(writer.getStorageEngineWriter(), 0, 3).baseRevision());

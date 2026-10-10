@@ -57,7 +57,9 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
         ? resourceSession.getWtxIndexController(optionalWriteTrx.get().getRevisionNumber()).getIndexes()
         : resourceSession.getRtxIndexController(revision).getIndexes();
     final boolean requested = args.length == 2 && args[1] != null;
-    final int requestedId = requested ? ((Int32) args[1]).intValue() : -1;
+    final int requestedId = requested
+        ? ((Int32) args[1]).intValue()
+        : -1;
     final Set<IndexDef> toDrop = new LinkedHashSet<>();
     for (final IndexDef indexDef : indexes.getIndexDefs()) {
       if (indexDef.getType() == IndexType.TEMPORAL_AGGREGATE && (!requested || indexDef.getID() == requestedId)) {

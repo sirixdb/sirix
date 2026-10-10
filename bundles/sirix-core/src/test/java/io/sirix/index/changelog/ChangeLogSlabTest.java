@@ -5,6 +5,7 @@ import io.sirix.index.changelog.ChangeLogSlab.Row;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -33,8 +34,8 @@ final class ChangeLogSlabTest {
     final ChangeLogSlab decoded = ChangeLogSlab.decode(golden);
     assertEquals(2, decoded.baseRevision());
     assertEquals(9, decoded.revision());
-    assertEquals(-7, decoded.entries().getFirst().before().numbers[0]);
-    assertEquals("x", decoded.entries().getFirst().after().text[1]);
+    assertEquals(-7, Objects.requireNonNull(decoded.entries().getFirst().before()).numbers[0]);
+    assertEquals("x", Objects.requireNonNull(decoded.entries().getFirst().after()).text[1]);
     assertNull(decoded.entries().getLast().after());
     assertArrayEquals(golden, decoded.encode());
   }
@@ -55,7 +56,7 @@ final class ChangeLogSlabTest {
     final ChangeLogSlab slab =
         new ChangeLogSlab(0, 1, 0, kinds, List.of(new Entry(Long.MAX_VALUE, new long[] {-1}, null, row)));
     final ChangeLogSlab decoded = ChangeLogSlab.decode(slab.encode());
-    final Row actual = decoded.entries().getFirst().after();
+    final Row actual = Objects.requireNonNull(decoded.entries().getFirst().after());
     assertFalse(actual.object);
     assertArrayEquals(row.numbers, actual.numbers);
     assertArrayEquals(row.flags, actual.flags);

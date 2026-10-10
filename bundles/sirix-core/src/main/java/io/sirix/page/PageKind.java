@@ -6219,16 +6219,16 @@ public enum PageKind {
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
-      switch (binaryVersion) {
+      return switch (binaryVersion) {
         case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
-          return new TemporalAggregateIndexPage(delegate, maxHotPageKeys);
+          yield new TemporalAggregateIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
+      };
     }
 
     @Override
@@ -6252,16 +6252,16 @@ public enum PageKind {
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
-      switch (binaryVersion) {
+      return switch (binaryVersion) {
         case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
-          return new ChangeLogIndexPage(delegate, maxHotPageKeys);
+          yield new ChangeLogIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
+      };
     }
 
     @Override
@@ -8339,12 +8339,11 @@ public enum PageKind {
    * Per-thread fastutil map for packed-key → templateId lookup during dedup. Default return value is
    * -1 (sentinel for "not present").
    */
-  private static final ThreadLocal<Long2IntOpenHashMap> TEMPLATE_MAP =
-      ThreadLocal.withInitial(() -> {
-        final var m = new Long2IntOpenHashMap(256);
-        m.defaultReturnValue(-1);
-        return m;
-      });
+  private static final ThreadLocal<Long2IntOpenHashMap> TEMPLATE_MAP = ThreadLocal.withInitial(() -> {
+    final var m = new Long2IntOpenHashMap(256);
+    m.defaultReturnValue(-1);
+    return m;
+  });
 
   /**
    * Per-thread staging buffer for the dedup-transformed record heap before {@link ZeroRunByteCodec}

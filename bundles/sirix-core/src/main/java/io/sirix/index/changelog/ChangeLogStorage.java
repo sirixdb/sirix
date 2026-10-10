@@ -26,7 +26,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   private byte[] keyBuffer = new byte[16];
   private final HOTTrieReader reader;
   private long slotsWritten;
-  private byte[] header;
+  private byte @Nullable [] header;
   private long exceptionalRows;
   private boolean headerDirty;
   private static volatile WriteWork lastWrite = new WriteWork(0, 0, 0);

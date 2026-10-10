@@ -47,8 +47,8 @@ public final class EngineWorkCounters {
       "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
 
   public static final WorkCounter TEMPORAL_PART_CHUNKS_READ = WorkCounter.gated("temporal.partChunksRead",
-      "one aggregate part chunk requested", TemporalAggregateStorage::partChunksRead,
-      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+      "one aggregate part chunk requested", TemporalAggregateStorage::partChunksRead, "-Dsirix.hot.mergeDiag=true",
+      TemporalAggregateStorage::workDiagnosticsEnabled);
 
   public static final List<WorkCounter> TEMPORAL_READS =
       List.of(TEMPORAL_GROUP_HEADS_VISITED, TEMPORAL_GROUP_HEADS_DECODED, TEMPORAL_PART_CHUNKS_READ);

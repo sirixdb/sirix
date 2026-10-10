@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -34,20 +35,20 @@ final class ChangeLogStorageTest {
         try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
           log.initialize(1, kinds);
           log.provenance(1, row);
-          assertEquals(4097, log.provenance(1).length);
+          assertEquals(4097, Objects.requireNonNull(log.provenance(1)).length);
         }
         writer.commit();
         try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
-          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(1)[1]);
-          assertEquals(ChangeLogSlab.UNREPRESENTABLE, log.provenance(1)[4096]);
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, Objects.requireNonNull(log.provenance(1))[1]);
+          assertEquals(ChangeLogSlab.UNREPRESENTABLE, Objects.requireNonNull(log.provenance(1))[4096]);
           log.provenance(1, null);
           assertNull(log.provenance(1));
         }
         writer.commit();
         writer.revertTo(1);
         try (ChangeLogStorage log = new ChangeLogStorage(writer.getStorageEngineWriter(), 0)) {
-          assertEquals(ChangeLogSlab.NON_INTEGRAL, log.provenance(1)[1]);
-          assertEquals(ChangeLogSlab.UNREPRESENTABLE, log.provenance(1)[4096]);
+          assertEquals(ChangeLogSlab.NON_INTEGRAL, Objects.requireNonNull(log.provenance(1))[1]);
+          assertEquals(ChangeLogSlab.UNREPRESENTABLE, Objects.requireNonNull(log.provenance(1))[4096]);
         }
         writer.rollback();
       }

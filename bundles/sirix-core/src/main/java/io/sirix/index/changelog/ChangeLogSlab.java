@@ -76,6 +76,8 @@ public final class ChangeLogSlab {
     }
   }
 
+  // Internal serialization carrier; masks are primitive lanes rather than value-equality keys.
+  @SuppressWarnings("ArrayRecordComponent")
   public record Entry(long record, long[] changed, @Nullable Row before, @Nullable Row after) {
     public Entry {
       if (record < 0) {
@@ -215,12 +217,12 @@ public final class ChangeLogSlab {
         continue;
       }
       switch (kinds[column]) {
-        case STRING -> unsigned(out, dictionary.get((String) row.text[column]));
+        case STRING -> unsigned(out, Objects.requireNonNull(dictionary.get((String) row.text[column])));
         case STRING_SET -> {
           final String[] values = (String[]) row.text[column];
           unsigned(out, values.length);
           for (final String value : values) {
-            unsigned(out, dictionary.get(value));
+            unsigned(out, Objects.requireNonNull(dictionary.get(value)));
           }
         }
         default -> {
@@ -317,7 +319,7 @@ public final class ChangeLogSlab {
 
   private static void unsigned(final DataOutputStream out, long value) throws IOException {
     while ((value & ~127L) != 0) {
-      out.writeByte((int) value & 127 | 128);
+      out.writeByte(((int) value & 127) | 128);
       value >>>= 7;
     }
     out.writeByte((int) value);

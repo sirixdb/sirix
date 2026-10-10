@@ -571,6 +571,8 @@ public final class TemporalAggregateParts {
     }
   }
 
+  // The builder owns these primitive lanes and orders changes by endpoints, not record equality.
+  @SuppressWarnings("ArrayRecordComponent")
   private record IntervalChange(long from, long to, long[] values, long mask, int sign) {
   }
 

@@ -138,8 +138,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         writer.moveToFirstChild();
         writer.setNumberValue(1);
         session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
-        assertEquals(new TemporalAggregateIndexes.MaintenanceWork(0, 0, 0, 0, 0, 0, 0), TemporalAggregateIndexes.lastMaintenance(),
-            "Unrelated projection fields must not touch aggregate nodes");
+        assertEquals(new TemporalAggregateIndexes.MaintenanceWork(0, 0, 0, 0, 0, 0, 0),
+            TemporalAggregateIndexes.lastMaintenance(), "Unrelated projection fields must not touch aggregate nodes");
         writer.rollback();
         for (int revision = 1; revision <= 2; revision++) {
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
@@ -164,7 +164,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
 
   @ParameterizedTest
   @CsvSource({"256,528", "4096,528", "4096,4096"})
-  void tierCascadesBoundTotalWorkAcrossPublicationsAndBarriers(final int rows, final int publications) throws Exception {
+  void tierCascadesBoundTotalWorkAcrossPublicationsAndBarriers(final int rows, final int publications)
+      throws Exception {
     final var databasePath = directory.toPath().resolve("cascades");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     final int barriersPerCommit = 16;
@@ -196,8 +197,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             JsonNodeTrx.Commit.NO);
         final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
-            List.of(path("g"), path("amount"), path("lo"), path("hi")),
-            List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+            List.of(path("g"), path("amount"), path("lo"), path("hi")), List.of(Type.LON, Type.LON, Type.STR, Type.STR),
+            0, IndexDef.DbType.JSON);
         controller.createIndexes(Set.of(projection), writer);
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"),
             List.of("sum(amount)", "min(amount)", "max(amount)"));
@@ -229,8 +230,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         int lastCheckpointPublication = 0;
         long checkpoint = firstCheckpoint[0];
         final long checkpointBoundary = 1L << (4 * checkpointTier[0]);
-        assertEquals(rows == 256 ? 256 : 4096, checkpointBoundary,
-            "The distinct-endpoint fixture must reach the intended checkpoint tier");
+        assertEquals(rows == 256
+            ? 256
+            : 4096, checkpointBoundary, "The distinct-endpoint fixture must reach the intended checkpoint tier");
         final long[] currentCheckpoint = new long[1];
         final int[] currentTier = new int[1];
         for (int publication = 1; publication <= publications; publication++) {
@@ -255,7 +257,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
               currentCheckpoint[0] = head.parts()[0];
               assertEquals(checkpointTier[0], head.checkpointTier());
               final byte[] tiers = head.tiers();
-              currentTier[0] = tiers.length == 1 ? head.checkpointTier() : tiers[tiers.length - 1];
+              currentTier[0] = tiers.length == 1
+                  ? head.checkpointTier()
+                  : tiers[tiers.length - 1];
               for (int tier = 0; tier < checkpointTier[0]; tier++) {
                 int count = 0;
                 for (int part = 1; part < tiers.length; part++) {
@@ -287,8 +291,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             assertTrue(work.endpointsRead() >= 2L * rows,
                 "The cascade fixture must include the untouched group's endpoint reads");
             if (Boolean.getBoolean("sirix.workBudget.print")) {
-              System.out.printf("TEMPORAL_AGGREGATE_CHECKPOINT_CASCADE rows=%d publication=%d boundary=%d "
-                  + "chunkReads=%d chunkWrites=%d endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d%n",
+              System.out.printf(
+                  "TEMPORAL_AGGREGATE_CHECKPOINT_CASCADE rows=%d publication=%d boundary=%d "
+                      + "chunkReads=%d chunkWrites=%d endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d%n",
                   rows, publication, checkpointBoundary, work.nodesRead(), work.nodesWritten(), work.endpointsRead(),
                   work.endpointsWritten(), work.summaryNodesRead(), work.summaryNodesWritten());
             }
@@ -319,17 +324,19 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         assertTrue(nodesWritten > 0 && nodesWritten <= 128L * publications,
             "Amortized summary-node writes must be bounded by changes: " + nodesWritten);
         if (Boolean.getBoolean("sirix.workBudget.print")) {
-          System.out.printf("TEMPORAL_AGGREGATE_CASCADE_BUDGET rows=%d changed=%d chunkReads=%d chunkWrites=%d "
-              + "endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d promotions=%d checkpoints=%d "
-              + "checkpointBoundary=%d%n",
-              rows, publications, chunksRead, chunksWritten, endpointsRead, endpointsWritten, nodesRead,
-              nodesWritten, promotedParts, checkpointCascades, checkpointBoundary);
+          System.out.printf(
+              "TEMPORAL_AGGREGATE_CASCADE_BUDGET rows=%d changed=%d chunkReads=%d chunkWrites=%d "
+                  + "endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d promotions=%d checkpoints=%d "
+                  + "checkpointBoundary=%d%n",
+              rows, publications, chunksRead, chunksWritten, endpointsRead, endpointsWritten, nodesRead, nodesWritten,
+              promotedParts, checkpointCascades, checkpointBoundary);
         }
         writer.rollback();
         for (int revision = 1; revision <= 1 + publications / barriersPerCommit; revision++) {
           final long expected = (long) (revision - 1) * barriersPerCommit;
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
-              var storage = new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
+              var storage =
+                  new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
             final int[] groups = new int[1];
             storage.groups(Long.MAX_VALUE, (key, head) -> {
               groups[0]++;

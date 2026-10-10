@@ -50,7 +50,8 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
     pointPosition = position;
   }
 
-  @Nullable Item document(final QueryContext ctx, final Tuple tuple) {
+  @Nullable
+  Item document(final QueryContext ctx, final Tuple tuple) {
     return document.evaluateToItem(ctx, tuple);
   }
 

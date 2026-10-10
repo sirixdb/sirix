@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -28,7 +29,7 @@ final class TemporalAggregatePartsTest {
     @Override
     public byte[] read(final long part, final int chunk) {
       reads++;
-      final byte[] bytes = parts.get(part);
+      final byte[] bytes = Objects.requireNonNull(parts.get(part));
       final int from = chunk * TemporalAggregateParts.CHUNK_BYTES;
       return Arrays.copyOfRange(bytes, from, Math.min(bytes.length, from + TemporalAggregateParts.CHUNK_BYTES));
     }
@@ -233,7 +234,7 @@ final class TemporalAggregatePartsTest {
     ids[0] = 1;
     tiers[0] = (byte) TemporalAggregateParts.MAX_TIERS;
     for (int index = 1; index < ids.length; index++) {
-      ids[index] = index + 1;
+      ids[index] = index + 1L;
       tiers[index] = (byte) ((index - 1) / (TemporalAggregateParts.FAN_IN - 1));
     }
     final GroupHead head = new GroupHead(10, TemporalAggregateParts.MAX_TIERS, ids, tiers);

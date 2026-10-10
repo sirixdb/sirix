@@ -110,7 +110,7 @@ public final class IndexDef implements Materializable {
   private boolean unique = false;
 
   // for CAS indexes
-  private Type contentType;
+  private @Nullable Type contentType;
   private volatile boolean numericValuesOnly = true;
   private volatile boolean completeNumericCoverage = true;
   private boolean numericCoverageDirty;
@@ -172,7 +172,7 @@ public final class IndexDef implements Materializable {
   private int dimension;
 
   // Store as string to avoid circular dep — "L2", "COSINE", "INNER_PRODUCT"
-  private String distanceType;
+  private @Nullable String distanceType;
 
   private int hnswM = 16;
 
@@ -856,7 +856,7 @@ public final class IndexDef implements Materializable {
     return dimension;
   }
 
-  public String getDistanceType() {
+  public @Nullable String getDistanceType() {
     return distanceType;
   }
 
@@ -907,7 +907,7 @@ public final class IndexDef implements Materializable {
     }
   }
 
-  public Type getContentType() {
+  public @Nullable Type getContentType() {
     return contentType;
   }
 

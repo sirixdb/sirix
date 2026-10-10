@@ -49,7 +49,8 @@ public final class TemporalAggregateIndexes {
 
   private TemporalAggregateIndexes() {}
 
-  public static void validate(final IndexDef aggregate, final IndexDef projection, final ValidTimeConfig config) {
+  public static void validate(final IndexDef aggregate, final IndexDef projection,
+      final @Nullable ValidTimeConfig config) {
     Objects.requireNonNull(config, "Temporal aggregate indexes require valid-time configuration");
     if (!aggregate.isTemporalAggregateIndex() || !projection.isProjectionIndex()
         || aggregate.getTemporalAggregateSpec().projectionId() != projection.getID()
@@ -205,7 +206,7 @@ public final class TemporalAggregateIndexes {
         }
         if (row.present(lane.left()) && (lane.right() < 0 || row.present(lane.right()))) {
           if (kinds[lane.left()] != ChangeLogSlab.LONG
-              || lane.right() >= 0 && kinds[lane.right()] != ChangeLogSlab.LONG) {
+              || (lane.right() >= 0 && kinds[lane.right()] != ChangeLogSlab.LONG)) {
             throw new UnsupportedCell();
           }
           values[at] = lane.right() < 0
@@ -274,8 +275,7 @@ public final class TemporalAggregateIndexes {
       final TransactionState state = listener.aggregateState(definition.getID());
       state.atRevision(writer.getRevisionNumber());
       state.built = true;
-      final Maintenance maintenance =
-          new Maintenance(storage, definition.getTemporalAggregateSpec(), header);
+      final Maintenance maintenance = new Maintenance(storage, definition.getTemporalAggregateSpec(), header);
       final Source current = new Source(writer, metadata, projection, config, listener);
       ProjectionAggregateRows.visit(writer, projection.getID(), metadata, (record, page, row) -> {
         final Row next = current.row(record, page, row, maintenance.spec);
@@ -346,6 +346,8 @@ public final class TemporalAggregateIndexes {
     throw new IllegalStateException("Missing temporal aggregate source listener");
   }
 
+  // Rows compare primitive lanes explicitly through same(), avoiding record array identity.
+  @SuppressWarnings("ArrayRecordComponent")
   private record Row(byte @Nullable [] group, long from, long to, long[] values, long present, boolean unsupported) {
     private static final Row UNSUPPORTED = new Row(null, 0, 0, new long[0], 0, true);
     private static final Row EMPTY = new Row(null, 0, 0, new long[0], 0, false);
@@ -360,7 +362,6 @@ public final class TemporalAggregateIndexes {
   private static final class Source {
     private final StorageEngineReader reader;
     private final TemporalAggregateColumns columns;
-    private final IndexDef projection;
     private final boolean directObjectFields;
     private final int fromColumn;
     private final int toColumn;
@@ -370,7 +371,6 @@ public final class TemporalAggregateIndexes {
         final ValidTimeConfig config, final ProjectionIndexChangeListener listener) {
       this.reader = reader;
       columns = new TemporalAggregateColumns(reader, metadata);
-      this.projection = projection;
       directObjectFields = projection.getProjectionRootPath().toString().equals("/[]")
           && projection.getProjectionFields().stream().allMatch(path -> path.toString().matches("/\\[\\]/[^/]+"));
       fromColumn = endpointColumn(projection, config.getValidFromPath());
@@ -488,6 +488,8 @@ public final class TemporalAggregateIndexes {
       unsupported = header.unsupportedRows();
     }
 
+    // Identity is the fast path before comparing the primitive lanes.
+    @SuppressWarnings("ReferenceEquality")
     private void change(final @Nullable Row previous, final @Nullable Row next) {
       if (previous == next || (previous != null && previous.same(next))) {
         return;

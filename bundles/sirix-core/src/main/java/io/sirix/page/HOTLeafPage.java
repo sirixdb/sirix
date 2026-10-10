@@ -993,9 +993,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Fill one missing opaque-slot entry during read reconstruction. The private result's routing
-   * index would be invalidated by every inserted entry; binary search avoids repeatedly building it,
-   * and the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
+   * Fill one missing opaque-slot entry during read reconstruction. The private result's routing index
+   * would be invalidated by every inserted entry; binary search avoids repeatedly building it, and
+   * the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
    * order and dirty-bit shifts are exactly the ordinary insertion path's operations. An existing
    * entry, including a zero-length tombstone, always wins over the older fragment.
    */
@@ -3113,9 +3113,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is already
-   * present. Used by the split machinery for index types whose values are opaque byte payloads
-   * rather than mergeable NodeReferences bitmaps; {@link IndexType#hasOpaqueValues()} owns that
-   * policy.
+   * present. Used by the split machinery for index types whose values are opaque byte payloads rather
+   * than mergeable NodeReferences bitmaps; {@link IndexType#hasOpaqueValues()} owns that policy.
    *
    * <p>
    * Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and shrinkage are

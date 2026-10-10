@@ -41,7 +41,6 @@ public final class ProjectionChangeLog implements AutoCloseable {
 
   private final StorageEngineWriter writer;
   private final ProjectionIndexMetadata metadata;
-  private final int projection;
   private final ChangeLogStorage storage;
   private final LongSet dirty;
   private final Long2ObjectOpenHashMap<long[]> changed;
@@ -53,7 +52,6 @@ public final class ProjectionChangeLog implements AutoCloseable {
   ProjectionChangeLog(final StorageEngineWriter writer, final int projection, final ProjectionIndexMetadata metadata,
       final LongSet dirty, final Long2ObjectOpenHashMap<long[]> changed, final Long2ObjectOpenHashMap<Entry> entries) {
     this.writer = writer;
-    this.projection = projection;
     this.metadata = metadata;
     this.dirty = dirty;
     this.changed = changed;
@@ -98,7 +96,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
           // A direct object field proves an object only for direct array-element declarations.
           // Other roots retain one initial kind check; maintenance never opens a historical reader.
           final boolean object =
-              direct && present || writer.getRecord(record, IndexType.DOCUMENT, -1).getKind() == NodeKind.OBJECT;
+              (direct && present) || writer.getRecord(record, IndexType.DOCUMENT, -1).getKind() == NodeKind.OBJECT;
           if (poisoned || !object) {
             if (!extractor.extractInto(transaction, record)) {
               throw new IllegalStateException("Missing change-log baseline record");
@@ -199,26 +197,29 @@ public final class ProjectionChangeLog implements AutoCloseable {
         switch (kinds[column]) {
           case ChangeLogSlab.STRING -> {
             if (slice.hasStringDictIds()) {
-              captured.text[column] = slice.dictString(slice.stringDictIds()[row]);
+              captured.text[column] = slice.dictString(Objects.requireNonNull(slice.stringDictIds())[row]);
             } else {
-              captured.text[column] = globalString(metadata.columnKinds()[column], column, slice.numericValues()[row]);
+              captured.text[column] = globalString(metadata.columnKinds()[column], column,
+                  Objects.requireNonNull(slice.numericValues())[row]);
             }
           }
           case ChangeLogSlab.STRING_SET -> {
+            final int[] counts = Objects.requireNonNull(slice.setCounts());
             int offset = 0;
             for (int prior = 0; prior < row; prior++) {
-              offset += slice.setCounts()[prior];
+              offset += counts[prior];
             }
-            final String[] values = new String[slice.setCounts()[row]];
+            final String[] values = new String[counts[row]];
             for (int i = 0; i < values.length; i++) {
-              values[i] = slice.dictString(slice.stringDictIds()[offset + i]);
+              values[i] = slice.dictString(Objects.requireNonNull(slice.stringDictIds())[offset + i]);
             }
             captured.text[column] = values;
           }
-          case ChangeLogSlab.BOOLEAN -> captured.numbers[column] = (slice.boolWords()[row >>> 6] & (1L << row)) == 0
-              ? 0
-              : 1;
-          default -> captured.numbers[column] = slice.numericValues()[row];
+          case ChangeLogSlab.BOOLEAN ->
+            captured.numbers[column] = (Objects.requireNonNull(slice.boolWords())[row >>> 6] & (1L << row)) == 0
+                ? 0
+                : 1;
+          default -> captured.numbers[column] = Objects.requireNonNull(slice.numericValues())[row];
         }
       }
       before(record, captured);
@@ -279,7 +280,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
     }
     entries.put(record, new Entry(record, mask, prior.before(), next));
     advanced = true;
-    if (next.exceptional() || prior.after() != null && prior.after().exceptional()) {
+    if (next.exceptional() || (prior.after() != null && prior.after().exceptional())) {
       storage.provenance(record, next);
     }
   }

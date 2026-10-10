@@ -79,12 +79,14 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
   }
 
+  // Defensive accessors own the primitive arrays; this carrier is not a value-equality key.
+  @SuppressWarnings("ArrayRecordComponent")
   public record GroupHead(long rows, int checkpointTier, long[] parts, byte[] tiers) {
     public GroupHead {
       Objects.requireNonNull(parts);
       Objects.requireNonNull(tiers);
-      if (rows < 0 || checkpointTier < 1 || checkpointTier > TemporalAggregateParts.MAX_TIERS
-          || parts.length == 0 || parts.length > TemporalAggregateParts.MAX_PARTS || tiers.length != parts.length
+      if (rows < 0 || checkpointTier < 1 || checkpointTier > TemporalAggregateParts.MAX_TIERS || parts.length == 0
+          || parts.length > TemporalAggregateParts.MAX_PARTS || tiers.length != parts.length
           || tiers[0] != checkpointTier) {
         throw new IllegalArgumentException("Invalid temporal aggregate group head");
       }
@@ -92,8 +94,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
       tiers = tiers.clone();
       final int[] counts = new int[checkpointTier];
       for (int index = 0; index < parts.length; index++) {
-        if (parts[index] < 1 || index > 0 && (tiers[index] < 0 || tiers[index] >= checkpointTier
-            || ++counts[tiers[index]] >= TemporalAggregateParts.FAN_IN)) {
+        if (parts[index] < 1 || (index > 0 && (tiers[index] < 0 || tiers[index] >= checkpointTier
+            || ++counts[tiers[index]] >= TemporalAggregateParts.FAN_IN))) {
           throw new IllegalArgumentException("Invalid temporal aggregate part id/tier");
         }
       }

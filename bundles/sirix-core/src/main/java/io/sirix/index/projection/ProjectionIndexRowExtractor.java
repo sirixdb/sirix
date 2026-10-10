@@ -21,6 +21,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -415,7 +416,7 @@ public final class ProjectionIndexRowExtractor {
   /**
    * Snapshot the current extraction without navigating or decoding the persisted projection again.
    */
-  Row captureChangeRow(final boolean object, final Row previous, final long[] selected) {
+  Row captureChangeRow(final boolean object, final @Nullable Row previous, final long @Nullable [] selected) {
     final Row row = new Row(object, columnKinds.length);
     if (previous != null && selected != null) {
       System.arraycopy(previous.flags, 0, row.flags, 0, columnKinds.length);

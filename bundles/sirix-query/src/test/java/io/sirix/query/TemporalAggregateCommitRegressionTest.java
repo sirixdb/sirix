@@ -35,8 +35,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.stream.Collectors;
@@ -55,32 +57,46 @@ final class TemporalAggregateCommitRegressionTest {
 
   static Stream<Arguments> ddlCases() {
     return Stream.of("create", "aggregate-one", "aggregate-all", "projection-one", "projection-all")
-        .flatMap(action -> Stream.of(false, true).flatMap(owned -> IntStream.rangeClosed(1, 3)
-            .mapToObj(signature -> Arguments.of(action, owned, signature))));
+                 .flatMap(
+                     action -> Stream.of(false, true)
+                                     .flatMap(
+                                         owned -> IntStream.rangeClosed(1, 3)
+                                                           .mapToObj(
+                                                               signature -> Arguments.of(action, owned, signature))));
   }
 
   static Stream<Arguments> sequenceCases() {
     return Stream.of("create-create", "drop-drop", "drop-all", "create-drop-one", "create-drop-all",
-        "create-cascade-one", "create-cascade-all", "drop-cascade-one", "drop-cascade-all",
-        "failed-create", "failed-aggregate-drop", "failed-projection-drop-one", "failed-projection-drop-all")
-        .flatMap(action -> Stream.of(false, true).flatMap(owned -> IntStream.rangeClosed(1, 3)
-            .mapToObj(signature -> Arguments.of(action, owned, signature))));
+        "create-cascade-one", "create-cascade-all", "drop-cascade-one", "drop-cascade-all", "failed-create",
+        "failed-aggregate-drop", "failed-projection-drop-one", "failed-projection-drop-all")
+                 .flatMap(
+                     action -> Stream.of(false, true)
+                                     .flatMap(
+                                         owned -> IntStream.rangeClosed(1, 3)
+                                                           .mapToObj(
+                                                               signature -> Arguments.of(action, owned, signature))));
   }
 
   @ParameterizedTest
   @MethodSource("sequenceCases")
-  void historicalDdlSequencesShareTheCurrentWriter(final String action, final boolean callerOwned,
-      final int signature) throws Exception {
-    final boolean seeded = action.startsWith("drop") || action.startsWith("failed-aggregate")
-        || action.startsWith("failed-projection");
-    final long first = build(seeded ? List.of(List.of("count(*)", "sum(n)"), List.of("min(n)")) : List.of());
+  void historicalDdlSequencesShareTheCurrentWriter(final String action, final boolean callerOwned, final int signature)
+      throws Exception {
+    final boolean seeded =
+        action.startsWith("drop") || action.startsWith("failed-aggregate") || action.startsWith("failed-projection");
+    final long first = build(seeded
+        ? List.of(List.of("count(*)", "sum(n)"), List.of("min(n)"))
+        : List.of());
     Set<Integer> aggregateIds;
     Set<Integer> projectionIds = Set.of(0);
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records")) {
-      final JsonNodeTrx existing = callerOwned ? session.beginNodeTrx() : null;
+      final JsonNodeTrx existing = callerOwned
+          ? session.beginNodeTrx()
+          : null;
       if (existing != null) {
         number(existing, first, 99);
       }
@@ -105,12 +121,15 @@ final class TemporalAggregateCommitRegressionTest {
           aggregateIds = Set.of(0, 1);
         }
         case "drop-drop", "drop-all" -> {
-          run(chain, context, "jn:drop-temporal-aggregate-index(" + document
-              + (action.equals("drop-drop") ? ",1" : "") + ")");
+          run(chain, context, "jn:drop-temporal-aggregate-index(" + document + (action.equals("drop-drop")
+              ? ",1"
+              : "") + ")");
           aggregateIds = Set.of();
         }
         case "create-drop-one", "create-drop-all" -> {
-          run(chain, context, "jn:drop-temporal-aggregate-index(" + document + (action.endsWith("one") ? ",0" : "") + ")");
+          run(chain, context, "jn:drop-temporal-aggregate-index(" + document + (action.endsWith("one")
+              ? ",0"
+              : "") + ")");
           assertEquals(Set.of(), ids(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes(),
               IndexType.TEMPORAL_AGGREGATE));
           run(chain, context, create(document, "sum(n)"));
@@ -132,7 +151,8 @@ final class TemporalAggregateCommitRegressionTest {
         }
         case "failed-aggregate-drop" -> {
           final long sequence = writer.getMutationSequence();
-          assertThrows(Exception.class, () -> run(chain, context, "jn:drop-temporal-aggregate-index(" + document + ",0)"));
+          assertThrows(Exception.class,
+              () -> run(chain, context, "jn:drop-temporal-aggregate-index(" + document + ",0)"));
           assertEquals(sequence, writer.getMutationSequence());
           aggregateIds = Set.of(1);
         }
@@ -157,14 +177,18 @@ final class TemporalAggregateCommitRegressionTest {
       assertSame(writer, session.getNodeTrx().orElseThrow());
       writer.close();
     }
-    assertColdHistory(first, seeded ? Set.of(0, 1) : Set.of(), aggregateIds, projectionIds);
+    assertColdHistory(first, seeded
+        ? Set.of(0, 1)
+        : Set.of(), aggregateIds, projectionIds);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   void currentProjectionReadinessRejectsASecondDdlWithoutDiscardingTheFirst(final boolean missing) throws Exception {
     final long first = build(true);
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records");
@@ -174,7 +198,9 @@ final class TemporalAggregateCommitRegressionTest {
       number(writer, first, 7);
       final byte[] ready = ProjectionIndexHOTStorage.readMetadataBlob(writer.getStorageEngineWriter(), 0);
       new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT,
-          missing ? new byte[0] : ProjectionIndexMetadata.staleTombstone().serialize());
+          missing
+              ? new byte[0]
+              : ProjectionIndexMetadata.staleTombstone().serialize());
       final byte[] unready = ProjectionIndexHOTStorage.readMetadataBlob(writer.getStorageEngineWriter(), 0);
       final long sequence = writer.getMutationSequence();
       for (final String operand : List.of("sum(n)", "max(n)")) {
@@ -184,11 +210,12 @@ final class TemporalAggregateCommitRegressionTest {
         assertEquals(1, writer.getStorageEngineWriter().getRevisionToRepresent());
         assertNumber(writer, first, 7);
         assertArrayEquals(unready, ProjectionIndexHOTStorage.readMetadataBlob(writer.getStorageEngineWriter(), 0));
-        assertEquals(Set.of(0, 1), ids(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes(),
-            IndexType.TEMPORAL_AGGREGATE));
+        assertEquals(Set.of(0, 1),
+            ids(session.getWtxIndexController(writer.getRevisionNumber()).getIndexes(), IndexType.TEMPORAL_AGGREGATE));
         writer.getStorageEngineWriter().assertTransactionWritable();
       }
-      new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT, ready);
+      new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT,
+          Objects.requireNonNull(ready));
       assertEquals("3", run(chain, context, commit(document, 3)));
     }
     assertColdHistory(first, Set.of(0), Set.of(0, 1), Set.of(0));
@@ -198,7 +225,9 @@ final class TemporalAggregateCommitRegressionTest {
   @ValueSource(booleans = {true, false})
   void projectionDropsSeePendingDeclarationsAndCascadeOnlyTheirDependents(final boolean withId) throws Exception {
     final long first = build(false);
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records");
@@ -206,30 +235,48 @@ final class TemporalAggregateCommitRegressionTest {
       final String document = "jn:doc('lineage','records',1)";
       run(chain, context, create(document, "sum(n)"));
       number(writer, first, 7);
-      final List<Path<QNm>> fields = List.of("g", "n", "lo", "hi", "extra").stream()
-          .map(field -> Path.<QNm>parse("/[]/" + field, PathParser.Type.JSON)).toList();
+      final List<Path<QNm>> fields = List.of("g", "n", "lo", "hi", "extra")
+                                         .stream()
+                                         .map(field -> Path.parse("/[]/" + field, PathParser.Type.JSON))
+                                         .toList();
       final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fields,
           List.of(Type.LON, Type.LON, Type.STR, Type.STR, Type.LON), 1, IndexDef.DbType.JSON);
       final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
       controller.createIndexes(Set.of(projection), writer);
       run(chain, context, "jn:create-temporal-aggregate-index(" + document + ",'/[]','extra','sum(n)')");
-      assertEquals(1, controller.getIndexes().getIndexDef(1, IndexType.TEMPORAL_AGGREGATE)
-          .getTemporalAggregateSpec().projectionId());
-      run(chain, context, "jn:drop-projection-index(" + document + (withId ? ",1" : "") + ")");
+      assertEquals(1,
+          controller.getIndexes()
+                    .getIndexDef(1, IndexType.TEMPORAL_AGGREGATE)
+                    .getTemporalAggregateSpec()
+                    .projectionId());
+      run(chain, context, "jn:drop-projection-index(" + document + (withId
+          ? ",1"
+          : "") + ")");
       assertSame(writer, session.getNodeTrx().orElseThrow());
       assertEquals(1, writer.getStorageEngineWriter().getRevisionToRepresent());
       assertNumber(writer, first, 7);
-      assertEquals(withId ? Set.of(0) : Set.of(), ids(controller.getIndexes(), IndexType.PROJECTION));
-      assertEquals(withId ? Set.of(0) : Set.of(), ids(controller.getIndexes(), IndexType.TEMPORAL_AGGREGATE));
+      assertEquals(withId
+          ? Set.of(0)
+          : Set.of(), ids(controller.getIndexes(), IndexType.PROJECTION));
+      assertEquals(withId
+          ? Set.of(0)
+          : Set.of(), ids(controller.getIndexes(), IndexType.TEMPORAL_AGGREGATE));
       assertEquals("3", run(chain, context, commit(document, 3)));
     }
-    assertColdHistory(first, Set.of(), withId ? Set.of(0) : Set.of(), withId ? Set.of(0) : Set.of());
+    assertColdHistory(first, Set.of(), withId
+        ? Set.of(0)
+        : Set.of(),
+        withId
+            ? Set.of(0)
+            : Set.of());
   }
 
   private void assertColdHistory(final long first, final Set<Integer> originalAggregates,
       final Set<Integer> aggregateIds, final Set<Integer> projectionIds) throws Exception {
     Databases.clearGlobalCaches();
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
@@ -237,9 +284,15 @@ final class TemporalAggregateCommitRegressionTest {
       assertEquals(3, session.getMostRecentRevisionNumber());
       for (int revision = 1; revision <= 3; revision++) {
         final var indexes = session.getRtxIndexController(revision).getIndexes();
-        assertEquals(revision == 3 ? aggregateIds : originalAggregates, ids(indexes, IndexType.TEMPORAL_AGGREGATE));
-        assertEquals(revision == 3 ? projectionIds : Set.of(0), ids(indexes, IndexType.PROJECTION));
-        final int value = revision == 3 ? 7 : revision;
+        assertEquals(revision == 3
+            ? aggregateIds
+            : originalAggregates, ids(indexes, IndexType.TEMPORAL_AGGREGATE));
+        assertEquals(revision == 3
+            ? projectionIds
+            : Set.of(0), ids(indexes, IndexType.PROJECTION));
+        final int value = revision == 3
+            ? 7
+            : revision;
         final String expected = "{\"g\":1,\"count\":1,\"sum\":" + value + "}";
         assertEquals(expected, run(oracle, context, grouped(revision)));
         assertEquals(expected, run(chain, context, grouped(revision)));
@@ -258,8 +311,11 @@ final class TemporalAggregateCommitRegressionTest {
   }
 
   private static Set<Integer> ids(final Indexes indexes, final IndexType type) {
-    return indexes.getIndexDefs().stream().filter(definition -> definition.getType() == type)
-        .map(IndexDef::getID).collect(Collectors.toSet());
+    return indexes.getIndexDefs()
+                  .stream()
+                  .filter(definition -> definition.getType() == type)
+                  .map(IndexDef::getID)
+                  .collect(Collectors.toSet());
   }
 
   private static String create(final String document, final String operand) {
@@ -267,7 +323,9 @@ final class TemporalAggregateCommitRegressionTest {
   }
 
   private static String projectionDrop(final String document, final boolean withId) {
-    return "jn:drop-projection-index(" + document + (withId ? ",0" : "") + ")";
+    return "jn:drop-projection-index(" + document + (withId
+        ? ",0"
+        : "") + ")";
   }
 
   private static void assertNumber(final JsonNodeTrx writer, final long first, final int expected) {
@@ -280,15 +338,21 @@ final class TemporalAggregateCommitRegressionTest {
 
   @ParameterizedTest
   @MethodSource("ddlCases")
-  void historicalDdlSurvivesCommitAndColdReopen(final String action, final boolean callerOwned,
-      final int signature) throws Exception {
+  void historicalDdlSurvivesCommitAndColdReopen(final String action, final boolean callerOwned, final int signature)
+      throws Exception {
     final long first = build(!action.equals("create"));
-    final int value = action.equals("create") ? 7 : 1;
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    final int value = action.equals("create")
+        ? 7
+        : 1;
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records")) {
-      final JsonNodeTrx existing = callerOwned ? session.beginNodeTrx() : null;
+      final JsonNodeTrx existing = callerOwned
+          ? session.beginNodeTrx()
+          : null;
       try {
         if (existing != null) {
           number(existing, first, 99);
@@ -303,8 +367,12 @@ final class TemporalAggregateCommitRegressionTest {
           number(writer, first, value);
           argument = document;
         } else {
-          final String function = action.startsWith("aggregate") ? "temporal-aggregate" : "projection";
-          argument = "jn:drop-" + function + "-index(" + document + (action.endsWith("one") ? ",0" : "") + ")";
+          final String function = action.startsWith("aggregate")
+              ? "temporal-aggregate"
+              : "projection";
+          argument = "jn:drop-" + function + "-index(" + document + (action.endsWith("one")
+              ? ",0"
+              : "") + ")";
         }
         assertEquals("3", run(chain, context, commit(argument, signature)));
         final JsonNodeTrx writer = session.getNodeTrx().orElseThrow();
@@ -328,7 +396,9 @@ final class TemporalAggregateCommitRegressionTest {
       }
     }
     Databases.clearGlobalCaches();
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
@@ -337,12 +407,21 @@ final class TemporalAggregateCommitRegressionTest {
       for (int revision = 1; revision <= 3; revision++) {
         final boolean latest = revision == 3;
         final var indexes = session.getRtxIndexController(revision).getIndexes();
-        assertEquals(latest && action.startsWith("projection") ? 0 : 1,
-            indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION));
-        assertEquals(latest ? (action.equals("create") ? 1 : 0) : (action.equals("create") ? 0 : 1),
+        assertEquals(latest && action.startsWith("projection")
+            ? 0
+            : 1, indexes.getNrOfIndexDefsWithType(IndexType.PROJECTION));
+        assertEquals(latest
+            ? (action.equals("create")
+                ? 1
+                : 0)
+            : (action.equals("create")
+                ? 0
+                : 1),
             indexes.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
         final String query = grouped(revision);
-        final int expected = latest ? value : revision;
+        final int expected = latest
+            ? value
+            : revision;
         final String result = "{\"g\":1,\"count\":1,\"sum\":" + expected + "}";
         assertEquals(result, run(oracle, context, query));
         assertEquals(result, run(chain, context, query));
@@ -354,7 +433,9 @@ final class TemporalAggregateCommitRegressionTest {
   @ValueSource(booleans = {true, false})
   void ordinaryCommitOnlyRevertsADifferentRepresentedRevision(final boolean alreadyBased) throws Exception {
     final long first = build(true);
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records");
@@ -365,15 +446,18 @@ final class TemporalAggregateCommitRegressionTest {
       number(writer, first, 7);
       assertEquals("3", run(chain, context, commit("jn:doc('lineage','records',1)", 1)));
       assertSame(writer, session.getNodeTrx().orElseThrow());
-      assertEquals("{\"g\":1,\"count\":1,\"sum\":" + (alreadyBased ? 7 : 1) + "}",
-          run(chain, context, grouped(3)));
+      assertEquals("{\"g\":1,\"count\":1,\"sum\":" + (alreadyBased
+          ? 7
+          : 1) + "}", run(chain, context, grouped(3)));
     }
   }
 
   @Test
   void commitThroughAWriterDocumentRetainsOrdinaryEdits() throws Exception {
     final long first = build(true);
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records");
@@ -389,15 +473,21 @@ final class TemporalAggregateCommitRegressionTest {
   }
 
   private long build(final boolean aggregate) {
-    return build(aggregate ? List.of(List.of("count(*)", "sum(n)")) : List.of());
+    return build(aggregate
+        ? List.of(List.of("count(*)", "sum(n)"))
+        : List.of());
   }
 
   private long build(final List<List<String>> declarations) {
     final var path = directory.toPath().resolve("lineage");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
-          .storageType(StorageType.FILE_CHANNEL).customCommitTimestamps(true).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .validTimePaths("lo", "hi")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .customCommitTimestamps(true)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
@@ -408,8 +498,10 @@ final class TemporalAggregateCommitRegressionTest {
         writer.moveToFirstChild();
         final long first = writer.getNodeKey();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, "lineage");
-        final List<Path<QNm>> fields = List.of("g", "n", "lo", "hi").stream()
-            .map(field -> Path.<QNm>parse("/[]/" + field, PathParser.Type.JSON)).toList();
+        final List<Path<QNm>> fields = List.of("g", "n", "lo", "hi")
+                                           .stream()
+                                           .map(field -> Path.parse("/[]/" + field, PathParser.Type.JSON))
+                                           .toList();
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fields,
             List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
         final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
@@ -434,8 +526,13 @@ final class TemporalAggregateCommitRegressionTest {
   }
 
   private static String commit(final String document, final int signature) {
-    return "sdb:commit(" + document + (signature > 1 ? ",'historical DDL'" : "")
-        + (signature == 3 ? ",xs:dateTime('2024-03-15T00:00:00Z')" : "") + ")";
+    return "sdb:commit(" + document + (signature > 1
+        ? ",'historical DDL'"
+        : "")
+        + (signature == 3
+            ? ",xs:dateTime('2024-03-15T00:00:00Z')"
+            : "")
+        + ")";
   }
 
   private static String grouped(final int revision) {
@@ -448,10 +545,11 @@ final class TemporalAggregateCommitRegressionTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String query)
       throws Exception {
-    try (ByteArrayOutputStream output = new ByteArrayOutputStream(); PrintWriter writer = new PrintWriter(output)) {
+    try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+        PrintWriter writer = new PrintWriter(output, false, StandardCharsets.UTF_8)) {
       new Query(chain, query).serialize(context, writer);
       writer.flush();
-      return output.toString().trim().replaceAll("\\s+", "");
+      return output.toString(StandardCharsets.UTF_8).trim().replaceAll("\\s+", "");
     }
   }
 }

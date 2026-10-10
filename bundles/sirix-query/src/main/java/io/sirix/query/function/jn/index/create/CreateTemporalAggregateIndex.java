@@ -70,8 +70,8 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
         transaction.revertTo(revision);
       }
       final JsonIndexController controller = session.getWtxIndexController(transaction.getRevisionNumber());
-      final Sequence result = TemporalAggregateDeclarations.declare(controller, transaction,
-          root, groups, aggregates).materialize();
+      final Sequence result =
+          TemporalAggregateDeclarations.declare(controller, transaction, root, groups, aggregates).materialize();
       succeeded = true;
       return result;
     } finally {
