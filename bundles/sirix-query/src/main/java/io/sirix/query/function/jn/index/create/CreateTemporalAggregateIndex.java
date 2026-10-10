@@ -17,6 +17,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.query.json.JsonDBItem;
 
 import java.util.ArrayList;
@@ -28,6 +29,11 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
 
   public CreateTemporalAggregateIndex(final Signature signature) {
     super(NAME, signature, true);
+  }
+
+  @Override
+  public boolean isUpdating() {
+    return true;
   }
 
   @Override
@@ -48,6 +54,9 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
     final List<String> aggregates = strings(arguments[3]);
     final TemporalAggregateSpec spec = TemporalAggregateDeclarations.resolve(indexes,
         session.getResourceConfig().getValidTimeConfig(), root, groups, aggregates);
+    ProjectionIndexMetadata.requireReady(!historical && existing.isPresent()
+        ? existing.get().getStorageEngineWriter()
+        : document.getTrx().getStorageEngineReader(), spec.projectionId());
     final IndexDef declared = TemporalAggregateDeclarations.find(indexes, spec);
     if (declared != null) {
       return declared.materialize();

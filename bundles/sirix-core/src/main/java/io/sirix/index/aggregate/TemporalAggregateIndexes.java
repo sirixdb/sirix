@@ -17,7 +17,6 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import io.sirix.index.projection.ProjectionAggregateRows;
-import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -66,9 +65,10 @@ public final class TemporalAggregateIndexes {
     final JsonResourceSession session = (JsonResourceSession) writer.getResourceSession();
     final ValidTimeConfig config = Objects.requireNonNull(session.getResourceConfig().getValidTimeConfig());
     validate(definition, projection, config);
+    final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.requireReady(writer, projection.getID());
     try {
       listener(writer, projection.getID()).initializeChangeLog();
-      buildColumns(writer, definition, projection, config);
+      buildColumns(writer, definition, projection, config, metadata);
     } catch (final RuntimeException | Error failure) {
       writer.markTransactionRollbackOnly(failure);
       throw failure;
@@ -261,13 +261,7 @@ public final class TemporalAggregateIndexes {
   }
 
   private static void buildColumns(final StorageEngineWriter writer, final IndexDef definition,
-      final IndexDef projection, final ValidTimeConfig config) {
-    final ProjectionIndexMetadata metadata = Objects.requireNonNull(
-        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(writer, projection.getID())),
-        "Missing covering projection");
-    if (metadata.isStale()) {
-      throw new IllegalStateException("Cannot maintain a temporal aggregate from a stale projection");
-    }
+      final IndexDef projection, final ValidTimeConfig config, final ProjectionIndexMetadata metadata) {
     try (TemporalAggregateStorage storage = new TemporalAggregateStorage(writer, definition.getID())) {
       final byte[] prior = storage.reader().get(TemporalAggregateStorage.HEADER);
       if (prior != null) {

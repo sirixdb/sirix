@@ -27,8 +27,10 @@ import io.sirix.index.aggregate.TemporalAggregateDomain;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.node.json.ArrayNode;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
@@ -80,6 +82,11 @@ public final class TemporalAggregateRoute {
     final Indexes indexes =
         document.getResourceSession().getRtxIndexController(reader.getRevisionNumber()).getIndexes();
     if (indexes.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0) {
+      return null;
+    }
+    if (!(document instanceof JsonDBArray)
+        || !(reader.getRecord(document.getNodeKey(), IndexType.DOCUMENT, -1) instanceof ArrayNode array)
+        || array.getParentKey() != 0) {
       return null;
     }
     if (!DomainHolder.DOMAIN.isExact(point.instant())) {

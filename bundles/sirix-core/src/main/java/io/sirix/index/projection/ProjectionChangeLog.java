@@ -77,8 +77,7 @@ public final class ProjectionChangeLog implements AutoCloseable {
   /** Bootstrap only sparse row-local flags. Ordinary rows remain solely in the projection columns. */
   public static void initialize(final StorageEngineWriter writer, final IndexDef projection,
       final PathSummaryReader paths, final JsonNodeReadOnlyTrx transaction) {
-    final ProjectionIndexMetadata metadata = Objects.requireNonNull(
-        ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(writer, projection.getID())));
+    final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.requireReady(writer, projection.getID());
     try (ChangeLogStorage storage = new ChangeLogStorage(writer, projection.getID())) {
       storage.clearProvenance();
       storage.initialize(writer.getRevisionNumber(), kinds(metadata.columnKinds()));

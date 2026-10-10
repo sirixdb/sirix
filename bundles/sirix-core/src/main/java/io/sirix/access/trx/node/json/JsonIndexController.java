@@ -134,12 +134,19 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
             "Create the covering projection before its temporal aggregate index");
         TemporalAggregateIndexes.validate(indexDef, projection,
             nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig());
+        ProjectionIndexMetadata.requireReady(nodeWriteTrx.getStorageEngineWriter(), projection.getID());
       }
     }
     if (indexDefs.stream().anyMatch(IndexDef::isTemporalAggregateIndex)) {
       // Publish existing projection deltas before registering the new dependent definition.
       // Its initial build must see the transaction's current rows, not the last maintenance epoch.
       applyPendingIndexMaintenance();
+      for (final IndexDef indexDef : indexDefs) {
+        if (indexDef.isTemporalAggregateIndex()) {
+          ProjectionIndexMetadata.requireReady(nodeWriteTrx.getStorageEngineWriter(),
+              indexDef.getTemporalAggregateSpec().projectionId());
+        }
+      }
     }
     // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
     // shared document traversal.

@@ -8,6 +8,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.Indexes;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import org.jspecify.annotations.Nullable;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 
@@ -27,12 +28,13 @@ public final class TemporalAggregateDeclarations {
     final Indexes indexes = controller.getIndexes();
     final TemporalAggregateSpec spec = resolve(indexes,
         transaction.getResourceSession().getResourceConfig().getValidTimeConfig(), root, groups, aggregates);
+    final StorageEngineWriter writer = transaction.getStorageEngineWriter();
+    ProjectionIndexMetadata.requireReady(writer, spec.projectionId());
     final IndexDef existing = find(indexes, spec);
     if (existing != null) {
       return existing;
     }
     final IndexDef projection = indexes.getIndexDef(spec.projectionId(), IndexType.PROJECTION);
-    final StorageEngineWriter writer = transaction.getStorageEngineWriter();
     final int id = writer.getTemporalAggregateIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
     final IndexDef definition = IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, id);
     controller.createIndexes(Set.of(definition), transaction);

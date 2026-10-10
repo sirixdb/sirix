@@ -71,8 +71,6 @@ class PermissionCheckingQuery {
     private fun run(ctx: QueryContext, lazy: Boolean): Sequence? {
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
-        val result = body.evaluate(ctx, TupleImpl())
-
         if (body.isUpdating) {
             // val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
@@ -84,6 +82,8 @@ class PermissionCheckingQuery {
                 }
             }
         }
+
+        val result = body.evaluate(ctx, TupleImpl())
 
         if (!lazy || body.isUpdating) {
             // iterate possibly lazy result sequence to "pull-in" all pending updates

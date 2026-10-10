@@ -8,6 +8,7 @@ import io.brackit.query.util.path.PathParser;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -15,7 +16,10 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.io.StorageType;
 import io.sirix.query.compiler.translator.TemporalAggregateRoute;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -23,6 +27,7 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -38,8 +43,10 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -47,6 +54,179 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class TemporalAggregateRegressionTest {
   @TempDir
   File directory;
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void rootObjectReplacementDeclinesOrdinaryAndCorrelatedAggregates(final VersioningType versioning) throws Exception {
+    final var databasePath = directory.toPath().resolve("shape");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("instants").storageType(StorageType.FILE_CHANNEL).build());
+      try (JsonResourceSession session = database.beginResourceSession("instants");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"day":1,"ts":"2024-01-02T00:00:00Z"},{"day":2,"ts":"2024-01-03T00:00:00Z"}]
+            """));
+      }
+      database.createResource(ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
+          .storageType(StorageType.FILE_CHANNEL).customCommitTimestamps(true).versioningApproach(versioning)
+          .maxNumberOfRevisionsToRestore(3).storeDiffs(false).build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"g":1,"n":7,"lo":"2024-01-01T00:00:00Z","hi":"2024-01-06T00:00:00Z"},
+             {"g":1,"n":11,"lo":"2024-01-01T00:00:00Z","hi":"2024-01-06T00:00:00Z"}]
+            """), JsonNodeTrx.Commit.NO);
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, "shape");
+        projection(session, writer, List.of("g", "n", "lo", "hi"));
+        TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer,
+            "/[]", List.of("g"), List.of("count(*)", "sum(n)"));
+        writer.commit("array", Instant.parse("2024-01-15T00:00:00Z"));
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.remove();
+        writer.moveToDocumentRoot();
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            {"g":9,"n":41,"lo":"2024-01-01T00:00:00Z","hi":"2024-01-06T00:00:00Z"}
+            """), JsonNodeTrx.Commit.NO);
+        writer.commit("object", Instant.parse("2024-02-15T00:00:00Z"));
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final List<Executable> checks = new ArrayList<>();
+      for (final boolean object : new boolean[] {false, true}) {
+        for (final boolean correlated : new boolean[] {false, true}) {
+          final String source = "jn:open-bitemporal('shape','records',xs:dateTime('2024-0" + (object ? 2 : 1)
+              + "-20T00:00:00Z')," + (correlated ? "xs:dateTime($d.ts)" : "xs:dateTime('2024-01-02T00:00:00Z')") + ")";
+          final String query = (correlated ? "for $d in jn:doc('shape','instants')[] " : "")
+              + "for $r in SOURCE let " + (correlated ? "$day := $d.day, " : "") + "$g := $r.g group by "
+              + (correlated ? "$day,$g" : "$g") + " let $count := count($r), $sum := sum($r.n) order by "
+              + (correlated ? "$day,$g" : "$g") + " return {" + (correlated ? "\"day\":$day," : "")
+              + "\"g\":$g,\"n\":$count,\"sum\":$sum}";
+          final String values = object ? "\"g\":9,\"n\":1,\"sum\":41}" : "\"g\":1,\"n\":2,\"sum\":18}";
+          final String expected = correlated ? "{\"day\":1," + values + "{\"day\":2," + values : "{" + values;
+          checks.add(() -> {
+            assertEquals(expected, run(oracle, context, query.replace("SOURCE", source)).replaceAll("\\s+", ""));
+            assertRoute(chain, oracle, context, query, source, object ? 0 : correlated ? 2 : 1);
+          });
+        }
+      }
+      assertAll(checks);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void unreadyHistoricalProjectionPreservesCallerOwnedEdits(final boolean missing) throws Exception {
+    final var databasePath = directory.toPath().resolve("readiness");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final long first;
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
+          .storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"g\":1,\"n\":1}]"), JsonNodeTrx.Commit.NO);
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        first = writer.getNodeKey();
+        projection(session, writer, List.of("g", "n", "lo", "hi"));
+        final byte[] ready = ProjectionIndexHOTStorage.readMetadataBlob(writer.getStorageEngineWriter(), 0);
+        unready(writer, missing);
+        writer.commit();
+        new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT, ready);
+        writer.commit();
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var collection = store.lookup("readiness");
+      try (JsonResourceSession session = collection.getDatabase().beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        field(writer, first, "n");
+        writer.setNumberValue(99);
+        final int represented = writer.getStorageEngineWriter().getRevisionToRepresent();
+        assertThrows(Exception.class, () -> run(chain, context,
+            "jn:create-temporal-aggregate-index(jn:doc('readiness','records',1),'/[]','g','sum(n)')"));
+        assertWriterUnchanged(session, writer, first, represented, 99);
+        assertNoAggregate(session, writer);
+        writer.commit();
+        try (var reader = session.beginNodeReadOnlyTrx()) {
+          reader.moveTo(first);
+          reader.moveToFirstChild();
+          reader.moveToRightSibling();
+          reader.moveToFirstChild();
+          assertEquals(99, reader.getNumberValue().intValue());
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true,declare", "false,declare", "true,controller", "false,controller", "true,build", "false,build"})
+  void javaCreationRejectsUnreadyMetadataBeforeSideEffects(final boolean missing, final String entry) throws Exception {
+    final var databasePath = directory.toPath().resolve("java-readiness");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
+          .storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"g\":1,\"n\":1}]"), JsonNodeTrx.Commit.NO);
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        final long first = writer.getNodeKey();
+        final IndexDef projection = projection(session, writer, List.of("g", "n", "lo", "hi"));
+        writer.commit();
+        field(writer, first, "n");
+        writer.setNumberValue(99);
+        final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
+        final var spec = TemporalAggregateDeclarations.resolve(controller.getIndexes(),
+            session.getResourceConfig().getValidTimeConfig(), "/[]", List.of("g"), List.of("sum(n)"));
+        final IndexDef definition = IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, 0);
+        final byte[] ready = ProjectionIndexHOTStorage.readMetadataBlob(writer.getStorageEngineWriter(), 0);
+        unready(writer, missing);
+        final int represented = writer.getStorageEngineWriter().getRevisionToRepresent();
+        assertThrows(Exception.class, () -> {
+          switch (entry) {
+            case "declare" -> TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"), List.of("sum(n)"));
+            case "controller" -> controller.createIndexes(Set.of(definition), writer);
+            case "build" -> TemporalAggregateIndexes.build(writer.getStorageEngineWriter(), definition, projection);
+            default -> throw new AssertionError(entry);
+          }
+        });
+        assertWriterUnchanged(session, writer, first, represented, 99);
+        assertNoAggregate(session, writer);
+        new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT, ready);
+        TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"), List.of("sum(n)"));
+        writer.commit();
+        assertEquals(1, session.getRtxIndexController(session.getMostRecentRevisionNumber()).getIndexes()
+            .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+      }
+    }
+  }
+
+  private static void unready(final JsonNodeTrx writer, final boolean missing) {
+    new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0).putBlob(ProjectionIndexHOTStorage.METADATA_SLOT,
+        missing ? new byte[0] : ProjectionIndexMetadata.staleTombstone().serialize());
+  }
+
+  private static void assertNoAggregate(final JsonResourceSession session, final JsonNodeTrx writer) {
+    assertEquals(0, session.getWtxIndexController(writer.getRevisionNumber()).getIndexes()
+        .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+    writer.getStorageEngineWriter().assertTransactionWritable();
+    try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), 0)) {
+      assertNull(storage.get(TemporalAggregateIndexes.headerKey()));
+    }
+  }
 
   @ParameterizedTest
   @CsvSource({"0,true", "0,false", "1,true", "1,false", "2,true", "2,false", "3,true", "3,false"})
