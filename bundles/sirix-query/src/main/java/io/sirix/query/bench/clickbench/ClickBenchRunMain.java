@@ -12,7 +12,7 @@ import com.sun.management.OperatingSystemMXBean;
 import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.projection.HeapHeadroom;
@@ -683,7 +683,7 @@ public final class ClickBenchRunMain {
     final Sequence result = new Query(chain, queryText).execute(ctx);
     final StringWriter out = new StringWriter(1 << 12);
     try (PrintWriter pw = new PrintWriter(out)) {
-      new StringSerializer(pw).serialize(result);
+      new SirixStringSerializer(pw).serialize(result);
     }
     return out.toString();
   }

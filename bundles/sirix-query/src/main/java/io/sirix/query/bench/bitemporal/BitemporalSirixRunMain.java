@@ -2,7 +2,7 @@ package io.sirix.query.bench.bitemporal;
 
 import io.brackit.query.Query;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.index.IndexDef;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -127,7 +127,7 @@ public final class BitemporalSirixRunMain {
     final Sequence result = new Query(chain, queryText).execute(context);
     final StringWriter output = new StringWriter(1 << 16);
     try (PrintWriter writer = new PrintWriter(output)) {
-      new StringSerializer(writer).serialize(result);
+      new SirixStringSerializer(writer).serialize(result);
     }
     return output.toString();
   }

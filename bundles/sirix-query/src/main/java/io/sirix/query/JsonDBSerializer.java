@@ -40,11 +40,10 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.serialize.StringValue;
 
-import java.io.ByteArrayOutputStream;
+import java.io.StringWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -60,6 +59,8 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
   private final boolean prettyPrint;
 
   private boolean first;
+
+  private ColumnarJsonWriter columnarWriter;
 
   private final Set<JsonNodeReadOnlyTrx> trxSet;
 
@@ -95,7 +96,20 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
             item = it.next();
           }
           while (item != null) {
-            if (item instanceof StructuredDBItem) {
+            if (columnarWriter == null && ColumnarJsonWriter.isBatchRecord(item)) {
+              columnarWriter = new ColumnarJsonWriter(out);
+            }
+            if (columnarWriter != null && columnarWriter.record(item)) {
+              item = it == null
+                  ? null
+                  : it.next();
+              if (item != null) {
+                columnarWriter.append(',');
+              }
+              if (item == null || !ColumnarJsonWriter.isBatchRecord(item)) {
+                columnarWriter.drain();
+              }
+            } else if (item instanceof StructuredDBItem) {
               final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
               trxSet.add(node.getTrx());
 
@@ -119,17 +133,26 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
               item = printCommaIfNextItemExists(it);
             } else if ((item instanceof Array) || (item instanceof Object)) {
-              try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+              if (columnarWriter != null) {
+                columnarWriter.drain();
+              }
+              try (final var out = new StringWriter(); final var printWriter = new PrintWriter(out)) {
                 new StringSerializer(printWriter).serialize(item);
-                this.out.append(out.toString(StandardCharsets.UTF_8));
+                this.out.append(out.toString());
               }
 
               item = printCommaIfNextItemExists(it);
             }
           }
         } finally {
-          if (it != null) {
-            it.close();
+          try {
+            if (columnarWriter != null) {
+              columnarWriter.drain();
+            }
+          } finally {
+            if (it != null) {
+              it.close();
+            }
           }
         }
 
