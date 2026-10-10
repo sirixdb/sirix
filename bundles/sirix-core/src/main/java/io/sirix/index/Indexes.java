@@ -84,6 +84,8 @@ public final class Indexes implements Materializable {
   }
 
   /**
+   * Returns the revision of the persisted catalogue file.
+   *
    * @return the revision of the catalogue file these definitions are persisted in, or
    *         {@link #NO_CATALOGUE_FILE}
    */
@@ -148,9 +150,9 @@ public final class Indexes implements Materializable {
 
   @SuppressWarnings("ReferenceEquality")
   private static boolean samePersistedState(final IndexDef left, final IndexDef right) {
-    return left == right || left.hasSameDefinition(right) && (!left.isCasIndex() || !left.getContentType().isNumeric()
-        || left.hasNumericValuesOnly() == right.hasNumericValuesOnly()
-            && left.hasCompleteNumericCoverage() == right.hasCompleteNumericCoverage());
+    return left == right || (left.hasSameDefinition(right) && (!left.isCasIndex() || !left.getContentType().isNumeric()
+        || (left.hasNumericValuesOnly() == right.hasNumericValuesOnly()
+            && left.hasCompleteNumericCoverage() == right.hasCompleteNumericCoverage())));
   }
 
   /**

@@ -125,8 +125,8 @@ final class WriterCatalogueHandoffTest {
           }
           trx.awaitPendingAsyncCommit();
           CATALOGUE_WORK.run(trx::commit)
-              .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
-                  "an unchanged final commit rewrote its async predecessor's catalogue");
+                        .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
+                            "an unchanged final commit rewrote its async predecessor's catalogue");
           assertEquals(retained.size(), pendingDefinitions.size(), "pending successor catalogue size");
           assertEquals(retained, pendingDefinitions);
           assertCatalogue(session.getWtxIndexController(trx.getRevisionNumber()), retained, dropped);
@@ -198,8 +198,8 @@ final class WriterCatalogueHandoffTest {
           }
           trx.awaitPendingAsyncCommit();
           CATALOGUE_WORK.run(trx::commit)
-              .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
-                  "an unchanged XML final commit rewrote its async predecessor's catalogue");
+                        .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
+                            "an unchanged XML final commit rewrote its async predecessor's catalogue");
           assertEquals(retained.size(), pendingDefinitions.size(), "pending successor catalogue size");
           assertEquals(retained, pendingDefinitions);
           assertCatalogue(session.getWtxIndexController(trx.getRevisionNumber()), retained, dropped);
@@ -229,15 +229,15 @@ final class WriterCatalogueHandoffTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"DROP, false", "DROP, true", "COVERAGE, false", "COVERAGE, true",
-      "NON_NUMERIC, false", "NON_NUMERIC, true"})
+  @CsvSource({"DROP, false", "DROP, true", "COVERAGE, false", "COVERAGE, true", "NON_NUMERIC, false",
+      "NON_NUMERIC, true"})
   @SuppressWarnings("NullAway")
   void jsonSuccessorUsesAcknowledgedCatalogueWithoutLosingChanges(final CatalogueChange change,
       final boolean successorChangesMembership, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INT,
-        Set.of(parse("/[]/id", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INT, Set.of(parse("/[]/id", PathParser.Type.JSON)), 0,
+        IndexDef.DbType.JSON);
     final IndexDef sibling = IndexDefs.createCASIdxDef(false, Type.INT, cas.getPaths(), 1, IndexDef.DbType.JSON);
     final long valueKey;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -264,14 +264,18 @@ final class WriterCatalogueHandoffTest {
               trx.replaceObjectRecordValue(new StringValue("bad"));
               trx.setStringValue("worse");
             } else {
-              trx.setNumberValue(change == CatalogueChange.COVERAGE ? 1.5 : 2);
-              trx.setNumberValue(change == CatalogueChange.COVERAGE ? 2.5 : 3);
+              trx.setNumberValue(change == CatalogueChange.COVERAGE
+                  ? 1.5
+                  : 2);
+              trx.setNumberValue(change == CatalogueChange.COVERAGE
+                  ? 2.5
+                  : 3);
             }
             hardenEntered.await();
             assertPendingRevision(session, trx);
             if (successorChangesMembership) {
-              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
-                  Set.of(IndexDefs.createNameIdxDef(2, IndexDef.DbType.JSON)), trx);
+              session.getWtxIndexController(trx.getRevisionNumber())
+                     .createIndexes(Set.of(IndexDefs.createNameIdxDef(2, IndexDef.DbType.JSON)), trx);
             }
           } finally {
             releaseHarden.countDown();
@@ -283,19 +287,23 @@ final class WriterCatalogueHandoffTest {
             if (change == CatalogueChange.NON_NUMERIC) {
               trx.setStringValue("latest");
             } else {
-              trx.setNumberValue(change == CatalogueChange.COVERAGE ? 3.5 : 4);
+              trx.setNumberValue(change == CatalogueChange.COVERAGE
+                  ? 3.5
+                  : 4);
             }
             trx.awaitPendingAsyncCommit();
           });
           assertSuccessorWork(successor, successorChangesMembership);
           assertEquals(3, session.getMostRecentRevisionNumber());
-          final Path indexes = session.getResourceConfig().getResource()
-              .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+          final Path indexes =
+              session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
           assertEquals(successorChangesMembership, Files.exists(indexes.resolve("3.xml")));
-          CATALOGUE_WORK.run(trx::commit).assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
-              "the final JSON epoch rewrote an unchanged catalogue");
-          CATALOGUE_WORK.run(trx::close).assertZero(EngineWorkCounters.DATA_FILE_FORCES,
-              "closing the committed successor added a data force");
+          CATALOGUE_WORK.run(trx::commit)
+                        .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
+                            "the final JSON epoch rewrote an unchanged catalogue");
+          CATALOGUE_WORK.run(trx::close)
+                        .assertZero(EngineWorkCounters.DATA_FILE_FORCES,
+                            "closing the committed successor added a data force");
         }
       }
     }
@@ -312,22 +320,24 @@ final class WriterCatalogueHandoffTest {
         if (change == CatalogueChange.NON_NUMERIC) {
           assertEquals("latest", reader.getValue());
         } else {
-          assertEquals(change == CatalogueChange.COVERAGE ? 3.5 : 4, reader.getNumberValue().doubleValue());
+          assertEquals(change == CatalogueChange.COVERAGE
+              ? 3.5
+              : 4, reader.getNumberValue().doubleValue());
         }
       }
     }
   }
 
   @ParameterizedTest
-  @CsvSource({"DROP, false", "DROP, true", "COVERAGE, false", "COVERAGE, true",
-      "NON_NUMERIC, false", "NON_NUMERIC, true"})
+  @CsvSource({"DROP, false", "DROP, true", "COVERAGE, false", "COVERAGE, true", "NON_NUMERIC, false",
+      "NON_NUMERIC, true"})
   @SuppressWarnings("NullAway")
   void xmlSuccessorUsesAcknowledgedCatalogueWithoutLosingChanges(final CatalogueChange change,
       final boolean successorChangesMembership, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
-    final IndexDef cas = IndexDefs.createCASIdxDef(false, Type.INT,
-        Set.of(parse("/root/missing")), 0, IndexDef.DbType.XML);
+    final IndexDef cas =
+        IndexDefs.createCASIdxDef(false, Type.INT, Set.of(parse("/root/missing")), 0, IndexDef.DbType.XML);
     final IndexDef sibling = IndexDefs.createCASIdxDef(false, Type.INT, cas.getPaths(), 1, IndexDef.DbType.XML);
     final long valueKey;
     try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
@@ -357,8 +367,8 @@ final class WriterCatalogueHandoffTest {
             hardenEntered.await();
             assertPendingRevision(session, trx);
             if (successorChangesMembership) {
-              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
-                  Set.of(IndexDefs.createNameIdxDef(2, IndexDef.DbType.XML)), trx);
+              session.getWtxIndexController(trx.getRevisionNumber())
+                     .createIndexes(Set.of(IndexDefs.createNameIdxDef(2, IndexDef.DbType.XML)), trx);
             }
           } finally {
             releaseHarden.countDown();
@@ -372,13 +382,15 @@ final class WriterCatalogueHandoffTest {
           });
           assertSuccessorWork(successor, successorChangesMembership);
           assertEquals(3, session.getMostRecentRevisionNumber());
-          final Path indexes = session.getResourceConfig().getResource()
-              .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+          final Path indexes =
+              session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
           assertEquals(successorChangesMembership, Files.exists(indexes.resolve("3.xml")));
-          CATALOGUE_WORK.run(trx::commit).assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
-              "the final XML epoch rewrote an unchanged catalogue");
-          CATALOGUE_WORK.run(trx::close).assertZero(EngineWorkCounters.DATA_FILE_FORCES,
-              "closing the committed XML successor added a data force");
+          CATALOGUE_WORK.run(trx::commit)
+                        .assertZero(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN,
+                            "the final XML epoch rewrote an unchanged catalogue");
+          CATALOGUE_WORK.run(trx::close)
+                        .assertZero(EngineWorkCounters.DATA_FILE_FORCES,
+                            "closing the committed XML successor added a data force");
         }
       }
     }
@@ -395,8 +407,9 @@ final class WriterCatalogueHandoffTest {
   }
 
   private static void assertSuccessorWork(final WorkReport work, final boolean successorChangedMembership) {
-    work.assertExactly(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN, successorChangedMembership ? 1 : 0,
-        "the successor must write and fsync a catalogue only for its own changes");
+    work.assertExactly(EngineWorkCounters.INDEX_CATALOGUE_FILES_WRITTEN, successorChangedMembership
+        ? 1
+        : 0, "the successor must write and fsync a catalogue only for its own changes");
     work.assertZero(EngineWorkCounters.INDEX_CATALOGUE_LISTINGS, "an async successor listed the catalogue directory");
     work.assertBetween(EngineWorkCounters.DATA_FILE_FORCES, 1, 2,
         "an async successor added a barrier to the commit durability protocol");
@@ -404,10 +417,12 @@ final class WriterCatalogueHandoffTest {
 
   private static void assertCommittedCatalogue(final IndexController<?, ?> controller, final int revision,
       final CatalogueChange change, final boolean successorChangedMembership) {
-    assertEquals(revision > 1 && change == CatalogueChange.DROP ? 1 : 2,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
-    assertEquals(revision >= 3 && successorChangedMembership ? 1 : 0,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+    assertEquals(revision > 1 && change == CatalogueChange.DROP
+        ? 1
+        : 2, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
+    assertEquals(revision >= 3 && successorChangedMembership
+        ? 1
+        : 0, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
     final IndexDef cas = controller.getIndexes().getIndexDef(0, IndexType.CAS);
     assertNotNull(cas);
     assertEquals(revision == 1 || change != CatalogueChange.NON_NUMERIC, cas.hasNumericValuesOnly());

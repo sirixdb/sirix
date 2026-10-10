@@ -253,6 +253,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private static final LongAdder DATA_FILE_FORCES = new LongAdder();
 
   /**
+   * Returns the number of data file forces since the JVM started.
+   *
    * @return the number of forces of data files since the JVM started (write-ahead barriers, beacon
    *         flushes, close-time forces and recovery repairs)
    */

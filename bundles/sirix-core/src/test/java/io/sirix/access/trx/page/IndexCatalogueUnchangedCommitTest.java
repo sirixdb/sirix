@@ -214,8 +214,8 @@ final class IndexCatalogueUnchangedCommitTest {
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"value\":1}]"), JsonNodeTrx.Commit.NO);
         createNumericCasIndex(session, trx, 0, "/[]/value");
         trx.commit();
-        assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
-            .hasCompleteNumericCoverage());
+        assertTrue(
+            session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS).hasCompleteNumericCoverage());
         moveToNumericValue(trx);
         trx.setNumberValue(1.5);
         trx.commit();
@@ -229,8 +229,8 @@ final class IndexCatalogueUnchangedCommitTest {
     }
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-      assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
-          .hasCompleteNumericCoverage());
+      assertTrue(
+          session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS).hasCompleteNumericCoverage());
       for (int revision = 2; revision <= 3; revision++) {
         final IndexDef definition = session.getRtxIndexController(revision).getIndexes().getIndexDef(0, IndexType.CAS);
         assertTrue(definition.hasNumericValuesOnly());
@@ -256,13 +256,17 @@ final class IndexCatalogueUnchangedCommitTest {
         trx.commit();
         moveToNumericValue(trx);
         trx.setNumberValue(1.5);
-        assertFalse(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(0, IndexType.CAS)
-            .hasCompleteNumericCoverage());
+        assertFalse(session.getWtxIndexController(trx.getRevisionNumber())
+                           .getIndexes()
+                           .getIndexDef(0, IndexType.CAS)
+                           .hasCompleteNumericCoverage());
         trx.rollback();
-        assertTrue(session.getWtxIndexController(trx.getRevisionNumber()).getIndexes().getIndexDef(0, IndexType.CAS)
-            .hasCompleteNumericCoverage());
-        assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS)
-            .hasCompleteNumericCoverage());
+        assertTrue(session.getWtxIndexController(trx.getRevisionNumber())
+                          .getIndexes()
+                          .getIndexDef(0, IndexType.CAS)
+                          .hasCompleteNumericCoverage());
+        assertTrue(
+            session.getRtxIndexController(1).getIndexes().getIndexDef(0, IndexType.CAS).hasCompleteNumericCoverage());
         moveToNumericValue(trx);
         assertEquals(1, trx.getNumberValue().intValue());
         trx.commit();
@@ -279,8 +283,7 @@ final class IndexCatalogueUnchangedCommitTest {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
-            JsonNodeTrx.Commit.NO);
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"), JsonNodeTrx.Commit.NO);
         createCasIndex(session, trx, 0);
         trx.commit();
         trx.commit();
@@ -355,11 +358,11 @@ final class IndexCatalogueUnchangedCommitTest {
     assertTrue(trx.isNumberValue());
   }
 
-  private static void createNumericCasIndex(final JsonResourceSession session, final JsonNodeTrx trx,
-      final int number, final String path) {
-    session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
-        Set.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(parse(path, PathParser.Type.JSON)),
-            number, IndexDef.DbType.JSON)), trx);
+  private static void createNumericCasIndex(final JsonResourceSession session, final JsonNodeTrx trx, final int number,
+      final String path) {
+    session.getWtxIndexController(trx.getRevisionNumber())
+           .createIndexes(Set.of(IndexDefs.createCASIdxDef(false, Type.INT, Set.of(parse(path, PathParser.Type.JSON)),
+               number, IndexDef.DbType.JSON)), trx);
   }
 
   private static void assertCasPath(final JsonResourceSession session, final int revision, final int number,

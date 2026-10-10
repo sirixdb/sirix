@@ -57,11 +57,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Measured on these fixtures: a session lists at most once, when it cannot know better (at its
  * first transaction on a resource without a catalogue, or at the first lookup whose own and
  * previous revision both have no file), remembers every file it saw and every file written since,
- * and never lists during a commit: 0 in the 12 commits of the first session, 0 in the 6 commits
- * of the reopened one, 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer from the
- * directory lists 12, 6, 13 and 4 times there. The files written are 3 in the first session
- * (revisions 3, 8 and 11), 1 in the reopened one (the drop at 15) and 0 afterwards; writing one per
- * commit with definitions, as before, writes 9, 3 and 0.
+ * and never lists during a commit: 0 in the 12 commits of the first session, 0 in the 6 commits of
+ * the reopened one, 0 in the auto-committing load, 0 in the XML fixture. Resolving every writer
+ * from the directory lists 12, 6, 13 and 4 times there. The files written are 3 in the first
+ * session (revisions 3, 8 and 11), 1 in the reopened one (the drop at 15) and 0 afterwards; writing
+ * one per commit with definitions, as before, writes 9, 3 and 0.
  *
  * <p>
  * A session that answers from what it remembers can also answer <em>wrongly</em>, which a listing
@@ -246,16 +246,17 @@ final class IndexCatalogueResolutionWorkBudgetTest {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
-            JsonNodeTrx.Commit.NO);
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"), JsonNodeTrx.Commit.NO);
         for (int revision = 1; revision <= committedRevision; revision++) {
           if (revision == 3 || revision == 11) {
-            createCasIndex(session, trx, revision == 3 ? 0 : 1);
+            createCasIndex(session, trx, revision == 3
+                ? 0
+                : 1);
           }
           trx.commit();
         }
-        final var indexes = session.getResourceConfig().getResource()
-            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+        final var indexes =
+            session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
         assertTrue(Files.exists(indexes.resolve("11.xml")));
         assertFalse(Files.exists(indexes.resolve("12.xml")));
         assertFalse(Files.exists(indexes.resolve("13.xml")));
@@ -268,8 +269,10 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         assertEquals(1, casDefinitions(session.getRtxIndexController(3)));
       }
       final WorkCapture.Captured<JsonNodeTrx> writer = CAPTURE.call(() -> session.beginNodeTrx());
-      writer.work().assertExactly(LISTINGS, committedRevision == 13 ? 1 : 0,
-          "the reopened writer did not resolve the newest committed catalogue by the expected route");
+      writer.work()
+            .assertExactly(LISTINGS, committedRevision == 13
+                ? 1
+                : 0, "the reopened writer did not resolve the newest committed catalogue by the expected route");
       try (final JsonNodeTrx trx = writer.result()) {
         assertEquals(2, casDefinitions(session.getWtxIndexController(trx.getRevisionNumber())));
         final WorkReport commits = CAPTURE.run(() -> {
@@ -297,8 +300,10 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         trx.insertElementAsFirstChild(new QNm("root"));
         for (int revision = 1; revision <= committedRevision; revision++) {
           if (revision == 3 || revision == 11) {
-            session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(
-                Set.of(IndexDefs.createNameIdxDef(revision == 3 ? 0 : 1, IndexDef.DbType.XML)), trx);
+            session.getWtxIndexController(trx.getRevisionNumber())
+                   .createIndexes(Set.of(IndexDefs.createNameIdxDef(revision == 3
+                       ? 0
+                       : 1, IndexDef.DbType.XML)), trx);
           }
           trx.commit();
         }
@@ -311,19 +316,23 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         assertEquals(1, session.getRtxIndexController(3).getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
       }
       final WorkCapture.Captured<XmlNodeTrx> writer = CAPTURE.call(() -> session.beginNodeTrx());
-      writer.work().assertExactly(LISTINGS, committedRevision == 13 ? 1 : 0,
-          "the reopened XML writer did not resolve the newest committed catalogue by the expected route");
+      writer.work()
+            .assertExactly(LISTINGS, committedRevision == 13
+                ? 1
+                : 0, "the reopened XML writer did not resolve the newest committed catalogue by the expected route");
       try (final XmlNodeTrx trx = writer.result()) {
-        assertEquals(2, session.getWtxIndexController(trx.getRevisionNumber()).getIndexes()
-            .getNrOfIndexDefsWithType(IndexType.NAME));
+        assertEquals(2,
+            session.getWtxIndexController(trx.getRevisionNumber())
+                   .getIndexes()
+                   .getNrOfIndexDefsWithType(IndexType.NAME));
         final WorkReport commits = CAPTURE.run(() -> {
           trx.commit();
           trx.commit();
         });
         commits.assertZero(LISTINGS, "XML successor writers forgot the catalogue resolved after reopen");
         commits.assertZero(FILES, "unchanged XML commits wrote catalogue files after reopen");
-        assertEquals(2, session.getRtxIndexController(committedRevision + 2).getIndexes()
-            .getNrOfIndexDefsWithType(IndexType.NAME));
+        assertEquals(2,
+            session.getRtxIndexController(committedRevision + 2).getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
         assertEquals(1, session.getRtxIndexController(3).getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
       }
     }
@@ -337,8 +346,7 @@ final class IndexCatalogueResolutionWorkBudgetTest {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"),
-            JsonNodeTrx.Commit.NO);
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"), JsonNodeTrx.Commit.NO);
         createCasIndex(session, trx, 0);
         trx.commit();
         dropCasIndex(session, trx, 0);
@@ -350,12 +358,13 @@ final class IndexCatalogueResolutionWorkBudgetTest {
         commit.assertZero(LISTINGS, "an unchanged empty catalogue listed the directory");
         commit.assertBetween(EngineWorkCounters.DATA_FILE_FORCES, 1, 2,
             "an unchanged catalogue added a barrier to the commit's data durability protocol");
-        final var indexes = session.getResourceConfig().getResource()
-            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+        final var indexes =
+            session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
         assertFalse(Files.exists(indexes.resolve("3.xml")));
         assertEquals(0, casDefinitions(session.getRtxIndexController(3)));
-        CAPTURE.and(EngineWorkCounters.DATA_FILE_FORCES).run(trx::close)
-            .assertZero(EngineWorkCounters.DATA_FILE_FORCES, "closing the committed writer added a force");
+        CAPTURE.and(EngineWorkCounters.DATA_FILE_FORCES)
+               .run(trx::close)
+               .assertZero(EngineWorkCounters.DATA_FILE_FORCES, "closing the committed writer added a force");
       }
     }
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);

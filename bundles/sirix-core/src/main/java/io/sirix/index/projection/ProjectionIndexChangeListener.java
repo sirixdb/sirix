@@ -2691,8 +2691,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         // proof cost O(leaf) record reads per commit however few rows were appended. The persisted
         // page's label capacity bounds the appended labels; a row the tail format cannot carry falls
         // back to the full rewrite below, exactly as before.
-        boolean tailFirst = tailRows != null;
-        int tailLabelBytes = tailFirst
+        ArrayList<ProjectionOpenRowGroupTail.Row> tailFirstRows = tailRows;
+        int tailLabelBytes = tailFirstRows != null
             ? Objects.requireNonNull(edit.oldPage).orderLabelLength()
             : 0;
         while (from < rows) {
@@ -2704,13 +2704,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
           page.setGlobalDictionaries(globalDictionaries);
           int appendedRows = 0;
-          if (tailFirst) {
+          if (tailFirstRows != null) {
             from = priorRows;
           }
           while (from < rows && appendedRows < targetGroupSize) {
             final long key = edit.recordKeys.getLong(from);
             final byte[] orderLabel = edit.orderLabels.get(from);
-            if (tailFirst) {
+            if (tailFirstRows != null) {
               final int appendBytes = ProjectionIndexRowGroupPage.orderLabelAppendBytes(orderLabel);
               if (orderLabel.length > ProjectionOpenRowGroupTail.MAX_ROW_ORDER_LABEL_BYTES
                   || tailLabelBytes + appendBytes > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
@@ -2740,10 +2740,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             from++;
             appendedRows++;
           }
-          if (tailFirst && (from < rows || tailRows.size() != rows - priorRows)) {
+          if (tailFirstRows != null && (from < rows || tailFirstRows.size() != rows - priorRows)) {
             // A row the tail format cannot carry: rebuild the leaf from the document, prefix included.
-            tailFirst = false;
-            tailRows.clear();
+            tailFirstRows.clear();
+            tailFirstRows = null;
             from = 0;
             continue;
           }
@@ -2752,7 +2752,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               : fences.allocateSlot();
           boolean tailAppended = false;
           if (tailRows != null && group == 0 && from == rows && tailRows.size() == rows - priorRows
-              && (tailFirst || page.rowsEqualPrefix(edit.oldPage, priorRows))) {
+              && (tailFirstRows != null || page.rowsEqualPrefix(edit.oldPage, priorRows))) {
             // The persisted rows are untouched: replay the new rows onto the hydrated page — the very
             // construction every reader repeats — and publish its encoding as the tailed descriptor.
             final ProjectionIndexRowGroupPage merged = Objects.requireNonNull(edit.oldPage);

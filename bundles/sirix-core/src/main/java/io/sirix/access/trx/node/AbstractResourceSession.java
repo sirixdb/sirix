@@ -224,6 +224,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * listed {@code indexes/}, extended by every file their writers serialize since. See
    * {@link #resolveIndexCatalogueRevision}.
    */
+  @SuppressWarnings("ArrayRecordComponent") // Primitive revisions are searched directly; record equality is not used.
   private record CatalogueRevisions(int[] revisions, boolean listed) {
   }
 
@@ -517,6 +518,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * left behind by a commit that was never acknowledged is never consulted and is overwritten by the
    * next commit of that revision number.
    */
+  @SuppressWarnings("NullAway") // Catalogue snapshots are initialized and never set to null.
   private int resolveIndexCatalogueRevision(final Path indexesDir, final int revision) {
     final CatalogueRevisions known = knownIndexCatalogueRevisions.get();
     if (known.listed()) {
@@ -623,6 +625,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     rememberIndexCatalogueRevision(revision);
   }
 
+  @SuppressWarnings("NullAway") // Catalogue snapshots are initialized and never set to null.
   private void rememberIndexCatalogueRevision(final int revision) {
     if (greatestAtOrBelow(knownIndexCatalogueRevisions.get().revisions(), revision) == revision) {
       return;

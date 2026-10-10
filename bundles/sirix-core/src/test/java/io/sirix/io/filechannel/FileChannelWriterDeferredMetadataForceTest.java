@@ -185,8 +185,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
       source.position(source.limit());
       return length;
     });
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("partial-beacon")
-        .byteHandlerPipeline(new ByteHandlerPipeline()).build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("partial-beacon").byteHandlerPipeline(new ByteHandlerPipeline()).build();
     config.resourcePath = tempDir;
     try (MemorySegmentBytesOut beaconBuffer = new MemorySegmentBytesOut(2 * IOStorage.BEACON_SLOT_BYTES)) {
       assertThrows(SirixIOException.class,
