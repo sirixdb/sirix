@@ -6,6 +6,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -59,6 +60,45 @@ final class IndexCatalogueUnchangedCommitTest {
   void tearDown() {
     JsonTestHelper.closeEverything();
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void containsIndexResolvesInheritedCatalogues() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        final Path indexes = indexesDirectory(session);
+        assertFalse(IndexController.containsIndex(IndexType.CAS, session, 0));
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"category\":\"a\"}]"), JsonNodeTrx.Commit.NO);
+        createCasIndex(session, trx, 0);
+        trx.commit();
+        assertTrue(Files.exists(indexes.resolve("1.xml")));
+        assertTrue(IndexController.containsIndex(IndexType.CAS, session, 1));
+        trx.commit();
+        assertFalse(Files.exists(indexes.resolve("2.xml")));
+        assertTrue(IndexController.containsIndex(IndexType.CAS, session, 2));
+        dropCasIndex(session, trx, 0);
+        trx.commit();
+        trx.commit();
+        assertTrue(Files.exists(indexes.resolve("3.xml")));
+        assertFalse(Files.exists(indexes.resolve("4.xml")));
+        assertTrue(IndexController.containsIndex(IndexType.CAS, session, 2));
+        assertFalse(IndexController.containsIndex(IndexType.CAS, session, 3));
+        assertFalse(IndexController.containsIndex(IndexType.CAS, session, 4));
+      }
+    }
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      for (int revision = 0; revision <= 4; revision++) {
+        for (final IndexType type : IndexType.values()) {
+          assertEquals(type == IndexType.CAS && (revision == 1 || revision == 2),
+              IndexController.containsIndex(type, session, revision));
+        }
+      }
+    }
   }
 
   @Test
