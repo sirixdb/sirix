@@ -9420,7 +9420,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final byte[] kinds = new byte[fields.length];
       for (int i = 0; i < fields.length; i++) {
         final int col = handle.columnOf(fields[i]);
-        if (col < 0 || !store.columnSliceable(col) || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || !store.columnSliceable(col)
+            || !(handle.timestampColumnPureUtc(col, fetcher) || handle.columnSparseClean(col, fetcher, materializer))) {
           return maskedColumnsDecline("field " + fields[i] + " absent, unsliceable or null-bearing (col " + col + ")");
         }
         final byte kind = handle.columnKindOf(col);
@@ -9428,13 +9429,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (!handle.numericColumnIsIntegral(col, fetcher)) {
             return maskedColumnsDecline("field " + fields[i] + " is not integral");
           }
-        } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            && !handle.timestampColumnPureUtc(col, fetcher)) {
           return maskedColumnsDecline("field " + fields[i] + " has kind " + kind);
         }
         cols[i] = col;
         kinds[i] = kind;
       }
-      return readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
+      if (wtx == null && rowKeys != null) {
+        final MaskedColumns cached = NumericMaskedColumnCache.get(store, fields, rowKeys);
+        if (cached != null) {
+          return cached;
+        }
+      }
+      final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
+      if (result != null && wtx == null && rowKeys != null) {
+        NumericMaskedColumnCache.put(store, fields, rowKeys, result);
+      }
+      return result;
     } catch (final RuntimeException e) {
       failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
       return null;

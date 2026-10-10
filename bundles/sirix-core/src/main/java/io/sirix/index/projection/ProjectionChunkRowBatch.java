@@ -45,6 +45,7 @@ public final class ProjectionChunkRowBatch {
   private static final int FLAG_NON_INTEGRAL = 1 << 2;
   private static final int FLAG_NON_DOUBLE_SOURCE = 1 << 3;
   private static final int FLAG_BOOLEAN_VALUE = 1 << 4;
+  private static final int FLAG_UTC_TIMESTAMP = 1 << 5;
 
   private static final long NO_OPEN_ARRAY = Long.MIN_VALUE;
   private static final String[] EMPTY_ELEMENTS = new String[0];
@@ -203,12 +204,12 @@ public final class ProjectionChunkRowBatch {
       final byte cellFlags = flags[cell];
       if ((cellFlags & FLAG_PRESENT) != 0) {
         // A second scalar matching the same declared field: no sequence semantics — poison.
-        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_UNREPRESENTABLE);
         continue;
       }
       final byte columnKind = columnKinds[column];
       if (!ProjectionIndexRowGroupPage.isNumericKind(columnKind) || value == null) {
-        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         byte updated = (byte) (cellFlags | FLAG_PRESENT);
         if (ProjectionIndexRowExtractor.isNonIntegral(value)
@@ -220,7 +221,7 @@ public final class ProjectionChunkRowBatch {
       } else {
         final double doubleValue = value.doubleValue();
         if (!Double.isFinite(doubleValue)) {
-          flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+          flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
         } else {
           byte updated = (byte) (cellFlags | FLAG_PRESENT);
           if (ProjectionIndexRowExtractor.isLossyDoubleConversion(value, doubleValue)) {
@@ -252,7 +253,7 @@ public final class ProjectionChunkRowBatch {
       final int cell = cellOf(column);
       final byte cellFlags = flags[cell];
       if ((cellFlags & FLAG_PRESENT) != 0) {
-        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_UNREPRESENTABLE);
         continue;
       }
       final byte columnKind = columnKinds[column];
@@ -268,7 +269,7 @@ public final class ProjectionChunkRowBatch {
         flags[cell] = updated;
         longLanes[column][rowCount] = ProjectionDoubleEncoding.encode(doubleValue);
       } else {
-        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
     }
   }
@@ -279,7 +280,7 @@ public final class ProjectionChunkRowBatch {
       final int cell = cellOf(column);
       final byte cellFlags = flags[cell];
       if ((cellFlags & FLAG_PRESENT) != 0) {
-        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_UNREPRESENTABLE);
         continue;
       }
       final byte columnKind = columnKinds[column];
@@ -298,10 +299,13 @@ public final class ProjectionChunkRowBatch {
         flags[cell] = (byte) (cellFlags | FLAG_PRESENT);
         if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && length == 20) {
           flags[cell] |= FLAG_UNREPRESENTABLE;
+          if (ProjectionTemporalCodec.isUtcTimestampSource(epoch, length)) {
+            flags[cell] |= FLAG_UTC_TIMESTAMP;
+          }
         }
         longLanes[column][rowCount] = epoch;
       } else {
-        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
     }
   }
@@ -312,7 +316,7 @@ public final class ProjectionChunkRowBatch {
       final int cell = cellOf(column);
       final byte cellFlags = flags[cell];
       if ((cellFlags & FLAG_PRESENT) != 0) {
-        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_UNREPRESENTABLE);
         continue;
       }
       if (columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
@@ -320,7 +324,7 @@ public final class ProjectionChunkRowBatch {
             ? FLAG_BOOLEAN_VALUE
             : 0));
       } else {
-        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
     }
   }
@@ -331,9 +335,9 @@ public final class ProjectionChunkRowBatch {
       final int cell = cellOf(fieldPcrColumns[mapping]);
       final byte cellFlags = flags[cell];
       if ((cellFlags & FLAG_PRESENT) != 0) {
-        flags[cell] = (byte) (cellFlags | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_UNREPRESENTABLE);
       } else {
-        flags[cell] = (byte) (cellFlags | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
+        flags[cell] = (byte) ((cellFlags & ~FLAG_UTC_TIMESTAMP) | FLAG_PRESENT | FLAG_UNREPRESENTABLE);
       }
     }
   }
@@ -541,7 +545,10 @@ public final class ProjectionChunkRowBatch {
   }
 
   boolean flagNonDoubleSource(final int column, final int row) {
-    return (flags[column * expectedRows + row] & FLAG_NON_DOUBLE_SOURCE) != 0;
+    final byte value = flags[column * expectedRows + row];
+    return columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+        ? (value & FLAG_UTC_TIMESTAMP) == 0
+        : (value & FLAG_NON_DOUBLE_SOURCE) != 0;
   }
 
   boolean booleanValue(final int column, final int row) {

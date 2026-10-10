@@ -1,6 +1,9 @@
 package io.sirix.query.compiler.optimizer;
 
 import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.atomic.Int32;
+import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
+import io.sirix.query.compiler.optimizer.ComputedProgram.Program;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
@@ -35,12 +38,12 @@ import java.util.Set;
  * compares one field of each side for equality. The serving expression reads both sides' masked
  * columns, hashes the smaller side on its join values, probes with the other, groups the pairs on
  * keys from either side and folds {@code count}, {@code sum}, {@code min} and {@code max} over
- * fields or {@code +,-,*} programs of ONE side.
+ * fields or paired {@code +,-,*} programs, including distinct field counts.
  *
  * <p>
- * Grouped output admits no post-join selection, aggregate reading both sides or key transform, and
- * requires an order-by naming every key. Row output can instead evaluate equality/inequality
- * residuals over paired long columns before emitting ordered records (SH1 Q4).
+ * Grouped output requires an order-by naming every key. Both grouped and row output admit paired
+ * numeric and explicit timestamp comparisons; range sources provide exact record-key masks before
+ * the join. Unsupported comparisons and unsafe runtime coverage retain the generic pipeline.
  * </p>
  */
 public final class JoinedGroupAggregateDetectionStage implements Stage {
@@ -49,7 +52,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   public static final String ROW_JOIN = "SIRIX_ROW_JOIN";
   public static final String RESIDUAL_SIDES = "SIRIX_JOIN_RESIDUAL_SIDES";
   public static final String RESIDUAL_FIELDS = "SIRIX_JOIN_RESIDUAL_FIELDS";
-  public static final String RESIDUAL_NE = "SIRIX_JOIN_RESIDUAL_NE";
+  public static final String RESIDUAL_OPS = "SIRIX_JOIN_RESIDUAL_OPS";
   public static final String RESIDUAL_CODE = "SIRIX_JOIN_RESIDUAL_CODE";
   public static final String SIDE_SOURCE_EXPRS = "SIRIX_JOIN_SIDE_SOURCE_EXPRS";
   /** Per side ({@code 0} left, {@code 1} right): literal database and resource. */
@@ -144,30 +147,45 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (vars[0].equals(vars[1])) {
       return "join: both loops bind the same name";
     }
-    final String rowDecline =
-        rowJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed);
+    final Set<AST> ranges = new HashSet<>();
+    final List<AST> comparisons = new ArrayList<>();
+    selections(join.getChild(2).getChild(0), comparisons);
+    selections(join.getChild(3), comparisons);
+    for (int side = 0; side < 2; side++) {
+      final AST source = join.getChild(side).getChild(0).getChild(1);
+      final AST range = rangeSource(source, comparisons, vars[side], vars, ranges);
+      if (range != null) {
+        indexed[side] = range;
+        validTimes[side] = range.getChild(1);
+      } else if (validTimes[side] == null && indexed[side] != null) {
+        return "join: dynamic document requires an exact range source";
+      }
+    }
+    final String rowDecline = rowJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions,
+        joinFields, indexed, ranges);
     if (rowDecline == null) {
       return null;
     }
-    return groupedJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed);
+    return groupedJoin(pipeExpr, join, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed,
+        ranges);
   }
 
   private static @Nullable String rowJoin(final AST pipe, final AST join, final QNm[] vars, final String[] databases,
       final String[] resources, final AST[] txTimes, final AST[] validTimes, final int[] revisions,
-      final String[] joinFields, final AST[] indexed) {
+      final String[] joinFields, final AST[] indexed, final Set<AST> ranges) {
     if (validTimes[0] == null || validTimes[1] == null) {
       return "row join: both sources must be routed";
     }
     final List<Integer> residualSides = new ArrayList<>();
     final List<String> residualFields = new ArrayList<>();
-    final List<Boolean> residualNe = new ArrayList<>();
+    final List<Integer> residualOps = new ArrayList<>();
     final List<Integer> residualCode = new ArrayList<>();
     final AST post = join.getChild(2);
     if (post.getType() != XQ.Start || post.getChildCount() != 1) {
       return "row join: post chain is not a Start";
     }
     AST tail = post.getChild(0);
-    tail = residualSelections(tail, vars, residualSides, residualFields, residualNe, residualCode);
+    tail = residualSelections(tail, vars, residualSides, residualFields, residualOps, residualCode, ranges);
     if (tail == null) {
       return "row join: unsupported residual";
     }
@@ -175,7 +193,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       return "row join: unsupported post chain";
     }
     AST current = join.getChild(3);
-    current = residualSelections(current, vars, residualSides, residualFields, residualNe, residualCode);
+    current = residualSelections(current, vars, residualSides, residualFields, residualOps, residualCode, ranges);
     if (current == null) {
       return "row join: unsupported residual";
     }
@@ -228,55 +246,72 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       asc[i] = orderAsc.get(i);
       least[i] = emptyLeast.get(i);
     }
-    final boolean[] ne = new boolean[residualNe.size()];
-    for (int i = 0; i < ne.length; i++) {
-      ne[i] = residualNe.get(i);
-    }
+    final int[] ops = residualOps.stream().mapToInt(Integer::intValue).toArray();
     pipe.setProperty(ORDER_ASC, asc);
     pipe.setProperty(ORDER_EMPTY_LEAST, least);
     pipe.setProperty(RESIDUAL_SIDES, residualSides.stream().mapToInt(Integer::intValue).toArray());
     pipe.setProperty(RESIDUAL_FIELDS, residualFields.toArray(new String[0]));
-    pipe.setProperty(RESIDUAL_NE, ne);
+    pipe.setProperty(RESIDUAL_OPS, ops);
     pipe.setProperty(RESIDUAL_CODE, residualCode.stream().mapToInt(Integer::intValue).toArray());
     return null;
   }
 
   private static boolean residual(final AST expression, final QNm[] vars, final List<Integer> sides,
-      final List<String> fields, final List<Boolean> ne, final List<Integer> code) {
+      final List<String> fields, final List<Integer> ops, final List<Integer> code, final Set<AST> ranges) {
     AST node = expression;
     while (node.getType() == XQ.ParenthesizedExpr && node.getChildCount() == 1) {
       node = node.getChild(0);
     }
+    if (ranges.contains(node)) {
+      return true;
+    }
     if (booleanResidual(node)) {
-      if (!residual(node.getChild(0), vars, sides, fields, ne, code)
-          || !residual(node.getChild(1), vars, sides, fields, ne, code)) {
+      final int before = code.size();
+      if (!residual(node.getChild(0), vars, sides, fields, ops, code, ranges)) {
         return false;
       }
-      code.add(node.getType() == XQ.AndExpr
-          ? -1
-          : -2);
+      final int middle = code.size();
+      if (!residual(node.getChild(1), vars, sides, fields, ops, code, ranges)) {
+        return false;
+      }
+      if (middle > before && code.size() > middle) {
+        code.add(node.getType() == XQ.AndExpr
+            ? -1
+            : -2);
+      }
       return true;
     }
     if (node.getType() != XQ.ComparisonExpr || node.getChildCount() != 3) {
       return false;
     }
     final int op = node.getChild(0).getType();
-    if (!equalityComparison(op)) {
+    final int compare = comparisonOpcode(op);
+    if (compare < 0) {
       return false;
     }
-    final int count = ne.size();
+    final int count = ops.size();
     for (int i = 1; i <= 2; i++) {
-      final int side = ComputedProgram.loopVarDerefField(node.getChild(i), vars[0]) == null
+      final AST operand = node.getChild(i);
+      final boolean timestamp = dateTimeCast(operand);
+      final AST deref = timestamp
+          ? operand.getChild(0)
+          : operand;
+      final int side = ComputedProgram.loopVarDerefField(deref, vars[0]) == null
           ? 1
           : 0;
-      final String field = ComputedProgram.loopVarDerefField(node.getChild(i), vars[side]);
+      final String field = ComputedProgram.loopVarDerefField(deref, vars[side]);
       if (field == null) {
         return false;
       }
       sides.add(side);
-      fields.add(field);
+      fields.add((timestamp
+          ? "timestamp:"
+          : "number:") + field);
     }
-    ne.add(op == XQ.ValueCompNE || op == XQ.GeneralCompNE);
+    if (dateTimeCast(node.getChild(1)) != dateTimeCast(node.getChild(2))) {
+      return false;
+    }
+    ops.add(compare);
     code.add(count);
     return true;
   }
@@ -313,7 +348,12 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
       if (databases[side] == null || resources[side] == null) {
         return "join: dynamic database or resource";
       }
-      return documentRevision(call, side, revisions);
+      final String decline = documentRevision(call, side, revisions);
+      if (decline != null) {
+        indexed[side] = call;
+        revisions[side] = -1;
+      }
+      return null;
     }
     return "join: source is neither an opener nor a literal document";
   }
@@ -386,10 +426,19 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
 
   private static @Nullable String groupedJoin(final AST pipeExpr, final AST join, final QNm[] vars,
       final String[] databases, final String[] resources, final AST[] txTimes, final AST[] validTimes,
-      final int[] revisions, final String[] joinFields, final AST[] indexed) {
+      final int[] revisions, final String[] joinFields, final AST[] indexed, final Set<AST> ranges) {
     final AST post = join.getChild(2);
-    if (post.getType() != XQ.Start || post.getChildCount() != 1 || post.getChild(0).getType() != XQ.End) {
+    if (post.getType() != XQ.Start || post.getChildCount() != 1) {
       return "join: post-join operators";
+    }
+    final List<Integer> residualSides = new ArrayList<>();
+    final List<String> residualFields = new ArrayList<>();
+    final List<Integer> residualOps = new ArrayList<>();
+    final List<Integer> residualCode = new ArrayList<>();
+    final AST postEnd =
+        residualSelections(post.getChild(0), vars, residualSides, residualFields, residualOps, residualCode, ranges);
+    if (postEnd == null || postEnd.getType() != XQ.End) {
+      return "join: unsupported grouped residual";
     }
     // The continuation: pre-group lets, group by, post-group lets, order by, return.
     final List<SideLet> lets = new ArrayList<>();
@@ -397,7 +446,11 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     final List<String[]> progFields = new ArrayList<>();
     final List<int[]> progCode = new ArrayList<>();
     final List<long[]> progConsts = new ArrayList<>();
-    AST current = join.getChild(3);
+    AST current =
+        residualSelections(join.getChild(3), vars, residualSides, residualFields, residualOps, residualCode, ranges);
+    if (current == null) {
+      return "join: unsupported grouped residual";
+    }
     while (current != null && current.getType() == XQ.LetBind) {
       final String decline = preGroupLet(current, vars, lets, progSides, progFields, progCode, progConsts);
       if (decline != null) {
@@ -413,8 +466,15 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     if (keyDecline != null) {
       return keyDecline;
     }
-    return groupedAggregates(pipeExpr, vars, databases, resources, txTimes, validTimes, revisions, joinFields, indexed,
-        current, lets, keyVars, progSides, progFields, progCode, progConsts);
+    final String decline = groupedAggregates(pipeExpr, vars, databases, resources, txTimes, validTimes, revisions,
+        joinFields, indexed, current, lets, keyVars, progSides, progFields, progCode, progConsts);
+    if (decline == null) {
+      pipeExpr.setProperty(RESIDUAL_SIDES, residualSides.stream().mapToInt(Integer::intValue).toArray());
+      pipeExpr.setProperty(RESIDUAL_FIELDS, residualFields.toArray(new String[0]));
+      pipeExpr.setProperty(RESIDUAL_OPS, residualOps.stream().mapToInt(Integer::intValue).toArray());
+      pipeExpr.setProperty(RESIDUAL_CODE, residualCode.stream().mapToInt(Integer::intValue).toArray());
+    }
+    return decline;
   }
 
   private static @Nullable String preGroupLet(final AST current, final QNm[] vars, final List<SideLet> lets,
@@ -436,7 +496,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         admitted = true;
       } else if (bound.getType() == XQ.ArithmeticExpr) {
         final List<String> fields = new ArrayList<>(4);
-        final ComputedProgram.Program program = ComputedProgram.build(bound, vars[side], fields);
+        final Program program = ComputedProgram.build(bound, vars[side], fields);
         if (program != null && !fields.isEmpty()) {
           lets.add(new SideLet(letVar, side, COMPUTED_PREFIX + progSides.size()));
           progSides.add(side);
@@ -447,8 +507,20 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         }
       }
     }
+    if (!admitted && bound.getType() == XQ.ArithmeticExpr) {
+      final List<String> fields = new ArrayList<>(4);
+      final Program program = pairedProgram(bound, vars, fields);
+      if (program != null && !fields.isEmpty()) {
+        lets.add(new SideLet(letVar, -1, COMPUTED_PREFIX + progSides.size()));
+        progSides.add(-1);
+        progFields.add(fields.toArray(new String[0]));
+        progCode.add(program.code());
+        progConsts.add(program.consts());
+        admitted = true;
+      }
+    }
     if (!admitted) {
-      return "let: not a field or a program over one side";
+      return "let: not a field or a supported paired program";
     }
     return null;
   }
@@ -633,14 +705,34 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         || !builtin(fn)) {
       return "post-group let: not count/sum/min/max";
     }
-    final AST arg = call.getChild(0);
+    AST arg = call.getChild(0);
+    final boolean distinct =
+        "count".equals(fn.getLocalName()) && unaryFunction(arg) && arg.getValue() instanceof QNm distinctFn
+            && "distinct-values".equals(distinctFn.getLocalName()) && builtin(distinctFn);
+    if (distinct) {
+      arg = arg.getChild(0);
+    }
     if (arg.getType() != XQ.VariableRef || !(arg.getValue() instanceof QNm argVar)) {
-      return "post-group let: argument is not a variable";
+      for (int side = 0; side < 2; side++) {
+        final String field = ComputedProgram.loopVarDerefField(arg, vars[side]);
+        if (field != null) {
+          postSides.add(side);
+          postFields.add(field);
+          postVars.add(var);
+          postFuncs.add(distinct
+              ? "count-distinct"
+              : fn.getLocalName());
+          return null;
+        }
+      }
+      return "post-group let: argument is neither a variable nor a direct field";
     }
     if (keyVars.contains(argVar)) {
       return "post-group let: grouping variables are scalar values";
     }
-    final String func = fn.getLocalName();
+    final String func = distinct
+        ? "count-distinct"
+        : fn.getLocalName();
     if (argVar.equals(vars[0]) || argVar.equals(vars[1])) {
       if (!"count".equals(func)) {
         return "post-group let: value function over a loop var";
@@ -758,6 +850,186 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     return null;
   }
 
+  private record RangeBound(AST comparison, String field, AST limit, boolean start, boolean strict, boolean general,
+      boolean fieldLeft) {
+  }
+
+  private static void selections(AST node, final List<AST> comparisons) {
+    while (node.getType() == XQ.Selection && node.getChildCount() == 2) {
+      conjuncts(node.getChild(0), comparisons);
+      node = node.getLastChild();
+    }
+  }
+
+  private static void conjuncts(final AST node, final List<AST> comparisons) {
+    if (node.getType() == XQ.AndExpr && node.getChildCount() == 2) {
+      conjuncts(node.getChild(0), comparisons);
+      conjuncts(node.getChild(1), comparisons);
+    } else {
+      comparisons.add(node);
+    }
+  }
+
+  private static @Nullable RangeBound rangeBound(final AST node, final QNm var) {
+    if (node.getType() != XQ.ComparisonExpr || node.getChildCount() != 3) {
+      return null;
+    }
+    final int op = node.getChild(0).getType();
+    final int code = comparisonOpcode(op);
+    if (code < 2) {
+      return null;
+    }
+    for (int i = 1; i <= 2; i++) {
+      final AST operand = node.getChild(i);
+      final AST limit = node.getChild(3 - i);
+      if (!dateTimeCast(operand)
+          || !(limit.getType() == XQ.VariableRef || (dateTimeCast(limit) && limit.getChild(0).getType() == XQ.Str))
+          || (limit.getType() == XQ.VariableRef && var.equals(limit.getValue()))) {
+        continue;
+      }
+      final String field = ComputedProgram.loopVarDerefField(operand.getChild(0), var);
+      if (field != null) {
+        return new RangeBound(node, field, limit, (code <= 3) == (i == 1), code == 2 || code == 4,
+            op == XQ.GeneralCompLT || op == XQ.GeneralCompLE || op == XQ.GeneralCompGT || op == XQ.GeneralCompGE,
+            i == 1);
+      }
+    }
+    return null;
+  }
+
+  /** Only the served annotations consume these predicates; the generic join remains intact. */
+  private static @Nullable AST rangeSource(final AST source, final List<AST> comparisons, final QNm var,
+      final QNm[] loopVars, final Set<AST> consumed) {
+    final AST doc;
+    AST normalized = source;
+    while (normalized.getType() == XQ.ParenthesizedExpr && normalized.getChildCount() == 1) {
+      normalized = normalized.getChild(0);
+    }
+    final boolean composed = !arrayMembers(source);
+    if (composed) {
+      final IndexRoutedSourceStage.Source routed = IndexRoutedSourceStage.source(source);
+      if (routed == null) {
+        return null;
+      }
+      if (routed.txTime() == null) {
+        doc = normalized.getChild(0);
+      } else {
+        final AST time = routed.txTime();
+        if (!(time.getType() == XQ.VariableRef || (dateTimeCast(time) && time.getChild(0).getType() == XQ.Str))) {
+          return null;
+        }
+        doc = new AST(XQ.FunctionCall, new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "open"));
+        doc.addChild(new AST(XQ.Str, new Str(routed.database())));
+        doc.addChild(new AST(XQ.Str, new Str(routed.resource())));
+        doc.addChild(time.copyTree());
+      }
+    } else {
+      doc = source.getChild(0);
+    }
+    if (doc.getType() != XQ.FunctionCall || !(doc.getValue() instanceof QNm fn)
+        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI())
+        || !("doc".equals(fn.getLocalName()) || "open".equals(fn.getLocalName()))) {
+      return null;
+    }
+    RangeBound start = null;
+    RangeBound end = null;
+    for (final AST comparison : comparisons) {
+      final RangeBound bound = rangeBound(comparison, var);
+      if (bound != null && !(bound.limit().getType() == XQ.VariableRef
+          && (loopVars[0].equals(bound.limit().getValue()) || loopVars[1].equals(bound.limit().getValue())))) {
+        if (bound.start() && start == null) {
+          start = bound;
+        } else if (!bound.start() && end == null) {
+          end = bound;
+        }
+      }
+    }
+    if (start == null || end == null) {
+      return null;
+    }
+    final AST call = new AST(XQ.FunctionCall, ScanValidTimeIndex.SCAN_VALID_TIME_INDEX);
+    call.setProperty(ScanValidTimeIndex.DEFERRED_RANGE, true);
+    call.addChild(doc.copyTree());
+    call.addChild(start.limit().copyTree());
+    call.addChild(new AST(XQ.Str, new Str(start.field())));
+    call.addChild(new AST(XQ.Str, new Str(end.field())));
+    final int mode = (start.strict()
+        ? 1
+        : 0)
+        | (end.strict()
+            ? 2
+            : 0)
+        | (comparisons.indexOf(end.comparison()) < comparisons.indexOf(start.comparison())
+            ? 4
+            : 0)
+        | (start.general()
+            ? 8
+            : 0)
+        | (end.general()
+            ? 16
+            : 0)
+        | (start.fieldLeft()
+            ? 0
+            : 32)
+        | (end.fieldLeft()
+            ? 64
+            : 0);
+    call.addChild(new AST(XQ.Int, new Int32(mode)));
+    call.addChild(end.limit().copyTree());
+    if (composed) {
+      call.addChild(source.copyTree());
+    }
+    consumed.add(start.comparison());
+    consumed.add(end.comparison());
+    return call;
+  }
+
+  private static boolean dateTimeCast(final AST node) {
+    return node.getType() == XQ.FunctionCall && node.getChildCount() == 1 && node.getValue() instanceof QNm fn
+        && "http://www.w3.org/2001/XMLSchema".equals(fn.getNamespaceURI()) && "dateTime".equals(fn.getLocalName());
+  }
+
+  private static int comparisonOpcode(final int op) {
+    return switch (op) {
+      case XQ.ValueCompEQ, XQ.GeneralCompEQ -> 0;
+      case XQ.ValueCompNE, XQ.GeneralCompNE -> 1;
+      case XQ.ValueCompLT, XQ.GeneralCompLT -> 2;
+      case XQ.ValueCompLE, XQ.GeneralCompLE -> 3;
+      case XQ.ValueCompGT, XQ.GeneralCompGT -> 4;
+      case XQ.ValueCompGE, XQ.GeneralCompGE -> 5;
+      default -> -1;
+    };
+  }
+
+  private static @Nullable Program pairedProgram(final AST expression, final QNm[] vars, final List<String> fields) {
+    final AST copy = expression.copyTree();
+    final QNm paired = new QNm("paired");
+    if (!pairOperands(copy, vars, paired)) {
+      return null;
+    }
+    return ComputedProgram.build(copy, paired, fields);
+  }
+
+  private static boolean pairOperands(final AST node, final QNm[] vars, final QNm paired) {
+    if (node.getType() == XQ.DerefExpr) {
+      for (int side = 0; side < 2; side++) {
+        final String field = ComputedProgram.loopVarDerefField(node, vars[side]);
+        if (field != null) {
+          node.replaceChild(0, new AST(XQ.VariableRef, paired));
+          node.replaceChild(1, new AST(XQ.QNm, new QNm(side + "." + field)));
+          return true;
+        }
+      }
+      return false;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (!pairOperands(node.getChild(i), vars, paired)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private static boolean equalityComparison(final int op) {
     return !(op != XQ.ValueCompEQ && op != XQ.GeneralCompEQ && op != XQ.ValueCompNE && op != XQ.GeneralCompNE);
   }
@@ -779,13 +1051,14 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
   }
 
   private static @Nullable AST residualSelections(AST tail, final QNm[] vars, final List<Integer> residualSides,
-      final List<String> residualFields, final List<Boolean> residualNe, final List<Integer> residualCode) {
+      final List<String> residualFields, final List<Integer> residualOps, final List<Integer> residualCode,
+      final Set<AST> ranges) {
     while (tail.getType() == XQ.Selection && tail.getChildCount() == 2) {
-      final boolean previous = !residualCode.isEmpty();
-      if (!residual(tail.getChild(0), vars, residualSides, residualFields, residualNe, residualCode)) {
+      final int previous = residualCode.size();
+      if (!residual(tail.getChild(0), vars, residualSides, residualFields, residualOps, residualCode, ranges)) {
         return null;
       }
-      if (previous) {
+      if (previous > 0 && residualCode.size() > previous) {
         residualCode.add(-1);
       }
       tail = tail.getLastChild();

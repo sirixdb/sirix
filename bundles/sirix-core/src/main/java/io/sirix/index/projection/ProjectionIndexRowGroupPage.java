@@ -399,6 +399,14 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_FLAG_PURE_DOUBLE_SOURCE = 0x04;
 
+  /**
+   * For TIMESTAMP columns the provenance bit asserts that every present cell is a canonical
+   * Z-suffixed UTC timestamp. Its epoch lane is safe for dateTime comparisons even though the lexical
+   * unrepresentable bit preserves the original Z spelling for text consumers. Kind-specific reuse
+   * keeps the persisted flag layout unchanged; missing provenance declines.
+   */
+  public static final byte COLUMN_FLAG_PURE_UTC_TIMESTAMP = 0x04;
+
   static final int MAX_ORDER_LABEL_BYTES = 1 << 18;
 
   /** Number of populated rows on this page, {@code 0..MAX_ROWS}. */
@@ -550,12 +558,11 @@ public final class ProjectionIndexRowGroupPage {
   private final boolean[] columnNonIntegral;
 
   /**
-   * Per-column sticky inverse of {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE}: a NUMERIC_DOUBLE cell on
-   * THIS leaf was appended from a non-{@code Double} source — or from a caller that supplied no
-   * source provenance at all (fail closed). Meaningless for other kinds (never set, never
-   * serialized).
+   * Per-column sticky inverse of the kind-specific provenance bit: a NUMERIC_DOUBLE cell on THIS leaf
+   * was appended from a non-{@code Double} source — or from a caller that supplied no source
+   * provenance at all (fail closed). Meaningless for other kinds (never set, never serialized).
    */
-  private final boolean[] columnSawNonDoubleSource;
+  private final boolean[] columnSawImpureSource;
 
   /**
    * Initialise an empty page for the declared column shape. The actual per-column primitive arrays
@@ -582,7 +589,7 @@ public final class ProjectionIndexRowGroupPage {
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
-    this.columnSawNonDoubleSource = new boolean[columnCount];
+    this.columnSawImpureSource = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -895,7 +902,12 @@ public final class ProjectionIndexRowGroupPage {
    * kind.
    */
   public boolean columnPureDoubleSource(final int column) {
-    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawNonDoubleSource[column];
+    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawImpureSource[column];
+  }
+
+  /** True only when present timestamp cells have explicit canonical UTC provenance. */
+  public boolean columnPureUtcTimestamp(final int column) {
+    return columnKinds[column] == COLUMN_KIND_TIMESTAMP && !columnSawImpureSource[column];
   }
 
   /**
@@ -976,8 +988,8 @@ public final class ProjectionIndexRowGroupPage {
       page.columnNonIntegral[c] = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
       // Inverse-sticky: bytes without the purity bit (old stores, non-double kinds)
       // reconstruct as impure and STAY impure through any re-encode cycle.
-      page.columnSawNonDoubleSource[c] =
-          kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] = (kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || kinds[c] == COLUMN_KIND_TIMESTAMP)
+          && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
   }
@@ -1234,7 +1246,7 @@ public final class ProjectionIndexRowGroupPage {
       stringSetLen[c] = 0;
       columnUnrepresentable[c] = false;
       columnNonIntegral[c] = false;
-      columnSawNonDoubleSource[c] = false;
+      columnSawImpureSource[c] = false;
       columnMin[c] = Long.MAX_VALUE;
       columnMax[c] = Long.MIN_VALUE;
     }
@@ -1555,8 +1567,8 @@ public final class ProjectionIndexRowGroupPage {
     }
     columnUnrepresentable[0] |= unrepresentable;
     columnNonIntegral[0] |= nonIntegral;
-    if (present && kind == COLUMN_KIND_NUMERIC_DOUBLE && nonDoubleSource) {
-      columnSawNonDoubleSource[0] = true;
+    if (present && (kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_TIMESTAMP) && nonDoubleSource) {
+      columnSawImpureSource[0] = true;
     }
 
     switch (kind) {
@@ -1709,9 +1721,9 @@ public final class ProjectionIndexRowGroupPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
-      if (isPresent && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+      if (isPresent && (columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || columnKinds[c] == COLUMN_KIND_TIMESTAMP)
           && (nonDoubleSource == null || nonDoubleSource[c])) {
-        columnSawNonDoubleSource[c] = true;
+        columnSawImpureSource[c] = true;
       }
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
@@ -2511,8 +2523,9 @@ public final class ProjectionIndexRowGroupPage {
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
-      page.columnSawNonDoubleSource[c] = page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
-          && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] =
+          (page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || page.columnKinds[c] == COLUMN_KIND_TIMESTAMP)
+              && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -2670,7 +2683,7 @@ public final class ProjectionIndexRowGroupPage {
     if (columnNonIntegral[c]) {
       flags |= COLUMN_FLAG_NON_INTEGRAL;
     }
-    if (columnPureDoubleSource(c)) {
+    if (columnPureDoubleSource(c) || columnPureUtcTimestamp(c)) {
       flags |= COLUMN_FLAG_PURE_DOUBLE_SOURCE;
     }
     return flags;

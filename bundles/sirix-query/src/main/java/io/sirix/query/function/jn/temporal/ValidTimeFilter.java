@@ -37,12 +37,35 @@ public final class ValidTimeFilter {
   public static Sequence comparisonScanSequence(final @Nullable JsonDBItem document, final Supplier<Sequence> point,
       final String from, final String to, final int mode, final @Nullable StaticContext context,
       final QueryContext queryContext) {
+    return comparisonScanSequence(document, point, point, from, to, mode, context, queryContext);
+  }
+
+  /** Two independent bounds, preserving the original comparison order and lazy point evaluation. */
+  public static Sequence comparisonScanSequence(final @Nullable JsonDBItem document,
+      final Supplier<Sequence> startLimit, final Supplier<Sequence> endLimit, final String from, final String to,
+      final int mode, final @Nullable StaticContext context, final QueryContext queryContext) {
     if (!(document instanceof Array) || ((Array) currentDocument(document)).len() == 0) {
       return new ItemSequence();
     }
-    final ValidTimeResidual lower = new ValidTimeResidual(context, queryContext, point, from, true, (mode & 1) != 0,
-        (mode & 8) != 0, (mode & 32) == 0);
-    final ValidTimeResidual upper = new ValidTimeResidual(context, queryContext, point, to, false, (mode & 2) != 0,
+    return comparisonSourceSequence(() -> (Array) currentDocument(document), startLimit, endLimit, from, to, mode,
+        context, queryContext);
+  }
+
+  /** Filter an already-routed source without expanding it to the underlying whole document. */
+  public static Sequence comparisonScanSequence(final @Nullable Sequence source, final Supplier<Sequence> startLimit,
+      final Supplier<Sequence> endLimit, final String from, final String to, final int mode,
+      final @Nullable StaticContext context, final QueryContext queryContext) {
+    return source == null
+        ? new ItemSequence()
+        : comparisonSourceSequence(() -> source, startLimit, endLimit, from, to, mode, context, queryContext);
+  }
+
+  private static Sequence comparisonSourceSequence(final Supplier<Sequence> source, final Supplier<Sequence> startLimit,
+      final Supplier<Sequence> endLimit, final String from, final String to, final int mode,
+      final @Nullable StaticContext context, final QueryContext queryContext) {
+    final ValidTimeResidual lower = new ValidTimeResidual(context, queryContext, startLimit, from, true,
+        (mode & 1) != 0, (mode & 8) != 0, (mode & 32) == 0);
+    final ValidTimeResidual upper = new ValidTimeResidual(context, queryContext, endLimit, to, false, (mode & 2) != 0,
         (mode & 16) != 0, (mode & 64) != 0);
     final ValidTimeResidual first = (mode & 4) == 0
         ? lower
@@ -53,7 +76,7 @@ public final class ValidTimeFilter {
     return new LazySequence() {
       @Override
       public Iter iterate() {
-        final Iter input = ((Array) currentDocument(document)).iterate();
+        final Iter input = source.get().iterate();
         return new BaseIter() {
           @Override
           public @Nullable Item next() {

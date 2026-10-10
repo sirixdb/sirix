@@ -16,8 +16,6 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.util.Iterator;
-import java.util.Map;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
 
@@ -227,23 +225,45 @@ public final class HotOrderedStore implements OrderedStore {
         new ValidTimeKey(store, Long.MAX_VALUE, Long.MAX_VALUE), out);
   }
 
+  @Override
+  public void scanForks(final long forkLo, final long forkHi, final LongConsumer out) {
+    requireNonNull(out);
+    if (reader != null && forkLo <= forkHi) {
+      scan(new ValidTimeKey(store, forkLo, Long.MIN_VALUE), new ValidTimeKey(store, forkHi, Long.MAX_VALUE), out);
+    }
+  }
+
   private void scan(final ValidTimeKey from, final ValidTimeKey to, final LongConsumer out) {
-    final Iterator<Map.Entry<ValidTimeKey, NodeReferences>> it = requireNonNull(reader).range(from, to);
-    while (it.hasNext()) {
-      final NodeReferences refs = it.next().getValue();
-      if (refs == null) {
-        continue;
-      }
-      final LongIterator longIt = refs.getNodeKeys().getLongIterator();
-      while (longIt.hasNext()) {
-        if (SCAN_DIAGNOSTICS) {
-          if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
-            INTERVAL_REFS_EMITTED.increment();
-          } else {
-            POSTING_REFS_EMITTED.increment();
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    final var root = r.getRootReference();
+    if (root == null) {
+      return;
+    }
+    // Valid-time keys have a fixed, prefix-free width. The composite chunk window is therefore
+    // exact, unlike variable-width CAS keys. Stream normalized chunks directly instead of first
+    // rebuilding one full-key bitmap per logical endpoint and then unpacking that bitmap again.
+    final byte[] first = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    final byte[] last = new byte[first.length];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(from, 0, first, 0);
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(to, -1, last, 0);
+    try (final HOTTrieReader trie = new HOTTrieReader(r.getStorageEngineReader());
+        final HOTRangeCursor cursor = trie.range(root, first, last)) {
+      while (cursor.hasNext()) {
+        final HOTRangeCursor.Entry entry = cursor.next();
+        final NodeReferences refs = NodeReferencesSerializer.deserializeChunk(entry.valueBytes());
+        final byte[] composite = entry.keyBytes();
+        final long chunkBase = (HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL) << 16;
+        final LongIterator iterator = refs.getNodeKeys().getLongIterator();
+        while (iterator.hasNext()) {
+          if (SCAN_DIAGNOSTICS) {
+            if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
+              INTERVAL_REFS_EMITTED.increment();
+            } else {
+              POSTING_REFS_EMITTED.increment();
+            }
           }
+          out.accept(chunkBase | iterator.next());
         }
-        out.accept(longIt.next());
       }
     }
   }

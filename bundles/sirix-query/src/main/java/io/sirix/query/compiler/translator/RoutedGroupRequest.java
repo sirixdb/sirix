@@ -67,7 +67,9 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
     if (routed.indexed() != null) {
       final RoutedKeys rows = routed.indexed() instanceof SirixValidTimeScanExpr scan
           ? scan.routedKeys(ctx, tuple)
-          : ValidTimeIntervalIndex.routedKeys(routed.indexed().evaluate(ctx, tuple));
+          : routed.indexed() instanceof SirixValidTimeRangeExpr range
+              ? range.routedKeys(ctx, tuple)
+              : ValidTimeIntervalIndex.routedKeys(routed.indexed().evaluate(ctx, tuple));
       return rows == null
           ? null
           : new RoutedRows(rows.keys(), rows.revision());
