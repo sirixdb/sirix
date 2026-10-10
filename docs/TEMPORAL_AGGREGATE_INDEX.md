@@ -30,9 +30,11 @@ engine. There is no separately published sidecar or process-local authority for 
 
 Each typed group head points to at most eight immutable parts. A part contains sorted valid-time
 endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
-value-frequency vectors for declared extrema. Equal frequency vectors within a part share their
-encoded bytes. The format uses 2,048-byte HOT chunks; point reads load only the chunks reached by
-binary search and the compressed tree path.
+value-frequency vectors for declared extrema. Deltas with at most 64 extrema changes instead store
+sorted `(from, to, value, sign)` candidates. A point read filters this bounded list into a signed
+frequency prefix; checkpoints and larger deltas use the time tree. Equal frequency vectors within
+an indexed part share their encoded bytes. The format uses 2,048-byte HOT chunks; indexed point
+reads load only the chunks reached by binary search and the compressed tree path.
 
 `TemporalAggregateDomain` uses a 27-bit millisecond-of-day radix under the UTC epoch day, keeping
 day boundaries aligned without losing arbitrary millisecond precision. Its admitted instant range
@@ -41,7 +43,8 @@ cover of older intervals. Each signed interval change contributes extrema freque
 cover. A point query combines prefix sums and frequency vectors from at most eight parts. Extrema
 first check up to 32 candidates, then use weighted binary selection over the combined frequency
 prefixes, bounding work even when a deletion removes a long run of minimum or maximum values.
-The index never enumerates the matching records during a point query.
+Raw deltas inspect at most 64 candidates per extrema lane per part, independent of the stored record
+population. The index never enumerates the matching records during a point query.
 
 The projection listener coalesces dirty identities and column masks through page flushes. Columns
 outside the declaration cause no aggregate I/O. At a maintenance barrier the maintainer reads old

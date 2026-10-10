@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class TemporalAggregatePartsTest {
@@ -160,6 +161,64 @@ final class TemporalAggregatePartsTest {
     swap.add(8193, 12031, new long[] {2, 18, 2}, 7, -1);
     swap.add(8193, 12031, new long[] {1, 9, 1}, 7, 1);
     assertTrue(swap.isEmpty(), "Cancelling a batch must need no appended part");
+  }
+
+  @Test
+  void extremaOnlyReplacementKeepsBoundedRawCandidatesEvenWhenEndpointCountsCancel() {
+    final TemporalAggregateSpec spec = new TemporalAggregateSpec(0, List.of(0),
+        List.of(new TemporalAggregateSpec.Lane(1, -1, TemporalAggregateSpec.MIN | TemporalAggregateSpec.MAX)));
+    final TemporalAggregateParts index = new TemporalAggregateParts(spec, 49);
+    final Store store = new Store();
+    final TemporalAggregateParts.Builder initial = index.builder();
+    initial.add(8193, 12031, new long[] {5}, 1, 1);
+    store.parts.put(1L, initial.encode(true));
+    final TemporalAggregateParts.Builder delta = index.builder();
+    delta.add(8193, 12031, new long[] {5}, 1, -1);
+    delta.add(8193, 12031, new long[] {9}, 1, 1);
+    assertFalse(delta.isEmpty());
+    final byte[] bytes = delta.encode(false);
+    assertTrue(bytes.length <= 128, "Two interval candidates must not carry a time-tree directory");
+    store.parts.put(2L, bytes);
+    assertEquals(9, index.point(store, new long[] {1, 2}, 9000).min(0));
+    assertEquals(0, index.point(store, new long[] {1, 2}, 12031).count());
+    final TemporalAggregateParts.Builder folded = index.builder();
+    folded.merge(store, 1);
+    folded.merge(store, 2);
+    store.parts.put(3L, folded.encode(true));
+    assertEquals(9, index.point(store, new long[] {3}, 9000).max(0));
+  }
+
+  @Test
+  void rawCandidatesKeepIndependentLaneOrderingPresenceAndIntervalBounds() {
+    final TemporalAggregateSpec spec = new TemporalAggregateSpec(0, List.of(0),
+        List.of(new TemporalAggregateSpec.Lane(1), new TemporalAggregateSpec.Lane(2)));
+    final TemporalAggregateParts index = new TemporalAggregateParts(spec, 8);
+    final Store store = new Store();
+    final TemporalAggregateParts.Builder initial = index.builder();
+    initial.add(2, 9, new long[] {Long.MIN_VALUE, 100}, 3, 1);
+    initial.add(2, 9, new long[] {5, -9}, 3, 1);
+    initial.add(2, 9, new long[] {7, 0}, 1, 1);
+    store.parts.put(1L, initial.encode(true));
+    final TemporalAggregateParts.Builder delta = index.builder();
+    delta.add(2, 9, new long[] {Long.MIN_VALUE, 100}, 3, -1);
+    delta.add(2, 9, new long[] {Long.MAX_VALUE, 0}, 1, 1);
+    delta.add(2, 9, new long[] {5, -9}, 3, -1);
+    delta.add(6, 9, new long[] {5, -9}, 3, 1);
+    store.parts.put(2L, delta.encode(false));
+    final AggregateSummary early = index.point(store, new long[] {1, 2}, 2);
+    assertEquals(2, early.count());
+    assertEquals(BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.valueOf(7)), early.sum(0));
+    assertEquals(7, early.min(0));
+    assertEquals(Long.MAX_VALUE, early.max(0));
+    assertEquals(0, early.present(1));
+    final AggregateSummary later = index.point(store, new long[] {1, 2}, 6);
+    assertEquals(3, later.count());
+    assertEquals(5, later.min(0));
+    assertEquals(1, later.present(1));
+    assertEquals(-9, later.min(1));
+    assertEquals(-9, later.max(1));
+    assertEquals(BigInteger.valueOf(-9), later.sum(1));
+    assertEquals(0, index.point(store, new long[] {1, 2}, 9).count());
   }
 
   private static long[] ids(final List<Long> parts) {

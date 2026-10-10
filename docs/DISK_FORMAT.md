@@ -209,8 +209,9 @@ fail-fast lookups, never ordinals.
   prefix 1 maps typed grouping values to live-row counts, last-modified revision and at most eight
   part ids. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
   endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
-  deduplicated sorted signed value-frequency prefixes for declared extrema. Part magic is `TAP1`;
-  coordinates use day-aligned millisecond radix. See `TEMPORAL_AGGREGATE_INDEX.md`.
+  deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
+  deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane
+  instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See `TEMPORAL_AGGREGATE_INDEX.md`.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
