@@ -204,14 +204,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     final boolean[] stringKeys = new boolean[keyFields.length];
-    for (int k = 0; k < keyFields.length; k++) {
-      final MaskedColumns c = columns[keySides[k]];
-      if (!c.isLong(keySlots[k]) && !c.isString(keySlots[k])) {
-        return decline("key " + keyFields[k] + " is neither long nor string");
-      }
-      stringKeys[k] = c.isString(keySlots[k]);
-    }
-    final String invalid = invalidOperands(columns);
+    final String invalid = invalidColumns(columns, stringKeys);
     if (invalid != null) {
       return decline(invalid);
     }
@@ -684,7 +677,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return allPresent;
   }
 
-  private @Nullable String invalidOperands(final MaskedColumns[] columns) {
+  private @Nullable String invalidColumns(final MaskedColumns[] columns, final boolean[] stringKeys) {
+    for (int k = 0; k < keyFields.length; k++) {
+      final MaskedColumns c = columns[keySides[k]];
+      if (!c.isLong(keySlots[k]) && !c.isString(keySlots[k])) {
+        return "key " + keyFields[k] + " is neither long nor string";
+      }
+      stringKeys[k] = c.isString(keySlots[k]);
+    }
     for (int a = 0; a < aggFields.length; a++) {
       if (aggSlots[a] >= 0 && !columns[aggSides[a]].isLong(aggSlots[a])) {
         return "aggregate operand " + aggFields[a] + " is not a long column";

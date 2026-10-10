@@ -378,56 +378,8 @@ final class ProjectionOpenRowGroupTailTest {
         final int routes = Runtime.getRuntime().availableProcessors() >= 2
             ? 5
             : 4;
-        for (final boolean cold : new boolean[] {false, true}) {
-          for (int route = 0; route < routes; route++) {
-            if (cold) {
-              ProjectionOpenRowGroupTail.clearCacheForTesting();
-            }
-            final AtomicInteger baseReads = new AtomicInteger();
-            final AtomicInteger hashReads = new AtomicInteger();
-            final StorageEngineReader counted =
-                countPayloadReads(storage, baseOffsets, hashesOffset, baseReads, hashReads);
-            List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = null;
-            switch (route) {
-              case 0 -> assertArrayEquals(expected.serialize(),
-                  ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(counted, INDEX, 1));
-              case 1 -> {
-                final List<byte[]> all = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(counted,
-                    INDEX, groups, physicalOrder);
-                assertEquals(groups, all.size());
-                assertArrayEquals(expected.serialize(), all.get(0));
-                for (int group = 1; group < groups; group++) {
-                  assertArrayEquals(otherRaw, all.get(group));
-                }
-              }
-              case 2 ->
-                directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(counted, INDEX,
-                    groups, physicalOrder);
-              case 3 -> directories = Arrays.asList(
-                  ProjectionIndexHOTStorage.readDirectoryWindow(counted, INDEX, new int[] {1, groups}, 0, 2));
-              case 4 -> {
-                final AtomicInteger workers = new AtomicInteger();
-                directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(counted, INDEX,
-                    groups, physicalOrder, worker -> {
-                      try (JsonNodeReadOnlyTrx workerTrx = session.beginNodeReadOnlyTrx(revision)) {
-                        worker.accept(countPayloadReads(workerTrx.getStorageEngineReader(), baseOffsets, hashesOffset,
-                            baseReads, hashReads));
-                        workers.incrementAndGet();
-                      }
-                    }, true);
-                assertTrue(workers.get() > 0, "the directory route must engage worker readers");
-              }
-              default -> throw new AssertionError(route);
-            }
-            if (route >= 2) {
-              assertMemoReadDirectories(directories, route, groups, expectedEncoded);
-            }
-            assertEquals(cold
-                ? requiredOffsets.size()
-                : 0, baseReads.get(), "base payload reads for route " + route + ", cold=" + cold);
-            assertEquals(0, hashReads.get(), "raw assembly never consumes base dictionary hashes");
-          }
-        }
+        assertMemoReadRoutes(session, storage, revision, physicalOrder, expected, expectedEncoded, otherRaw,
+            baseOffsets, hashesOffset, requiredOffsets, routes);
         for (int maskedRoute = 0; maskedRoute < routes - 2; maskedRoute++) {
           ProjectionOpenRowGroupTail.clearCacheForTesting();
           final AtomicInteger baseReads = new AtomicInteger();
@@ -543,30 +495,7 @@ final class ProjectionOpenRowGroupTailTest {
             "one ordinary leaf BODY requested in a side-page batch", members::get);
         final WorkCounter pointCalls = WorkCounter.alwaysOn("projection.ordinaryBodyPointReads",
             "one ordinary leaf BODY requested through an individual side-page read", points::get);
-        final StorageEngineReader counted =
-            (StorageEngineReader) Proxy.newProxyInstance(StorageEngineReader.class.getClassLoader(),
-                new Class<?>[] {StorageEngineReader.class}, (proxy, method, arguments) -> {
-                  if ("readSideOverflowPageBatch".equals(method.getName())) {
-                    int matched = 0;
-                    for (final long offset : (long[]) arguments[0]) {
-                      if (ordinaryBodies.contains(offset)) {
-                        matched++;
-                      }
-                    }
-                    if (matched > 0) {
-                      batches.incrementAndGet();
-                      members.addAndGet(matched);
-                    }
-                  } else if ("readSideOverflowPage".equals(method.getName())
-                      && ordinaryBodies.contains(((PageReference) arguments[0]).getKey())) {
-                    points.incrementAndGet();
-                  }
-                  try {
-                    return method.invoke(storage, arguments);
-                  } catch (final InvocationTargetException failure) {
-                    throw failure.getCause();
-                  }
-                });
+        final StorageEngineReader counted = countOrdinaryBodyReads(storage, ordinaryBodies, batches, members, points);
         final int[] order = new int[groups];
         final long[][] leafKeys = new long[groups][];
         final long[] expected = new long[48];
@@ -654,6 +583,62 @@ final class ProjectionOpenRowGroupTailTest {
     }
   }
 
+  private static void assertMemoReadRoutes(final JsonResourceSession session, final StorageEngineReader storage,
+      final int revision, final int[] physicalOrder, final ProjectionIndexRowGroupPage expected,
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedEncoded, final byte[] otherRaw,
+      final LongOpenHashSet baseOffsets, final long hashesOffset, final LongOpenHashSet requiredOffsets,
+      final int routes) {
+    final int groups = physicalOrder.length;
+    for (final boolean cold : new boolean[] {false, true}) {
+      for (int route = 0; route < routes; route++) {
+        if (cold) {
+          ProjectionOpenRowGroupTail.clearCacheForTesting();
+        }
+        final AtomicInteger baseReads = new AtomicInteger();
+        final AtomicInteger hashReads = new AtomicInteger();
+        final StorageEngineReader counted = countPayloadReads(storage, baseOffsets, hashesOffset, baseReads, hashReads);
+        List<ProjectionIndexHOTStorage.RowGroupDirectory> directories = null;
+        switch (route) {
+          case 0 -> assertArrayEquals(expected.serialize(),
+              ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(counted, INDEX, 1));
+          case 1 -> {
+            final List<byte[]> all =
+                ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(counted, INDEX, groups, physicalOrder);
+            assertEquals(groups, all.size());
+            assertArrayEquals(expected.serialize(), all.get(0));
+            for (int group = 1; group < groups; group++) {
+              assertArrayEquals(otherRaw, all.get(group));
+            }
+          }
+          case 2 -> directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(counted,
+              INDEX, groups, physicalOrder);
+          case 3 -> directories =
+              Arrays.asList(ProjectionIndexHOTStorage.readDirectoryWindow(counted, INDEX, new int[] {1, groups}, 0, 2));
+          case 4 -> {
+            final AtomicInteger workers = new AtomicInteger();
+            directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(counted, INDEX,
+                groups, physicalOrder, worker -> {
+                  try (JsonNodeReadOnlyTrx workerTrx = session.beginNodeReadOnlyTrx(revision)) {
+                    worker.accept(countPayloadReads(workerTrx.getStorageEngineReader(), baseOffsets, hashesOffset,
+                        baseReads, hashReads));
+                    workers.incrementAndGet();
+                  }
+                }, true);
+            assertTrue(workers.get() > 0, "the directory route must engage worker readers");
+          }
+          default -> throw new AssertionError(route);
+        }
+        if (route >= 2) {
+          assertMemoReadDirectories(directories, route, groups, expectedEncoded);
+        }
+        assertEquals(cold
+            ? requiredOffsets.size()
+            : 0, baseReads.get(), "base payload reads for route " + route + ", cold=" + cold);
+        assertEquals(0, hashReads.get(), "raw assembly never consumes base dictionary hashes");
+      }
+    }
+  }
+
   private static void assertMemoReadDirectories(
       final @Nullable List<ProjectionIndexHOTStorage.RowGroupDirectory> directories, final int route, final int groups,
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup expectedEncoded) {
@@ -681,6 +666,34 @@ final class ProjectionOpenRowGroupTailTest {
           new boolean[] {false, flagAt(row), false}, new String[] {null, null, uniqueString(row)}));
     }
     return page;
+  }
+
+  private static StorageEngineReader countOrdinaryBodyReads(final StorageEngineReader storage,
+      final LongOpenHashSet ordinaryBodies, final AtomicLong batches, final AtomicLong members,
+      final AtomicLong points) {
+    return (StorageEngineReader) Proxy.newProxyInstance(StorageEngineReader.class.getClassLoader(),
+        new Class<?>[] {StorageEngineReader.class}, (proxy, method, arguments) -> {
+          if ("readSideOverflowPageBatch".equals(method.getName())) {
+            int matched = 0;
+            for (final long offset : (long[]) arguments[0]) {
+              if (ordinaryBodies.contains(offset)) {
+                matched++;
+              }
+            }
+            if (matched > 0) {
+              batches.incrementAndGet();
+              members.addAndGet(matched);
+            }
+          } else if ("readSideOverflowPage".equals(method.getName())
+              && ordinaryBodies.contains(((PageReference) arguments[0]).getKey())) {
+            points.incrementAndGet();
+          }
+          try {
+            return method.invoke(storage, arguments);
+          } catch (final InvocationTargetException failure) {
+            throw failure.getCause();
+          }
+        });
   }
 
   private static StorageEngineReader countPayloadReads(final StorageEngineReader delegate,
