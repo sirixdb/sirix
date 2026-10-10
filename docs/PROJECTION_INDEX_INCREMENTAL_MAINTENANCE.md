@@ -456,8 +456,11 @@ No sparse locator is written. Among the routing units, only the last normal
 boundary is extended. The descriptor, slot-0 metadata, and affected derived
 column metadata still change. A pure append to an existing open row group in
 row-group-major layout stores the new rows in referenced side pages and retains
-the base `KEYS` and column segments. The writer proves that the re-extracted
-prefix equals the persisted rows, including order labels, presence and values.
+the base `KEYS` and column segments. Tail eligibility requires no removals, only
+insertions at the end, and no pending column-only update for the leaf. These
+conditions prove the persisted prefix untouched, so only new rows are extracted.
+The persisted page's order-label capacity and the tail format's per-row label
+limit bound the append; exceeding either falls back to a full leaf rewrite.
 A group completed at 1024 rows, a membership rewrite or a column patch folds
 the tail into ordinary column segments in the same transaction. The writer
 also folds on the append after 64 live tail blobs, then starts a new tail on

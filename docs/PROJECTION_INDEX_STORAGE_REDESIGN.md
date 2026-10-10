@@ -259,8 +259,8 @@ Transferable rules:
    dominating (§11).
 
 Deliberate divergence: the "row group" stays at `MAX_ROWS = 1024` — the small
-group is load-bearing for incremental maintenance (touched leaves are
-re-extracted wholesale) and matches the SIMD kernels' 1024-bit masks.
+group matches the SIMD kernels' 1024-bit masks. Extraction and rewrite granularity
+are specified in [incremental maintenance](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md).
 
 ### 2.2 Building blocks that already exist *(corrected — this is the largest revision)*
 
@@ -922,8 +922,7 @@ dictionary decode, canonical-id remap (`dictSize × canonLen` byte-compares),
 per-leaf hash merges — that DuckDB amortizes once in a global hash table.
 Per-leaf work that is noise across 9,700 leaves dominates across 97,000.
 
-The 1024-row group is load-bearing (maintenance re-extraction granularity,
-SIMD mask width — §2.1) and stays. The fix is therefore **cross-leaf
+The 1024-row group is load-bearing (§2.1) and stays. The fix is therefore **cross-leaf
 amortization of dictionaries**, not bigger leaves — R1 in §8.6. This redesign
 is the prerequisite, not the fix: separate `DICT(c)` segments (§2.3) make
 dictionaries independently addressable, which is what makes a store-level

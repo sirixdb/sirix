@@ -14,7 +14,6 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.node.d2linked.D2NodeBuilder;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.util.path.PathException;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
@@ -38,12 +37,8 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import org.jspecify.annotations.Nullable;
 
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Set;
 
@@ -159,28 +154,7 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *         for the specified {@code revision}
    */
   static boolean containsIndex(final IndexType type, final ResourceSession<?, ?> resourceSession, final int revision) {
-    final Indexes indexes = new Indexes();
-
-    final Path indexesFile = resourceSession.getResourcePath()
-                                            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                            .resolve(revision + ".xml");
-
-    try {
-      if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {
-        try (final InputStream in = new FileInputStream(indexesFile.toFile())) {
-          indexes.init(IndexController.deserialize(in).getFirstChild());
-        }
-      }
-    } catch (IOException | DocumentException | SirixException e) {
-      throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-    }
-
-    for (final IndexDef indexDef : indexes.getIndexDefs()) {
-      if (indexDef.getType() == type)
-        return true;
-    }
-
-    return false;
+    return resourceSession.getRtxIndexController(revision).containsIndex(type);
   }
 
   /**
@@ -271,12 +245,11 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Drop (remove) indexes from the catalog.
    *
    * <p>
-   * Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so the
-   * reduced catalogue is persisted on the next commit), then re-derives the change listeners and
-   * fast-path capability flags from the REMAINING definitions — so the dropped index is no longer
-   * maintained on writes within this transaction, and {@code has*Index()} reflects the removal. The
-   * dropped index's on-disk pages stay referenced by older revisions (time-travel is preserved); the
-   * copy-on-write page chain reclaims them when no revision references them.
+   * Removes each given {@link IndexDef} from the in-memory index catalogue, then re-derives the
+   * change listeners and fast-path capability flags from the REMAINING definitions — so the dropped
+   * index is no longer maintained on writes within this transaction, and {@code has*Index()} reflects
+   * the removal. The dropped index's on-disk pages stay referenced by older revisions (time-travel is
+   * preserved); the copy-on-write page chain reclaims them when no revision references them.
    * </p>
    *
    * @param indexDefs the {@link IndexDef}s to remove

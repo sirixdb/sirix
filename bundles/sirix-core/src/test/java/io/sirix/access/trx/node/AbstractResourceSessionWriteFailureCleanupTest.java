@@ -131,6 +131,9 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
       return (C) mock(IndexController.class);
     }
 
+    @Override
+    protected void invalidateIndexControllers(final int firstRevision) {}
+
     private static UberPage uberPageAtRevisionZero() {
       final UberPage uberPage = mock(UberPage.class);
       when(uberPage.getRevisionNumber()).thenReturn(0);

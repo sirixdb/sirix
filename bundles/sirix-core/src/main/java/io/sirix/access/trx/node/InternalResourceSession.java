@@ -45,6 +45,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    */
   void recordSerializedIndexCatalogueRevision(int revision);
 
+  void invalidateIndexCataloguesAfter(int revision);
+
   /**
    * Replace a catalogue with persisted definitions in effect at {@code revision}, discarding any
    * uncommitted definitions. An absent snapshot inherits the preceding persisted catalogue; an
