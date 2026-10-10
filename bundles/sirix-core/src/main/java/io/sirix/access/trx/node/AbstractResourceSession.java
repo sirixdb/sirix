@@ -48,6 +48,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -149,6 +150,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /** The catalogue revision of a revision with no index catalogue at or below it. */
   private static final int NO_INDEX_CATALOGUE = -1;
 
+  private static final int PARSED_INDEX_CATALOGUE_CACHE_SIZE = 64;
+
   /** Listings of {@code indexes/} taken by {@link #listIndexCatalogueRevisions}, process-wide. */
   private static final LongAdder INDEX_CATALOGUE_DIRECTORY_LISTINGS = new LongAdder();
 
@@ -231,11 +234,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final AtomicReference<CatalogueRevisions> knownIndexCatalogueRevisions;
 
   /**
-   * The parsed definitions of every catalogue file this resource's sessions have read, by the file's
+   * The parsed definitions of recent catalogue files this resource's sessions have read, by the file's
    * revision, shared between handles for the lifetime of their shared resource session. See
    * {@link #parsedIndexCatalogue} for isolation and invalidation requirements.
    */
-  private final ConcurrentMap<Integer, List<IndexDef>> parsedIndexCatalogues;
+  private final Int2ObjectLinkedOpenHashMap<List<IndexDef>> parsedIndexCatalogues;
 
   /**
    * Determines if session was closed.
@@ -320,7 +323,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
     knownIndexCatalogueRevisions = new AtomicReference<>(new CatalogueRevisions(EMPTY_INT_ARRAY, false));
-    parsedIndexCatalogues = new ConcurrentHashMap<>();
+    parsedIndexCatalogues = new Int2ObjectLinkedOpenHashMap<>(PARSED_INDEX_CATALOGUE_CACHE_SIZE);
     pool = new AtomicReference<>();
 
     // Use GLOBAL epoch tracker (shared across all databases/resources)
@@ -465,9 +468,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * and {@link #recordSerializedIndexCatalogueRevision}.
    */
   private List<IndexDef> parsedIndexCatalogue(final Path indexesDir, final int catalogueRevision) {
-    final List<IndexDef> cached = parsedIndexCatalogues.get(catalogueRevision);
-    if (cached != null) {
-      return cached;
+    synchronized (parsedIndexCatalogues) {
+      final List<IndexDef> cached = parsedIndexCatalogues.getAndMoveToLast(catalogueRevision);
+      if (cached != null) {
+        return cached;
+      }
     }
     final Indexes parsed = new Indexes();
     try (final InputStream in = new FileInputStream(indexesDir.resolve(catalogueRevision + ".xml").toFile())) {
@@ -476,10 +481,22 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }
     final List<IndexDef> definitions = List.copyOf(parsed.getIndexDefsInOrder());
-    final List<IndexDef> raced = parsedIndexCatalogues.putIfAbsent(catalogueRevision, definitions);
-    return raced != null
-        ? raced
-        : definitions;
+    synchronized (parsedIndexCatalogues) {
+      final List<IndexDef> raced = parsedIndexCatalogues.getAndMoveToLast(catalogueRevision);
+      if (raced != null) {
+        return raced;
+      }
+      if (parsedIndexCatalogues.size() == PARSED_INDEX_CATALOGUE_CACHE_SIZE) {
+        final int latestCommittedCatalogue = greatestAtOrBelow(requireNonNull(knownIndexCatalogueRevisions.get()).revisions(),
+            getMostRecentRevisionNumber());
+        if (parsedIndexCatalogues.firstIntKey() == latestCommittedCatalogue) {
+          parsedIndexCatalogues.getAndMoveToLast(latestCommittedCatalogue);
+        }
+        parsedIndexCatalogues.removeFirst();
+      }
+      parsedIndexCatalogues.putAndMoveToLast(catalogueRevision, definitions);
+    }
+    return definitions;
   }
 
   /**
@@ -619,7 +636,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public void recordSerializedIndexCatalogueRevision(final int revision) {
     checkArgument(revision >= 0, "revision must be >= 0!");
     INDEX_CATALOGUE_FILES_WRITTEN.increment();
-    if (parsedIndexCatalogues.remove(revision) != null) {
+    final boolean invalidated;
+    synchronized (parsedIndexCatalogues) {
+      invalidated = parsedIndexCatalogues.remove(revision) != null;
+    }
+    if (invalidated) {
       invalidateIndexControllers(revision);
     }
     rememberIndexCatalogueRevision(revision);
@@ -638,7 +659,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void invalidateIndexCataloguesAfter(final int revision) {
     checkArgument(revision >= 0, "revision must be >= 0!");
-    parsedIndexCatalogues.keySet().removeIf(catalogueRevision -> catalogueRevision > revision);
+    synchronized (parsedIndexCatalogues) {
+      parsedIndexCatalogues.keySet().removeIf((int catalogueRevision) -> catalogueRevision > revision);
+    }
     knownIndexCatalogueRevisions.updateAndGet(current -> {
       final int[] revisions = current.revisions();
       int retained = Arrays.binarySearch(revisions, revision);
