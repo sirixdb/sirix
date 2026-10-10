@@ -245,12 +245,11 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Drop (remove) indexes from the catalog.
    *
    * <p>
-   * Removes each given {@link IndexDef} from the in-memory index catalogue (marking it dirty so the
-   * reduced catalogue is persisted on the next commit), then re-derives the change listeners and
-   * fast-path capability flags from the REMAINING definitions — so the dropped index is no longer
-   * maintained on writes within this transaction, and {@code has*Index()} reflects the removal. The
-   * dropped index's on-disk pages stay referenced by older revisions (time-travel is preserved); the
-   * copy-on-write page chain reclaims them when no revision references them.
+   * Removes each given {@link IndexDef} from the in-memory index catalogue, then re-derives the
+   * change listeners and fast-path capability flags from the REMAINING definitions — so the dropped
+   * index is no longer maintained on writes within this transaction, and {@code has*Index()} reflects
+   * the removal. The dropped index's on-disk pages stay referenced by older revisions (time-travel is
+   * preserved); the copy-on-write page chain reclaims them when no revision references them.
    * </p>
    *
    * @param indexDefs the {@link IndexDef}s to remove

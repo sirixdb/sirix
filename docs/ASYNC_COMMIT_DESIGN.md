@@ -18,7 +18,7 @@ Query application semantics are documented in [Query Updates](../README.md#query
 Micro-benchmark context (100k inserts, threshold 8k, this repo's bench
 environment): sync auto-commit 556 ms, async flush 141 ms, single commit
 106 ms. The sync-commit overhead is dominated by per-epoch durability
-barriers (index-catalogue fsync, buffered-tail flush, data force, two DSYNC
+barriers (any required index-catalogue fsync, buffered-tail flush, data force, two DSYNC
 beacon writes) — exactly the part this mode moves off the writer thread.
 
 ## Design: split the commit at the durability barrier

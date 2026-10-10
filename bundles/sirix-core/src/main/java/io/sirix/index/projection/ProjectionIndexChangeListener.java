@@ -2672,8 +2672,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         // Open-row-group tail: a pure append to an existing, still-open row group stores the
         // new rows row-major and republishes the merged descriptor instead of rewriting every column
         // segment. Eligibility is structural here (no removal, every insertion at the end, no
-        // column-only update pending for this leaf, one planned group, the group stays open) and is
-        // proven below by comparing the re-extracted prefix with the persisted rows.
+        // column-only update pending for this leaf, one planned group, the group stays open); these
+        // conditions preserve the persisted prefix without re-extracting it.
         final int priorRows = edit.oldPage == null
             ? 0
             : edit.oldPage.getRowCount();

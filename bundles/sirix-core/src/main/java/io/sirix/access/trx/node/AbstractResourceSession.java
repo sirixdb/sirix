@@ -234,8 +234,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final AtomicReference<CatalogueRevisions> knownIndexCatalogueRevisions;
 
   /**
-   * The parsed definitions of recent catalogue files this resource's sessions have read, by the file's
-   * revision, shared between handles for the lifetime of their shared resource session. See
+   * The parsed definitions of recent catalogue files this resource's sessions have read, by the
+   * file's revision, shared between handles for the lifetime of their shared resource session. See
    * {@link #parsedIndexCatalogue} for isolation and invalidation requirements.
    */
   private final Int2ObjectLinkedOpenHashMap<List<IndexDef>> parsedIndexCatalogues;
@@ -487,8 +487,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         return raced;
       }
       if (parsedIndexCatalogues.size() == PARSED_INDEX_CATALOGUE_CACHE_SIZE) {
-        final int latestCommittedCatalogue = greatestAtOrBelow(requireNonNull(knownIndexCatalogueRevisions.get()).revisions(),
-            getMostRecentRevisionNumber());
+        final int latestCommittedCatalogue = greatestAtOrBelow(
+            requireNonNull(knownIndexCatalogueRevisions.get()).revisions(), getMostRecentRevisionNumber());
         if (parsedIndexCatalogues.firstIntKey() == latestCommittedCatalogue) {
           parsedIndexCatalogues.getAndMoveToLast(latestCommittedCatalogue);
         }

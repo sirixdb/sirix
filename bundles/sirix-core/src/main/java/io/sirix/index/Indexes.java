@@ -43,8 +43,8 @@ public final class Indexes implements Materializable {
   private final Set<IndexDef> indexes;
 
   /**
-   * Tracks whether index definitions have been mutated since last serialization. Used to skip
-   * redundant index XML writes during intermediate auto-commits.
+   * Structural mutation evidence. Persistence decisions use {@link #differsFromPersisted()} because a
+   * sequence of mutations can leave the persisted state unchanged.
    */
   private volatile boolean dirty;
 

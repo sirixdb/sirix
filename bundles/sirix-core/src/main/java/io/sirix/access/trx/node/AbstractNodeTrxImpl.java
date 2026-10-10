@@ -455,15 +455,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     return commitInternal(commitMessage, commitTimestamp, false);
   }
 
-  /**
-   * Internal commit implementation shared by explicit commit() and intermediate auto-commit.
-   *
-   * @param commitMessage optional commit message
-   * @param commitTimestamp optional commit timestamp
-   * @param isIntermediateCommit if true, this is an intermediate auto-commit during bulk insert;
-   *        redundant I/O (e.g. unchanged index definitions) may be skipped
-   * @return this transaction for chaining
-   */
   // ==================== ASYNC COMMIT PIPELINE (KEEP_OPEN_ASYNC_COMMIT) ====================
   // Depth-1 pipeline state. Lives on the NODE transaction (not the page writer) because every
   // async-commit epoch creates a NEW page writer; the pipeline outlives each of them.
@@ -472,7 +463,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private final Semaphore asyncCommitPermit = new Semaphore(1);
 
   /** First background hardening failure; latches the transaction terminally. */
-  private volatile Throwable asyncCommitFailure;
+  private volatile @Nullable Throwable asyncCommitFailure;
 
   /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
   private volatile boolean asyncCommitTerminalFailure;
@@ -671,6 +662,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Retire per-epoch cache bookkeeping only after phase 1 succeeds, preserving retry on failure. */
   protected void clearUpdateDiffsAfterAsyncCommit() {}
 
+  /**
+   * Internal commit implementation shared by explicit commit() and intermediate auto-commit.
+   *
+   * @param commitMessage optional commit message
+   * @param commitTimestamp optional commit timestamp
+   * @param isIntermediateCommit if true, this is an intermediate auto-commit during bulk insert
+   * @return this transaction for chaining
+   */
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {

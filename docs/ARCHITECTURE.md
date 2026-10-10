@@ -1080,7 +1080,11 @@ represented catalogue, including an empty one. A leftover file for an unacknowle
 is ignored during writer creation and replaced when that revision number commits.
 
 Catalogue lookup and parse caches are shared by handles of the same resource for the lifetime
-of their shared session. Writer creation remembers the catalogue resolved at the latest committed
+of their shared session. The parsed-definition cache holds at most 64 catalogue revisions and evicts
+least-recently-used entries, protecting the latest committed catalogue when it is already cached.
+Retention is guarded by
+[`IndexCatalogueCacheTest`](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/IndexCatalogueCacheTest.java).
+Writer creation remembers the catalogue resolved at the latest committed
 revision; after a directory listing, historical lookups also use the remembered file revisions.
 Controllers receive copies of cached definitions so mutable numeric coverage cannot alter another
 controller or the parse cache. Truncation and crash recovery invalidate discarded revisions before
