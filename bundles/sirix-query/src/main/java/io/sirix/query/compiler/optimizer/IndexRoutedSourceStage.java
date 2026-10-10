@@ -198,7 +198,9 @@ public final class IndexRoutedSourceStage implements Stage {
 
   private static boolean isScan(final AST source, final QNm fn) {
     return ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(fn) && (source.getChildCount() == 2
-        || (source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)));
+        || ((source.getChildCount() == 5 && source.checkProperty(ScanValidTimeIndex.DEFERRED_POINT))
+            || ((source.getChildCount() == 6 || source.getChildCount() == 7)
+                && source.checkProperty(ScanValidTimeIndex.DEFERRED_RANGE))));
   }
 
   private static @Nullable Source resolvedSource(final AST source, final AST doc, final boolean scan,

@@ -1238,7 +1238,13 @@ plus the path-summary suites touched by #1122.
    Integer/Long conversions clear it because the fallback would type the
    result `Dec`, and `Float` clears it because the fallback types `Flt` and
    accumulates in float arithmetic), carried through the PIX1 tail, BODY
-   segments, and the descriptor mirror; probed AND-across-leaves
+   segments, and the descriptor mirror. For `TIMESTAMP` columns the same
+   bit has the kind-specific `COLUMN_FLAG_PURE_UTC_TIMESTAMP` meaning:
+   every present cell is a canonical Z-suffixed UTC source (years 0001–9999).
+   Its lexical-unrepresentable bit remains set to preserve the original
+   text; only consumers checking UTC provenance may compare its epoch lane.
+   Missing provenance and duplicate/structured cells fail closed. Double
+   provenance continues to be probed AND-across-leaves
    (`probeDoublePureSource`, `Handle.doubleColumnPureSource`), checked
    BEFORE any leaf work. Serving arithmetic reproduces the interpreter bit
    for bit: sum/avg via a seed-first document-order fold (the adversarial

@@ -240,7 +240,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         Boolean.TRUE.equals(node.getProperty(JoinedGroupAggregateDetectionStage.ROW_JOIN)),
         (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_SIDES),
         (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_FIELDS),
-        (boolean[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_NE),
+        (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_OPS),
         (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_CODE), generic);
   }
 

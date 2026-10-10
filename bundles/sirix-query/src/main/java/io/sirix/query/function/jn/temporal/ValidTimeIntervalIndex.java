@@ -1,6 +1,7 @@
 package io.sirix.query.function.jn.temporal;
 
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.DateTime;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
@@ -17,9 +18,11 @@ import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.function.DateTimeToInstant;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
+import java.time.DateTimeException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -89,6 +92,106 @@ public final class ValidTimeIntervalIndex {
     return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID());
   }
 
+  /**
+   * Exact comparison-range admission. Inexact/missing bounds or unsafe revision coverage decline
+   * before evaluating query instants, retaining the original field casts and short-circuit order.
+   */
+  public static @Nullable Sequence comparisonRangeSequence(final JsonDBItem document,
+      final Supplier<Sequence> startLimit, final Supplier<Sequence> endLimit, final ValidTimeConfig config,
+      final boolean strictStart, final boolean strictEnd) {
+    if (!(document instanceof Array array) || !isIndexView(document) || isMutable(document) || array.len() == 0) {
+      return null;
+    }
+    final IndexDef definition = findValidTimeIndex(document);
+    if (definition == null) {
+      return null;
+    }
+    final var reader = document.getTrx().getStorageEngineReader();
+    final JsonIndexController controller =
+        document.getResourceSession().getRtxIndexController(document.getTrx().getRevisionNumber());
+    if (!controller.isExactValidTimeArray(reader, definition, document.getNodeKey(), array.len())) {
+      return null;
+    }
+    final Sequence upperValue;
+    final Sequence lowerValue;
+    try {
+      upperValue = startLimit.get();
+      lowerValue = endLimit.get();
+    } catch (final QueryException unsafeProbe) {
+      // The original comparisons own short-circuit order and observable errors. A probe must
+      // decline if eager bound evaluation raises an error that a false first predicate can hide.
+      return null;
+    }
+    if (!(upperValue instanceof DateTime upper) || upper.getTimezone() == null
+        || !(lowerValue instanceof DateTime lower) || lower.getTimezone() == null) {
+      return null;
+    }
+    final DateTimeToInstant converter = new DateTimeToInstant();
+    final Instant hi;
+    final Instant lo;
+    try {
+      hi = converter.convert(upper);
+      lo = converter.convert(lower);
+    } catch (final DateTimeException | IllegalArgumentException unsupportedInstant) {
+      return null;
+    }
+    final IntervalDomain domain = new IntervalDomain();
+    if (!domain.isExact(lo) || !domain.isExact(hi) || lo.isAfter(hi)) {
+      return null;
+    }
+    final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, definition.getID(), domain);
+    final long maximum = document.getTrx().getMaxNodeKey();
+    if (maximum >= 0 && maximum <= ValidTimeRangeKeys.MAXIMUM_KEY && maximum <= Math.max(65536L, array.len() * 32L)) {
+      // At most 2 MiB, and only a compact resource domain. Sparse/large resources retain the
+      // output-sized collector below. The bitmap removes ties directly and emits sorted keys.
+      final ValidTimeRangeKeys keys = new ValidTimeRangeKeys((int) maximum);
+      tree.intersect(domain.point(lo), domain.point(hi), keys);
+      if (strictStart) {
+        tree.startingAt(domain.point(hi), keys::remove);
+      }
+      if (strictEnd) {
+        tree.endingAt(domain.point(lo), keys::remove);
+      }
+      return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(),
+          readEvidence(document, definition.getID(), keys.sortedKeys(), false).members());
+    }
+    final LongArrayList keys = new LongArrayList();
+    tree.intersect(domain.point(lo), domain.point(hi), keys::add);
+    final LongArrayList ties = new LongArrayList(0);
+    if (strictStart) {
+      tree.startingAt(domain.point(hi), ties::add);
+    }
+    if (strictEnd) {
+      tree.endingAt(domain.point(lo), ties::add);
+    }
+    final long[] sorted = keys.toLongArray();
+    final long[] excluded = ties.toLongArray();
+    sortRangeKeys(sorted);
+    sortRangeKeys(excluded);
+    int tie = 0;
+    int count = 0;
+    long previous = -1;
+    for (final long key : sorted) {
+      while (tie < excluded.length && excluded[tie] < key) {
+        tie++;
+      }
+      if (key != previous && (tie == excluded.length || excluded[tie] != key)) {
+        sorted[count++] = key;
+      }
+      previous = key;
+    }
+    // Exact cohort admission already proved every member's timestamp representation. Only
+    // membership remains: the same interval index can also contain nested or sibling arrays.
+    return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(),
+        readEvidence(document, definition.getID(), count == sorted.length
+            ? sorted
+            : Arrays.copyOf(sorted, count), false).members());
+  }
+
+  private static void sortRangeKeys(final long[] keys) {
+    ValidTimeKeySort.sort(keys);
+  }
+
   public static long[] keys(final JsonDBItem document, final Instant instant, final boolean strictEnd) {
     Objects.requireNonNull(document);
     final ValidTimeConfig config =
@@ -145,13 +248,20 @@ public final class ValidTimeIntervalIndex {
   }
 
   static Evidence readEvidence(final JsonDBItem document, final int indexId, final LongOpenHashSet closed) {
+    final long[] sorted = closed.toLongArray();
+    Arrays.sort(sorted);
+    return readEvidence(document, indexId, sorted, true);
+  }
+
+  private static Evidence readEvidence(final JsonDBItem document, final int indexId, final long[] sorted,
+      final boolean verify) {
     final var reader = document.getTrx().getStorageEngineReader();
     final HotOrderedStore members = document instanceof Array
         ? ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
         : null;
-    final HotOrderedStore verification = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
-    final long[] sorted = closed.toLongArray();
-    Arrays.sort(sorted);
+    final HotOrderedStore verification = verify
+        ? ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId)
+        : null;
     final LongOpenHashSet unverified = new LongOpenHashSet();
     NodeReferences memberChunk = null;
     NodeReferences verificationChunk = null;
@@ -163,7 +273,9 @@ public final class ValidTimeIntervalIndex {
         if (members != null) {
           memberChunk = members.chunk(document.getNodeKey(), 0, key);
         }
-        verificationChunk = verification.chunk(0, 0, key);
+        if (verification != null) {
+          verificationChunk = verification.chunk(0, 0, key);
+        }
       }
       if (members == null
           ? key == document.getNodeKey()

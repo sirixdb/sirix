@@ -13,11 +13,11 @@ exceptional candidates; repeated iteration and early close do not close the borr
 | `jn:open-bitemporal(C,R,T,P)` | Half-open validity: `validFrom <= P < validTo` | Exact temporal verification for exceptional bounds; half-open linear scan when no interval index applies |
 | `for $x in jn:open-bitemporal(C,R,T,P) where P lt xs:dateTime($x.vt) return ...` | Half-open source intersected with the residual; inclusive `le`, reversed `gt/ge`, general comparisons, and the analogous start comparisons are supported | Original cast/comparison for exceptional records; original temporal scan plus comparison for a different configured field or absent index |
 | `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op P and P op xs:dateTime($x.vt) return ...` | All four combinations of inclusive/strict endpoints, either operand/conjunct order | Original full array scan and comparisons unless every member has two exact bounds and its array order agrees with key order |
+| `for $x in jn:doc/open(...)[] where xs:dateTime($x.vf) op U and L op xs:dateTime($x.vt) return ...` | Range intersection for `L <= U`, with independent strict/closed start and end ties | Original comparisons for reversed windows, rounded/clamped instants, missing/unsafe bounds, or unsafe array order |
 
-The point must be the same invariant variable or `xs:dateTime` literal on both sides of a matched
-predicate. Only `xs:dateTime` field casts are consumed. The bitemporal rule consumes the first
+Each point or range bound must be an invariant variable or `xs:dateTime` literal. Only `xs:dateTime` field casts are consumed. The bitemporal rule consumes the first
 conjunct, preserving later conjuncts and their evaluation order. Positional/allowing-empty bindings,
-other casts, mismatched points, and other source shapes retain their ordinary evaluation.
+other casts and other source shapes retain their ordinary evaluation.
 
 The SH1 queries call `jn:open-bitemporal` directly; they need no `local:slice` wrapper or additional
 strict-end comparison. The optimizer-only `open-bitemporal-slice` target is translated directly and
@@ -382,3 +382,47 @@ Median total query latency (milliseconds):
 | Q9 | 769.4 | 377.3 | 4,616.3 | 3,177.2 |
 | Q11 | 43,265.2 | 13,326.2 | 42,481.8 | 16,400.4 |
 | Q12 | 314,039.0 | 249,531.7 | 307,634.4 | 216,514.9 |
+
+## Range intersections and joined overlap residuals
+
+The RI-tree streams forks inside `[L,U]` through one contiguous ordered-store range. Forks outside
+that range can match only on the two boundary paths, with one endpoint check per probe. Each
+registration is emitted once, in at most `2 * height + 1` store probes. `startingAt(U)` and
+`endingAt(L)` remove strict endpoint ties after exact revision coverage has been proved. Candidate
+keys still intersect persisted array membership, excluding nested and sibling arrays.
+
+Joined grouping and ordered row joins admit paired numeric comparisons and explicit
+`xs:dateTime(field)` comparisons over canonical UTC timestamp columns. The persisted provenance
+bit (kind-specific interpretation of `0x04`) proves every present timestamp cell has its `Z` suffix;
+text consumers continue to decline the lexical unrepresentable flag and read the original spelling.
+Projection epochs are seconds; joined timestamp buffers convert them exactly to milliseconds once
+per selected row. Comparisons then use primitive longs per joined pair. Mixed-side `+`, `-`, `*`
+aggregate programs and `count(distinct-values(field))` use the same matched pairs, with primitive
+sets per distinct aggregate and group. Missing values contribute no operand or distinct member.
+
+Range predicates over an existing bitemporal point source intersect its sorted key set with the
+range key set; they cannot replace the original point constraint. Stable transaction-time
+expressions resolve both views at the same runtime revision. UTC timestamp grouping keys retain
+canonical Z text, while distinct counts can use the epoch lane without constructing strings.
+
+Only served join annotations consume post-join range predicates: the generic join and its casts remain the
+fallback when a runtime revision, range, covering projection or provenance check declines.
+
+Immutable dense numeric masks can reuse columns already requested for the same column-store
+identity, field roster and exact sorted key set. The cache has weak identity keys and a weighted
+heap bound (at most 64 MiB or 1/64 of heap, with a 1 MiB floor); it retains no query-local string
+interner. Each reader owns its mutable masks. Sparse and string sources keep their existing
+column-loading path, and reuse never fills a pruned leaf.
+
+Compact storage-key domains collect range matches in a bitmap capped at 2 MiB, clear strict
+ties directly, and enumerate sorted unique keys. Large or sparse domains use output-sized
+primitive lists and a bounded radix sort that skips constant bytes; its scratch space is
+capped at 32 MiB or 1/128 of heap. Small, signed, or larger inputs retain comparison sorting.
+The persisted membership check still excludes nested and sibling arrays.
+
+Joined kernels prove complete presence from the selected masks before choosing direct numeric
+leaf feeds. Compact integer join domains use bounded head arrays (at most 1 Mi entries and four
+per build row); other domains keep primitive hash heads. AND-only paired residuals use direct
+comparisons; mixed AND/OR predicates retain the postfix evaluator. Numeric distinct fields can
+use exact bitmaps when both value and group domains bound total bitmap storage to 2 MiB per
+query. Wide domains, strings, timestamps and computed operands retain exact primitive sets.

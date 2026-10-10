@@ -119,12 +119,23 @@ public final class JsonValidTimeStep extends Walker {
 
     if (source.getType() == XQ.FunctionCall && OpenBitemporal.OPEN_BITEMPORAL.equals(source.getValue())
         && source.getChildCount() == 4) {
-      foldBitemporalResidual(forBind, selection, source, loopVar);
+      if (!foldBitemporalRange(forBind, source)) {
+        foldBitemporalResidual(forBind, selection, source, loopVar);
+      }
       return forBind;
     }
 
     // The predicate must be EXACTLY a binary AndExpr of two ComparisonExprs.
-    final AST predicate = selection.getChild(0);
+    final AST nextSelection = selection.getLastChild();
+    final boolean chained = nextSelection.getType() == XQ.Selection && nextSelection.getChildCount() == 2;
+    final AST predicate;
+    if (chained) {
+      predicate = new AST(XQ.AndExpr);
+      predicate.addChild(selection.getChild(0).copyTree());
+      predicate.addChild(nextSelection.getChild(0).copyTree());
+    } else {
+      predicate = selection.getChild(0);
+    }
     if (predicate.getType() != XQ.AndExpr || predicate.getChildCount() != 2) {
       return forBind;
     }
@@ -161,10 +172,7 @@ public final class JsonValidTimeStep extends Walker {
       return forBind; // both bound from the same side — not a stabbing interval
     }
 
-    // The SAME point P must appear in both comparisons.
-    if (!astEquals(upperBoundOnField.point, lowerBoundOnField.point)) {
-      return forBind;
-    }
+    final boolean range = !astEquals(upperBoundOnField.point, lowerBoundOnField.point);
 
     // Resolve the resource and verify: VALIDTIME index exists AND the two dereferenced fields are the
     // configured valid-time fields, with field<=P on validFrom and P<=field on validTo.
@@ -185,14 +193,17 @@ public final class JsonValidTimeStep extends Walker {
     }
 
     // The point P must be invariant w.r.t. the loop variable.
-    if (referencesVar(upperBoundOnField.point, loopVar) || !stablePoint(upperBoundOnField.point)) {
+    if (referencesVar(upperBoundOnField.point, loopVar) || !stablePoint(upperBoundOnField.point)
+        || referencesVar(lowerBoundOnField.point, loopVar) || !stablePoint(lowerBoundOnField.point)) {
       return forBind;
     }
 
     // ---- All conditions met: rewrite. ----
     // Mark the source for direct translation; fields and comparison modes stay internal.
     final AST scanCall = new AST(XQ.FunctionCall, SCAN_VALID_TIME_INDEX);
-    scanCall.setProperty(ScanValidTimeIndex.DEFERRED_POINT, true);
+    scanCall.setProperty(range
+        ? ScanValidTimeIndex.DEFERRED_RANGE
+        : ScanValidTimeIndex.DEFERRED_POINT, true);
     scanCall.addChild(docFn.copyTree());
     scanCall.addChild(upperBoundOnField.point.copyTree());
 
@@ -220,12 +231,50 @@ public final class JsonValidTimeStep extends Walker {
             ? 64
             : 0);
     scanCall.addChild(new AST(XQ.Int, new Int32(mode)));
+    if (range) {
+      scanCall.addChild(lowerBoundOnField.point.copyTree());
+    }
     forBind.replaceChild(1, scanCall);
     // The helper checks exactness at this evaluation's revision; an unsafe shape executes the
     // original two comparisons over the full array with their original short-circuit order.
-    forBind.replaceChild(2, selection.getChild(selection.getChildCount() - 1).copyTree());
+    forBind.replaceChild(2, (chained
+        ? nextSelection.getLastChild()
+        : selection.getLastChild()).copyTree());
 
     return forBind;
+  }
+
+  /** Reuse plain-range admission while retaining the original point source as an intersected mask. */
+  private boolean foldBitemporalRange(final AST forBind, final AST source) {
+    // The range helper opens the same revision after resolving the original point source. Only
+    // stable transaction-time expressions may be evaluated for both document views.
+    if (!stablePoint(source.getChild(2))) {
+      return false;
+    }
+    final AST document = new AST(XQ.FunctionCall, OPEN);
+    for (int i = 0; i < 3; i++) {
+      document.addChild(source.getChild(i).copyTree());
+    }
+    final AST members = new AST(XQ.ArrayAccess);
+    members.addChild(document);
+    members.addChild(new AST(XQ.SequenceExpr));
+    final AST copy = forBind.copyTree();
+    copy.replaceChild(1, members);
+    visit(copy);
+    final AST scan = copy.getChild(1);
+    if (scan.getType() != XQ.FunctionCall || !SCAN_VALID_TIME_INDEX.equals(scan.getValue())
+        || !(scan.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)
+            || scan.checkProperty(ScanValidTimeIndex.DEFERRED_RANGE))) {
+      return false;
+    }
+    scan.setProperty(ScanValidTimeIndex.DEFERRED_RANGE, true);
+    if (scan.getChildCount() == 5) {
+      scan.addChild(scan.getChild(1).copyTree());
+    }
+    scan.addChild(source.copyTree());
+    forBind.replaceChild(1, scan.copyTree());
+    forBind.replaceChild(2, copy.getChild(2).copyTree());
+    return true;
   }
 
   /** Works in user-function bodies too: collection/resource/revision are resolved per evaluation. */
@@ -269,7 +318,7 @@ public final class JsonValidTimeStep extends Walker {
       forBind.replaceChild(1, call);
       conjuncts.remove(i);
       if (conjuncts.isEmpty()) {
-        forBind.replaceChild(2, selection.getChild(selection.getChildCount() - 1).copyTree());
+        forBind.replaceChild(2, selection.getLastChild().copyTree());
       } else {
         AST remaining = conjuncts.getFirst().copyTree();
         for (int c = 1; c < conjuncts.size(); c++) {

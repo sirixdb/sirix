@@ -271,6 +271,16 @@ public class SirixTranslator extends TopDownTranslator {
       }
       return new FunctionExpr(ctx, OpenBitemporal.forSlice(), arguments);
     }
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue())
+        && (node.getChildCount() == 6 || node.getChildCount() == 7)
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_RANGE)) {
+      return new SirixValidTimeRangeExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+          expr(node.getChild(5), true), ((Str) node.getChild(2).getValue()).stringValue(),
+          ((Str) node.getChild(3).getValue()).stringValue(), ((IntNumeric) node.getChild(4).getValue()).intValue(),
+          node.getChildCount() == 7
+              ? expr(node.getChild(6), true)
+              : null);
+    }
     if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
         && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
       final AST pointNode = node.getChild(1);

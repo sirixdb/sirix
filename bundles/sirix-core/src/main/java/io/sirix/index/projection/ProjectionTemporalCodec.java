@@ -62,6 +62,15 @@ public final class ProjectionTemporalCodec {
    */
   public static final long NOT_CANONICAL = Long.MIN_VALUE;
 
+  /**
+   * Query-safe provenance for an already parsed timestamp: explicit UTC, years 0001..9999. Year zero
+   * is codec-representable but stays on the original cast because query calendars can reject it. This
+   * predicate allocates nothing on extraction's hot path.
+   */
+  static boolean isUtcTimestampSource(final long epochSeconds, final int textLength) {
+    return textLength == TIMESTAMP_TEXT_LENGTH + 1 && epochSeconds >= -62_135_596_800L;
+  }
+
   public static final int SECONDS_PER_MINUTE = 60;
   public static final int SECONDS_PER_HOUR = 3600;
   public static final int SECONDS_PER_DAY = 86_400;

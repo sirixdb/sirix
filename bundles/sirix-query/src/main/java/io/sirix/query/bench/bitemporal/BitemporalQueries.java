@@ -62,7 +62,7 @@ public final class BitemporalQueries {
             order by $c.id
             return {"id":$c.id,"cost":$c.cost,"qty":$c.qty,"grade":$c.grade}
             """);
-    add(queries, 3, "valid range prices", 0, "revision-scan+strict-overlap", false,
+    add(queries, 3, "valid range prices", 0, "valid-time-range+strict-overlap", false,
         List.of("min_cost", "max_cost", "prices"), """
             let $rows := (for $c in jn:open('bt','contracts',$B)[]
                           where $c.id eq 1 and xs:dateTime($c.vf) lt $U and $L lt xs:dateTime($c.vt)
@@ -126,7 +126,7 @@ public final class BitemporalQueries {
             order by $region,$grade
             return {"region":$region,"grade":$grade,"n":$n,"exposure":$exposure}
             """);
-    add(queries, 10, "interval overlap product join", 1, "revision-scan+strict-overlap+generic-join-group", false,
+    add(queries, 10, "interval overlap product join", 1, "valid-time-range+projection-join-group-distinct", false,
         List.of("category", "contracts", "min_margin", "max_margin"), """
             for $c in jn:open('bt','contracts',$B)[]
             for $p in jn:open('bt','products',$B)[]

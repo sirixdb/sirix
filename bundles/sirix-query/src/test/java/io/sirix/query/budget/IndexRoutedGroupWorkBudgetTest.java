@@ -29,6 +29,7 @@ import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionRecordKeySet.Masks;
 import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.query.StringBoundProjection;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
@@ -865,7 +866,7 @@ final class IndexRoutedGroupWorkBudgetTest {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
-          BitemporalProjections.declare(session, wtx, resource);
+          StringBoundProjection.declare(session, wtx, resource);
           wtx.commit("E0", Instant.parse("2024-01-15T00:00:00Z"));
         }
       }
@@ -946,7 +947,7 @@ final class IndexRoutedGroupWorkBudgetTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
-        BitemporalProjections.declare(session, wtx, RES);
+        StringBoundProjection.declare(session, wtx, RES);
         wtx.commit("E0", Instant.parse("2024-01-15T00:00:00Z"));
         if (orderException) {
           wtx.moveToDocumentRoot();
