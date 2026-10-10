@@ -56,6 +56,7 @@ public final class MaskedColumns {
   }
 
   /** Numeric-only snapshots never retain a query's mutable string interner or its store key. */
+  @SuppressWarnings("ArrayRecordComponent") // Cache lookup compares contents; views copy mutable masks.
   record NumericSnapshot(String[] fields, long[] keys, long[][] masks, long[][] recordKeys, ColumnSlice[][] slices,
       byte[] kinds, long rows, int weight) {
     MaskedColumns view(final ProjectionColumnStore store) {

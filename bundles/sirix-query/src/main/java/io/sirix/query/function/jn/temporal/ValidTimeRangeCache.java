@@ -8,12 +8,14 @@ import org.jspecify.annotations.Nullable;
 /** Bounded reuse of one immutable, membership-proved range per resource session. */
 final class ValidTimeRangeCache {
   private static final long MAX_BYTES = Math.max(1L << 20, Math.min(16L << 20, Runtime.getRuntime().maxMemory() / 64));
-  private static final Cache<JsonResourceSession, Snapshot> CACHE = Caffeine.newBuilder()
-      .weakKeys()
-      .maximumWeight(MAX_BYTES)
-      .weigher((JsonResourceSession session, Snapshot snapshot) -> snapshot.weight())
-      .build();
+  private static final Cache<JsonResourceSession, Snapshot> CACHE =
+      Caffeine.newBuilder()
+              .weakKeys()
+              .maximumWeight(MAX_BYTES)
+              .weigher((JsonResourceSession session, Snapshot snapshot) -> snapshot.weight())
+              .build();
 
+  @SuppressWarnings("ArrayRecordComponent") // Keys are cloned on publication; record equality is unused.
   private record Snapshot(int revision, long array, int index, long lower, long upper, int mode, long[] keys,
       int weight) {
     boolean matches(final int revision, final long array, final int index, final long lower, final long upper,
@@ -23,12 +25,11 @@ final class ValidTimeRangeCache {
     }
   }
 
-  private ValidTimeRangeCache() {
-  }
+  private ValidTimeRangeCache() {}
 
   /** Borrow immutable keys; the sequence exposes only copies to callers. */
-  static long @Nullable [] get(final JsonResourceSession session, final int revision, final long array,
-      final int index, final long lower, final long upper, final int mode) {
+  static long @Nullable [] get(final JsonResourceSession session, final int revision, final long array, final int index,
+      final long lower, final long upper, final int mode) {
     final Snapshot snapshot = CACHE.getIfPresent(session);
     return snapshot != null && snapshot.matches(revision, array, index, lower, upper, mode)
         ? snapshot.keys()

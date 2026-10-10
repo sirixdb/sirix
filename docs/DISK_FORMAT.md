@@ -565,7 +565,8 @@ Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),
   freed that space.
 Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
   KEYS:  i64 first; i64 last; [rows>0] u8 mode(0=delta-FOR asc,1=abs-FOR); i64 base; u8 width; packed
-  BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles);
+  BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles;
+                     bit2 kind-specific source provenance);
          [rows>0] i64 min; i64 max; presence marker (0 all-present / 1 all-missing / 2 words);
          NUMERIC (long or double-transform): i64 base; u8 width (65..255 reserved escapes); packed
          BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
@@ -587,6 +588,13 @@ manifest disables manifest-backed pruning for its column. An unusable sealed blo
 span eligible, and an unusable tail keeps its one row group eligible. Entirely empty blocks and
 tails need not occupy slots. See [Bloom maintenance](SEGMENT_PROJECTION_INDEXES.md#64-bloom-chunks)
 for folding and recovery ownership.
+
+The BODY provenance flag `0x04`, also mirrored in the descriptor and PIX1 presence tail, means
+`PURE_DOUBLE_SOURCE` for NUMERIC_DOUBLE and `PURE_UTC_TIMESTAMP` for TIMESTAMP; other kinds reject
+it. Timestamp provenance proves every present cell is a canonical Z-suffixed source in years
+0001–9999. Missing provenance, duplicate fields and structured cells fail closed. Such timestamps
+retain `UNREPRESENTABLE` for lexical consumers, which must preserve the original spelling; consumers
+checking UTC provenance may use the epoch lane independently of that lexical flag.
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
 order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;

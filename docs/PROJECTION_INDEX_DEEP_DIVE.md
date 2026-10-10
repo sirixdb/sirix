@@ -198,14 +198,9 @@ Each leaf carries, per column:
 | `NUMERIC_DOUBLE` | 3 | order-preserving 64-bit transform of the double bits (§9) |
 | `STRING_SET` | 4 | array-valued fields: `STRING_DICT` storage plus a per-row element count, elements laid out consecutively |
 
-plus a **presence bitmap** (a field can be missing on any row) and sticky
-**provenance flags**:
-
-| Flag | Meaning |
-|---|---|
-| `UNREPRESENTABLE` (0x01) | some present value could not be represented in the column type (e.g. a string in a long column, NaN in a double column) — value-serving is refused, fall back |
-| `NON_INTEGRAL` (0x02) | long column: some source number was not an exact integer |
-| `NOT_VALUE_EXACT` / non-integral reading for doubles | double column: some source value (BigDecimal/BigInteger) rounded during conversion — value-exact serving declined |
+plus a **presence bitmap** (a field can be missing on any row) and sticky **provenance flags**.
+Their meanings and the timestamp lexical exception are owned by the
+[disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 
 The 1024-row leaf is a deliberate, load-bearing choice (§2.1 of the
 redesign): it is the re-extraction granularity of incremental maintenance
@@ -758,7 +753,8 @@ Before any kernel runs, the executor proves it may:
 - **Revision**: the handle's `buildRevision` must not be newer than the
   query's revision (time-travel executors bound to older revisions refuse
   newer projections).
-- **Provenance**: `UNREPRESENTABLE` → decline the column entirely;
+- **Provenance**: `UNREPRESENTABLE` → decline lexical/value serving, subject to the
+  [timestamp epoch exception](DISK_FORMAT.md#projection-indexes-segment--slot-layout);
   `NON_INTEGRAL` → decline integer-exact serving; double columns with
   rounding provenance → decline value-exact serving (§9.3).
 - **Presence**: aggregate semantics over missing fields must match the

@@ -136,7 +136,8 @@ final class ValidTimeKeySequence extends AbstractSequence {
   }
 
   private boolean allMatchesProven(final long[] keys) {
-    return residual == null && exactPoint && (keys.length == 0 || evidence != null && evidence.unverified().isEmpty());
+    return residual == null && exactPoint
+        && (keys.length == 0 || (evidence != null && evidence.unverified().isEmpty()));
   }
 
   @Override

@@ -142,9 +142,14 @@ public final class ValidTimeIntervalIndex {
     final long arrayKey = document.getNodeKey();
     final long lowerPoint = domain.point(lo);
     final long upperPoint = domain.point(hi);
-    final int mode = (strictStart ? 1 : 0) | (strictEnd ? 2 : 0);
-    final long[] cached = ValidTimeRangeCache.get(document.getResourceSession(), revision, arrayKey,
-        definition.getID(), lowerPoint, upperPoint, mode);
+    final int mode = (strictStart
+        ? 1
+        : 0)
+        | (strictEnd
+            ? 2
+            : 0);
+    final long[] cached = ValidTimeRangeCache.get(document.getResourceSession(), revision, arrayKey, definition.getID(),
+        lowerPoint, upperPoint, mode);
     if (cached != null) {
       return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), cached);
     }
@@ -162,8 +167,8 @@ public final class ValidTimeIntervalIndex {
         tree.endingAt(domain.point(lo), keys::remove);
       }
       final long[] matches = readEvidence(document, definition.getID(), keys.sortedKeys(), false).members();
-      ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint, upperPoint,
-          mode, matches);
+      ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint,
+          upperPoint, mode, matches);
       return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
     }
     final LongArrayList keys = new LongArrayList();
@@ -194,10 +199,10 @@ public final class ValidTimeIntervalIndex {
     // Exact cohort admission already proved every member's timestamp representation. Only
     // membership remains: the same interval index can also contain nested or sibling arrays.
     final long[] matches = readEvidence(document, definition.getID(), count == sorted.length
-            ? sorted
-            : Arrays.copyOf(sorted, count), false).members();
-    ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint, upperPoint,
-        mode, matches);
+        ? sorted
+        : Arrays.copyOf(sorted, count), false).members();
+    ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint,
+        upperPoint, mode, matches);
     return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
   }
 

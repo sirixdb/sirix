@@ -37,8 +37,8 @@ import java.util.Objects;
 /**
  * Serving of the COLUMN-SIDE equality join with a grouped aggregate (see
  * {@code JoinedGroupAggregateDetectionStage}): both sides' columns are read under their row masks,
- * the smaller side is hashed on its join values, the larger probes it, and every matched pair folds
- * into a group keyed on fields of either side. No record object is built on either side; the group
+ * the smaller side builds the join lookup, the larger probes it, and every matched pair folds into
+ * a group keyed on fields of either side. No record object is built on either side; the group
  * records are ordered with Brackit's own {@link Ordering} under the pipeline's order-by, which
  * names every key. Anything the route cannot do exactly declines to the generic pipeline compiled
  * beside it: a string join key, an overflowing sum or program, a side without a covering
@@ -368,8 +368,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         ? denseExtrema(buildColumns, buildSide, probeColumns)
         : null;
     if (extrema != null) {
-      return joinExtrema(buildColumns, buildRows, nextRow, denseHeads, probeColumns, extrema, stringKeys,
-          timestampKeys);
+      @SuppressWarnings("NullAway") // A non-null extrema plan above proves denseHeads is non-null.
+      final Sequence result =
+          joinExtrema(buildColumns, buildRows, nextRow, denseHeads, probeColumns, extrema, stringKeys, timestampKeys);
+      return result;
     }
     // PROBE: every admitted row, every matching build row, one pair folded into its group.
     final int keyCount = keyFields.length;
@@ -472,16 +474,18 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         : emit(groups, buildColumns, stringKeys, timestampKeys);
   }
 
-  /** Bound operands for distinct count and min/max of one cross-side subtraction, with strict overlap. */
-  private record DenseExtrema(int distinct, int minimum, int maximum, int groupSlot, long groupMinimum,
-      int groups, int distinctSlot, boolean distinctBuild, int buildMarginSlot, int probeMarginSlot,
-      boolean buildMinusProbe, int buildFromSlot, int buildToSlot, int probeFromSlot, int probeToSlot) {
+  /**
+   * Bound operands for distinct count and min/max of one cross-side subtraction, with strict overlap.
+   */
+  private record DenseExtrema(int distinct, int minimum, int maximum, int groupSlot, long groupMinimum, int groups,
+      int distinctSlot, boolean distinctBuild, int buildMarginSlot, int probeMarginSlot, boolean buildMinusProbe,
+      int buildFromSlot, int buildToSlot, int probeFromSlot, int probeToSlot) {
   }
 
   private @Nullable DenseExtrema denseExtrema(final MaskedColumns buildColumns, final int buildSide,
       final MaskedColumns probeColumns) {
-    if (keyFields.length != 1 || keySides[0] != buildSide || !buildColumns.isLong(keySlots[0])
-        || aggKinds.length != 3 || progCode.length != 1 || !residualAnd || residualOps.length != 2) {
+    if (keyFields.length != 1 || keySides[0] != buildSide || !buildColumns.isLong(keySlots[0]) || aggKinds.length != 3
+        || progCode.length != 1 || !residualAnd || residualOps.length != 2) {
       return null;
     }
     int distinct = -1;
@@ -492,7 +496,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         case COUNT_DISTINCT -> distinct = aggregate;
         case MIN -> minimum = aggregate;
         case MAX -> maximum = aggregate;
-        default -> { return null; }
+        default -> {
+          return null;
+        }
       }
     }
     if (distinct < 0 || minimum < 0 || maximum < 0 || aggPrograms[distinct] >= 0 || aggSlots[distinct] < 0
@@ -531,9 +537,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     final boolean buildMinusProbe = progOperandSides[0][code[0]] == buildSide;
     return new DenseExtrema(distinct, minimum, maximum, keySlots[0], buildColumns.minimum(keySlots[0]),
-        (int) groupCount, aggSlots[distinct], aggSides[distinct] == buildSide,
-        progSlots[0][code[buildMinusProbe ? 0 : 1]], progSlots[0][code[buildMinusProbe ? 1 : 0]], buildMinusProbe,
-        buildFrom, buildTo, probeFrom, probeTo);
+        (int) groupCount, aggSlots[distinct], aggSides[distinct] == buildSide, progSlots[0][code[buildMinusProbe
+            ? 0
+            : 1]],
+        progSlots[0][code[buildMinusProbe
+            ? 1
+            : 0]],
+        buildMinusProbe, buildFrom, buildTo, probeFrom, probeTo);
   }
 
   private Sequence joinExtrema(final MaskedColumns buildColumns, final BuildRows buildRows, final int[] nextRow,
@@ -578,7 +588,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           final long probeMargin = margin[row];
           final long probeDistinct = distinct == null
               ? 0
-              : distinctTimestamp ? Math.multiplyExact(distinct[row], 1000L) : distinct[row];
+              : distinctTimestamp
+                  ? Math.multiplyExact(distinct[row], 1000L)
+                  : distinct[row];
           for (; at >= 0; at = nextRow[at]) {
             final int base = at * fields;
             if (probeFrom >= build[base + plan.buildToSlot()] || build[base + plan.buildFromSlot()] >= probeTo) {

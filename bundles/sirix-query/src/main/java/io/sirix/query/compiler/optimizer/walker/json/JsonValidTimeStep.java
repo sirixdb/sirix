@@ -27,9 +27,10 @@ import org.slf4j.LoggerFactory;
  * {@code docs/VALID_TIME_KEY_SLICES.md}.
  *
  * <p>
- * Plain-FLWOR points stay deferred until row demand. Runtime admission uses the evaluated revision;
- * unsafe coverage or order retains the original comparisons. Bitemporal folding consumes only the
- * first conjunct so it cannot expose a cast error suppressed by an earlier comparison.
+ * Plain-FLWOR bounds stay deferred until row demand. Runtime admission uses the evaluated revision;
+ * unsafe coverage or order retains the original comparisons. Bitemporal range folding intersects
+ * the original point source; single-residual folding consumes only the first conjunct so it cannot
+ * expose a cast error suppressed by an earlier comparison.
  * </p>
  *
  * @author Johannes Lichtenberger
