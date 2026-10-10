@@ -75,6 +75,24 @@ parts retain negative counts and frequencies; only complete checkpoints and quer
 nonnegative counts. At most six delta tiers fit the part format's signed-int byte-length limit, so a
 head holds at most 91 parts. Folding work is amortized across changed records and tier promotions;
 a top-tier cascade can still perform a large synchronous checkpoint rewrite.
+
+The maintenance guarantee is amortized across publications, with an explicit exception to the
+original per-publication changed-record bound. For fixed aggregate lanes and domain height, each
+delta contribution is merged at most once per tier, giving an `O(log_16 N)` merge charge per changed
+record over the sequence, where `N` is accumulated change volume. A checkpoint rewrite is charged
+across the publications that fill its top tier. At fan-in 16, equal-sized tier-0 parts promote to
+tiers 1, 2 and 3 after 16, 256 and 4,096
+publications respectively. A stable tier-3 checkpoint therefore cascades once every 4,096 such
+publications. Larger parts and encoded byte growth can start at, or jump to, a higher tier and reach
+the checkpoint sooner; these frequencies describe small parts without byte-tier jumps.
+
+A top-tier cascade reads all prior parts and re-encodes the entire group, including untouched
+records. Its worst-case work is linear in the group's stored endpoints, summary nodes and value
+frequencies, with chunk I/O proportional to the bytes read and rewritten in 2,048-byte units. A
+single small publication can therefore incur resource-sized work when that group spans the resource.
+The cumulative work budget includes this cost; it does not provide a per-publication work or latency
+ceiling. This synchronous cascade is the approved tradeoff for retaining tiered compaction.
+
 Capture and slab persistence run only while the projection has a declared aggregate consumer.
 Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
@@ -114,9 +132,11 @@ these declarations. `SIRIX_COMMIT` output separates publication apply and commit
 both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning
-types. `TemporalAggregateMaintenanceWorkBudgetTest` also drives 528 small publications, including
-repeated barriers and tier cascades, bounds cumulative chunk, endpoint and summary-node reads/writes,
-and checks all committed historical roots. Its first-publication case bounds copied aggregate leaf
+types. `TemporalAggregateMaintenanceWorkBudgetTest` also drives 528 small publications beside 256
+and 4,096 rows, then 4,096 publications beside 4,096 distinct-endpoint rows to force the tier-3
+checkpoint cascade. It checks the persisted part counts at every tier boundary, requires at most
+one checkpoint cascade per boundary, bounds cumulative chunk, endpoint and summary-node reads/writes
+per changed record, and checks all committed historical roots. Its first-publication case bounds copied aggregate leaf
 pages for 20 changed rows beside differently sized untouched populations, and requires zero new
 readers during maintenance. `ChangeLogWorkBudgetTest` bounds slab slots and verifies cold historical
 reads and reverted bases under all four versioning types. The work-budget commands

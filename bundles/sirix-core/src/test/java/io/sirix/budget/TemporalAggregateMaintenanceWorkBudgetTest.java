@@ -27,6 +27,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
@@ -162,11 +163,10 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {256, 4096})
-  void tierCascadesBoundTotalWorkAcrossPublicationsAndBarriers(final int rows) throws Exception {
+  @CsvSource({"256,528", "4096,528", "4096,4096"})
+  void tierCascadesBoundTotalWorkAcrossPublicationsAndBarriers(final int rows, final int publications) throws Exception {
     final var databasePath = directory.toPath().resolve("cascades");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final int publications = 528;
     final int barriersPerCommit = 16;
     final int[] checkpointTier = new int[1];
     final long[] firstCheckpoint = new long[1];
@@ -226,7 +226,13 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         long nodesWritten = 0;
         int promotedParts = 0;
         int checkpointCascades = 0;
+        int lastCheckpointPublication = 0;
         long checkpoint = firstCheckpoint[0];
+        final long checkpointBoundary = 1L << (4 * checkpointTier[0]);
+        assertEquals(rows == 256 ? 256 : 4096, checkpointBoundary,
+            "The distinct-endpoint fixture must reach the intended checkpoint tier");
+        final long[] currentCheckpoint = new long[1];
+        final int[] currentTier = new int[1];
         for (int publication = 1; publication <= publications; publication++) {
           writer.moveTo(amount);
           writer.setNumberValue(publication);
@@ -242,13 +248,25 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
           nodesRead += work.summaryNodesRead();
           nodesWritten += work.summaryNodesWritten();
           final long expectedValue = publication;
-          final long[] currentCheckpoint = new long[1];
-          final int[] currentTier = new int[1];
+          currentCheckpoint[0] = 0;
+          currentTier[0] = 0;
           try (var storage = new TemporalAggregateStorage.Reader(writer.getStorageEngineWriter(), aggregate.getID())) {
             storage.groups((key, head) -> {
               currentCheckpoint[0] = head.parts()[0];
+              assertEquals(checkpointTier[0], head.checkpointTier());
               final byte[] tiers = head.tiers();
               currentTier[0] = tiers.length == 1 ? head.checkpointTier() : tiers[tiers.length - 1];
+              for (int tier = 0; tier < checkpointTier[0]; tier++) {
+                int count = 0;
+                for (int part = 1; part < tiers.length; part++) {
+                  if (tiers[part] == tier) {
+                    count++;
+                  }
+                }
+                final long tierBoundary = 1L << (4 * tier);
+                assertEquals(expectedValue / tierBoundary % TemporalAggregateParts.FAN_IN, count,
+                    "Each tier must carry exactly once at its fan-in boundary");
+              }
               final AggregateSummary summary = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
                   new TemporalAggregateDomain().height()).point(storage.parts(), head.parts(), 1);
               assertEquals(1, summary.count());
@@ -259,11 +277,26 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
           }
           assertTrue(currentCheckpoint[0] > 0, "The group dictionary must contain the published group");
           if (currentCheckpoint[0] != checkpoint) {
+            assertEquals(0, publication % checkpointBoundary,
+                "Small equal-sized deltas must reach the checkpoint only at its tier boundary");
+            assertTrue(publication - lastCheckpointPublication >= checkpointBoundary,
+                "A checkpoint cascade must happen at most once per tier boundary");
+            lastCheckpointPublication = publication;
             checkpointCascades++;
             checkpoint = currentCheckpoint[0];
+            assertTrue(work.endpointsRead() >= 2L * rows,
+                "The cascade fixture must include the untouched group's endpoint reads");
+            if (Boolean.getBoolean("sirix.workBudget.print")) {
+              System.out.printf("TEMPORAL_AGGREGATE_CHECKPOINT_CASCADE rows=%d publication=%d boundary=%d "
+                  + "chunkReads=%d chunkWrites=%d endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d%n",
+                  rows, publication, checkpointBoundary, work.nodesRead(), work.nodesWritten(), work.endpointsRead(),
+                  work.endpointsWritten(), work.summaryNodesRead(), work.summaryNodesWritten());
+            }
           } else if (currentTier[0] > 0) {
             promotedParts++;
           }
+          assertEquals(publication / checkpointBoundary, checkpointCascades,
+              "Every completed checkpoint-tier boundary must produce exactly one cascade");
           if (publication % barriersPerCommit == 0) {
             writer.commit();
           }
@@ -271,8 +304,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
         assertTrue(publications > TemporalAggregateParts.MAX_PARTS * 4);
         assertTrue(promotedParts >= publications / TemporalAggregateParts.FAN_IN - checkpointCascades,
             "The sequence must exercise repeated tier promotions");
-        assertEquals(checkpointTier[0] <= 2, checkpointCascades > 0,
-            "Only the fixture whose top tier cascades may rewrite its checkpoint");
+        assertEquals(publications >= checkpointBoundary, checkpointCascades > 0,
+            "Every fixture that reaches its top-tier boundary must rewrite its checkpoint");
         assertTrue(chunksRead > 0 && chunksRead <= 8L * publications,
             "Amortized part-chunk reads must be bounded by changes: " + chunksRead);
         assertTrue(chunksWritten > 0 && chunksWritten <= 8L * publications,
@@ -287,9 +320,10 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             "Amortized summary-node writes must be bounded by changes: " + nodesWritten);
         if (Boolean.getBoolean("sirix.workBudget.print")) {
           System.out.printf("TEMPORAL_AGGREGATE_CASCADE_BUDGET rows=%d changed=%d chunkReads=%d chunkWrites=%d "
-              + "endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d promotions=%d checkpoints=%d%n",
+              + "endpointReads=%d endpointWrites=%d nodeReads=%d nodeWrites=%d promotions=%d checkpoints=%d "
+              + "checkpointBoundary=%d%n",
               rows, publications, chunksRead, chunksWritten, endpointsRead, endpointsWritten, nodesRead,
-              nodesWritten, promotedParts, checkpointCascades);
+              nodesWritten, promotedParts, checkpointCascades, checkpointBoundary);
         }
         writer.rollback();
         for (int revision = 1; revision <= 1 + publications / barriersPerCommit; revision++) {
