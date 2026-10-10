@@ -1,7 +1,11 @@
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
+import io.sirix.index.projection.GroupDistinctAccumulator.Sink;
+import io.sirix.index.projection.GroupDistinctAccumulator.Worker;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 import it.unimi.dsi.fastutil.HashCommon;
@@ -55,12 +59,12 @@ public final class ProjectionColumnGroupScan {
    * content-hash identity it feeds the set.
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
-      final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
-      final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
-      final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
-      final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
-      final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
-      final int[][] globalLengthTables, final int[][][] segmentLengthTables) {
+      final ColumnSlice[][] predCols, final @Nullable PredicateTree treeOrNull,
+      final ColumnSlice @Nullable [][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
+      final byte @Nullable [] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
+      final long[] missingAcc, final int distinctBlock, final @Nullable Worker distinctOut,
+      final @Nullable Sink distinctMissing, final long @Nullable [] budget, final boolean cdStringDict,
+      final int @Nullable [][] globalLengthTables, final int @Nullable [][][] segmentLengthTables) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
@@ -93,7 +97,9 @@ public final class ProjectionColumnGroupScan {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
       }
       final int rowCount = treeOrNull != null
-          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull,
+              requireNonNull(treeCols, "an active predicate tree requires its columns"), leaf, store.rowCount(leaf),
+              mask)
           : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
@@ -184,7 +190,7 @@ public final class ProjectionColumnGroupScan {
           final int rowIdx = rowBase + bit;
           final long[] slotArr;
           final int base;
-          GroupDistinctAccumulator.Sink dset = null;
+          Sink dset = null;
           final boolean groupMissing = (groupPresWord & 1L << bit) == 0L;
           final long distinctGroup = groupMissing
               ? 0L
@@ -794,8 +800,8 @@ public final class ProjectionColumnGroupScan {
    */
   private static final int[] NO_PRESENT_CELLS = new int[0];
 
-  private static void checkLengthTables(final int[][] globalLengthTables, final int[][][] segmentLengthTables,
-      final byte[] stringLengthModes, final int aggCount) {
+  private static void checkLengthTables(final int @Nullable [][] globalLengthTables,
+      final int @Nullable [][][] segmentLengthTables, final byte @Nullable [] stringLengthModes, final int aggCount) {
     if (globalLengthTables != null && (stringLengthModes == null || globalLengthTables.length < aggCount)) {
       throw new IllegalArgumentException("globalLengthTables needs a string-length mode per aggregate");
     }
@@ -818,8 +824,8 @@ public final class ProjectionColumnGroupScan {
    * operand cannot occur on a kind-8 column — the encoder refuses to write an unresolved value — so a
    * missing table is corruption, not a fallback.
    */
-  private static int @Nullable [] leafLengthTable(final int a, final ColumnSlice agg, final int[][] globalLengthTables,
-      final int[][][] segmentLengthTables) {
+  private static int @Nullable [] leafLengthTable(final int a, final ColumnSlice agg,
+      final int @Nullable [][] globalLengthTables, final int @Nullable [][][] segmentLengthTables) {
     if (globalLengthTables != null && globalLengthTables[a] != null) {
       return globalLengthTables[a];
     }
@@ -907,23 +913,24 @@ public final class ProjectionColumnGroupScan {
    * identity already accepts.
    */
   private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
-      final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
-      final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
-      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
-      final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
-      final long sumExactMask, final int[][] leafLengthTables) {
+      final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
+      final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
+      final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
+      final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
+      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
+      final int[][] leafLengthTables) {
     foldSliced(slotArr, base, aggValues, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit,
         rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
         leafLengthTables, null, 0L);
   }
 
   private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
-      final long[][] aggPresence, final int[][] aggIds, final int[][] stringLengths, final byte[] stringLengthModes,
-      final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
-      final GroupDistinctAccumulator.Sink dset, final long[] budget, final byte[] cdDictBytes,
-      final int[] cdDictOffsets, final long[] cdHash, final GroupDistinctBitmaps bitmaps, final long[] dwords,
-      final long sumExactMask, final int[][] leafLengthTables, final GroupDistinctAccumulator.Worker directDistinct,
-      final long distinctGroup) {
+      final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
+      final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
+      final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
+      final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
+      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
+      final int[][] leafLengthTables, final @Nullable Worker directDistinct, final long distinctGroup) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
@@ -943,15 +950,17 @@ public final class ProjectionColumnGroupScan {
             ? 0L
             : leafLengthTables[a] != null
                 ? leafLengthTables[a][(int) aggValues[a][rowIdx]]
-                : stringLengths[a][aggIds[a][rowIdx]];
+                : requireNonNull(stringLengths,
+                    "a dictionary length operand requires its length table")[a][aggIds[a][rowIdx]];
       } else if (cdHash != null && a == distinctBlock) {
         final int cdId = aggIds[a][rowIdx];
         long h = cdHash[cdId];
         // cdDictBytes == null marks a PRECOMPUTED table (the leaf's DICT_HASHES segment): the value
         // read is already the answer, and the array is shared across workers — never written here.
         if (h == 0L && cdDictBytes != null) {
-          final int off = cdDictOffsets[cdId];
-          h = ProjectionIndexByteScan.fnv1a64(cdDictBytes, off, cdDictOffsets[cdId + 1] - off);
+          final int[] offsets = requireNonNull(cdDictOffsets, "dictionary bytes require their offsets");
+          final int off = offsets[cdId];
+          h = ProjectionIndexByteScan.fnv1a64(cdDictBytes, off, offsets[cdId + 1] - off);
           cdHash[cdId] = h;
         }
         v = h;
@@ -962,13 +971,14 @@ public final class ProjectionColumnGroupScan {
         // Dense global ids go to the shared per-group bitmap, which is exact at any cardinality and
         // therefore spends no budget; everything else keeps the per-worker exact set and its ceiling.
         if (dwords != null) {
-          if (!bitmaps.set(dwords, v)) {
-            budget[1] = 1; // id outside the sized range — decline; a dropped id is a low count
+          if (!requireNonNull(bitmaps, "distinct bitmap words require their accumulator").set(dwords, v)) {
+            // An id outside the sized range declines; dropping it would silently lower the count.
+            requireNonNull(budget, "a distinct bitmap accumulator requires its budget")[1] = 1;
           }
         } else if (directDistinct != null) {
           directDistinct.addToGroup(distinctGroup, v);
         } else {
-          dset.add(v); // exact and bounded inside the shared accumulator; its overrun declines the arm
+          requireNonNull(dset, "a distinct aggregate requires its sink").add(v); // exact and bounded
         }
         continue;
       }

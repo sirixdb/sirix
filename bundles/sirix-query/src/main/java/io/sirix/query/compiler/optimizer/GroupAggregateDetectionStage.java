@@ -5,12 +5,14 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
+import io.sirix.query.compiler.XQExt;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -28,7 +30,7 @@ import java.util.Set;
  *   return {"dept": $d, "n": count($r), "total": sum($r.age), ...}
  * </pre>
  *
- * i.e. one or more string group keys (gap item 1a widened the original single-key shape; e.g.
+ * i.e. one or more group keys (gap item 1a widened the original single-key shape; e.g.
  * {@code group by $d, $c}) plus any mix of {@code count($r)} and {@code sum|min|max|avg($r.field)}
  * entries. Annotates {@code SIRIX_GROUP_AGG_*} properties on the pipe expression, which
  * {@code SirixPipelineStrategy} consumes to emit a projection-served expression (with the generic
@@ -36,9 +38,9 @@ import java.util.Set;
  *
  * <p>
  * <b>Filter safety.</b> This stage runs AFTER Brackit's detection walker, which annotates
- * {@code VECTORIZED_PREDICATE_TREE} whenever every {@code where} clause is representable. A
- * pipeline with a selection but WITHOUT that annotation must never be served (the filter would be
- * silently dropped) — it declines here.
+ * {@code VECTORIZED_PREDICATE_TREE} whenever every {@code where} clause is representable. Every
+ * selection must have that tree, this stage's chain-aware predicate, or an admitted index-routed
+ * membership filter; otherwise the pipeline declines here so its filter cannot be dropped.
  *
  * <p>
  * Also covers the form every analytical benchmark actually writes, where the aggregate is bound by
@@ -61,11 +63,11 @@ import java.util.Set;
  * be the FIRST record fields, one {@code VariableRef} per group var, each group var exactly once
  * (record field order is part of the serialized answer); aggregate arguments must be a deref chain
  * rooted at the loop variable ({@code $r.field} or {@code $r.a.b.field} — see
- * {@link #loopVarDerefField}) or a pre-group let bound to one; every {@code order by} spec must be
- * a bare variable that the return record EMITS (anything else would have to be recomputed outside
- * the scan) and must follow the group-by — a pre-group {@code order by} reorders rows and so
- * changes which tuple is first in each group, which is the emission order the served path
- * reproduces.
+ * {@link #loopVarDerefField}) or a pre-group let bound to one or to an admitted numeric program.
+ * Computed lets cannot be group keys. Every {@code order by} spec must be a bare variable that the
+ * return record EMITS (anything else would have to be recomputed outside the scan) and must follow
+ * the group-by — a pre-group {@code order by} reorders rows and so changes which tuple is first in
+ * each group, which is the emission order the served path reproduces.
  */
 public final class GroupAggregateDetectionStage implements Stage {
 
@@ -186,6 +188,34 @@ public final class GroupAggregateDetectionStage implements Stage {
    * post-group count let; anything else declines the pipeline.
    */
   public static final String GROUP_AGG_HAVING = "SIRIX_GROUP_AGG_HAVING";
+  /**
+   * COMPUTED pre-group lets ({@code let $v := $r.cost * $r.qty}) that an aggregate folds: three
+   * parallel per-program arrays — {@code String[][]} operand fields, {@code int[][]} postfix code and
+   * {@code long[][]} constants, in {@link ComputedProgram}'s encoding. An aggregate entry over such a
+   * let carries the field token {@code prog:<i>} (see {@link #COMPUTED_FIELD_PREFIX}); the executor
+   * evaluates the program once per kept leaf into a derived column its ordinary group kernels then
+   * sum, count, min or max. {@code count($v)} counts the rows on which every operand is present — the
+   * interpreter's empty arithmetic over a missing field. Absent when no let is computed.
+   */
+  public static final String GROUP_AGG_PROG_FIELDS = "SIRIX_GROUP_AGG_PROG_FIELDS";
+  public static final String GROUP_AGG_PROG_CODE = "SIRIX_GROUP_AGG_PROG_CODE";
+  public static final String GROUP_AGG_PROG_CONSTS = "SIRIX_GROUP_AGG_PROG_CONSTS";
+  /** Field-token prefix of a computed pre-group let, indexing the program annotations. */
+  public static final String COMPUTED_FIELD_PREFIX = "prog:";
+  /**
+   * A MEMBERSHIP filter ({@code where empty|exists(for $b in SRC2 where $b.f eq $r.g return ...)},
+   * recognised by {@code HashMembershipStage}) whose inner source is an index-routed opener: the
+   * literal database and resource, the two instant ASTs, the inner field, the loop var's field and
+   * whether the filter is an ANTI-join. The serving expression subtracts (or intersects) the rows
+   * whose key value the inner opener's rows hold from the row source before grouping.
+   */
+  public static final String MEMBERSHIP_DATABASE = "SIRIX_GROUP_AGG_MEMBERSHIP_DATABASE";
+  public static final String MEMBERSHIP_RESOURCE = "SIRIX_GROUP_AGG_MEMBERSHIP_RESOURCE";
+  public static final String MEMBERSHIP_TX_TIME = "SIRIX_GROUP_AGG_MEMBERSHIP_TX_TIME";
+  public static final String MEMBERSHIP_VALID_TIME = "SIRIX_GROUP_AGG_MEMBERSHIP_VALID_TIME";
+  public static final String MEMBERSHIP_INNER_FIELD = "SIRIX_GROUP_AGG_MEMBERSHIP_INNER_FIELD";
+  public static final String MEMBERSHIP_OUTER_FIELD = "SIRIX_GROUP_AGG_MEMBERSHIP_OUTER_FIELD";
+  public static final String MEMBERSHIP_ANTI = "SIRIX_GROUP_AGG_MEMBERSHIP_ANTI";
 
   /**
    * A {@link PredicateNode} built HERE, over chain-qualified field names, for a {@code where} that
@@ -253,7 +283,15 @@ public final class GroupAggregateDetectionStage implements Stage {
       return "pipe: chain is not a Start node";
     }
     AST forBind = chain.getLastChild();
+    // Leading lets (`let $new := jn:open-bitemporal(...)`): a membership filter may name one.
+    final List<QNm> leadingLetVars = new ArrayList<>(2);
+    final List<AST> leadingLetExprs = new ArrayList<>(2);
     while (forBind != null && forBind.getType() == XQ.LetBind) {
+      final QNm leadingVar = bindingVarName(forBind);
+      if (leadingVar != null && forBind.getChildCount() >= 2) {
+        leadingLetVars.add(leadingVar);
+        leadingLetExprs.add(forBind.getChild(1));
+      }
       forBind = forBind.getLastChild();
     }
     if (forBind == null || forBind.getType() != XQ.ForBind) {
@@ -274,10 +312,14 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     final List<PreGroupLet> lets = new ArrayList<>();
     final String[] subField = new String[1];
+    // Computed pre-group lets, in field-token order (prog:0, prog:1, ...).
+    final List<ComputedLet> programs = new ArrayList<>();
+    MembershipFilter membership = null;
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
     final List<Long> constLetVals = new ArrayList<>();
     final List<QNm> groupSpecVars = new ArrayList<>();
+    final Set<Object> scalarGroupVars = new HashSet<>();
     long[] havingOpLit = null;
     // POST-group aggregate lets: `group by $k let $c := count($r)`. After the group-by, brackit
     // binds the loop var to the GROUPED sequence (the GroupBy node's AggregateSpec/SequenceAgg),
@@ -312,6 +354,21 @@ public final class GroupAggregateDetectionStage implements Stage {
             havingOpLit = havingCountFilter(current.getChild(0), postGroupVars, postGroupFuncs, postGroupFields);
             if (havingOpLit == null) {
               return "having: post-group where is not `$countLet OP intLiteral`";
+            }
+            continue;
+          }
+          if (!supportedSelectorComponents(current.getChild(0))) {
+            return "where: unsupported projection selector component";
+          }
+          // A membership filter over an index-routed opener is served as a row-key subtraction
+          // (or intersection) before grouping — never as a predicate the kernels evaluate.
+          if (current.getChild(0).getType() == XQExt.HashMembershipJoin) {
+            if (membership != null) {
+              return "where: a second membership filter";
+            }
+            membership = membershipFilter(current.getChild(0), loopVar, leadingLetVars, leadingLetExprs);
+            if (membership == null) {
+              return "where: membership filter is not over an index-routed opener";
             }
             continue;
           }
@@ -355,6 +412,9 @@ public final class GroupAggregateDetectionStage implements Stage {
             if (groupSpecVars.contains(letVar)) {
               return "let: post-group let rebinds a group-key variable";
             }
+            if (referencesAny(current.getChild(1), scalarGroupVars)) {
+              return "aggregate: grouping variables are scalar values";
+            }
             final Agg plain = aggregateCall(current.getChild(1), loopVar, lets);
             // A SPAN let (`max(f) - min(f)`, or the whole-unit form the millisecond date_diff
             // idiom compiles to) is one aggregate over f, not a per-group expression: it reads the
@@ -394,6 +454,17 @@ public final class GroupAggregateDetectionStage implements Stage {
               if (shifted != null) {
                 lets.add(PreGroupLet.deref(letVar, shifted.field(), shifted.offset()));
                 continue;
+              }
+              // A +,-,* program over the loop var's fields and integer literals: an aggregate over
+              // this let folds a derived column. It is NOT a key (the executor declines a prog: key).
+              if (bound.getType() == XQ.ArithmeticExpr) {
+                final List<String> programFields = new ArrayList<>(4);
+                final ComputedProgram.Program program = ComputedProgram.build(bound, loopVar, programFields);
+                if (program != null && !programFields.isEmpty()) {
+                  lets.add(PreGroupLet.deref(letVar, COMPUTED_FIELD_PREFIX + programs.size(), 0L));
+                  programs.add(new ComputedLet(programFields.toArray(new String[0]), program.code(), program.consts()));
+                  continue;
+                }
               }
               final String[] regex = regexReplaceCall(bound, loopVar, subField);
               if (regex != null) {
@@ -521,8 +592,10 @@ public final class GroupAggregateDetectionStage implements Stage {
             }
             if (constLetVars.contains(var)) {
               constKeySpecs.add(var);
+              scalarGroupVars.add(var);
             } else {
               groupSpecVars.add(var);
+              scalarGroupVars.add(var);
             }
           }
         }
@@ -741,6 +814,9 @@ public final class GroupAggregateDetectionStage implements Stage {
         emittedPostGroupVars.add(valueVar);
         emittedPostGroupAt.add(keyCount + i);
       } else {
+        if (referencesAny(value, scalarGroupVars)) {
+          return "aggregate: grouping variables are scalar values";
+        }
         final Agg direct = aggregateCall(value, loopVar, lets);
         agg = direct != null
             ? direct
@@ -792,8 +868,25 @@ public final class GroupAggregateDetectionStage implements Stage {
       return "having: constant-only grouping with a HAVING filter"; // one group + HAVING: honoring it means maybe-empty
                                                                     // output — not this shape (v1)
     }
+    if (constMode && !programs.isEmpty()) {
+      return "let: computed pre-group let under constant-only grouping"; // the scalar route has no derived lane
+    }
+    if (constMode && membership != null) {
+      return "where: membership filter under constant-only grouping"; // the scalar route reads no row source
+    }
+    if (!programs.isEmpty()) {
+      for (final String g : groupFields) {
+        if (g.startsWith(COMPUTED_FIELD_PREFIX)) {
+          return "group by: key bound to a computed let";
+        }
+      }
+    }
+    if (anyRegexKey && (keyCount > 1 || anyKeyTransform || anyCondKey)) {
+      return "key: regex transform combined with another key transform or several keys";
+    }
+    // All decline checks precede annotation publication; consumers require the flag's complete
+    // companion annotations, including when a correlated stage inspects a synthetic inner pipe.
     if (constMode) {
-      pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       if (ownPredicate != null) {
         pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
       }
@@ -801,11 +894,33 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_FIELDS, fields);
       pipeExpr.setProperty(GROUP_AGG_OUT_NAMES, outNames);
       pipeExpr.setProperty(GROUP_AGG_OFFSETS, offsets);
+      pipeExpr.setProperty(GROUP_AGG_CONST, true);
       return null;
     }
-    pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     if (ownPredicate != null) {
       pipeExpr.setProperty(GROUP_AGG_PREDICATE, ownPredicate);
+    }
+    if (membership != null) {
+      pipeExpr.setProperty(MEMBERSHIP_DATABASE, membership.database());
+      pipeExpr.setProperty(MEMBERSHIP_RESOURCE, membership.resource());
+      pipeExpr.setProperty(MEMBERSHIP_TX_TIME, membership.txTime());
+      pipeExpr.setProperty(MEMBERSHIP_VALID_TIME, membership.validTime());
+      pipeExpr.setProperty(MEMBERSHIP_INNER_FIELD, membership.innerField());
+      pipeExpr.setProperty(MEMBERSHIP_OUTER_FIELD, membership.outerField());
+      pipeExpr.setProperty(MEMBERSHIP_ANTI, membership.anti());
+    }
+    if (!programs.isEmpty()) {
+      final String[][] progFields = new String[programs.size()][];
+      final int[][] progCode = new int[programs.size()][];
+      final long[][] progConsts = new long[programs.size()][];
+      for (int i = 0; i < programs.size(); i++) {
+        progFields[i] = programs.get(i).fields();
+        progCode[i] = programs.get(i).code();
+        progConsts[i] = programs.get(i).consts();
+      }
+      pipeExpr.setProperty(GROUP_AGG_PROG_FIELDS, progFields);
+      pipeExpr.setProperty(GROUP_AGG_PROG_CODE, progCode);
+      pipeExpr.setProperty(GROUP_AGG_PROG_CONSTS, progConsts);
     }
     if (havingOpLit != null) {
       pipeExpr.setProperty(GROUP_AGG_HAVING, havingOpLit);
@@ -828,11 +943,6 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_KEY_STRINGIFY, keyStringify);
     }
     if (anyRegexKey) {
-      if (keyCount > 1 || anyKeyTransform || anyCondKey) {
-        return "key: regex transform combined with another key transform or several keys"; // the regex route is the
-                                                                                           // single-string-key flat arm
-                                                                                           // only (v1)
-      }
       pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_PATTERN, keyRegexPattern);
       pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_REPL, keyRegexRepl);
     }
@@ -864,6 +974,7 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_ORDER_ASC, orderAscending);
       pipeExpr.setProperty(GROUP_AGG_ORDER_EMPTY_LEAST, orderEmptyLeastFlags);
     }
+    pipeExpr.setProperty(GROUP_AGG, true);
     return null;
   }
 
@@ -896,6 +1007,18 @@ public final class GroupAggregateDetectionStage implements Stage {
         ? qnm.getLocalName()
         : value.toString();
     return name + '[' + rendered + ']';
+  }
+
+  private static boolean supportedSelectorComponents(final AST expr) {
+    if (expr.getType() == XQ.DerefExpr && (expr.getChildCount() < 2 || ComputedProgram.derefStepName(expr) == null)) {
+      return false;
+    }
+    for (int i = 0; i < expr.getChildCount(); i++) {
+      if (!supportedSelectorComponents(expr.getChild(i))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1103,6 +1226,91 @@ public final class GroupAggregateDetectionStage implements Stage {
    * constant a shifted operand let added ({@code 0} for a plain deref).
    */
   private record Agg(String func, String field, long offset) {
+  }
+
+  /** A computed pre-group let's program over the loop var's fields. */
+  @SuppressWarnings("ArrayRecordComponent") // Program carrier; array value equality is never used.
+  private record ComputedLet(String[] fields, int[] code, long[] consts) {
+  }
+
+  /**
+   * A membership filter whose inner source is an index-routed opener (see {@link #MEMBERSHIP_ANTI}).
+   */
+  private record MembershipFilter(String database, String resource, AST txTime, AST validTime, String innerField,
+      String outerField, boolean anti) {
+  }
+
+  /**
+   * Parse a {@code HashMembershipJoin} node: its source (child 0) is the opener call or a leading let
+   * bound to one, its key (child 2) is {@code $loop.field}, its inner field is the
+   * {@code HashMembershipStage.FIELD} property. The opener's instants are evaluated at the pipeline's
+   * entry, so they must not read the loop var or a leading let.
+   */
+  private static @Nullable MembershipFilter membershipFilter(final AST node, final QNm loopVar,
+      final List<QNm> leadingLetVars, final List<AST> leadingLetExprs) {
+    if (node.getChildCount() < 3) {
+      return null;
+    }
+    AST source = node.getChild(0);
+    if (source.getType() == XQ.VariableRef && source.getValue() instanceof QNm sourceVar) {
+      final int at = leadingLetVars.indexOf(sourceVar);
+      if (at < 0) {
+        return null;
+      }
+      source = leadingLetExprs.get(at);
+    }
+    if (source.getType() != XQ.FunctionCall || !(source.getValue() instanceof QNm fn)
+        || !JSONFun.JSON_NSURI.equals(fn.getNamespaceURI()) || !"open-bitemporal".equals(fn.getLocalName())
+        || source.getChildCount() != 4) {
+      return null;
+    }
+    final String database = stringLiteral(source.getChild(0));
+    final String resource = stringLiteral(source.getChild(1));
+    if (database == null || resource == null) {
+      return null;
+    }
+    final AST txTime = source.getChild(2);
+    final AST validTime = source.getChild(3);
+    final Set<Object> boundInPipe = new HashSet<>(leadingLetVars);
+    boundInPipe.add(loopVar);
+    if (referencesAny(txTime, boundInPipe) || referencesAny(validTime, boundInPipe)) {
+      return null;
+    }
+    final String outerField = loopVarDerefField(node.getChild(2), loopVar);
+    if (outerField == null || !(node.getProperty(HashMembershipStage.FIELD) instanceof QNm innerField)
+        || innerField.getLocalName().indexOf('/') >= 0 || innerField.getLocalName().startsWith(COMPUTED_FIELD_PREFIX)) {
+      return null;
+    }
+    return new MembershipFilter(database, resource, txTime, validTime, innerField.getLocalName(), outerField,
+        node.checkProperty(HashMembershipStage.ANTI));
+  }
+
+  private static @Nullable String stringLiteral(final AST node) {
+    if (node == null || node.getType() != XQ.Str) {
+      return null;
+    }
+    final Object value = node.getValue();
+    if (value instanceof Str str) {
+      return str.stringValue();
+    }
+    return value instanceof String s
+        ? s
+        : null;
+  }
+
+  private static boolean referencesAny(final AST node, final Set<Object> vars) {
+    if (node == null) {
+      return false;
+    }
+    if (node.getType() == XQ.VariableRef && vars.contains(node.getValue())) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (referencesAny(node.getChild(i), vars)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1371,7 +1579,7 @@ public final class GroupAggregateDetectionStage implements Stage {
    *
    * @return the aggregate, or {@code null} when the expression is not servable
    */
-  private static Agg aggregateCall(final AST call, final QNm loopVar, final List<PreGroupLet> lets) {
+  private static @Nullable Agg aggregateCall(final AST call, final QNm loopVar, final List<PreGroupLet> lets) {
     if (call == null || call.getType() != XQ.FunctionCall || call.getChildCount() != 1
         || !(call.getValue() instanceof QNm fn)) {
       return null;
@@ -1398,6 +1606,17 @@ public final class GroupAggregateDetectionStage implements Stage {
     if ("count".equals(func)) {
       if (arg.getType() == XQ.VariableRef && loopVar.equals(arg.getValue())) {
         return new Agg(func, null, 0L);
+      }
+      // count($let) over a pre-group let bound to a field: fn:count of the field's values in the
+      // group — a row MISSING the field contributes nothing, so this is the lane's present count,
+      // not the row count. A shifted let keeps its operand's presence; a computed let requires
+      // every operand to be present.
+      if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm countVar) {
+        final int li = indexOfLet(lets, countVar);
+        if (li >= 0 && !lets.get(li).transformed()) {
+          return new Agg(func, lets.get(li).field(), 0L);
+        }
+        return null;
       }
       // count(distinct-values($r.f)) — the grouped COUNT(DISTINCT). Emitted as its own token,
       // deliberately NOT in VALUE_FUNCS: a user function literally named `count-distinct` can
@@ -1677,7 +1896,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (depthLeft <= 0 || expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
       return null;
     }
-    final String field = derefStepName(expr);
+    final String field = ComputedProgram.derefStepName(expr);
     if (field == null) {
       return null;
     }
@@ -1691,22 +1910,6 @@ public final class GroupAggregateDetectionStage implements Stage {
     return prefix == null
         ? null
         : prefix + '/' + field;
-  }
-
-  /** The field name a single deref step selects, or {@code null} when it is not a literal key. */
-  private static String derefStepName(final AST deref) {
-    final Object name = deref.getChild(deref.getChildCount() - 1).getValue();
-    final String local;
-    if (name instanceof QNm qnm) {
-      local = qnm.getLocalName();
-    } else if (name instanceof String s) {
-      local = s;
-    } else {
-      return null;
-    }
-    return local == null || local.indexOf('/') >= 0
-        ? null
-        : local;
   }
 
   /** First child of a binding node is the typed variable binding; its first child names the var. */

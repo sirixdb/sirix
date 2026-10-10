@@ -1318,7 +1318,7 @@ public final class ProjectionIndexRowGroupPage {
    * @param stringSetValues per column, the row's set elements; {@code null} for none
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String[] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final String[] stringValues, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, null, null, stringSetValues, present,
         unrepresentable, nonIntegral, nonDoubleSource, false);
@@ -1338,7 +1338,7 @@ public final class ProjectionIndexRowGroupPage {
    * duplicates, null skipping and empty-set representation are therefore unchanged.
    */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final String[][] stringSetValues, final boolean[] present,
+      final byte[][] stringUtf8Values, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues, present,
         unrepresentable, nonIntegral, nonDoubleSource);
@@ -1349,18 +1349,18 @@ public final class ProjectionIndexRowGroupPage {
    * array means every scalar's full byte array is live (the compatibility form above).
    */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, stringUtf8Lengths,
         stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, false);
   }
 
   /** Extractor append carrying the row's persisted sparse-order classification. */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     if (rowCount == MAX_ROWS) {
       return false;
     }
@@ -1374,9 +1374,10 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final byte[] orderLabel) {
     if (!canAppendOrderLabel(orderLabel)) {
       return false;
     }
@@ -1396,9 +1397,10 @@ public final class ProjectionIndexRowGroupPage {
    * merged page — and its encoding — is identical on both sides.
    */
   boolean appendTailRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final byte[] orderLabel) {
     if (longValues == null || boolValues == null || stringUtf8Values == null || present == null
         || unrepresentable == null || nonIntegral == null || nonDoubleSource == null) {
       throw new IllegalArgumentException("tail rows carry every per-column lane");
@@ -1607,9 +1609,9 @@ public final class ProjectionIndexRowGroupPage {
    * mutation.
    */
   private void validateExtractedUtf8Row(final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
     }
@@ -1654,8 +1656,8 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, stringUtf8Values, stringUtf8Lengths,
         stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException, false);
@@ -1668,8 +1670,8 @@ public final class ProjectionIndexRowGroupPage {
    * readers that have no dictionary writer.
    */
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
       final boolean globalIdsResolved) {
     if (rowCount == MAX_ROWS)
@@ -1791,7 +1793,7 @@ public final class ProjectionIndexRowGroupPage {
    * Validate the legacy String entry point completely before the page or a global dictionary mutates.
    */
   private void validateLegacyRow(final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final String @Nullable [] stringValues, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
@@ -2351,7 +2353,7 @@ public final class ProjectionIndexRowGroupPage {
       columnMax[c] = dictId;
   }
 
-  private static int extractedUtf8Length(final int column, final byte[] value, final int[] lengths) {
+  private static int extractedUtf8Length(final int column, final byte[] value, final int @Nullable [] lengths) {
     if (value == null) {
       throw new IllegalStateException("extractor supplied null UTF-8 bytes for clean scalar string column " + column);
     }

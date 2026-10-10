@@ -6,6 +6,11 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Index-routed projection queries** — projection scans can consume index-selected rows,
+  with grouped computed aggregates and column-side joins. The SH1 loader now declares business
+  resource projections. Admission, count semantics and fallbacks are specified in
+  [Index-routed row source](docs/INDEX_ROUTED_ROW_SOURCE.md).
+
 - **Open projection row-group tails** — append-only commits retain base column segments
   and store new rows as referenced side pages. Every reader resolves the merged group;
   completion and other edits fold it atomically. A bounded writer-seeded merge memo

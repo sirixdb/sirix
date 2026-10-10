@@ -676,6 +676,7 @@ final class ProjectionColumnScanParityTest {
       // This oracle reads numericValues(); the string ops never apply to it.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op in the numeric oracle: " + p.op);
+      case KEY_IN -> throw new IllegalStateException("record-key set in the numeric oracle");
     };
   }
 
