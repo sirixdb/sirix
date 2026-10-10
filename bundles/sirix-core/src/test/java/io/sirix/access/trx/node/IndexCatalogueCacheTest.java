@@ -75,8 +75,7 @@ final class IndexCatalogueCacheTest {
         trx.revertTo(1);
         trx.commit();
         assertTrue(retained.size() <= 64, "parsed catalogue retention grew with reverted commits");
-        assertTrue(
-            session.getRtxIndexController(session.getMostRecentRevisionNumber()).containsIndex(IndexType.NAME));
+        assertTrue(session.getRtxIndexController(session.getMostRecentRevisionNumber()).containsIndex(IndexType.NAME));
       }
       assertEquals(64, retained.size());
       final int latestRevision = session.getMostRecentRevisionNumber();
