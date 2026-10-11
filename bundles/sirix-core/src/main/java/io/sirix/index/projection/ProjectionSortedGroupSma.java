@@ -170,7 +170,6 @@ final class ProjectionSortedGroupSma {
 
   /** Streaming initial fold. Only the current group and bounded leaf staging are retained. */
   static final class Builder {
-    private final ProjectionIndexHOTStorage storage;
     private final Tree tree;
     private final byte[] payload = new byte[16];
     private byte @Nullable [] group;
@@ -179,7 +178,6 @@ final class ProjectionSortedGroupSma {
     private boolean enabled;
 
     Builder(final ProjectionIndexHOTStorage storage, final ProjectionSortKeyCodec.Layout layout) {
-      this.storage = storage;
       tree = new Tree(storage, new Header(0, 0, 0, 0), true);
       enabled = layout.groupsByLastLong();
     }
@@ -656,7 +654,8 @@ final class ProjectionSortedGroupSma {
             : (present
                 ? 0
                 : 1);
-        if (present && value != null && Arrays.equals(old.copyPayload(position), value) || !present && value == null)
+        if ((present && value != null && Arrays.equals(old.copyPayload(position), value))
+            || (!present && value == null))
           return List.of(new Child(id, old.copyKey(0)));
         if (value == null && old.rowCount() == 1) {
           removeNode(id, level);
@@ -752,6 +751,8 @@ final class ProjectionSortedGroupSma {
     }
   }
 
+  @SuppressWarnings("ArrayRecordComponent") // Edit-path carrier; fences are compared explicitly, never through record
+                                            // equality.
   private record Child(int id, byte[] key) {
   }
 

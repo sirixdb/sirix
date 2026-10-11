@@ -7,7 +7,8 @@ All notable changes to SirixDB are documented in this file.
 ### Added
 
 - **Encoded sorted projection chunks** — sorted views pack byte-addressable numeric columns
-  and prefix rows into small inline chunks. Edits split or merge local ranges; directory
+  and prefix rows into encoded chunks. The [sorted-view format](docs/DISK_FORMAT.md#encoded-sorted-views)
+  defines their inline or referenced placement. Edits split or merge local ranges; directory
   metadata shares a bounded point-read cache budget, and scans retain complete HOT pages.
   Exact single-group bounds can answer queries without fetching a separate summary.
   This replaces the old sorted-view storage format; old directory and bounds versions are rejected.

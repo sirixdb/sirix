@@ -41,8 +41,8 @@ final class ProjectionSortedDirectoryNode {
     }
     if (keys != null) {
       for (int i = 0; i < leaf.rowCount(); i++) {
-        if (validateChildren && leaf.payloadIntAt(i, Integer.BYTES) <= 0
-            || i > 0 && Arrays.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
+        if ((validateChildren && leaf.payloadIntAt(i, Integer.BYTES) <= 0)
+            || (i > 0 && Arrays.compareUnsigned(keys[i - 1], keys[i]) >= 0)) {
           throw new IllegalStateException("invalid sorted directory separator references");
         }
       }

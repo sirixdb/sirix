@@ -84,7 +84,7 @@ public final class HOTProjectionImage {
       long previous = 0;
       for (int i = 0, at = referencesStart; i < references; i++, at += 2 * Long.BYTES) {
         final long composite = longAt(at);
-        if (longAt(at + Long.BYTES) < 0 || i > 0 && composite <= previous) {
+        if (longAt(at + Long.BYTES) < 0 || (i > 0 && composite <= previous)) {
           throw new IllegalStateException("Invalid or unordered projection side reference");
         }
         previous = composite;

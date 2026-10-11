@@ -230,7 +230,7 @@ public final class ProjectionSortedGroupScan {
                   directory.leafCount(prefix, upper, MAX_SUMMARY_WORKERS * LEAVES_PER_SUMMARY_WORKER)
                       / LEAVES_PER_SUMMARY_WORKER));
       // The header count is the cheap whole-view fact that enables the per-leaf proof below; while
-      // it is zero or unknown the summaries route keeps every decision it had, at no added cost.
+      // it is zero the summaries route keeps its ordinary fallback, at no added cost.
       // Declining the whole view here on a nonzero count would be cheaper still, and is deliberately
       // not done: one row without a value anywhere would then stop accelerating every range whose
       // own rows all carry one, which loses more than the walk it saves.

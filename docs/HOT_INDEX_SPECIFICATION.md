@@ -622,11 +622,13 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 | 7 | u16 LE | commonPrefixLen | |
 | 8 | bytes | commonPrefix | |
 | 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`:5941-5944`, `:5962-5964`) |
-| 10 | i32 LE | usedSlotMemorySize | full image: live heap size including dead bytes; sparse image: size of the packed dirty entries |
-| 11 | count × i32 LE | slotOffsets | full: the in-memory offsets verbatim (key order); sparse: offsets into the packed heap, starting at 0, in key order (`:6537-6555`) |
-| 12 | usedSlotMemorySize bytes | heap | full: raw `[0, used)`; sparse: the dirty entries concatenated (`:6561-6575`) |
+| 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
+| 11 | count × i32 LE | slotOffsets | full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
+| 12 | usedSlotMemorySize bytes | heap | full: only live entries, bulk-copied if already dense, otherwise concatenated in key order; sparse: the dirty entries concatenated |
 | 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`:6725-6763`, `:5910-5917`) |
 
+- Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
+  dirty state and native ownership remain unchanged (`PageKind.HOT_LEAF_PAGE.serializePage`).
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
   (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images

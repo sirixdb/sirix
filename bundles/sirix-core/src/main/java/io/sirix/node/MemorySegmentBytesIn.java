@@ -4,7 +4,6 @@ import java.io.InputStream;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigInteger;
-import java.nio.ByteOrder;
 
 /**
  * A MemorySegment-based implementation of BytesIn.

@@ -9,9 +9,9 @@ change to any pinned structure fails CI. From here, ANY change to the bytes in t
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
 byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to the golden constants
-and a migration note here. Nothing has been bumped under that rule yet: SirixDB has no released
-consumers, so structures still evolve IN PLACE and the golden pins alone make each change
-deliberate (see §2, "PathStats trailer").
+and a format note here. SirixDB has no released consumers; format changes may reject earlier
+structures without a reader bridge or migration. The golden pins make changes to pinned
+structures deliberate (see §2, "PathStats trailer").
 
 ## 1. Files
 
@@ -659,6 +659,104 @@ paths and reverse block touched by new values, while IDs, metadata anchors, and 
 remain stable. Probe telemetry counts radix, bucket, reverse-block, and value-entry reads actually
 performed.
 
+### Encoded sorted views
+
+A `projectionSort` definition adds a revisioned sorted view. Its current format is implemented by
+`ProjectionSortedLeaf`, `ProjectionSortedDataBlock`, `ProjectionSortedDirectory`,
+`ProjectionSortedDirectoryNode`, `ProjectionSortedLeafBounds` and `ProjectionSortedGroupSma`.
+
+| Structure | Logical slot |
+|---|---|
+| Data chunk | `2^46 + leafId` |
+| Directory header / nodes | `2^46 + 2^32` / header slot + node id |
+| Group summary | `2^46 + 2^33 + leafId` |
+| Bounds record | `2^46 + 3·2^32 + ((leafId − 1) >> 4)` |
+| Indirect directory separator | `2^46 + 4·2^32 + separatorId` |
+| Group-extrema header / nodes | `2^46 + 5·2^32` / header slot + node id |
+
+Encoded sorted-view chunks target 6144 bytes with an 8192-byte cap and at most 256 rows,
+independent of the 512-byte inline payload limit. Ordinary data chunks, summaries and directory
+nodes above that inline limit are stored as referenced side pages (generic `OverflowPage` blobs);
+payloads at or below it remain inline. An individual oversized tuple can exceed the packing cap,
+up to the leaf codec's 64 KiB limit, and remains a single generic referenced blob. The former
+whole-leaf overflow layout is no longer written or supported as a separate sorted-view layout.
+
+`PSL1` has two current encoding schemes; encoders choose the smaller eligible representation.
+Integers and numeric deltas are little-endian, while key/dictionary bytes keep their ordered encoding.
+Both schemes validate dimensions and strict row order on open and support direct row access and
+binary search without block decompression.
+
+**Prefix rows (scheme 1)** also encode directory and summary entries:
+
+| Offset | Width | Field |
+|---|---|---|
+| 0 | i32 | magic `0x314C5350` (`PSL1`) |
+| 4 | u8 | scheme 1 |
+| 5 | u16 | rows (1..256) |
+| 7 | u16 | prefixBytes |
+| 9 | prefixBytes | common key prefix |
+| 9+p | i32 × (rows+1) | absolute entry offsets; first starts the entry area, last equals blob length |
+| … | per entry | `u16 suffixLen, u16 payloadLen, suffix, payload` |
+
+Every offset and entry length is validated against the exact encoded slice.
+
+**Dictionary/delta columns (scheme 2)** require keys ending in a present long and record id, with
+zero to four covering payload words:
+
+```text
+PSL1:i32, scheme=2:u8, rows:u16, dictionarySize:u16,
+payloadWords:u8, valueWidth:u8, recordWidth:u8,
+valueMin:i64, valueMax:i64, recordMin:u64;
+(width:u8, min:u64)[payloadWords];
+dictionaryOffsets:u16[dictionarySize+1], dictionaryBytes;
+dictionaryIds:u8[rows] only when dictionarySize > 1;
+valueDeltas[rows], recordDeltas[rows], payloadWordDeltas[payloadWords][rows]
+```
+
+Each delta column uses its declared byte width (0..8); width zero denotes a constant column.
+The leading key fields form the ordered dictionary; its entries must be unique, strictly ordered
+and not prefix-overlapping. Opening checks dictionary offsets/IDs, exact encoded length, row order
+and the header's exact value extrema.
+
+**Directory header version 5** is the only supported version; its size is `39 + fieldCount` bytes:
+
+| Offset | Width | Field |
+|---|---|---|
+| 0 | i32 | magic `0x31445350` (`PSD1`) |
+| 4 | u8 | version 5 |
+| 5 | u8 | height (0..32) |
+| 6 | i32 | rootId (0 = empty) |
+| 10 | i32 | nodeCount (node-id high-water mark) |
+| 14 | i32 | dataLeafCount |
+| 18 | i32 | maxLeafId |
+| 22 | i64 | unencodableRows |
+| 30 | i64 | exact missing aggregate rows; −1 for a non-aggregate layout |
+| 38 | u8 | key-layout field count (1..255) |
+| 39 | n | key-layout field shapes |
+
+Parsing checks `rootId == 0 ⇔ dataLeafCount == 0 ⇔ height == 0`, nonnegative dimensions/counts,
+`rootId ≤ nodeCount`, `maxLeafId ≥ dataLeafCount`, a valid key layout and a missing-value count
+consistent with that layout. Direct nodes store each child's first key and an i32 child id. When
+two full fences cannot fit within the encoded-node cap, an indirect node stores one or two bounded
+entries with an `(i32 childId, i32 separatorId)` payload; its ordered fences are read from the
+separator slots. Nodes and separators follow the same inline/reference residence rule as data.
+
+**Bounds version 2** is the only supported version. Each inline 272-byte record covers 16 chunk ids:
+`PSB1:i32` (`0x31425350`), `version=2:u8`, `log2Chunks=4:u8`, two zero bytes, a u64 flags word,
+then sixteen `(i64 min, i64 max)` pairs. Flags 0–15 mark valid extrema; flags 16–31 prove that the
+corresponding chunk contains one group. Other bits must be zero, and a proof requires valid bounds.
+A proven chunk supplies its group key from the directory fence and its extrema from bounds.
+Replacing/removing a summary clears its proof and invalidates the group-extrema tree before
+publication; ordinary maintenance republishes proofs after writing consistent data and summaries.
+
+**Group-extrema tree** metadata uses a 24-byte header: `magic:i32` (`0x414D5347`), `root:i32`,
+`height:i32`, `highWater:i32`, `groups:i64`. Root/height/groups are zero together for an empty tree;
+height is in 0..32, groups is nonnegative and root is within the nonnegative high-water mark.
+Nodes are bounded to the inline payload limit: leaf entries hold an encoded group key and `(i64 min, i64 max)`; interior
+entries hold a first-group fence and an i32 child id.
+Eligibility and edit maintenance are described in
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#sorted-views).
+
 ### Compatibility
 
 These persisted projection structures were added after the previous release:
@@ -677,38 +775,15 @@ These persisted projection structures were added after the previous release:
   are still written as version 0.
 - **`projectionSort` element** of the projection `IndexDef`: the ordered sort-column list, one
   `keyColumn column="N"` child per key column. Column numbers index the declared projection fields.
-- **Sorted-view slots**, only when `projectionSort` is declared: data chunks at `2^46 + leafId`,
-  the directory header at `2^46 + 2^32` followed by its nodes, group summaries at
-  `2^46 + 2^33 + leafId`, and leaf-bounds records (16 chunks each) from `2^46 + 3·2^32`.
-  Encoded sorted-view chunks target 6144 bytes with an 8192-byte cap, independent of the
-  512-byte inline payload limit. Ordinary data chunks, summaries and directory nodes above
-  that inline limit are stored as referenced side pages (generic `OverflowPage` blobs);
-  payloads at or below it remain inline. An individual oversized tuple remains a single
-  generic referenced blob. The former overflow-page sorted-leaf layout is no longer written
-  or supported as a separate layout; encoded chunks still use generic referenced blob storage.
-- **Encoded sorted data**: `PSL1` scheme 2 stores an ordered dictionary of leading key fields,
-  byte-width unsigned deltas for the trailing long and record id, and up to four covering
-  payload words. Scheme 1 stores prefix-compressed rows for other key/payload shapes and
-  directory/summary entries. Both schemes support direct row access without block decompression.
-- **Sorted directory header version 5** is the only supported version. It records the key layout,
-  chunk count/high-water ids, unencodable-row count and exact missing-aggregate count (or `-1`
-  for a layout that does not aggregate its last field). Bounded nodes store child ids and fences;
-  when two fences cannot fit within the 8192-byte encoded-node cap, stable separator records
-  from `2^46 + 4·2^32` ensure tree fanout. Directory nodes and individual separator records
-  use generic referenced `OverflowPage` blobs whenever their payloads exceed the 512-byte
-  inline limit, including ordinary directory nodes within the encoded-node cap.
-- **Sorted bounds version 2** is the only supported version. A 272-byte record covers 16 chunk
-  ids, with valid-extrema bits and exact single-group proof bits. A proven chunk can use the
-  directory's group key plus the bounds' extrema without fetching a separate summary.
-  Replacing/removing a summary clears its proof before publication; ordinary maintenance
-  republishes the proof after writing consistent data, summary and bounds.
+- **Encoded sorted views**: the slots, encoding schemes, directory/bounds versions and optional
+  group-extrema metadata are specified [above](#encoded-sorted-views).
 - **Column-major slot layout** (PIXM version 1), created only by a fresh bulk build with
   `-Dsirix.projection.columnMajorSlots=true`: descriptor and segment slots move to
   `2^41 | slotKind << 25 | rowGroupId`.
 
-The nonsorted additions below retain their existing readers: version-0 metadata and set-summary chunks still parse, missing
-flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, and a definition
-without `projectionSort` has no sorted view. Sorted views require the encoded chunk layout:
+The nonsorted additions retain their existing readers: version-0 metadata and set-summary chunks
+still parse; missing flag-summary and numeric-proof slots fall back to the descriptor and BODY
+paths, and a definition without `projectionSort` has no sorted view. Sorted views require the encoded chunk layout:
 older directory and bounds versions are rejected, with no migration or compatibility mode.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata

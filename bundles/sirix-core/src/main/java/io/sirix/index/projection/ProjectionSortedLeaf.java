@@ -269,7 +269,7 @@ final class ProjectionSortedLeaf {
         final int payloadBytes = directoryPayloadBytes(leaf.payloadLength(0));
         for (int row = 0; row < leaf.rowCount(); row++) {
           if (leaf.payloadLength(row) != payloadBytes || leaf.payloadIntAt(row, 0) <= 0
-              || payloadBytes == 2 * Integer.BYTES && leaf.payloadIntAt(row, Integer.BYTES) <= 0) {
+              || (payloadBytes == 2 * Integer.BYTES && leaf.payloadIntAt(row, Integer.BYTES) <= 0)) {
             throw new IllegalStateException("invalid sorted directory child reference");
           }
         }
@@ -311,7 +311,7 @@ final class ProjectionSortedLeaf {
         }
         final int payloadStart = suffixStart + suffixLength;
         if (payloadLength != directoryPayloadBytes || getInt(data, payloadStart) <= 0
-            || directoryPayloadBytes == 2 * Integer.BYTES && getInt(data, payloadStart + Integer.BYTES) <= 0) {
+            || (directoryPayloadBytes == 2 * Integer.BYTES && getInt(data, payloadStart + Integer.BYTES) <= 0)) {
           throw new IllegalStateException("invalid sorted directory child reference");
         }
       }

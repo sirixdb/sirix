@@ -226,11 +226,8 @@ A zero-length value is a tombstone (`:115-116`).
 | Fence chunks; order header | `2^42 + chunkId`; `2^42 + 2^20` | `proj/ProjectionIndexFences.java:29`, `:38` |
 | Set summaries | `2^44 + c` | `proj/ProjectionSetSummaryChunks.java:21`, `:339` |
 | Flag summaries; header | `2^45 + chunkId`; `+ 2^20` | `proj/ProjectionFlagSummaryChunks.java:26-27` |
-| Sorted data leaves | `2^46 + leafId`, ids 1..2^32−1 | `proj/ProjectionSortedLeafStore.java:15-16`, `:116-121` |
-| Sorted directory header; node n | `2^46 + 2^32`; `header + n` | `proj/ProjectionSortedDirectory.java:27`, `:941`, `:971` |
-| Sorted group summaries | `2^46 + 2·2^32 + leafId` | `proj/ProjectionSortedGroupSummary.java:18`, `:91-95` |
-| Sorted leaf bounds | `2^46 + 3·2^32 + ((leafId − 1) >>> 4)` (16 leaves per chunk) | `proj/ProjectionSortedLeafBounds.java:21-26`, `:325-330` |
-| Numeric proofs | `boundsBase + 2^32 + column·2^18 + chunk`; header `boundsBase + 2^33 − 1` | `proj/ProjectionNumericProofs.java:21-38` |
+| Sorted data, directory, summaries, bounds, separators and group extrema | [Sorted-view slot layout](DISK_FORMAT.md#encoded-sorted-views) | `ProjectionSortedLeafStore`, `ProjectionSortedDirectoryNode`, `ProjectionSortedGroupSma` |
+| Numeric proofs | [Numeric-proof slot layout](DISK_FORMAT.md#compatibility) | `proj/ProjectionNumericProofs.java` |
 | Structural-order labels | `2^50 + nodeKey` (`nodeKey < 2^48`) | `proj/ProjectionStructuralOrderDirectory.java:44-46` |
 | Record locators | `Long.MIN_VALUE \| recordKey` | `proj/ProjectionRecordLocator.java:15-32` |
 
@@ -641,9 +638,9 @@ before any other finish step, then releases the run (`:2300-2308`).
   heap with one 128 KiB read buffer per run, encoding leaves as keys stream past, so the heap holds at
   most one leaf's keys beyond those buffers; the merge asserts it read exactly the spilled row count
   (`:172-192`, `:390-434`; the reader's buffer is `IO_BUFFER_BYTES`, `:47`, `:525`). Each leaf takes the
-  largest prefix that fits the encoded chunk target (6 KiB, at most 256 rows), halving the row count until it does
-  (`:254-269`). The sparse directory's header is written
-  last (§6.1.3).
+  largest prefix that fits the [chunk packing contract](DISK_FORMAT.md#encoded-sorted-views),
+  using binary search over row counts (`ProjectionSortedRunAccumulator.appendLeaf`). The sparse
+  directory's header is written last (§6.1.3).
 - **Cleanup and failure.** Run files are deleted after the merge, and again when the build is released
   or abandoned (`:191`, `:194-205`, `:487-520`); a run file that cannot be deleted is logged and never
   fails the build. An `IOException` while spilling or merging fails the build with a `SirixIOException`
@@ -772,65 +769,18 @@ earlier encoder threw on such a row and failed the build.
 
 #### 6.1.2 Sorted leaf (`ProjectionSortedLeaf`)
 
-`ProjectionSortedLeaf` chooses the smaller of two current encoding schemes: prefix-compressed
-rows, and byte-addressable dictionary/delta columns for eligible numeric tuples. The prefix form
-also represents directory nodes and group summaries:
-
-| Off | Width | Field |
-|---|---|---|
-| 0 | i32 | magic `0x314C5350` "PSL1" |
-| 4 | u8 | prefix scheme 1 |
-| 5 | u16 | rows (1..256) |
-| 7 | u16 | prefixBytes |
-| 9 | prefixBytes | common prefix of first and last key |
-| 9+p | i32 × (rows+1) | absolute entry offsets; the last equals the blob length |
-| … | per entry | `u16 suffixLen, u16 payloadLen, suffix, payload` |
-
-`MAX_ROWS = 256`, `MAX_BYTES = 64 KiB`; all integers little-endian except the ordered key bytes
-themselves; keys unique and strictly increasing; `open` validates every entry and offset
-(`:30-33`, `:191-229`). `encode`/`encodeSortedRun` return null when the bounded leaf must split
-(`:63-66`, `:143-150`). Mutation is copy-on-write: `withInserted`, `withRemoved`, `withReplaced`,
-`rewrite` (`:381-500`).
-
-The column scheme (`ProjectionSortedDataBlock`, scheme 2) stores an ordered dictionary of leading
-fields, optional per-row dictionary IDs, and fixed-byte-width delta columns for the final long,
-record key and up to four payload words. Width zero denotes a constant column. Its header contains
-exact value extrema; opening validates dimensions, dictionary order, row order and extrema.
-Positional reads and binary search do not decompress preceding rows.
-
-`ProjectionSortedChunks` packs ordinary data and directory chunks within 8 KiB, targeting 6 KiB;
-data chunks still hold at most 256 rows. A single oversized tuple may use the leaf codec's 64 KiB
-bound. These limits are independent of blob residence: up to 512 bytes is inline in the HOT entry,
-with larger payloads stored by verified side reference. Each encoded chunk is its own copy-on-write
-unit; there is no whole-leaf overflow layout or reader for an earlier sorted-view format.
+The encoding schemes, row/byte limits, validation rules and storage residence are owned by
+[On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
+`encode`/`encodeSortedRun` return null when the requested range must split. Mutation replaces
+one chunk at a time through `withInserted`, `withRemoved`, `withReplaced` or `rewrite`.
 
 #### 6.1.3 Directory (`ProjectionSortedDirectory`)
 
-A sparse copy-on-write fence tree over sorted chunks, at most 32 levels. Direct nodes hold each
-child's first key and a 4-byte child id. When two full fences cannot fit together,
-`ProjectionSortedDirectoryNode` stores bounded child/separator-id pairs and resolves the individual
-separator records. A new tree becomes visible only when its header is published.
-
-**Header, version 5**, `39 + fieldCount` bytes:
-
-| Off | Width | Field |
-|---|---|---|
-| 0 | i32 | magic `0x31445350` "PSD1" |
-| 4 | u8 | version 5 |
-| 5 | u8 | height (0..32) |
-| 6 | i32 | rootId (0 = empty) |
-| 10 | i32 | nodeCount |
-| 14 | i32 | dataLeafCount |
-| 18 | i32 | maxLeafId |
-| 22 | i64 | **unencodableRows** |
-| 30 | i64 | missing aggregate rows; −1 for a non-aggregate layout |
-| 38 | u8 | key-layout field count (1..255) |
-| 39 | n | key-layout field shapes |
-
-Invariants checked on parse: `rootId == 0 ⇔ dataLeafCount == 0 ⇔ height == 0`; `rootId ≤ nodeCount`;
-`maxLeafId ≥ dataLeafCount`; `unencodableRows ≥ 0`; the missing-value count must agree with the
-aggregate layout; the trailing bytes must be a valid `Layout`. Earlier header versions are rejected. Ids are high-water marks and never reused; a leaf cursor checks that it visited exactly
-`dataLeafCount` leaves (`:317-322`).
+A sparse copy-on-write fence tree routes seeks to sorted chunks. Its header, direct/indirect
+node representations and parse invariants are specified in
+[On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
+A new tree becomes visible only when its header is published. Ids are high-water marks and
+never reused; a leaf cursor checks that it visited exactly the declared number of leaves.
 
 Read API (`Accessor`): `findLeafId`, `seek`/`first`, `unencodableRows`, `layout`, the range walkers
 `leaves()`, `leaves(from, upperExclusive)`, `leafIds(from, upper, maximum)` (null beyond `maximum`)
@@ -866,22 +816,13 @@ work for a five-column view.
 
 #### 6.1.5 Leaf bounds (`ProjectionSortedLeafBounds`)
 
-Per data leaf, the min and max of the ordered long, so best-first pruning does not have to read
-summaries. **16 leaf ids per 272-byte chunk** — "small enough to live inline in its trie entry: a
-chunk written by a build therefore never becomes a staged side page, and maintenance later in the
-same transaction can still replace it" (`proj/ProjectionSortedLeafBounds.java:15-28`).
-
-Chunk (272 bytes): i32 magic `0x31425350` "PSB1", u8 version 2, u8 log2 leaves per chunk = 4,
-2 zero bytes, then a u64 flags word and 16 × (i64 min, i64 max), little-endian. Flags 0–15 mark
-valid bounds; flags 16–31 prove that the corresponding chunk contains one group. Remaining bits
-must be zero, and a single-group proof requires valid bounds. Earlier bounds versions are rejected.
-A valid proof lets a reader synthesize the group's summary from its directory fence and extrema.
-Direct summary replacement/removal clears this proof and invalidates the group-extrema tree.
+Per data chunk, bounds provide extrema and optional single-group evidence so pruning and proven
+summary reads can avoid fetching a summary blob. The record layout and proof-publication invariant
+are owned by [On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
 
 - Invalidate an entry before changing its source; a chunk read by `getBlob` aliases an immutable page
   and is cloned before modification (`:35-46`, `:49-108`).
-- `read`/`readUnordered`: null above `MAX_CANDIDATE_LEAVES = 2^20` data leaves ("bound the four
-  primitive candidate arrays to 25 MiB; larger views retain the streaming scan"); collects the leaf
+- `read`/`readUnordered`: null above `MAX_CANDIDATE_LEAVES = 2^20` data leaves ("bound retained candidate arrays to 25 MiB; larger views retain the streaming scan"); collects the leaf
   ids of the queried range with the directory cursor, then reads the **distinct chunks in batches of
   1024 via `readBlobBatch`** (a failed or tiny batch falls back to scalar reads); a missing chunk or
   clear valid bit returns null (the query declines); a duplicate id or `min > max` throws
@@ -913,13 +854,11 @@ Dispatch:
 5. fallback: a directory cursor seeked to `prefix`, over full keys, with `skipPrefix` jumps, stopping
    at the first key that does not start with `prefix`.
 
-The group-extrema tree is optional metadata in the current format, maintained only while groups
-are no more numerous than data chunks. It stores one exact group min/max per entry in bounded
-inline nodes. Wide group keys or missing aggregate values decline it. A transaction-private path
-cache avoids repeated node decoding during edits; proven interior edits preserve extrema,
-insert-only batches combine extrema exactly, and removed endpoints trigger an exact group scan.
-Queries resolve its header/nodes selectively and retain verified immutable payloads under the HOT
-cache byte budget. Missing or invalidated trees use the remaining exact routes.
+Group-extrema eligibility and edit maintenance are owned by
+[Projection read performance: sorted views](PROJECTION_READ_PERFORMANCE.md#sorted-views);
+its persisted slots and node layout are defined in
+[On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
+Missing or invalidated trees use the remaining exact routes.
 
 `topKFromBounds` (MIN_ASC) visits leaves of the range in ascending leaf-min order and stops once K+1
 groups are retained and the next leaf's minimum exceeds `scores[K]`; each summary is validated
@@ -940,8 +879,10 @@ Best-first SPAN_DESC top-K for groups that may span many leaves
 4. priority: a max-heap over ordinals when the range has ≥ `CACHE_SIZE * 8` = 1024 leaves
    else an indirect sort;
 5. `visit`: stop once K+1 groups are retained and `upper[ordinal] < scores[K]` (strict, so ties reach
-   the fallback); a run member completes its run (reading the run's last leaf and the leaf before it);
-   otherwise read the leaf's summary and offer its groups;
+   the fallback); a run member or a proven single-group chunk completes its run. Its last chunk
+   supplies extrema from bounds when proven, otherwise from its summary; the preceding chunk's
+   summary is examined only when that chunk lacks a single-group proof. Other chunks offer their
+   summary groups;
 6. `read(ordinal)`: 128-entry direct-mapped cache, then the **read budget** (unlimited for ≤ 128
    leaves, else `min(4096, max(32, count >>> 3))`, where `count` is the range's leaf count; exhausted
    → null → decline), then a staged or scalar read, then validation against bounds, directory first

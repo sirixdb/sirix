@@ -5,7 +5,6 @@ package io.sirix.cache;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.projection.ProjectionSortedReadView;
-import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.interfaces.Page;
@@ -223,7 +222,7 @@ public final class HOTMiniPageCache {
     private boolean finished;
     private @Nullable StorageEngineReader promotionReader;
     private @Nullable ProjectionBlobCache blobCache;
-    private @Nullable Key blobKey;
+    private ProjectionBlobCache.@Nullable Key blobKey;
     private byte @Nullable [] blob;
     private @Nullable ProjectionSortedReadView blobView;
     private long blobViewWeight;
@@ -248,6 +247,7 @@ public final class HOTMiniPageCache {
               : null;
     }
 
+    @SuppressWarnings("ReferenceEquality") // A scope may reuse its exact owner before comparing resource identity.
     private boolean sameImageOwner(final Object owner) {
       if (imageOwner == owner) {
         return true;
@@ -368,7 +368,7 @@ public final class HOTMiniPageCache {
     }
 
     /** Verified data wins the seek's sole admission; metadata waits for a successful point seek. */
-    public void retainBlob(final ProjectionBlobCache owner, final Key key, final byte[] verified,
+    public void retainBlob(final ProjectionBlobCache owner, final ProjectionBlobCache.Key key, final byte[] verified,
         final long expectedGeneration, final boolean data) {
       if (finished || admitted || !owner.canCache(verified.length)) {
         return;
@@ -386,9 +386,9 @@ public final class HOTMiniPageCache {
 
 
     /** Same one-entry admission rule, with no copy of an already immutable validated view. */
-    public void retainView(final ProjectionBlobCache owner, final Key key, final ProjectionSortedReadView view,
-        final long expectedGeneration, final boolean data) {
-      if (finished || admitted || !data && blobCache != null) {
+    public void retainView(final ProjectionBlobCache owner, final ProjectionBlobCache.Key key,
+        final ProjectionSortedReadView view, final long expectedGeneration, final boolean data) {
+      if (finished || admitted || (!data && blobCache != null)) {
         return;
       }
       final long weight = owner.prepareViewWeight(view);

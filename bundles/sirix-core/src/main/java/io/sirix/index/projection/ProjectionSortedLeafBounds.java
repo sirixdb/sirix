@@ -29,6 +29,8 @@ final class ProjectionSortedLeafBounds {
 
   private ProjectionSortedLeafBounds() {}
 
+  @SuppressWarnings("ArrayRecordComponent") // Primitive candidate lanes are consumed directly; record equality is not
+                                            // used.
   record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order, boolean[] singleGroups) {
   }
 
@@ -179,9 +181,10 @@ final class ProjectionSortedLeafBounds {
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, offset + Long.BYTES, maximum);
     final long previous = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
     final long single = 1L << (position + 16);
-    ProjectionIndexRowGroupCodec.putLongLEAt(bytes, 8, (previous | 1L << position) & ~single | (summary.rowCount() == 1
-        ? single
-        : 0L));
+    ProjectionIndexRowGroupCodec.putLongLEAt(bytes, 8,
+        ((previous | 1L << position) & ~single) | (summary.rowCount() == 1
+            ? single
+            : 0L));
   }
 
   /**

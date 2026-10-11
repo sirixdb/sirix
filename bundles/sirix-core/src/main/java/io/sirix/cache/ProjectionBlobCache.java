@@ -40,6 +40,8 @@ public final class ProjectionBlobCache {
     }
   }
 
+  @SuppressWarnings("ArrayRecordComponent") // Internal payload carrier; cache lookup compares Key, never Entry
+                                            // equality.
   private record Entry(Key key, byte @Nullable [] bytes, @Nullable ProjectionSortedReadView view,
       @Nullable ImageSnapshot routing, long weight) {
   }

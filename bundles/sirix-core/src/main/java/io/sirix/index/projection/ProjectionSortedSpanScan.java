@@ -273,7 +273,7 @@ final class ProjectionSortedSpanScan {
       pendingFrom++;
       pendingCount--;
       if (singleGroups[ordinal] || ordinal < ends[ordinal]) {
-        // The next leaf starts with the same group: this entire leaf belongs to that group.
+        // A proof or the next leaf's fence establishes that this entire leaf belongs to one group.
         if (!completeRun(starts[ordinal])) {
           return null;
         }

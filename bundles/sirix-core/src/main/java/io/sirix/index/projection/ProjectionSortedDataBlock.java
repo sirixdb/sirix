@@ -104,7 +104,7 @@ final class ProjectionSortedDataBlock {
       final byte[] key = keys[from + row];
       final int end = key.length - 17;
       if (end < 0 || key[end] != ProjectionSortKeyCodec.PRESENT
-          || payloads != null && payloads[from + row].length != payloadLength)
+          || (payloads != null && payloads[from + row].length != payloadLength))
         return null;
       boolean equal = false;
       if (dictionaryCount > 0) {
@@ -250,8 +250,9 @@ final class ProjectionSortedDataBlock {
       final int id = block.dictionaryId(row);
       final long value = block.value(row);
       final long record = block.record(row);
-      if (id >= dictionaryCount || id < previousId || value < block.minimum || value > block.maximum || id == previousId
-          && (value < previousValue || value == previousValue && Long.compareUnsigned(record, previousRecord) <= 0))
+      if (id >= dictionaryCount || id < previousId || value < block.minimum || value > block.maximum
+          || (id == previousId && (value < previousValue
+              || (value == previousValue && Long.compareUnsigned(record, previousRecord) <= 0))))
         throw invalid();
       min = Math.min(min, value);
       max = Math.max(max, value);
@@ -582,7 +583,8 @@ final class ProjectionSortedDataBlock {
         common += Long.numberOfLeadingZeros(record(from) ^ nextRecord) / 8;
       }
       final int prefixBytes = 9 + common + (nextRows + 1) * 4 + nextRows * (4 + prefixLength + 17 - common + words * 8);
-      if (prefixBytes > ProjectionSortedLeaf.MAX_BYTES || rows != 0 && Math.min(prefixBytes, columnBytes) > byteLimit) {
+      if (prefixBytes > ProjectionSortedLeaf.MAX_BYTES
+          || (rows != 0 && Math.min(prefixBytes, columnBytes) > byteLimit)) {
         return false;
       }
       rows = nextRows;

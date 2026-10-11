@@ -1,8 +1,8 @@
 # Projection read performance
 
 These read paths depend on storage metadata, column encodings, and query semantics. They do not
-recognize benchmark names, query numbers, particular field names, or dataset values. Existing
-revisioned storage formats and fine-grained mutation paths remain unchanged.
+recognize benchmark names, query numbers, particular field names, or dataset values. Sorted views
+use the [encoded chunk format](DISK_FORMAT.md#encoded-sorted-views) and local copy-on-write edits.
 
 ## Storage reads
 
@@ -386,27 +386,20 @@ range whose own rows all carry a value — including the ranges that leaf serves
 — and that loses more than the walk it saves. As it stands the case costs exactly what it cost
 before the count existed, never more, and the full-key walk can still serve such a range outright.
 
-The version-5 directory header counts rows without an aggregate value, beside the reserved
+The directory header counts rows without an aggregate value, beside the reserved
 unencodable rows. Only a positive count turns a missing summary wholly inside the range into a
 proof that the key walk must also decline. A zero count leaves the ordinary fallback in place.
 Reserved unencodable keys are not well-formed row keys, so the two counts never overlap.
-Non-aggregate layouts use an inapplicable-count sentinel. Earlier directory formats are rejected.
+The [header contract](DISK_FORMAT.md#encoded-sorted-views) specifies count applicability and format rejection.
 
 Each inserted or removed key is classified from its own bytes, so the count follows edits without
 extra reads. Initial builds and explicit summary rebuilding count a leaf's missing values only
 when it has no summary: a summarized leaf provably holds none. Non-aggregate layouts need no count.
 
-Data chunks target 6 KiB, with an 8 KiB packing cap and at most 256 rows, except a single
-oversized tuple. Packing is independent of blob residence: payloads up to 512 bytes live inline;
-larger encoded chunks use verified side references. Eligible numeric keys and covering payloads use
-byte-addressable dictionary and delta columns; other shapes use prefix rows. The smaller representation wins. Directory nodes use
-bounded prefix rows, with individual separator references when two full fences cannot fit.
-The old whole-leaf overflow layout is not a supported sorted-view format.
-
-Bounds hold extrema for sixteen chunk IDs plus an exact single-group proof mask. A proven chunk's
-group key comes from its directory fence, letting reads synthesize its summary without fetching
-another record. Replacing or deleting the summary clears the proof before publication. Missing
-proofs use ordinary summaries; malformed proof bits and earlier bounds formats are rejected.
+Chunk encodings, packing limits, blob residence and persisted proof flags are specified in
+[On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
+A proven single-group chunk supplies its group key from the directory fence and its extrema from
+bounds, avoiding a summary read. Chunks without that proof use ordinary summaries.
 
 An eligible `ProjectionSortedGroupSma` adds one exact min/max entry per logical group above the
 chunk summaries. It is maintained only while groups do not outnumber chunks; missing aggregate

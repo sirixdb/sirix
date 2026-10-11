@@ -20,12 +20,12 @@ import java.util.function.IntSupplier;
  * Sparse, revisioned fence hierarchy over sorted covering leaves.
  *
  * <p>
- * Each directory entry is the first key of one child plus its four-byte child id. The hierarchy
- * uses bounded prefix-compressed fences over encoded data chunks. Only the selected path is read
- * for a seek; the data leaves remain separate copy-on-write blobs. A newly built hierarchy becomes
- * visible only when its small root header is published at the end of the owning transaction. The
- * header also records the key layout, how many rows are held under the reserved unencodable key,
- * and how many rows have no value in the aggregated last key field.
+ * Direct entries hold a child's first key and four-byte child id; indirect entries resolve fences
+ * from separate separator records. The hierarchy uses bounded fences over encoded data chunks. Only
+ * the selected path is read for a seek; data leaves remain separate copy-on-write blobs. A newly
+ * built hierarchy becomes visible only when its small root header is published at the end of the
+ * owning transaction. The header also records the key layout, how many rows are held under the
+ * reserved unencodable key, and how many rows have no value in the aggregated last key field.
  * </p>
  *
  * <p>

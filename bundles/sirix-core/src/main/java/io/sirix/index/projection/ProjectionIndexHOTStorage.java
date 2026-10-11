@@ -5,7 +5,6 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
 import io.sirix.cache.ProjectionBlobCache;
-import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
@@ -4799,10 +4798,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (retain && scope != null) {
       scope.useBlobRetention();
     }
-    final Key key = retain
-        ? new Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(), rootRef.hasHash()
-            ? rootRef.getHashAsLong()
-            : 0, reader.getRevisionNumber(), slotKey)
+    final ProjectionBlobCache.Key key = retain
+        ? new ProjectionBlobCache.Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(),
+            rootRef.hasHash()
+                ? rootRef.getHashAsLong()
+                : 0,
+            reader.getRevisionNumber(), slotKey)
         : null;
     if (key != null) {
       final byte[] cached = cache.get(key, reader, scope);
@@ -4847,10 +4848,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (retain && scope != null) {
       scope.useBlobRetention();
     }
-    final Key key = retain
-        ? new Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(), rootRef.hasHash()
-            ? rootRef.getHashAsLong()
-            : 0, reader.getRevisionNumber(), slotKey)
+    final ProjectionBlobCache.Key key = retain
+        ? new ProjectionBlobCache.Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(),
+            rootRef.hasHash()
+                ? rootRef.getHashAsLong()
+                : 0,
+            reader.getRevisionNumber(), slotKey)
         : null;
     byte[] verified = null;
     if (key != null) {
