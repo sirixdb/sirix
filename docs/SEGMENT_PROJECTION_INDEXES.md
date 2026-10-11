@@ -317,7 +317,8 @@ exceed `MAX_SEGMENT_BYTES = 16 MiB` (`proj/RowGroupDescriptor.java:108`).
 | DATE | 7 | epoch days UTC (long lane) |
 | STRING_SEGMENT | 8 | `(segment << 32) \| id` into a segment-scoped dictionary (long lane) |
 
-Column flags: `0x01` UNREPRESENTABLE, `0x02` NON_INTEGRAL, `0x04` PURE_DOUBLE_SOURCE (NUMERIC_DOUBLE only).
+Column flag meanings, including kind-specific source provenance, are owned by the
+[disk-format reference](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
 `MAX_ROWS = 1024` per row group; it must be a power of two (`proj/ProjectionPersistedRecordLookup.java:27-36`).
 
 Declared type → kind (`proj/ProjectionIndexBuilder.java:812-864`): BOOL → BOOLEAN; INR/LON/INT →

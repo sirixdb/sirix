@@ -337,6 +337,15 @@ regressed, not that the bound is wrong.
   improvement stops guarding it.
 - Deleting a budget needs the same justification as widening it.
 
+`IntervalRangeJoinWorkBudgetTest` guards selective range masks, paired timestamp overlap residuals
+and distinct joined grouping after cold reopen on all four versioning types. It compares with the
+interpreter, requires one joined column serve, bounds interval references and column BODY reads,
+and requires unrelated leaves to be pruned. Every versioning type captured two interval references,
+ten operand BODY reads and four pruned leaves. Its fixture declares typed UTC timestamps; dictionary
+kernel fixtures explicitly declare string bounds through `StringBoundProjection`, independently
+of the SH1 kit's column types. Mutation evidence: disabling joined serving preserved every answer
+but failed all four cases on `served.joinGroup = 0` (required 1). Existing budget bounds are unchanged.
+
 `RecordKeySetPredicateTest.denseSourceMapsOnceAcrossAThousandLeaves` bounds sorted-key advances
 for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY segment requests
 as well as pruning, with zero column fills for an empty source.
@@ -366,3 +375,9 @@ the fourth counts actual rows visited by the dense mapper. Dense and persisted m
 compared after a reordered insertion, including physical-slot membership and every row bit.
 Mutation evidence: forcing the full-chain mapper failed all four sparse cases with 33 KEYS
 requests and 32,001 dense row visits, against one request and zero visits on the locator route.
+
+The dense repetition case in `IntervalRangeJoinWorkBudgetTest` uses 5,000 rows per side. It requires
+zero BODY requests, dense rows visited and sorted-key advances on a fresh compiled repetition.
+Disabling numeric-mask reuse preserved the exact answer and the BODY bound (the column store also
+caches decoded slices), but revisited 10,000 dense rows and killed all four versioning cases. This
+mask-work mutation is recorded separately from the selective joined-route mutation above.

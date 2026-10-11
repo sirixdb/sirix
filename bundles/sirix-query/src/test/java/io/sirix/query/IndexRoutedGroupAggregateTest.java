@@ -15,7 +15,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
@@ -763,7 +762,7 @@ final class IndexRoutedGroupAggregateTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, GAP_DB);
-        BitemporalProjections.declare(session, wtx, "suppliers");
+        StringBoundProjection.declare(session, wtx, "suppliers");
         wtx.commit("S0", T0);
       }
     }
@@ -780,7 +779,7 @@ final class IndexRoutedGroupAggregateTest {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"qty\":3},{}]"), JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        BitemporalProjections.declare(session, wtx, RES);
+        StringBoundProjection.declare(session, wtx, RES);
         wtx.commit();
       }
       for (final String resource : new String[] {"small-a", "small-b", "dynamic"}) {
@@ -806,7 +805,7 @@ final class IndexRoutedGroupAggregateTest {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
-          BitemporalProjections.declare(session, wtx, RES);
+          StringBoundProjection.declare(session, wtx, RES);
           wtx.commit("S0", T0);
         }
       }
@@ -842,7 +841,7 @@ final class IndexRoutedGroupAggregateTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
-        BitemporalProjections.declare(session, wtx, "suppliers");
+        StringBoundProjection.declare(session, wtx, "suppliers");
         wtx.commit("S0", T0);
       }
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -850,7 +849,7 @@ final class IndexRoutedGroupAggregateTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, DB);
-        BitemporalProjections.declare(session, wtx, RES);
+        StringBoundProjection.declare(session, wtx, RES);
         wtx.commit("E0", T0);
       }
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {

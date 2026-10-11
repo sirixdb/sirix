@@ -126,6 +126,10 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   }
 
   private static boolean hasSpiShape(final AST node) {
+    // The ordinary SPI scans the whole projection; only routed consumers apply the source's key mask.
+    if (Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))) {
+      return false;
+    }
     final SourceRef source = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
     return source != null && source.kind() != SourceRef.Kind.UNKNOWN
         && (Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY"))
@@ -240,7 +244,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         Boolean.TRUE.equals(node.getProperty(JoinedGroupAggregateDetectionStage.ROW_JOIN)),
         (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_SIDES),
         (String[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_FIELDS),
-        (boolean[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_NE),
+        (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_OPS),
         (int[]) node.getProperty(JoinedGroupAggregateDetectionStage.RESIDUAL_CODE), generic);
   }
 
@@ -398,6 +402,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // it), so sirix consumes its OWN SortedScanDetectionStage annotations here instead —
     // predicate included — and keeps supportsSortedScan false.
     if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.SORTED_SCAN))
+        && !Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))
         && !(generic instanceof VectorizedGroupByExpr)
         && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider sortExecutor) {
       final String[] sortSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
@@ -425,6 +430,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // record keys straight from the projection's predicate mask. Null orderFields selects the
     // scan-without-sort branch inside the shared expr.
     if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.PREDICATE_SCAN))
+        && !Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))
         && !(generic instanceof VectorizedGroupByExpr)
         && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider predExecutor) {
       final String[] predSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
@@ -444,6 +450,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
   private static @Nullable Expr materializedRows(final AST node, final Expr generic) {
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
     if (Boolean.TRUE.equals(node.getProperty(RowMaterializeDetectionStage.ROW_MAT))
+        && !Boolean.TRUE.equals(node.getProperty(IndexRoutedSourceStage.ROUTED_SOURCE))
         && !(generic instanceof VectorizedGroupByExpr)
         && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider rowExecutor) {
       final String[] rowSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");

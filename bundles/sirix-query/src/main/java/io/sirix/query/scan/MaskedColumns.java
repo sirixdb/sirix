@@ -55,6 +55,64 @@ public final class MaskedColumns {
     stringIds.defaultReturnValue(0);
   }
 
+  /** Numeric-only snapshots never retain a query's mutable string interner or its store key. */
+  @SuppressWarnings("ArrayRecordComponent") // Cache lookup compares contents; views copy mutable masks.
+  record NumericSnapshot(String[] fields, long[] keys, long[][] masks, long[][] recordKeys, ColumnSlice[][] slices,
+      byte[] kinds, long rows, int weight) {
+    MaskedColumns view(final ProjectionColumnStore store) {
+      return new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows);
+    }
+  }
+
+  private static long[][] copyMasks(final long[][] masks) {
+    final long[][] copy = masks.clone();
+    for (int leaf = 0; leaf < copy.length; leaf++) {
+      if (copy[leaf] != null) {
+        copy[leaf] = copy[leaf].clone();
+      }
+    }
+    return copy;
+  }
+
+  long numericSnapshotWeight(final int keyCount) {
+    int kept = 0;
+    long totalRows = 0;
+    long bytes = 512L + 8L * keyCount + 64L * kinds.length + 8L * rowMasks.length * (3L + kinds.length);
+    for (int field = 0; field < kinds.length; field++) {
+      if (!isLong(field) && !isTimestamp(field)) {
+        return -1;
+      }
+    }
+    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
+      totalRows += store.rowCount(leaf);
+      if (rowMasks[leaf] == null) {
+        continue;
+      }
+      kept++;
+      bytes += 32L + 8L * (rowMasks[leaf].length + recordKeys[leaf].length);
+      for (int field = 0; field < kinds.length; field++) {
+        final ColumnSlice slice = slices[field][leaf];
+        final long[] values = slice.numericValues();
+        final long[] presence = slice.presenceWords();
+        bytes += 96L + 8L * (values == null
+            ? 0
+            : values.length) + 8L * (presence == null
+                ? 0
+                : presence.length);
+      }
+    }
+    // Sparse sources retain their locality path and its work budgets. Dense reuse retains only
+    // columns already requested, never fills a pruned leaf, and prices all retained arrays.
+    return rows * 4L >= totalRows && kept * 4L >= rowMasks.length * 3L
+        ? bytes
+        : -1;
+  }
+
+  NumericSnapshot numericSnapshot(final String[] fields, final long[] keys, final int weight) {
+    return new NumericSnapshot(fields.clone(), keys.clone(), copyMasks(rowMasks), recordKeys, slices, kinds, rows,
+        weight);
+  }
+
   /** How many rows the mask admits over every leaf. */
   public long rows() {
     return rows;
@@ -84,8 +142,60 @@ public final class MaskedColumns {
     return kinds[field] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
   }
 
+  /** Canonical UTC timestamps; the persisted lane stores epoch seconds. */
+  public boolean isTimestamp(final int field) {
+    return kinds[field] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
+  }
+
   public boolean isString(final int field) {
     return kinds[field] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+  }
+
+  /** Inclusive domain of a numeric field across admitted leaves; empty leaves retain sentinels. */
+  public long minimum(final int field) {
+    long minimum = Long.MAX_VALUE;
+    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
+      if (rowMasks[leaf] != null) {
+        minimum = Math.min(minimum, slices[field][leaf].min());
+      }
+    }
+    return minimum;
+  }
+
+  public long maximum(final int field) {
+    long maximum = Long.MIN_VALUE;
+    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
+      if (rowMasks[leaf] != null) {
+        maximum = Math.max(maximum, slices[field][leaf].max());
+      }
+    }
+    return maximum;
+  }
+
+  /** Whether every selected row has this field, proved by the already loaded presence words. */
+  public boolean allSelectedPresent(final int field) {
+    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
+      final long[] mask = rowMasks[leaf];
+      if (mask == null) {
+        continue;
+      }
+      final ColumnSlice slice = slices[field][leaf];
+      if (slice.rowCount() == 0) {
+        return false;
+      }
+      final long[] presence = slice.presenceWords();
+      for (int word = 0; word < mask.length; word++) {
+        if ((mask[word] & ~presence[word]) != 0L) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Immutable numeric values for a leaf; the caller must have admitted a numeric field. */
+  public long[] numericLane(final int field, final int leaf) {
+    return requireNonNull(slices[field][leaf].numericValues(), "an admitted numeric field needs a numeric lane");
   }
 
   /** Whether {@code field} is present on {@code row} of {@code leaf}. */

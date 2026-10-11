@@ -6,10 +6,12 @@ package io.sirix.index.projection;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +20,63 @@ final class ProjectionChunkRowBatchTest {
   private static final long NUMERIC_PATH_NODE_KEY = 17L;
   private static final int LONG_COLUMN = 0;
   private static final int DOUBLE_COLUMN = 1;
+
+  @Test
+  void utcTimestampProvenanceRetainsEpochsAndFailsClosedForAmbiguousOrDuplicateCells() {
+    final byte kind = ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
+    final ProjectionChunkRowBatch batch =
+        new ProjectionChunkRowBatch(new long[] {17L}, new int[] {0}, new byte[] {kind}, 8, 1L);
+    final byte[] utc = "2024-04-01T00:00:00Z".getBytes(StandardCharsets.UTF_8);
+    final byte[] local = "2024-04-01T00:00:00".getBytes(StandardCharsets.UTF_8);
+    batch.beginRecord(2L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.beginRecord(3L);
+    batch.onNamedString(17L, local, local.length);
+    batch.beginRecord(4L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.beginRecord(5L);
+    batch.onNamedLong(17L, 7L);
+    batch.beginRecord(6L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.onNamedObject(17L);
+    batch.beginRecord(7L);
+    batch.onNamedObject(17L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.beginRecord(8L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.onNamedArray(17L, 80L);
+    batch.beginRecord(9L);
+    batch.onNamedArray(17L, 90L);
+    batch.onNamedString(17L, utc, utc.length);
+    batch.finishBuild();
+    assertEquals(1711929600L, batch.longValue(0, 0));
+    assertTrue(batch.flagUnrepresentable(0, 0), "UTC text must retain its Z suffix via ordinary text fallback");
+    assertFalse(batch.flagNonDoubleSource(0, 0), "UTC provenance allows temporal comparisons");
+    for (int row = 1; row < batch.rowCount(); row++) {
+      assertTrue(batch.flagNonDoubleSource(0, row), "unsafe timestamp source at row " + row);
+    }
+    for (int row = 4; row < batch.rowCount(); row++) {
+      assertTrue(batch.flagPresent(0, row), "present timestamp source at row " + row);
+      assertTrue(batch.flagUnrepresentable(0, row), "unrepresentable timestamp source at row " + row);
+    }
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {kind});
+    page.appendRow(2L, new long[] {batch.longValue(0, 0)}, new boolean[1], new String[1], new boolean[] {true},
+        new boolean[] {true}, new boolean[1], new boolean[] {false});
+    assertTrue(page.columnPureUtcTimestamp(0));
+    final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(page.serialize());
+    assertTrue(restored.columnPureUtcTimestamp(0));
+    assertTrue(restored.columnUnrepresentable(0));
+    assertEquals(1711929600L, restored.numericColumn(0)[0]);
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+        ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+    assertNotNull(encoded);
+    final int entry =
+        RowGroupDescriptor.entryIndexOf(encoded.descriptor(), ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
+    assertEquals(ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_UTC_TIMESTAMP,
+        RowGroupDescriptor.entryColFlags(encoded.descriptor(), entry)
+            & ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_UTC_TIMESTAMP);
+  }
 
   @Test
   void primitiveIntegralFeedsMatchBoxedLanesAndFlagsAtConversionBoundaries() {

@@ -137,6 +137,7 @@ final class HotOrderedStorePostingTest {
                 right.add(key);
               }
               writer.indexNodeKey(new ValidTimeKey(ValidTimeKey.STORE_LOWER, FORK, ENDPOINT + 1), 999);
+              writer.indexNodeKey(new ValidTimeKey(ValidTimeKey.STORE_LOWER, FORK + 1, ENDPOINT), 1001);
             }
             case 1 -> {
               for (final long base : CHUNK_BASES) {
@@ -210,9 +211,38 @@ final class HotOrderedStorePostingTest {
     final HotOrderedStore right = new HotOrderedStore(ValidTimeKey.STORE_UPPER, null, reader);
     assertStore(left, snapshot.left);
     assertStore(right, snapshot.right);
+    assertLogicalRanges(reader, left, ValidTimeKey.STORE_LOWER);
+    assertLogicalRanges(reader, right, ValidTimeKey.STORE_UPPER);
     final boolean expectedIntersection = snapshot.left.stream().anyMatch(snapshot.right::contains);
     assertEquals(expectedIntersection, left.intersects(FORK, ENDPOINT, right, FORK, ENDPOINT));
     assertEquals(expectedIntersection, right.intersects(FORK, ENDPOINT, left, FORK, ENDPOINT));
+  }
+
+  private static void assertLogicalRanges(final HOTIndexReader<ValidTimeKey> reader, final HotOrderedStore store,
+      final byte discriminator) {
+    final Set<Long> all = new TreeSet<>();
+    final Set<Long> fork = new TreeSet<>();
+    final var entries = reader.range(new ValidTimeKey(discriminator, Long.MIN_VALUE, Long.MIN_VALUE),
+        new ValidTimeKey(discriminator, Long.MAX_VALUE, Long.MAX_VALUE));
+    while (entries.hasNext()) {
+      final var entry = entries.next();
+      final NodeReferences refs = entry.getValue();
+      if (refs == null) {
+        continue;
+      }
+      for (final long ref : refs.toSortedArray()) {
+        all.add(ref);
+        if (entry.getKey().forkNode() == FORK) {
+          fork.add(ref);
+        }
+      }
+    }
+    final Set<Long> scanned = new TreeSet<>();
+    store.scanForks(FORK, FORK, scanned::add);
+    assertEquals(fork, scanned, "fork ranges merge all endpoint chunks and deltas");
+    scanned.clear();
+    store.forEachRef(scanned::add);
+    assertEquals(all, scanned, "full scans merge chunks and deltas across fork boundaries");
   }
 
   private static void assertStore(final HotOrderedStore store, final Set<Long> expected) {

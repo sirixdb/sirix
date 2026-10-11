@@ -23,6 +23,9 @@ proleptic Gregorian date and, for timestamps, a time from `00:00:00` through `23
 Other string shapes, including fractions and numeric timezone offsets, fail the build.
 The epoch lane does not store the suffix, so `Z` cells carry the existing unrepresentable flag:
 text-sensitive projection queries fall back to the original record and preserve its spelling.
+Joined timestamp consumers can use the epoch lane when UTC provenance is proved; their supported
+comparisons and fallbacks are specified in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 `-Dsirix.projection.temporalKinds=false` builds and serves it as an ordinary string column.
 
 For the internals, see [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md),

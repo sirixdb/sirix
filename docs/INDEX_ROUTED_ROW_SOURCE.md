@@ -82,14 +82,15 @@ For a computed let, a row contributes to its count only when every operand is pr
 ## Admission
 
 `IndexRoutedSourceStage` (before `GroupAggregateDetectionStage`) recognises a loop whose source is
-`jn:open-bitemporal` and folded valid-time point slices with literal database and resource names, sets the source path to the array
-members (the path the projection is declared on) and records the two instant expressions.
+`jn:open-bitemporal` and folded valid-time point or range slices with literal database and resource
+names, sets the source path to the array members (the path the projection is declared on) and records
+the routed source expressions.
 `GroupAggregateDetectionStage` then admits the pipeline exactly as it admits a document scan, plus
 computed lets and `count($let)`. `SirixPipelineStrategy` compiles the instants at the pipeline's
 entry scope (they may read prolog and outer variables, never a variable the pipeline binds before the
 loop) and builds `SirixGroupAggregateExpr` with the routed source.
 
-Plain indexed FLWOR point slices fold before aggregate detection. Internal `open-bitemporal-slice`
+Plain indexed FLWOR point and range slices fold before aggregate detection. Internal `open-bitemporal-slice`
 and `scan-valid-time-index` sources supply their exact key sequences, including endpoint and
 residual checks; unsafe coverage or an unavailable index declines. Both join sides and correlated
 inner groupings use the same source admission.
@@ -99,15 +100,15 @@ projection admission, including in pre-group predicates; nested dereferences rem
 steps. Joined and correlated returns must have unique names across the complete emitted record,
 so duplicate names retain the generic `BIT_DUPLICATE_OBJECT_FIELD` error.
 
-Per evaluation the expression evaluates the instants, resolves the document at `T` (the revision
-current at that instant), takes the valid rows' record keys from the valid-time index
-(`ValidTimeIntervalIndex.keys`, half-open, exact — inexact candidates are verified), acquires the
-executor bound to that resource and revision through the chain's per-source resolver, and serves.
+Per evaluation the routed source resolves its revision and exact record-key set under the
+[point and range admission rules](VALID_TIME_KEY_SLICES.md#admission-and-exact-fallbacks). The consumer
+acquires the executor bound to that resource and revision through the chain's per-source resolver,
+and serves.
 Lease acquisition enforces resource identity for every consumer. One leaf keep mask bounds every
 key and operand fill; an empty source fetches no columns. Anything on the
 way that cannot be served — an instant that is not a dateTime, a resource without valid-time
 configuration, a projection that does not cover the fields, an executor at another revision — falls
-back to the generic pipeline, which evaluates the very same opener.
+back to the generic pipeline, which evaluates the same routed source.
 
 **Order.** The opener yields rows in record-key order; the projection folds them in physical row
 order. The two agree except at order exceptions, so a routed grouping is served only under an
@@ -136,17 +137,20 @@ grouping runs over the reduced key set. Both membership fields must be integral,
 columns. The [hash-membership pipeline](QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)
 stays the fallback.
 
-**Column-side equality join** (Q4, Q9; `JoinedGroupAggregateDetectionStage`,
+**Column-side equality join** (Q4, Q9, Q10; `JoinedGroupAggregateDetectionStage`,
 `SirixJoinedGroupAggregateExpr`): Brackit's `Join` node over two single-loop branches, each over a
 routed opener or a literal document, comparing one integral field of each side. Both sides' columns
-are read under their row masks (`MaskedColumns`), the smaller side is hashed on its join values,
+are read under their row masks (`MaskedColumns`), the smaller side builds the join lookup,
 the other probes; every matched pair folds into a group keyed on fields of either side (string keys
 are interned once per leaf dictionary into one id space shared by both sides) with
-`count` (pairs, or present values of a field), `sum`, `min` and `max` over fields or `+,-,*` programs
-of one side. Grouped output supports at most 64 keys and requires an order-by naming every key
-and aggregates over one side. Wider groupings retain the generic pipeline. Q4 emits
-[column-backed record answers](COLUMNAR_RECORD_SERIALIZATION.md) and evaluates its
-equality/inequality residual over the paired long columns.
+`count` (pairs, or present values of a field), distinct field counts, `sum`, `min` and `max` over fields
+or `+,-,*` programs using either side. Grouped output supports at most 64 keys and requires an
+order-by naming every key. Wider groupings retain the generic pipeline. Q4 emits ordered
+[column-backed record answers](COLUMNAR_RECORD_SERIALIZATION.md); grouped and row joins support
+paired comparison residuals. Q10 combines range sources
+with overlap residuals and distinct counts. Timestamp admission, residual semantics and bounded
+numeric-mask reuse are specified in
+[Range intersections and joined overlap residuals](VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 Only empty array selectors (`E[]`) admit document iteration. Unsupported selectors, operands,
 residuals or arithmetic overflow retain the generic `TableJoin` pipeline.
 

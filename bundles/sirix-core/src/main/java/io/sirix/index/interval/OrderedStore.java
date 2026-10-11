@@ -38,6 +38,9 @@ public interface OrderedStore {
    */
   void scan(long forkNode, long endpointLo, long endpointHi, LongConsumer out);
 
+  /** Stream registrations whose fork lies in the inclusive range, regardless of endpoint. */
+  void scanForks(long forkLo, long forkHi, LongConsumer out);
+
   /** Stream every stored key/reference pair in one ordered-store scan. */
   void forEachRef(LongConsumer out);
 }

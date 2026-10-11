@@ -20,17 +20,15 @@ import java.util.Set;
 /**
  * The projection (column) index each SH1 business resource declares at E0, beside its valid-time
  * index: every payload field (the integer codes {@code category} and {@code region} included) as a
- * {@code long} column and the two valid-time bounds as string columns (the kit writes fixed-width
- * UTC instants, which sort as time). The index is maintained incrementally by every later
- * publication's commit, and a reader at revision {@code r} sees it as of {@code r}, so a query at
- * any publication reads its columns.
+ * {@code long} column and the two valid-time bounds as typed timestamp columns (canonical UTC
+ * instants). The index is maintained incrementally by every later publication's commit, and a
+ * reader at revision {@code r} sees it as of {@code r}, so a query at any publication reads its
+ * columns.
  *
  * <p>
- * This is what turns the grouped SH1 queries (Q6-Q9, Q11, Q12) into column scans: the valid-time
- * index yields the record keys of the segments valid at the query's instant, and the projection
- * executor folds exactly those rows' {@code grade}, {@code qty}, {@code cost} and {@code sid}
- * columns — no segment object is materialised. The declaration itself is a kit configuration, not a
- * query-time choice.
+ * The declaration is a kit configuration, not a query-time choice: routed consumers require these
+ * columns before they can serve the valid-time key mask without materialising segment objects. The
+ * query route inventory is maintained in {@code bundles/sirix-query/bench/bitemporal/README.md}.
  * </p>
  */
 public final class BitemporalProjections {
@@ -55,13 +53,13 @@ public final class BitemporalProjections {
   }
 
   /**
-   * The declared column type of {@code field}: the two valid-time bounds are strings (the kit writes
-   * fixed-width UTC instants, which sort as time); every payload field, {@code category} and
-   * {@code region} included, is an integer code in the SH1 stream and a {@code long} column.
+   * The declared column type of {@code field}: the two valid-time bounds are timestamps; every
+   * payload field, {@code category} and {@code region} included, is an integer code in the SH1 stream
+   * and a {@code long} column.
    */
   public static Type type(final String field) {
     return switch (field) {
-      case "vf", "vt" -> Type.STR;
+      case "vf", "vt" -> Type.DATI;
       default -> Type.LON;
     };
   }

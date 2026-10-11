@@ -190,6 +190,61 @@ public final class RelationalIntervalTree {
     }
   }
 
+  /** Stream intervals ending at {@code x}, for exact strict-end tie removal. */
+  public void endingAt(final long x, final LongConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x > maxValue) {
+      return;
+    }
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node <= x) {
+        upper.scan(node, x, x, out);
+      }
+      if (node == x) {
+        return;
+      }
+      node += x < node
+          ? -(1L << (level - 1))
+          : 1L << (level - 1);
+      level--;
+    }
+  }
+
+  /**
+   * Stream intervals with {@code lo <= queryHi && queryLo <= hi}, once per registration. Forks inside
+   * the query are one contiguous ordered scan. Outside forks can match only on the two boundary
+   * paths, each with one endpoint test; at most {@code 2*h+1} store probes.
+   */
+  public void intersect(final long queryLo, final long queryHi, final LongConsumer out) {
+    Objects.requireNonNull(out);
+    if (queryLo > queryHi || queryHi < MIN_VALUE || queryLo > maxValue) {
+      return;
+    }
+    final long lo = Math.max(MIN_VALUE, queryLo);
+    final long hi = Math.min(maxValue, queryHi);
+    lower.scanForks(lo, hi, out);
+    boundary(lo, true, out);
+    boundary(hi, false, out);
+  }
+
+  private void boundary(final long point, final boolean lowerBoundary, final LongConsumer out) {
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (node != point) {
+      if (lowerBoundary && node < point) {
+        upper.scan(node, point, maxValue, out);
+      } else if (!lowerBoundary && node > point) {
+        lower.scan(node, MIN_VALUE, point, out);
+      }
+      node += point < node
+          ? -(1L << (level - 1))
+          : 1L << (level - 1);
+      level--;
+    }
+  }
+
   /**
    * Stream every registered {@code ref} once per registration, in one ordered-store enumeration. Each
    * interval is registered under exactly one fork in the {@code lower} store, so enumerating that

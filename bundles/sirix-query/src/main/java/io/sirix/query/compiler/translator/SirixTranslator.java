@@ -271,24 +271,42 @@ public class SirixTranslator extends TopDownTranslator {
       }
       return new FunctionExpr(ctx, OpenBitemporal.forSlice(), arguments);
     }
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue())
+        && (node.getChildCount() == 6 || node.getChildCount() == 7)
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_RANGE)) {
+      return new SirixValidTimeRangeExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+          expr(node.getChild(5), true), ((Str) node.getChild(2).getValue()).stringValue(),
+          ((Str) node.getChild(3).getValue()).stringValue(), ((IntNumeric) node.getChild(4).getValue()).intValue(),
+          node.getChildCount() == 7
+              ? expr(node.getChild(6), true)
+              : null);
+    }
     if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
         && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
-      final AST pointNode = node.getChild(1);
-      Expr point = expr(pointNode, true);
-      if (pointNode.getType() == XQ.FunctionCall) {
-        try {
-          point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
-        } catch (final QueryException ignored) {
-        }
-      }
-      final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
-          ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
-          ((IntNumeric) node.getChild(4).getValue()).intValue());
-      if (point instanceof BoundVariable variable) {
-        table.resolve(variable.getName(), scan);
-      }
-      return scan;
+      return validTimePoint(node);
     }
+    return computedAggregateOrFunction(node);
+  }
+
+  private Expr validTimePoint(final AST node) {
+    final AST pointNode = node.getChild(1);
+    Expr point = expr(pointNode, true);
+    if (pointNode.getType() == XQ.FunctionCall) {
+      try {
+        point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
+      } catch (final QueryException ignored) {
+      }
+    }
+    final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
+        ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
+        ((IntNumeric) node.getChild(4).getValue()).intValue());
+    if (point instanceof BoundVariable variable) {
+      table.resolve(variable.getName(), scan);
+    }
+    return scan;
+  }
+
+  private Expr computedAggregateOrFunction(final AST node) {
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())
@@ -296,8 +314,7 @@ public class SirixTranslator extends TopDownTranslator {
       // Built-in aggregates only: unprefixed calls resolve to the JSONiq default function
       // namespace, fn:* to the XQuery one — both are the builtins. A user-defined
       // local:sum must never be served with fn:sum semantics.
-      final String ns = fn.getNamespaceURI();
-      if (ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      if (builtinAggregate(fn)) {
         final AST pipe = node.getChild(0);
         final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
         final SourceRef sourceRef = (SourceRef) pipe.getProperty("VECTORIZED_SOURCE_REF");
@@ -316,6 +333,11 @@ public class SirixTranslator extends TopDownTranslator {
       }
     }
     return super.functionCall(node);
+  }
+
+  private static boolean builtinAggregate(final QNm fn) {
+    final String ns = fn.getNamespaceURI();
+    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
   }
 
   private @Nullable ConstructorFunction dateTimeConstructor(final AST node) {

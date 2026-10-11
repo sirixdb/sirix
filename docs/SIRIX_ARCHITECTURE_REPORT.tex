@@ -3946,25 +3946,19 @@ the valid axis is accelerated only when its index is explicitly built for the re
 transaction axis (system belief)            valid axis (world truth)
   served by the immutable revision trie       served by validFrom/validTo JSON fields
   Instant→revision: O(log R) Eytzinger        stab at instant: O(h) RI-tree (scan fallback)
-  indexed, position-independent               opt-in VALIDTIME interval index + CAS narrowing
+  indexed, position-independent               opt-in VALIDTIME interval index
 \end{diagramS}
 
 \begin{honesty}
 \small\textbf{Status: both axes are now indexed.} The transaction axis uses the $O(\log R)$
 commit-timestamp search of Property~\ref{prop:histcost}; the valid axis is served by a persistent
-\code{VALIDTIME} \textbf{Relational-Interval-Tree}. \code{jn:valid-at} and \code{jn:open-bitemporal}
-stab the RI-tree at the query instant in $O(h)$, streaming every record object whose interval contains
-it, then \textbf{re-verify} each candidate against its exact \code{validFrom}/\code{validTo} bounds ---
-provably the same set the linear scan returns (a monotone interval domain gives completeness; the
-exact-instant recheck removes false positives). When no interval index exists but a \textbf{CAS index}
-covers a valid-time path, the functions instead narrow candidates with a range scan and verify by
-reading; absent both, they fall back to the original $O(n)$ scan of the top-level items. Open-ended
-intervals are supported: an absent (or unparseable) \code{validTo} means ``valid from \code{validFrom}
-onward'' and an absent \code{validFrom} means ``valid up to \code{validTo}'' (neither bound = no interval);
-the interval-index writer maps a null bound to the domain min/max and registers the record identically, so
-all paths agree. Two constraints still follow from the field-based design: only top-level records are
-filtered (a fact nested deeper is not seen), and the exact bounds are parsed from ISO-8601 at verification
-time. The bitemporal
+\code{VALIDTIME} \textbf{Relational-Interval-Tree}. Point and range queries can return exact key
+sequences without constructing records or reparsing their bounds; exceptional candidates retain
+demand-time verification. Admission, endpoint semantics, array membership and
+exact scan fallbacks are specified in the authoritative \code{docs/VALID\_TIME\_KEY\_SLICES.md}
+reference. Open-ended bounds and error propagation are specified by
+\code{ValidTimeIndexScan.isValidAtTime}. Temporal functions filter top-level records.
+The bitemporal
 \emph{model}, \emph{query surface}, \emph{and} valid-axis \emph{acceleration} are all complete --- the
 earlier ``acceleration is future work'' caveat shipped in \code{1.0.0-beta3}.
 \end{honesty}

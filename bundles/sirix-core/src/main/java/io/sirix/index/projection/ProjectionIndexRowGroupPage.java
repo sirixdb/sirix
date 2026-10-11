@@ -81,8 +81,10 @@ import org.jspecify.annotations.Nullable;
  * additionally raise the column's unrepresentable flag. Value slots of absent rows hold defaults
  * ({@code 0} / {@code false} / {@code ""}); consumers MUST consult the presence bitmap before
  * trusting a value, and MUST decline columns whose unrepresentable flag is set (a present row's
- * stored default is not the real value). The tail is a mandatory part of the format —
- * {@link #deserialize} rejects payloads without it as corrupt.
+ * stored default is not the real value), except for timestamp epoch consumers proving
+ * {@link #COLUMN_FLAG_PURE_UTC_TIMESTAMP}. Lexical consumers still decline those timestamps. The
+ * tail is a mandatory part of the format — {@link #deserialize} rejects payloads without it as
+ * corrupt.
  *
  * <h2>Scan hot-path contract</h2>
  *
@@ -386,18 +388,25 @@ public final class ProjectionIndexRowGroupPage {
   public static final byte COLUMN_FLAG_NON_INTEGRAL = 0x02;
 
   /**
-   * Column flag bit (NUMERIC_DOUBLE columns only, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-8):
-   * every PRESENT, representable cell of the column on this leaf was extracted from a {@code Double}
-   * source. A POSITIVE assertion — the bit's absence (old bytes, provenance-free fabrication paths,
-   * any non-Double source) fails closed to count-only serving. Under this bit the interpreted
-   * fallback provably aggregates the column in double space and types the result {@code xs:double},
-   * so sum/avg/min/max serving can be made digit-and-type-identical. Integer/Long/Big* sources clear
-   * the bit even when the double conversion is exact (the fallback would surface {@code Dec}), and
-   * {@code Float} sources clear it too (the fallback wraps them as {@code xs:float} and accumulates
-   * in FLOAT arithmetic, surfacing {@code Flt}) — the bar is result-type parity, not
-   * representability.
+   * NUMERIC_DOUBLE interpretation of the kind-specific provenance bit: every PRESENT, representable
+   * cell of the column on this leaf was extracted from a {@code Double} source. A POSITIVE assertion
+   * — the bit's absence (old bytes, provenance-free fabrication paths, any non-Double source) fails
+   * closed to count-only serving. Under this bit the interpreted fallback provably aggregates the
+   * column in double space and types the result {@code xs:double}, so sum/avg/min/max serving can be
+   * made digit-and-type-identical. Integer/Long/Big* sources clear the bit even when the double
+   * conversion is exact (the fallback would surface {@code Dec}), and {@code Float} sources clear it
+   * too (the fallback wraps them as {@code xs:float} and accumulates in FLOAT arithmetic, surfacing
+   * {@code Flt}) — the bar is result-type parity, not representability.
    */
   public static final byte COLUMN_FLAG_PURE_DOUBLE_SOURCE = 0x04;
+
+  /**
+   * For TIMESTAMP columns the provenance bit asserts that every present cell is a canonical
+   * Z-suffixed UTC timestamp. Its epoch lane is safe for dateTime comparisons even though the lexical
+   * unrepresentable bit preserves the original Z spelling for text consumers. Kind-specific reuse
+   * keeps the persisted flag layout unchanged; missing provenance declines.
+   */
+  public static final byte COLUMN_FLAG_PURE_UTC_TIMESTAMP = 0x04;
 
   static final int MAX_ORDER_LABEL_BYTES = 1 << 18;
 
@@ -538,7 +547,8 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Per-column flag: a PRESENT row carried a value the column kind cannot represent (JSON null,
    * nested object/array, or a kind mismatch such as a string in a NUMERIC_LONG column). Value-exact
-   * consumers must decline the column — the stored default is not the real value.
+   * consumers must decline the column — the stored default is not the real value. Timestamp epoch
+   * consumers may bypass the lexical flag only under {@link #COLUMN_FLAG_PURE_UTC_TIMESTAMP}.
    */
   private final boolean[] columnUnrepresentable;
 
@@ -550,12 +560,11 @@ public final class ProjectionIndexRowGroupPage {
   private final boolean[] columnNonIntegral;
 
   /**
-   * Per-column sticky inverse of {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE}: a NUMERIC_DOUBLE cell on
-   * THIS leaf was appended from a non-{@code Double} source — or from a caller that supplied no
-   * source provenance at all (fail closed). Meaningless for other kinds (never set, never
-   * serialized).
+   * Per-column sticky inverse of the kind-specific provenance bit: a present NUMERIC_DOUBLE cell
+   * lacked {@code Double} source typing, or a TIMESTAMP cell lacked canonical UTC provenance.
+   * Provenance-free callers fail closed. Meaningless for other kinds (never serialized).
    */
-  private final boolean[] columnSawNonDoubleSource;
+  private final boolean[] columnSawImpureSource;
 
   /**
    * Initialise an empty page for the declared column shape. The actual per-column primitive arrays
@@ -582,7 +591,7 @@ public final class ProjectionIndexRowGroupPage {
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
-    this.columnSawNonDoubleSource = new boolean[columnCount];
+    this.columnSawImpureSource = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -900,7 +909,12 @@ public final class ProjectionIndexRowGroupPage {
    * kind.
    */
   public boolean columnPureDoubleSource(final int column) {
-    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawNonDoubleSource[column];
+    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawImpureSource[column];
+  }
+
+  /** True only when present timestamp cells have explicit canonical UTC provenance. */
+  public boolean columnPureUtcTimestamp(final int column) {
+    return columnKinds[column] == COLUMN_KIND_TIMESTAMP && !columnSawImpureSource[column];
   }
 
   /**
@@ -979,10 +993,10 @@ public final class ProjectionIndexRowGroupPage {
       final byte flags = columnFlags[c];
       page.columnUnrepresentable[c] = (flags & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
-      // Inverse-sticky: bytes without the purity bit (old stores, non-double kinds)
+      // Inverse-sticky: double/timestamp bytes without the purity bit
       // reconstruct as impure and STAY impure through any re-encode cycle.
-      page.columnSawNonDoubleSource[c] =
-          kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] = (kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || kinds[c] == COLUMN_KIND_TIMESTAMP)
+          && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
   }
@@ -1239,7 +1253,7 @@ public final class ProjectionIndexRowGroupPage {
       stringSetLen[c] = 0;
       columnUnrepresentable[c] = false;
       columnNonIntegral[c] = false;
-      columnSawNonDoubleSource[c] = false;
+      columnSawImpureSource[c] = false;
       columnMin[c] = Long.MAX_VALUE;
       columnMax[c] = Long.MIN_VALUE;
     }
@@ -1301,14 +1315,13 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Variant additionally carrying double-source provenance: {@code nonDoubleSource[c]} marks that
-   * this row's NUMERIC_DOUBLE cell {@code c} was converted from a source other than {@code Double}.
-   * Passing {@code null} (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column
-   * touched by a present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion only
-   * the extractor may make. Missing cells do not affect purity. An unrepresentable cell still carries
-   * source provenance when extraction established it; retaining that negative evidence keeps the
-   * persisted flag truthful even if a future serving gate reasons about provenance independently of
-   * the unrepresentable flag.
+   * Variant additionally carrying kind-specific source provenance: {@code nonDoubleSource[c]} marks a
+   * NUMERIC_DOUBLE source other than {@code Double}, or a TIMESTAMP source lacking canonical UTC
+   * provenance. Passing {@code null} poisons purity for either kind touched by a present cell; only
+   * the extractor may make a positive provenance assertion. Missing cells do not affect purity. An
+   * unrepresentable cell still carries source provenance when extraction established it; retaining
+   * that negative evidence keeps the persisted flag truthful even if a future serving gate reasons
+   * about provenance independently of the unrepresentable flag.
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final boolean[] present, final boolean[] unrepresentable,
@@ -1560,8 +1573,8 @@ public final class ProjectionIndexRowGroupPage {
     }
     columnUnrepresentable[0] |= unrepresentable;
     columnNonIntegral[0] |= nonIntegral;
-    if (present && kind == COLUMN_KIND_NUMERIC_DOUBLE && nonDoubleSource) {
-      columnSawNonDoubleSource[0] = true;
+    if (present && (kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_TIMESTAMP) && nonDoubleSource) {
+      columnSawImpureSource[0] = true;
     }
 
     switch (kind) {
@@ -1714,9 +1727,9 @@ public final class ProjectionIndexRowGroupPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
-      if (isPresent && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+      if (isPresent && (columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || columnKinds[c] == COLUMN_KIND_TIMESTAMP)
           && (nonDoubleSource == null || nonDoubleSource[c])) {
-        columnSawNonDoubleSource[c] = true;
+        columnSawImpureSource[c] = true;
       }
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
@@ -2516,8 +2529,9 @@ public final class ProjectionIndexRowGroupPage {
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
-      page.columnSawNonDoubleSource[c] = page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
-          && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] =
+          (page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || page.columnKinds[c] == COLUMN_KIND_TIMESTAMP)
+              && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -2675,7 +2689,7 @@ public final class ProjectionIndexRowGroupPage {
     if (columnNonIntegral[c]) {
       flags |= COLUMN_FLAG_NON_INTEGRAL;
     }
-    if (columnPureDoubleSource(c)) {
+    if (columnPureDoubleSource(c) || columnPureUtcTimestamp(c)) {
       flags |= COLUMN_FLAG_PURE_DOUBLE_SOURCE;
     }
     return flags;

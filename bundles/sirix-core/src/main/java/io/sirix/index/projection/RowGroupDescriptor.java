@@ -318,6 +318,7 @@ public final class RowGroupDescriptor {
             "Corrupt leaf descriptor: BODY(" + column + ") has unknown flags 0x" + Integer.toHexString(unknownFlags));
       }
       if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
           && (entryColFlags(descriptor, bodyEntry) & ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE) != 0) {
         throw new IllegalStateException(
             "Corrupt leaf descriptor: BODY(" + column + ") asserts double provenance for kind " + kind);

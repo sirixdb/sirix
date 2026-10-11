@@ -126,7 +126,7 @@ public final class BitemporalQueries {
             order by $region,$grade
             return {"region":$region,"grade":$grade,"n":$n,"exposure":$exposure}
             """);
-    add(queries, 10, "interval overlap product join", 1, "revision-scan+strict-overlap+generic-join-group", false,
+    add(queries, 10, "interval overlap product join", 1, "valid-time-range+projection-join-group-distinct", false,
         List.of("category", "contracts", "min_margin", "max_margin"), """
             for $c in jn:open('bt','contracts',$B)[]
             for $p in jn:open('bt','products',$B)[]
