@@ -26,7 +26,8 @@ There are 25 atomic logical publications, E0 through E24, at `day(15 * epoch)`. 
 an identity's payload only within its interval, preserving/splitting outside pieces. A DELETE
 removes only its interval. Adjacent equal pieces may coalesce. Sirix stores the three business
 relations as revisioned JSON arrays with explicit `vf`/`vt`; XTDB uses native system and valid
-time. Neither adapter stores precomputed query answers or flattened system history.
+time. Sirix also maintains the declared temporal aggregate indexes described below. Neither
+adapter stores query-result fixtures or flattened system history.
 
 Contract 1 is a public boundary fixture: E6 puts `[90,210)` at base cost +100, E12 puts
 `[150,180)` at +200, E18 deletes `[160,170)`, and E20 puts `[164,168)` at +300. Random changes
@@ -85,12 +86,12 @@ raw results, and emit the same canonical TSV bytes.
 | 3 | valid-range price extrema | revision scan + strict overlap | no |
 | 4 | corrections, system-time self-join | VALIDTIME row masks + column-side row join and residual | no |
 | 5 | one entity's publication history | revision scan per publication | no |
-| 6 | grouped publication evolution | VALIDTIME row mask + projection group, per publication | no |
-| 7 | latest grouped exposure | VALIDTIME row mask + projection group | no |
-| 8 | supplier/grade distribution | VALIDTIME row mask + projection group | no |
+| 6 | grouped publication evolution | temporal aggregate, per publication | no |
+| 7 | latest grouped exposure | temporal aggregate | no |
+| 8 | supplier/grade distribution | temporal aggregate | no |
 | 9 | supplier temporal join/group | VALIDTIME row masks + column-side hash join + group | no |
 | 10 | interval-overlap product join | VALIDTIME range masks + projection join/group with distinct counts | no |
-| 11 | daily temporal aggregation | VALIDTIME row mask + projection group, per day | no |
+| 11 | daily temporal aggregation | temporal aggregate, per day | no |
 | 12 | disappearance anti-join/group | VALIDTIME row masks + column-side key subtraction + projection group (fallback: [membership anti-join](../../../../docs/QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)) | no |
 
 Q4, Q6-Q9, Q11 and Q12 call `jn:open-bitemporal` directly, using its half-open validity
@@ -102,6 +103,12 @@ projection admission and fallbacks are specified in
 The projection declares `vf`/`vt` as timestamps and payload fields as longs. Q10's range selection
 and paired overlap comparisons follow
 [Range intersections and joined overlap residuals](../../../../docs/VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
+Contracts additionally declare temporal aggregates at E0 (`BitemporalTemporalAggregates`);
+[the aggregate reference](../../../../docs/TEMPORAL_AGGREGATE_INDEX.md) owns their declarations,
+comparison-store switch, synchronous maintenance and admission. The grouped queries retain the
+VALIDTIME row-mask and projection-group route when aggregate admission declines.
+The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and separate apply/commit
+milliseconds. E0 reports `apply_ms=0.0` as a placeholder; its construction work is not timed there.
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe declared query routes; they do not prove

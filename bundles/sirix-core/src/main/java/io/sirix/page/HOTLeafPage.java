@@ -993,7 +993,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Fill one missing projection entry during read reconstruction. The private result's routing index
+   * Fill one missing opaque-slot entry during read reconstruction. The private result's routing index
    * would be invalidated by every inserted entry; binary search avoids repeatedly building it, and
    * the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
    * order and dirty-bit shifts are exactly the ordinary insertion path's operations. An existing
@@ -1001,7 +1001,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public boolean fillProjectionEntry(final HOTLeafPage older, final int row) {
     Objects.requireNonNull(older);
-    if (indexType != IndexType.PROJECTION || older.indexType != IndexType.PROJECTION) {
+    if (!indexType.hasOpaqueValues() || older.indexType != indexType) {
       throw new IllegalArgumentException("projection fragments required");
     }
     return fillMissingFragmentEntry(older, row);
@@ -1817,7 +1817,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * <p>
    * Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
    * instead of conflating it with an absent/unreadable value. Callers that rebuild or migrate leaf
-   * entries must use this method when zero-length projection tombstones are part of the value domain.
+   * entries must use this method when zero-length opaque-slot tombstones are part of the value
+   * domain.
    *
    * @param index entry index in this leaf
    * @return a newly allocated byte array containing the complete stored value
@@ -2900,16 +2901,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   private static final byte[] TOMBSTONE_VALUE = {(byte) 0xFE};
 
-  /** Projection values are opaque; their tombstone is the physically present zero-length value. */
-  private static final byte[] PROJECTION_TOMBSTONE_VALUE = new byte[0];
+  /**
+   * Opaque-slot values use a physical zero-length tombstone; the tombstone is the physically present
+   * zero-length value.
+   */
+  private static final byte[] OPAQUE_TOMBSTONE_VALUE = new byte[0];
 
   /**
    * Classify one physically stored value according to this leaf's index type.
    *
    * <p>
    * Uses the packed value reference directly, so the check allocates nothing and never conflates a
-   * valid zero-length projection tombstone with an unreadable slot. An unreadable value is structural
-   * corruption and fails before a delete or compaction mutates the page.
+   * valid zero-length opaque-slot tombstone with an unreadable slot. An unreadable value is
+   * structural corruption and fails before a delete or compaction mutates the page.
    * </p>
    */
   private boolean isStoredTombstone(final int index) {
@@ -2919,7 +2923,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (valueLength < 0) {
       throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
     }
-    return indexType == IndexType.PROJECTION
+    return indexType.hasOpaqueValues()
         ? valueLength == 0
         : NodeReferencesSerializer.isTombstone(this, valueRef);
   }
@@ -2928,8 +2932,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Delete an entry by key (tombstone-based).
    *
    * <p>
-   * Replaces the value with the index type's tombstone (zero length for PROJECTION, {@code 0xFE} for
-   * posting indexes) rather than physically removing the entry. This is essential for versioning
+   * Replaces the value with the index type's tombstone (zero length for opaque slots, {@code 0xFE}
+   * for posting indexes) rather than physically removing the entry. This is essential for versioning
    * correctness: INCREMENTAL and DIFFERENTIAL modes reconstruct pages by merging fragments from
    * newest to oldest. If an entry were physically removed, the older fragment's copy would be
    * resurrected during reconstruction.
@@ -2970,8 +2974,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Write tombstone value instead of physically removing the entry.
     // The key remains in the page so versioning reconstruction sees it and
     // does not resurrect the entry from older fragments.
-    return updateValue(index, indexType == IndexType.PROJECTION
-        ? PROJECTION_TOMBSTONE_VALUE
+    return updateValue(index, indexType.hasOpaqueValues()
+        ? OPAQUE_TOMBSTONE_VALUE
         : TOMBSTONE_VALUE);
   }
 
@@ -3109,8 +3113,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is already
-   * present. Used by the split machinery for index types whose values are opaque byte payloads
-   * (PROJECTION chunks) rather than mergeable NodeReferences bitmaps.
+   * present. Used by the split machinery for index types whose values are opaque byte payloads rather
+   * than mergeable NodeReferences bitmaps; {@link IndexType#hasOpaqueValues()} owns that policy.
    *
    * <p>
    * Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and shrinkage are
@@ -3657,7 +3661,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     //
     // Value semantics depend on the index type: CAS/PATH/NAME values are
     // NodeReferences bitmaps and an existing key must be MERGED (bitmap OR).
-    // PROJECTION values are opaque chunk payloads — "insert" of an existing key
+    // Opaque-slot values are arbitrary payloads — "insert" of an existing key
     // is a REPLACE; feeding chunk bytes through the NodeReferences merge would
     // deserialize random payload bytes as roaring bitmaps and corrupt the slot.
     final boolean newKeyToRight = DiscriminativeBitComputer.isBitSet(keySlice, msdb);
@@ -3665,7 +3669,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         ? target
         : this;
     final boolean insertOk;
-    if (indexType == IndexType.PROJECTION) {
+    if (indexType.hasOpaqueValues()) {
       insertOk = half.putOrReplace(keySlice, valueSlice);
     } else {
       insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);

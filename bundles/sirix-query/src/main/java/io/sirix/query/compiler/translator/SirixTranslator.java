@@ -33,6 +33,7 @@ import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.StoredDateTimeCast;
 import io.sirix.query.function.StoredDateTimeConstructor;
+import io.sirix.query.function.sdb.trx.Commit;
 import io.brackit.query.function.ConstructorFunction;
 import io.brackit.query.jdm.Type;
 import io.sirix.query.compiler.expression.MaterializeExpr;
@@ -258,6 +259,24 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (Commit.COMMIT.equals(node.getValue()) && node.getChildCount() > 0
+        && ctx.getFunctions().resolve(Commit.COMMIT, node.getChildCount()) instanceof Commit commit) {
+      for (int i = 0; i < node.getChildCount(); i++) {
+        if (node.getChild(i).getType() == XQ.ArgumentPlaceHolder) {
+          return super.functionCall(node);
+        }
+      }
+      final Expr[] arguments = new Expr[node.getChildCount()];
+      for (int i = 0; i < arguments.length; i++) {
+        arguments[i] = expr(node.getChild(i), i != 0);
+      }
+      return new FunctionExpr(node.getStaticContext(), commit, arguments) {
+        @Override
+        public boolean isUpdating() {
+          return arguments[0].isUpdating();
+        }
+      };
+    }
     final ConstructorFunction constructor = dateTimeConstructor(node);
     if (constructor != null) {
       return new FunctionExpr(node.getStaticContext(), new StoredDateTimeConstructor(constructor),

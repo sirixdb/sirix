@@ -3,21 +3,14 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
-import io.sirix.page.CASPage;
-import io.sirix.page.DeweyIDPage;
-import io.sirix.page.HOTIndirectPage;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
-import io.sirix.page.PathPage;
-import io.sirix.page.PathSummaryPage;
-import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.page.ValidTimeIndexPage;
-import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,13 +69,11 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Legacy constructor accepting a byte budget. The byte input is ignored — the
-   * eviction policy is now count-based ({@link #DEFAULT_MAX_ENTRIES}, override
-   * via {@value #MAX_ENTRIES_PROPERTY}). Kept so existing call sites (e.g.
-   * {@code BufferManagerImpl}) compile without change.
+   * Legacy constructor accepting a byte budget. The byte input is ignored — the eviction policy is
+   * now count-based ({@link #DEFAULT_MAX_ENTRIES}, override via {@value #MAX_ENTRIES_PROPERTY}). Kept
+   * so existing call sites (e.g. {@code BufferManagerImpl}) compile without change.
    *
-   * @param maxWeight legacy byte budget — ignored. Set the system property to
-   *     change the cap.
+   * @param maxWeight legacy byte budget — ignored. Set the system property to change the cap.
    */
   public PageCache(final long maxWeight) {
     this(resolveMaxEntries(maxWeight));
@@ -146,14 +137,18 @@ public final class PageCache implements Cache<PageReference, Page> {
       }
       final Page page = mappingFunction.apply(k, v);
       computed[0] = page;
-      return isCacheablePageType(page) ? page : null;
+      return isCacheablePageType(page)
+          ? page
+          : null;
     });
-    return cached != null ? cached : computed[0];
+    return cached != null
+        ? cached
+        : computed[0];
   }
 
   /**
-   * The revision root and its index-root children are per-revision mutable metadata that must not
-   * be shared via this cache — ONE policy consulted by both {@link #put} and the compute path of
+   * The revision root and its index-root children are per-revision mutable metadata that must not be
+   * shared via this cache — ONE policy consulted by both {@link #put} and the compute path of
    * {@link #get(PageReference, BiFunction)}.
    */
   private static boolean isCacheablePageType(final Page page) {
@@ -164,20 +159,20 @@ public final class PageCache implements Cache<PageReference, Page> {
    * Whether the page is one of the {@link RevisionRootPage}'s direct children whose OWN references
    * are the roots of the per-revision index trees.
    *
-   * <p>These are not merely "mutable". Index creation decides whether a tree already exists by
-   * probing whether the corresponding slot carries a key, so one shared instance makes a writer
-   * observe another transaction's half-built root and skip creating its own — surfacing far away as
-   * an index that silently lacks entries. On the read side, sharing one instance across revisions
-   * lets a time-travel read of revision N follow revision N+1's index root and see entries that did
-   * not exist yet.
+   * <p>
+   * These are not merely "mutable". Index creation decides whether a tree already exists by probing
+   * whether the corresponding slot carries a key, so one shared instance makes a writer observe
+   * another transaction's half-built root and skip creating its own — surfacing far away as an index
+   * that silently lacks entries. On the read side, sharing one instance across revisions lets a
+   * time-travel read of revision N follow revision N+1's index root and see entries that did not
+   * exist yet.
    *
-   * <p>The list must stay in step with {@code RevisionRootPage}'s {@code *_REFERENCE_OFFSET} slots:
-   * a new index type added there and forgotten here is silently mis-shared.
+   * <p>
+   * Index-root implementations declare this ownership through {@link IndexRootPage}. Checking the
+   * shared marker avoids linking every optional index implementation on ordinary page-cache reads.
    */
   private static boolean isIndexRootPage(final Page page) {
-    return page instanceof PathSummaryPage || page instanceof NamePage || page instanceof CASPage
-        || page instanceof PathPage || page instanceof DeweyIDPage || page instanceof VectorPage
-        || page instanceof ProjectionIndexPage || page instanceof ValidTimeIndexPage;
+    return page instanceof IndexRootPage;
   }
 
   @Override
@@ -186,11 +181,10 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Evict all HOTLeafPages from the cache under memory pressure. Called by the
-   * allocator's PressureListener when off-heap budget is exhausted — HOTLeafPages
-   * each hold a 65 KB MemorySegment that counts against the global budget. The
-   * removal listener fires synchronously on invalidate, closing each page and
-   * returning its slot to the allocator.
+   * Evict all HOTLeafPages from the cache under memory pressure. Called by the allocator's
+   * PressureListener when off-heap budget is exhausted — HOTLeafPages each hold a 65 KB MemorySegment
+   * that counts against the global budget. The removal listener fires synchronously on invalidate,
+   * closing each page and returning its slot to the allocator.
    */
   public void evictHOTLeafPages() {
     for (final var entry : cache.asMap().entrySet()) {
@@ -255,7 +249,7 @@ public final class PageCache implements Cache<PageReference, Page> {
    * Get cache statistics for diagnostics.
    */
   public CacheStatistics getStatistics() {
-    com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
+    CacheStats caffeineStats = cache.stats();
 
     int totalPages = 0;
     long totalWeight = 0;

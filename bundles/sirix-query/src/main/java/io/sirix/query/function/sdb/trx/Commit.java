@@ -63,6 +63,7 @@ public final class Commit extends AbstractFunction {
 
     if (document.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) document.getTrx();
+      wtx.awaitPendingAsyncCommit();
       final long revision = wtx.getRevisionNumber();
       wtx.commit(commitMessage, commitTimestamp);
       return new Int64(revision);
@@ -77,9 +78,11 @@ public final class Commit extends AbstractFunction {
           newTrxOpened = true;
           wtx = resourceSession.beginNodeTrx();
         }
+        wtx.awaitPendingAsyncCommit();
         final int revision = document.getTrx().getRevisionNumber();
-        if (revision < resourceSession.getMostRecentRevisionNumber()) {
-          wtx.revertTo(document.getTrx().getRevisionNumber());
+        if (revision < resourceSession.getMostRecentRevisionNumber()
+            && wtx.getStorageEngineWriter().getRevisionToRepresent() != revision) {
+          wtx.revertTo(revision);
         }
         final int revisionToCommit = wtx.getRevisionNumber();
         wtx.commit(commitMessage, commitTimestamp);

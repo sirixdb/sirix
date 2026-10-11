@@ -515,7 +515,7 @@ Database (directory)
 
 ### Indexes
 
-Three secondary index types, all updated **synchronously** inside the writing transaction — queries never see a stale index:
+The path, CAS and name indexes are updated **synchronously** inside the writing transaction — queries never see a stale index:
 
 - **Path index** — index specific JSON or XML paths for faster navigation. XML indexes cover
   elements, attributes, namespace declarations, and processing instructions.
@@ -572,7 +572,7 @@ documents storage compatibility and encoding.
 
 ### Projection indexes (experimental, analytical)
 
-A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts,
+A columnar index type accelerates analytical queries — aggregates, filtered counts,
 group-bys, count-distinct — over homogeneous record sets. A **projection index** extracts
 declared fields into column-oriented leaves (frame-of-reference numerics, string dictionaries,
 presence bitmaps) that the vectorized executor scans with SIMD kernels instead of walking the
@@ -595,6 +595,10 @@ return {"revision": sdb:commit($doc)}
 Usage guide, maintenance semantics, REST gate, and current limits:
 [`docs/PROJECTION_INDEXES.md`](docs/PROJECTION_INDEXES.md); internals:
 [`docs/PROJECTION_INDEX_DEEP_DIVE.md`](docs/PROJECTION_INDEX_DEEP_DIVE.md).
+
+For grouped aggregates at a valid-time point, a covering projection can also back a
+[versioned temporal aggregate index](docs/TEMPORAL_AGGREGATE_INDEX.md). That reference owns its
+declaration API, synchronous maintenance and query fallback rules.
 
 ## Correctness & Formal Verification
 

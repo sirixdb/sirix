@@ -36,6 +36,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -2341,7 +2342,7 @@ public enum PageKind {
       if (populatedCount > 0) {
         final byte[] templatePool = TEMPLATE_POOL_SCRATCH.get();
         final byte[] slotTemplateIds = SLOT_TEMPLATE_IDS_SCRATCH.get();
-        final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
+        final Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
         final OffsetTableTemplatePool.BuildResult br = OffsetTableTemplatePool.build(slottedPage, populatedCount,
             slotKindIds, slotHeapOffs, templatePool, slotTemplateIds, templateMap);
         if (br.isDedupEnabled()) {
@@ -6210,6 +6211,72 @@ public enum PageKind {
 
       PageKind.serializeMaxHotPageKeys(sink, validTimePage.maxHotPageKeysForSerialization());
     }
+  },
+
+  TEMPORAL_AGGREGATEPAGE((byte) 18) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      return switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
+
+          yield new TemporalAggregateIndexPage(delegate, maxHotPageKeys);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      };
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final TemporalAggregateIndexPage temporalAggregatePage = (TemporalAggregateIndexPage) page;
+      final Page delegate = temporalAggregatePage.delegate();
+      sink.writeByte(TEMPORAL_AGGREGATEPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      PageKind.serializeMaxHotPageKeys(sink, temporalAggregatePage.maxHotPageKeysForSerialization());
+    }
+  },
+
+  CHANGE_LOGPAGE((byte) 19) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      return switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
+
+          yield new ChangeLogIndexPage(delegate, maxHotPageKeys);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      };
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ChangeLogIndexPage changeLogPage = (ChangeLogIndexPage) page;
+      final Page delegate = changeLogPage.delegate();
+      sink.writeByte(CHANGE_LOGPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      PageKind.serializeMaxHotPageKeys(sink, changeLogPage.maxHotPageKeysForSerialization());
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {
@@ -8272,12 +8339,11 @@ public enum PageKind {
    * Per-thread fastutil map for packed-key → templateId lookup during dedup. Default return value is
    * -1 (sentinel for "not present").
    */
-  private static final ThreadLocal<it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap> TEMPLATE_MAP =
-      ThreadLocal.withInitial(() -> {
-        final var m = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(256);
-        m.defaultReturnValue(-1);
-        return m;
-      });
+  private static final ThreadLocal<Long2IntOpenHashMap> TEMPLATE_MAP = ThreadLocal.withInitial(() -> {
+    final var m = new Long2IntOpenHashMap(256);
+    m.defaultReturnValue(-1);
+    return m;
+  });
 
   /**
    * Per-thread staging buffer for the dedup-transformed record heap before {@link ZeroRunByteCodec}
@@ -8792,7 +8858,7 @@ public enum PageKind {
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_OUT = ThreadLocal.withInitial(() -> {
     // Start at 128 KiB; {@link #lz4OutScratch} grows it as needed.
-    return java.lang.foreign.Arena.ofAuto().allocate(128 * 1024);
+    return Arena.ofAuto().allocate(128 * 1024);
   });
 
   /**
@@ -8800,7 +8866,7 @@ public enum PageKind {
    * call works without JNI round-trips.
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_STAGING =
-      ThreadLocal.withInitial(() -> java.lang.foreign.Arena.ofAuto().allocate(128 * 1024));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
 
   /**
    * Per-thread pointer to the decompressed body blob and its heap-section offset. Bridges the
@@ -8818,7 +8884,7 @@ public enum PageKind {
   private static MemorySegment v1StagingScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_STAGING.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_STAGING.set(s);
     }
     return s;
@@ -8828,7 +8894,7 @@ public enum PageKind {
   private static MemorySegment v1Lz4OutScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_OUT.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_OUT.set(s);
     }
     return s;
@@ -8844,7 +8910,9 @@ public enum PageKind {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind ID " + (page.id & 0xFF) + " for " + duplicateId + " and " + page);
       }
-      final PageKind duplicateClass = INSTANCEFORCLASS.put(page.clazz, page);
+      final PageKind duplicateClass = page.clazz == null
+          ? null
+          : INSTANCEFORCLASS.put(page.clazz, page);
       if (duplicateClass != null) {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind class " + page.clazz.getName() + " for " + duplicateClass + " and " + page);
@@ -8860,14 +8928,19 @@ public enum PageKind {
   /**
    * Class.
    */
-  private final Class<? extends Page> clazz;
+  private final @Nullable Class<? extends Page> clazz;
 
   /**
-   * Constructor.
+   * Optional container kind; resolve its implementation class only when used.
    *
    * @param id unique identifier
-   * @param clazz class
+   *
    */
+  PageKind(final byte id) {
+    this.id = id;
+    this.clazz = null;
+  }
+
   PageKind(final byte id, final Class<? extends Page> clazz) {
     this.id = id;
     this.clazz = clazz;
@@ -9075,10 +9148,23 @@ public enum PageKind {
    */
   public static PageKind getKind(final Class<? extends Page> clazz) {
     final PageKind page = INSTANCEFORCLASS.get(clazz);
-    if (page == null) {
-      throw new IllegalStateException();
+    if (page != null) {
+      return page;
     }
-    return page;
+    return OptionalAggregatePageKinds.get(clazz);
+  }
+
+  /** Optional containers must not load their implementation classes for unrelated page reads. */
+  private static final class OptionalAggregatePageKinds {
+    private static PageKind get(final Class<? extends Page> clazz) {
+      if (clazz == TemporalAggregateIndexPage.class) {
+        return TEMPORAL_AGGREGATEPAGE;
+      }
+      if (clazz == ChangeLogIndexPage.class) {
+        return CHANGE_LOGPAGE;
+      }
+      throw new IllegalStateException("Unknown PageKind class: " + clazz);
+    }
   }
 
   /**

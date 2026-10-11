@@ -30,9 +30,10 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 
-public final class DeweyIDPage extends AbstractForwardingPage {
+public final class DeweyIDPage extends AbstractForwardingPage implements IndexRootPage {
 
   /**
    * Offset of reference to index-tree.

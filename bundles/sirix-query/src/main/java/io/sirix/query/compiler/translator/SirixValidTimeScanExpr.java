@@ -13,6 +13,11 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
+import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.RoutedKeys;
@@ -46,8 +51,56 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
   }
 
   @Nullable
-  RoutedKeys routedKeys(final QueryContext ctx, final Tuple tuple) {
-    final JsonDBItem source = (JsonDBItem) document.evaluateToItem(ctx, tuple);
+  Item document(final QueryContext ctx, final Tuple tuple) {
+    return document.evaluateToItem(ctx, tuple);
+  }
+
+  TemporalAggregateRoute.@Nullable Point aggregatePoint(final QueryContext ctx, final Tuple tuple,
+      final @Nullable Item item) {
+    if (mode != 2) {
+      return null;
+    }
+    if (!(item instanceof JsonDBArray source) || source.len() == 0) {
+      return null;
+    }
+    final JsonIndexController controller =
+        source.getResourceSession().getRtxIndexController(source.getTrx().getRevisionNumber());
+    if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0) {
+      return null;
+    }
+    IndexDef interval = null;
+    for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
+      if (definition.isValidTimeIndex()) {
+        interval = definition;
+        break;
+      }
+    }
+    if (interval == null || !controller.isExactValidTimeArray(source.getTrx().getStorageEngineReader(), interval,
+        source.getNodeKey(), source.len())) {
+      return null;
+    }
+    final ValidTimeConfig config = source.getResourceSession().getResourceConfig().getValidTimeConfig();
+    if (config == null || !from.equals(config.getNormalizedValidFromPath())
+        || !to.equals(config.getNormalizedValidToPath())) {
+      return null;
+    }
+    final long saved = source.getTrx().getNodeKey();
+    try {
+      if (!source.getTrx().moveTo(source.getNodeKey()) || source.getTrx().getParentKey() != 0) {
+        return null;
+      }
+    } finally {
+      source.getTrx().moveTo(saved);
+    }
+    final Item value = point.evaluateToItem(ctx, tuple);
+    return value instanceof DateTime dateTime && dateTime.getTimezone() != null
+        ? new TemporalAggregateRoute.Point(source, new DateTimeToInstant().convert(dateTime))
+        : null;
+  }
+
+  @Nullable
+  RoutedKeys routedKeys(final QueryContext ctx, final Tuple tuple, final @Nullable Item item) {
+    final JsonDBItem source = (JsonDBItem) item;
     if (!(source instanceof Array array)) {
       return null;
     }
@@ -65,7 +118,7 @@ final class SirixValidTimeScanExpr implements Expr, Reference {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) {
-    final JsonDBItem source = (JsonDBItem) document.evaluateToItem(ctx, tuple);
+    final JsonDBItem source = (JsonDBItem) document(ctx, tuple);
     final Sequence captured = pointPosition >= 0
         ? tuple.get(pointPosition)
         : point instanceof DateTime dateTime

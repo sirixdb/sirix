@@ -57,33 +57,34 @@ public enum IndexType {
   VECTOR((byte) 9),
 
   /**
-   * Projection index — user-declared covering index over a declared root path
-   * and a list of sub-field paths. Stored as a HOT sub-tree whose leaf pages
-   * are column-chunked: each leaf holds N contiguous record projections as
-   * parallel arrays (one per declared field plus a {@code recordKey} column),
-   * enabling SIMD-friendly multi-field filter scans without the OBJECT_KEY
-   * indirection that the generic predicate-count path pays. Created / dropped
-   * at any revision via the same index-lifecycle machinery used by CAS,
-   * PATH, and NAME indexes; participates in the standard CoW-versioned HOT
+   * Projection index — user-declared covering index over a declared root path and a list of sub-field
+   * paths. Stored as a HOT sub-tree whose leaf pages are column-chunked: each leaf holds N contiguous
+   * record projections as parallel arrays (one per declared field plus a {@code recordKey} column),
+   * enabling SIMD-friendly multi-field filter scans without the OBJECT_KEY indirection that the
+   * generic predicate-count path pays. Created / dropped at any revision via the same index-lifecycle
+   * machinery used by CAS, PATH, and NAME indexes; participates in the standard CoW-versioned HOT
    * chain so old revisions remain readable.
    */
   PROJECTION((byte) 10),
 
   /**
-   * Valid-time (bitemporal) interval index. Realises a persistent
-   * Relational-Interval-Tree (Kriegel/Pötke/Seidl) on a HOT sub-tree for
-   * output-sensitive stabbing queries ("which records' valid-time interval
-   * contains instant x?"). Each indexed record OBJECT contributes one
-   * {@code [validFrom, validTo]} interval, registered at its fork node into
-   * one ordered HOT map keyed by a composite
-   * {@code [store-discriminator:1][forkNode:8][endpoint:8]} so a fixed-fork
-   * endpoint sub-range is one contiguous range scan. Created / dropped at any
-   * revision via the same index-lifecycle machinery used by CAS, PATH, and
-   * NAME indexes; participates in the standard CoW-versioned HOT chain so old
-   * revisions remain readable. Used by {@code jn:valid-at} /
+   * Valid-time (bitemporal) interval index. Realises a persistent Relational-Interval-Tree
+   * (Kriegel/Pötke/Seidl) on a HOT sub-tree for output-sensitive stabbing queries ("which records'
+   * valid-time interval contains instant x?"). Each indexed record OBJECT contributes one
+   * {@code [validFrom, validTo]} interval, registered at its fork node into one ordered HOT map keyed
+   * by a composite {@code [store-discriminator:1][forkNode:8][endpoint:8]} so a fixed-fork endpoint
+   * sub-range is one contiguous range scan. Created / dropped at any revision via the same
+   * index-lifecycle machinery used by CAS, PATH, and NAME indexes; participates in the standard
+   * CoW-versioned HOT chain so old revisions remain readable. Used by {@code jn:valid-at} /
    * {@code jn:open-bitemporal}.
    */
-  VALIDTIME((byte) 11);
+  VALIDTIME((byte) 11),
+
+  /** Versioned, declared grouped aggregates over half-open valid-time intervals. */
+  TEMPORAL_AGGREGATE((byte) 12),
+
+  /** Versioned per-projection record change slabs for derived indexes. */
+  CHANGE_LOG((byte) 13);
 
   /**
    * Unique ID.
@@ -94,16 +95,20 @@ public enum IndexType {
     this.id = id;
   }
 
+  /** Raw-slot indexes replace duplicate values and use zero-length tombstones. */
+  public boolean hasOpaqueValues() {
+    return this == PROJECTION || this == TEMPORAL_AGGREGATE || this == CHANGE_LOG;
+  }
+
   public byte getID() {
     return id;
   }
 
   /**
-   * Direct id-indexed lookup table. IDs are dense [0..9] today; if a sparser
-   * id space is ever introduced, this needs to grow OR fall back to a switch.
-   * Replaces a {@code HashMap<Byte, IndexType>} that was autoboxing the {@code byte}
-   * key on every call ({@code IndexType.getType} showed at ~3% of CPU under
-   * Temurin C2 in the 100M-record scan profile).
+   * Direct id-indexed lookup table sized from the enum's maximum id; unassigned slots are rejected by
+   * {@link #getType(byte)}. Replaces a {@code HashMap<Byte, IndexType>} that was autoboxing the
+   * {@code byte} key on every call ({@code IndexType.getType} showed at ~3% of CPU under Temurin C2
+   * in the 100M-record scan profile).
    */
   private static final IndexType[] BY_ID;
 
@@ -111,7 +116,8 @@ public enum IndexType {
     final IndexType[] all = values();
     int max = 0;
     for (final IndexType t : all) {
-      if (t.id > max) max = t.id;
+      if (t.id > max)
+        max = t.id;
     }
     BY_ID = new IndexType[max + 1];
     for (final IndexType t : all) {

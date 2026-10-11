@@ -12,7 +12,6 @@ import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.node.Bytes;
-import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
@@ -27,7 +26,10 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Fixed;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -90,17 +92,18 @@ public final class GoldenFormatTest {
   private static final String GOLDEN_EMPTY_PATH_PAGE = "0a0000000000000000";
   private static final String GOLDEN_EMPTY_PROJECTION_PAGE = "100000000000000000";
   private static final String GOLDEN_EMPTY_VALID_TIME_PAGE = "110000000000000000";
+  private static final String GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE = "120000000000000000";
 
   /** Stable id registries — changing any value is an on-disk format break. */
   private static final String GOLDEN_PAGE_KIND_IDS =
       "KEYVALUELEAFPAGE=1,NAMEPAGE=2,UBERPAGE=3,INDIRECTPAGE=4,REVISIONROOTPAGE=5,PATHSUMMARYPAGE=6,"
           + "CASPAGE=8,OVERFLOWPAGE=9,PATHPAGE=10,DEWEYIDPAGE=11,HOT_LEAF_PAGE=12,HOT_INDIRECT_PAGE=13,"
           // ID 14 is intentionally unassigned after removing the unreachable bitmap-chunk format.
-          + "VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17";
+          + "VECTORPAGE=15,PROJECTIONPAGE=16,VALIDTIMEPAGE=17,TEMPORAL_AGGREGATEPAGE=18,CHANGE_LOGPAGE=19";
 
   private static final String GOLDEN_INDEX_TYPE_IDS =
       "REVISIONS=0,DOCUMENT=1,CHANGED_NODES=2,RECORD_TO_REVISIONS=3,PATH_SUMMARY=4,PATH=5,CAS=6,"
-          + "NAME=7,DEWEYID_TO_RECORDID=8,VECTOR=9,PROJECTION=10,VALIDTIME=11";
+          + "NAME=7,DEWEYID_TO_RECORDID=8,VECTOR=9,PROJECTION=10,VALIDTIME=11,TEMPORAL_AGGREGATE=12,CHANGE_LOG=13";
 
   // ==================== cases ====================
 
@@ -130,6 +133,9 @@ public final class GoldenFormatTest {
         serializePage(config, new ProjectionIndexPage()));
     assertGolden("empty-valid-time-page", GOLDEN_EMPTY_VALID_TIME_PAGE,
         serializePage(config, new ValidTimeIndexPage()));
+    assertGolden("empty-temporal-aggregate-page", GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE,
+        serializePage(config, new TemporalAggregateIndexPage()));
+    assertGolden("empty-change-log-page", "130000000000000000", serializePage(config, new ChangeLogIndexPage()));
   }
 
   @Test
@@ -153,7 +159,7 @@ public final class GoldenFormatTest {
     DeltaVarIntCodec.encodeSignedLong(sink, 1L << 40);
     DeltaVarIntCodec.encodeSignedLong(sink, Long.MIN_VALUE / 2);
     DeltaVarIntCodec.encodeDelta(sink, 1001, 1000);
-    DeltaVarIntCodec.encodeDelta(sink, io.sirix.settings.Fixed.NULL_NODE_KEY.getStandardProperty(), 1000);
+    DeltaVarIntCodec.encodeDelta(sink, Fixed.NULL_NODE_KEY.getStandardProperty(), 1000);
     DeltaVarIntCodec.encodeAbsolute(sink, 123456789L);
     assertGolden("varints", GOLDEN_VARINTS, hex(sink));
   }

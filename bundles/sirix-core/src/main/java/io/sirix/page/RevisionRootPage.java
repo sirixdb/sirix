@@ -106,12 +106,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   private static final int VALIDTIME_REFERENCE_OFFSET = 10;
 
+  private static final int TEMPORAL_AGGREGATE_REFERENCE_OFFSET = 11;
+
+  private static final int CHANGE_LOG_REFERENCE_OFFSET = 12;
+
   /**
    * Number of sibling references held in this revision root page (the highest reference offset plus
    * one). Kept in sync with the {@code *_REFERENCE_OFFSET} constants above and with the
    * {@code BitmapReferencesPage} deserialization in {@code PageKind.REVISIONROOTPAGE}.
    */
-  public static final int REVISION_ROOT_PAGE_REFERENCE_COUNT = 11;
+  public static final int REVISION_ROOT_PAGE_REFERENCE_COUNT = 13;
 
   /**
    * Last allocated node key.
@@ -347,6 +351,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public PageReference getValidTimeIndexPageReference() {
     return getOrCreateReference(VALIDTIME_REFERENCE_OFFSET);
+  }
+
+  /** Return the revision-owned temporal aggregate container reference. */
+  public PageReference getTemporalAggregateIndexPageReference() {
+    return getOrCreateReference(TEMPORAL_AGGREGATE_REFERENCE_OFFSET);
+  }
+
+  public PageReference getChangeLogIndexPageReference() {
+    return getOrCreateReference(CHANGE_LOG_REFERENCE_OFFSET);
   }
 
   /**

@@ -9,6 +9,7 @@ import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -36,6 +37,21 @@ public final class EngineWorkCounters {
   private EngineWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
+      "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,
+      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_GROUP_HEADS_DECODED = WorkCounter.gated("temporal.groupHeadsDecoded",
+      "one dictionary head decoded after admission", TemporalAggregateStorage::groupHeadsDecoded,
+      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_PART_CHUNKS_READ = WorkCounter.gated("temporal.partChunksRead",
+      "one aggregate part chunk requested", TemporalAggregateStorage::partChunksRead, "-Dsirix.hot.mergeDiag=true",
+      TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final List<WorkCounter> TEMPORAL_READS =
+      List.of(TEMPORAL_GROUP_HEADS_VISITED, TEMPORAL_GROUP_HEADS_DECODED, TEMPORAL_PART_CHUNKS_READ);
 
   public static final WorkCounter VALID_TIME_INTERVAL_REFS = WorkCounter.gated("validTime.intervalRefs",
       "one record reference emitted by an interval store scan", HotOrderedStore::intervalRefsEmitted,

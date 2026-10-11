@@ -2065,6 +2065,9 @@ PEXT candidate checks do not contribute; a PEXT miss can fall back to counted bi
 `sideReferenceReads()` counts overflow-reference map probes, including misses.
 These are process-wide running totals, captured as differences just like the always-on counters.
 
+The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
+owns `EngineWorkCounters.TEMPORAL_READS` and its dictionary-admission work bounds.
+
 **Gated identity replay work counters.** The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
 owns the `sirix.replay.workDiag` counters, their units and guarded maintenance work.
 The retained-order proof is documented at

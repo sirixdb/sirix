@@ -3,14 +3,17 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Self-describing metadata payload persisted alongside projection leaves (slot 0 of the HOT
@@ -50,6 +53,14 @@ import java.util.Objects;
  * persisted projection format.
  */
 public final class ProjectionIndexMetadata {
+
+  public static ProjectionIndexMetadata requireReady(final StorageEngineReader reader, final int indexNumber) {
+    final ProjectionIndexMetadata metadata = parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, indexNumber));
+    if (metadata == null || metadata.isStale()) {
+      throw new IllegalStateException("Covering projection metadata must be present and ready");
+    }
+    return metadata;
+  }
 
   /** Leading magic of a metadata payload ("PIXM" little-endian). */
   public static final int MAGIC = 0x4D585049;
@@ -538,7 +549,7 @@ public final class ProjectionIndexMetadata {
     if (anchors == null) {
       return;
     }
-    final java.util.Set<Long> seen = new java.util.HashSet<>(anchors.length * 2);
+    final Set<Long> seen = new HashSet<>(anchors.length * 2);
     for (final SegmentAnchor anchor : anchors) {
       Objects.requireNonNull(anchor, "a segment anchor must not be null");
       if (anchor.segment() < 0 || anchor.column() < 0 || anchor.column() >= columns || anchor.headerKey() <= 0

@@ -426,8 +426,7 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
 
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
-          let $dropped := jn:drop-projection-index($doc, 0)
-          return {"revision": sdb:commit($doc)}
+          return sdb:commit(jn:drop-projection-index($doc, 0))
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();

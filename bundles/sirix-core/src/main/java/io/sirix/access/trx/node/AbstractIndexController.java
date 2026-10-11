@@ -296,6 +296,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         }
         case VALIDTIME -> addListener(requireNonNull(createValidTimeIndexListener(nodeWriteTrx, indexDef),
             "A supported VALIDTIME definition must have an incremental change listener"));
+        case TEMPORAL_AGGREGATE -> {
+          // The declared projection's listener supplies the authoritative dirty record batch.
+        }
         case PROJECTION -> {
           // Rebinding can occur after rollback/revert or after drop reconstructs the complete listener
           // set. Replace the same definition's old transaction-scoped listener so no closed writer
@@ -310,6 +313,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
 
     refreshListenerSnapshots();
+    bindAggregateDependents();
 
     return this;
   }
@@ -378,6 +382,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         case PROJECTION ->
           storageEngineWriter.getProjectionIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+        case TEMPORAL_AGGREGATE ->
+          storageEngineWriter.getTemporalAggregateIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         default -> false;
       };
       if (physicalIdWasInitialized) {
@@ -435,6 +441,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    */
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isTemporalAggregateIndex()) {
+        throw new UnsupportedOperationException("Temporal aggregates require a JSON covering projection");
+      }
       if (indexDef.isValidTimeIndex()) {
         throw new UnsupportedOperationException(
             "VALIDTIME indexes are supported only for JSON resources with ValidTimeConfig");
@@ -512,6 +521,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       return this;
     }
 
+    final Set<IndexDef> dropping = new HashSet<>(indexDefs);
+    for (final IndexDef existing : indexes.getIndexDefs()) {
+      if (existing.isTemporalAggregateIndex()) {
+        for (final IndexDef requested : indexDefs) {
+          if (requested.isProjectionIndex()
+              && existing.getTemporalAggregateSpec().projectionId() == requested.getID()) {
+            dropping.add(existing);
+          }
+        }
+      }
+    }
+
     final ChangeListener[] replacingListeners = listenerSnapshot;
     for (int i = 0; i < replacingListeners.length; i++) {
       if (!(replacingListeners[i] instanceof ProjectionIndexChangeListener)) {
@@ -524,7 +545,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     // listener owner before touching the catalogue. Do not abort the remaining projection listeners:
     // dropIndexes keeps those below, and a successful intermediate commit may deliberately keep
     // their streaming builders alive across listener epochs.
-    for (final IndexDef indexDef : indexDefs) {
+    for (final IndexDef indexDef : dropping) {
       if (indexDef.isProjectionIndex()) {
         final ProjectionIndexChangeListener projectionListener = projectionListenerFor(indexDef.getID());
         if (projectionListener != null) {
@@ -535,7 +556,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
     // 1. Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
     // remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
-    for (final IndexDef indexDef : indexDefs) {
+    for (final IndexDef indexDef : dropping) {
       indexes.removeIndex(indexDef);
     }
 
@@ -568,6 +589,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       addListener(projectionListener);
     }
     refreshListenerSnapshots();
+    bindAggregateDependents();
 
     return this;
   }
@@ -688,6 +710,24 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     } else {
       throw new IllegalStateException(
           "Listener does not support primitive change events: " + listener.getClass().getName());
+    }
+  }
+
+  /** Keep optional aggregate work off projection maintenance paths without a consumer. */
+  private void bindAggregateDependents() {
+    final Set<IndexDef> definitions = indexes.getIndexDefs();
+    for (final ChangeListener listener : listenerSnapshot) {
+      if (listener instanceof final ProjectionIndexChangeListener projection) {
+        boolean enabled = false;
+        for (final IndexDef definition : definitions) {
+          if (definition.isTemporalAggregateIndex()
+              && definition.getTemporalAggregateSpec().projectionId() == projection.indexDefId()) {
+            enabled = true;
+            break;
+          }
+        }
+        projection.aggregateMaintenanceEnabled(enabled);
+      }
     }
   }
 
