@@ -483,6 +483,8 @@ final class ProjectionSortedGroupSma {
       groups = header.groups;
     }
 
+    // Paired cache arrays are allocated together; a matching cached ID has a populated node.
+    @SuppressWarnings("NullAway")
     private ProjectionSortedLeaf readNode(final int id, final int level) {
       if (cachedIds != null && cachedIds[level] == id)
         return cachedNodes[level];
@@ -491,6 +493,8 @@ final class ProjectionSortedGroupSma {
       return leaf;
     }
 
+    // Paired cache arrays are allocated together, so a non-null ID array implies a node array.
+    @SuppressWarnings("NullAway")
     private void cacheNode(final int id, final int level, final ProjectionSortedLeaf leaf) {
       if (cachedIds != null) {
         cachedIds[level] = id;
@@ -503,6 +507,8 @@ final class ProjectionSortedGroupSma {
       cacheNode(id, level, leaf);
     }
 
+    // Paired cache arrays are allocated together, so a non-null ID array implies a node array.
+    @SuppressWarnings("NullAway")
     private void removeNode(final int id, final int level) {
       storage.tombstoneBlob(HEADER_SLOT + id);
       if (cachedIds != null && cachedIds[level] == id) {
@@ -611,6 +617,8 @@ final class ProjectionSortedGroupSma {
       return ++highWater;
     }
 
+    // A bounded group key and its fixed-size extrema payload always fit a singleton leaf.
+    @SuppressWarnings("NullAway")
     void set(final byte[] key, final byte @Nullable [] value) {
       if (root == 0) {
         if (value == null)

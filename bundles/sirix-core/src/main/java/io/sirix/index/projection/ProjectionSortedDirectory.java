@@ -278,6 +278,8 @@ final class ProjectionSortedDirectory {
       return seek(key, HOTReadIntent.SCAN);
     }
 
+    // Validated directory height guarantees that traversal calls loadLeaf and populates cursor.leaf.
+    @SuppressWarnings("NullAway")
     private Cursor seek(final byte[] key, final HOTReadIntent intent) {
       Objects.requireNonNull(key, "key");
       final ReadScope scope = openingScope == null
