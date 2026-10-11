@@ -6,6 +6,7 @@ package io.sirix.index.hot;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
+import io.sirix.index.hot.AbstractHOTIndexWriter.StrandVerdict;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -141,6 +142,44 @@ final class HOTRebuildFootprintTest {
   }
 
   @Test
+  @DisplayName("optional-fold guards report an oversized source as undecidable without poisoning")
+  void oversizedOptionalGuardsDeclineWithoutPoisoning() {
+    final HOTBulkBuilder.BuildResult built = build(17_000, 0x6000_0000_0000_0000L);
+    final HOTLeafPage unaffectedLeaf = leaf(50_100, twoByteKey(0x80, 0));
+    final HOTLeafPage newLeaf = leaf(50_101, twoByteKey(0x40, 0));
+    final PageReference oversizedReference = reference(built.rootPage());
+    final PageReference unaffectedReference = reference(unaffectedLeaf);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(50_102, 1, 0, 0x8000_0000_0000_0000L,
+        new int[] {0, 1}, new PageReference[] {oversizedReference, unaffectedReference}, 3);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(50_103, 1, 0, 0xC000_0000_0000_0000L,
+        new int[] {0, 1, 2}, new PageReference[] {oversizedReference, reference(newLeaf), unaffectedReference}, 3);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
+    when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
+    final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+    final long refusedBefore = AbstractHOTIndexWriter.MUTATION_TRAVERSAL_REFUSED.get();
+    final long declinedBefore = AbstractHOTIndexWriter.STRAND_GUARD_BUDGET_DECLINED.get();
+    try {
+      assertEquals(StrandVerdict.UNDECIDABLE,
+          writer.existingKeyRoutingVerdict(oldNode, newNode, 1, twoByteKey(0x40, 0)),
+          "the same 17k-entry source the exact predicate refuses is merely undecidable for an optional fold");
+      assertEquals(StrandVerdict.UNDECIDABLE, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x40, 0)));
+      assertEquals(StrandVerdict.UNDECIDABLE,
+          writer.subtreeKeyWithBitVerdict(reference(built.rootPage()), 63, 1, longKey(-1)));
+      assertFalse(writer.strandConfinedToLeaf(oldNode, newNode, 1, twoByteKey(0x40, 0), unaffectedLeaf.getPageKey()),
+          "nothing bounded can discharge an oversized source, so it is confined to no leaf");
+      verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
+      assertEquals(refusedBefore, AbstractHOTIndexWriter.MUTATION_TRAVERSAL_REFUSED.get(),
+          "declining an optional fold is not a mutation-traversal refusal");
+      assertEquals(declinedBefore + 1, AbstractHOTIndexWriter.STRAND_GUARD_BUDGET_DECLINED.get(),
+          "only the handler-facing branch guard counts a declined fold");
+    } finally {
+      closeLeaves(built.rootPage());
+      unaffectedLeaf.close();
+      newLeaf.close();
+    }
+  }
+
+  @Test
   @DisplayName("ordered endpoints discharge an oversized whole-subtree bit guard")
   void oversizedWholeSubtreeBitGuardUsesBoundedEndpointProof() {
     final HOTBulkBuilder.BuildResult built = build(17_000, 0x6000_0000_0000_0000L);
@@ -152,6 +191,8 @@ final class HOTRebuildFootprintTest {
       // The source exceeds the exact-scan frontier, so success is evidence that the two bounded
       // extreme paths proved the answer without increasing any traversal/materialization limit.
       assertFalse(writer.subtreeHasKeyWithBit(reference(built.rootPage()), 0, 1, longKey(0xE000_0000_0000_0000L)));
+      assertEquals(StrandVerdict.NONE,
+          writer.subtreeKeyWithBitVerdict(reference(built.rootPage()), 0, 1, longKey(0xE000_0000_0000_0000L)));
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       closeLeaves(built.rootPage());
@@ -300,7 +341,7 @@ final class HOTRebuildFootprintTest {
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
       assertTrue(writer.wholeNodeOneSidedOnAddedBit(oldNode, newNode, 2, twoByteKey(0x80, 0)));
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)),
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)),
           "the two 32-leaf children exceed the scan budget, so success proves the endpoint fast path ran");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
@@ -327,7 +368,7 @@ final class HOTRebuildFootprintTest {
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
       assertTrue(writer.wholeNodeOneSidedOnAddedBit(oldNode, newNode, 0, twoByteKey(0x00, 0)));
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x00, 0)));
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x00, 0)));
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       closeLeaves(lowerHalf);
@@ -375,7 +416,7 @@ final class HOTRebuildFootprintTest {
       assertEquals(32, preservedSource.leaves());
       assertEquals(9_895, preservedSource.entries());
 
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
           "the new interior bit is opposite in both physical extrema of every feasible old child; "
               + "the 32-leaf source must be discharged structurally instead of refused at LEAF_LIMIT");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
@@ -423,7 +464,7 @@ final class HOTRebuildFootprintTest {
       assertEquals(4, oldNode.findChildIndex(newKey));
       assertEquals(6, newNode.findChildIndex(newKey));
 
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
           "fresh partial 6 requires beta42=1, while both physical extrema of retained partials 4 and 5 "
               + "prove beta42=0; neither oversized source may be scanned");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
@@ -468,7 +509,7 @@ final class HOTRebuildFootprintTest {
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      assertTrue(writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+      assertEquals(StrandVerdict.STRANDS, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
           "the last leaf crosses onto beta42=1 and contains a key captured by fresh partial 6");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
@@ -512,7 +553,7 @@ final class HOTRebuildFootprintTest {
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      assertTrue(writer.branchAddStrandsExisting(oldNode, newNode, newKey));
+      assertEquals(StrandVerdict.STRANDS, writer.branchAddStrandsExisting(oldNode, newNode, newKey));
       assertTrue(writer.strandConfinedToLeaf(oldNode, newNode, 6, newKey, oldSlotFive.getPageKey()),
           "the 33-leaf beta-opposite sibling cannot route fresh; the only captured key is in slot 5's leaf");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
@@ -528,8 +569,8 @@ final class HOTRebuildFootprintTest {
   }
 
   @Test
-  @DisplayName("strand confinement refuses an oversized mixed route-relevant source")
-  void strandConfinementMixedRelevantSourceRemainsFailClosed() {
+  @DisplayName("strand confinement declines an oversized mixed route-relevant source without poisoning")
+  void strandConfinementMixedRelevantSourceDeclines() {
     final HOTLeafPage oldSlotZero = leaf(107_000, structuralOrderKey(0, 0, 0, 0, 0));
     final HOTLeafPage oldSlotOne = leaf(107_001, structuralOrderKey(0, 0, 1, 0, 0));
     final HOTLeafPage oldSlotTwo = leaf(107_002, structuralOrderKey(0, 1, 0, 0, 0));
@@ -557,10 +598,12 @@ final class HOTRebuildFootprintTest {
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      final IllegalStateException refusal = assertThrows(IllegalStateException.class,
-          () -> writer.strandConfinedToLeaf(oldNode, newNode, 6, newKey, oldSlotFive.getPageKey()));
-      assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32"));
-      verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
+      final long declinedBefore = AbstractHOTIndexWriter.STRAND_GUARD_BUDGET_DECLINED.get();
+      assertEquals(StrandVerdict.UNDECIDABLE, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+          "the 33-leaf mixed source exceeds one bounded block (status=LEAF_LIMIT pages=35/63 leaves=32/32)");
+      assertFalse(writer.strandConfinedToLeaf(oldNode, newNode, 6, newKey, oldSlotFive.getPageKey()));
+      assertEquals(declinedBefore + 1, AbstractHOTIndexWriter.STRAND_GUARD_BUDGET_DECLINED.get());
+      verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       oldSlotZero.close();
       oldSlotOne.close();
@@ -608,7 +651,7 @@ final class HOTRebuildFootprintTest {
       assertEquals(33, source.pages());
       assertEquals(32, source.leaves());
 
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
           "for beta=0 the retained beta=1 partials 6 and 7 are later strict supersets of fresh partial 4");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
@@ -621,8 +664,8 @@ final class HOTRebuildFootprintTest {
   }
 
   @Test
-  @DisplayName("beta-opposite extrema do not bypass a retained partial that cannot shadow")
-  void interiorAddedZeroBitNonShadowingSourceRemainsFailClosed() {
+  @DisplayName("beta-opposite extrema do not bypass a retained partial that cannot shadow: the fold is declined")
+  void interiorAddedZeroBitNonShadowingSourceDeclinesTheFold() {
     final HOTLeafPage oldSlotZero = leaf(103_000, structuralOrderKey(0, 0, 0, 0, 0));
     final HOTIndirectPage oldSlotOne = thirtyThreeLeafStructuralOrderSource(103_100, 1, 0);
     final byte[] newKey = structuralOrderKey(1, 0, 1, 0, 0);
@@ -644,9 +687,12 @@ final class HOTRebuildFootprintTest {
       assertEquals(2, newNode.findChildIndex(structuralOrderKey(1, 1, 0, 0, 0)));
 
       final IllegalStateException refusal =
-          assertThrows(IllegalStateException.class, () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
+          assertThrows(IllegalStateException.class, () -> writer.existingKeyRoutesToSlot(oldNode, newNode, 1, newKey));
       assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
+      assertEquals(StrandVerdict.UNDECIDABLE, writer.branchAddStrandsExisting(oldNode, newNode, newKey),
+          "the optional fold declines over the same oversized source instead of refusing");
+      verify(storageEngineWriter).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       oldSlotZero.close();
       closeLeaves(oldSlotOne);
@@ -655,8 +701,8 @@ final class HOTRebuildFootprintTest {
   }
 
   @Test
-  @DisplayName("mixed interior-bit extrema fall through to the bounded fail-closed refusal")
-  void interiorAddedBitMixedExtremaRemainFailClosed() {
+  @DisplayName("mixed interior-bit extrema fall through to the bounded scan, which declines the fold when oversized")
+  void interiorAddedBitMixedExtremaDeclineTheFold() {
     final HOTLeafPage oldSlotZero = leaf(102_000, structuralOrderKey(0, 0, 0, 0, 0));
     final HOTLeafPage oldSlotOne = leaf(102_001, structuralOrderKey(0, 0, 1, 0, 0));
     final HOTIndirectPage oldSlotTwo = flatStructuralOrderSource(102_100, 32, 0, 1);
@@ -680,10 +726,14 @@ final class HOTRebuildFootprintTest {
     when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
-      final IllegalStateException refusal =
-          assertThrows(IllegalStateException.class, () -> writer.branchAddStrandsExisting(oldNode, newNode, newKey));
-      assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"));
+      final int newSlot = newNode.findChildIndex(newKey);
+      final IllegalStateException refusal = assertThrows(IllegalStateException.class,
+          () -> writer.existingKeyRoutesToSlot(oldNode, newNode, newSlot, newKey));
+      assertTrue(refusal.getMessage().contains("status=LEAF_LIMIT pages=35/63 leaves=32/32 entries=32/16384"),
+          refusal.getMessage());
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
+      assertEquals(StrandVerdict.UNDECIDABLE, writer.branchAddStrandsExisting(oldNode, newNode, newKey));
+      verify(storageEngineWriter).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       oldSlotZero.close();
       oldSlotOne.close();
@@ -710,7 +760,7 @@ final class HOTRebuildFootprintTest {
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
       assertFalse(writer.wholeNodeOneSidedOnAddedBit(oldNode, newNode, 2, twoByteKey(0x80, 0)));
-      assertTrue(writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)));
+      assertEquals(StrandVerdict.STRANDS, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)));
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
       firstLeaf.close();
@@ -736,7 +786,7 @@ final class HOTRebuildFootprintTest {
     final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
     try {
       assertFalse(writer.wholeNodeOneSidedOnAddedBit(oldNode, newNode, 2, twoByteKey(0x40, 0)));
-      assertFalse(writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x40, 0)),
+      assertEquals(StrandVerdict.NONE, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x40, 0)),
           "prefix uncertainty must fall through to the exact bounded scan");
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
     } finally {
@@ -780,7 +830,9 @@ final class HOTRebuildFootprintTest {
     assertMalformedEndpointSourceRefused(cyclicPage(99_000), 99_100);
     final Page overDepth = unaryPageChain(65, 99_200, twoByteKey(0x00, 0));
     try {
-      assertMalformedEndpointSourceRefused(overDepth, 99_300);
+      // The bounded walker stops at page 63 before it can see the depth defect, so the optional fold
+      // sees an oversized source: it declines, and the exact predicate refuses as before.
+      assertOversizedEndpointSourceDeclined(overDepth, 99_300);
     } finally {
       closeLeaves(overDepth);
     }
@@ -934,6 +986,32 @@ final class HOTRebuildFootprintTest {
       final IllegalStateException refusal = assertThrows(IllegalStateException.class,
           () -> writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)));
       assertTrue(refusal.getMessage().contains("mandatory bounded mutation traversal"));
+      verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
+    } finally {
+      lastLeaf.close();
+      newLeaf.close();
+    }
+  }
+
+  private static void assertOversizedEndpointSourceDeclined(final Page oversizedFirstChild, final long firstPageKey) {
+    final HOTLeafPage lastLeaf = leaf(firstPageKey, twoByteKey(0x40, 0));
+    final HOTLeafPage newLeaf = leaf(firstPageKey + 1, twoByteKey(0x80, 0));
+    final PageReference oversizedReference = reference(oversizedFirstChild);
+    final PageReference lastReference = reference(lastLeaf);
+    final HOTIndirectPage oldNode = HOTIndirectPage.createSpanNode(firstPageKey + 2, 1, 0, 0x4000_0000_0000_0000L,
+        new int[] {0, 1}, new PageReference[] {oversizedReference, lastReference}, 66);
+    final HOTIndirectPage newNode = HOTIndirectPage.createSpanNode(firstPageKey + 3, 1, 0, 0xC000_0000_0000_0000L,
+        new int[] {0, 1, 2}, new PageReference[] {oversizedReference, lastReference, reference(newLeaf)}, 66);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
+    when(storageEngineWriter.getLog()).thenReturn(mock(TransactionIntentLog.class));
+    final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+    try {
+      assertFalse(writer.wholeNodeOneSidedOnAddedBit(oldNode, newNode, 2, twoByteKey(0x80, 0)));
+      assertEquals(StrandVerdict.UNDECIDABLE, writer.branchAddStrandsExisting(oldNode, newNode, twoByteKey(0x80, 0)));
+      verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
+      final IllegalStateException refusal = assertThrows(IllegalStateException.class,
+          () -> writer.existingKeyRoutesToSlot(oldNode, newNode, 2, twoByteKey(0x80, 0)));
+      assertTrue(refusal.getMessage().contains("status=PAGE_LIMIT"));
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
     } finally {
       lastLeaf.close();

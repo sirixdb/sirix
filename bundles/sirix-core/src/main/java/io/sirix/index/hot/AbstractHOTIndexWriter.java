@@ -401,6 +401,23 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Outcome of a multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1).
+   *
+   * <p>
+   * {@link #NONE} and {@link #STRANDS} are exact answers from a scan whose source fit the bounded
+   * mutation-traversal budget. {@link #UNDECIDABLE} means the route-feasible source is larger than
+   * one bounded HOT block, so the guard inspected nothing: the caller must discard its unpublished
+   * incremental candidate and place the key through the complete structural frontier, which works on
+   * child references and never scans a subtree. Declining is the fail-safe direction (an uninspected
+   * suffix is never treated as "no match"), so an undecidable guard neither poisons the transaction
+   * nor lets the candidate publish.
+   * </p>
+   */
+  enum StrandVerdict {
+    NONE, STRANDS, UNDECIDABLE
+  }
+
+  /**
    * Mutable, writer-local result of the bounded source walk. The fixed page-identity array doubles as
    * a cycle/DAG guard without a per-preflight hash-table allocation.
    */
@@ -697,24 +714,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     } catch (final RuntimeException | Error failure) {
       closeSpeculativeLeaf(leaf, failure);
       throw failure;
-    }
-  }
-
-  /**
-   * Admit a mandatory mutation-time subtree scan only when its complete physical footprint is bounded
-   * by one HOT frontier. The preflight stops before resolving page 64 and allocates nothing;
-   * therefore both the accepted scan and its refusal have a total-index-size-independent ceiling.
-   *
-   * <p>
-   * A stranding/routing guard is correctness-critical: treating an uninspected suffix as "no match"
-   * can publish a cross-leaf duplicate. A refusal consequently poisons the transaction before it can
-   * be caught and committed by a higher layer.
-   * </p>
-   */
-  private void requireBoundedMutationTraversal(final Page root, final String operation) {
-    final RebuildFootprint footprint = measureBoundedRebuildFootprint(root);
-    if (!footprint.withinBudget()) {
-      throw refuseMutationTraversal(operation, footprint.summary());
     }
   }
 
@@ -2792,30 +2791,38 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1). Returns {@code true} iff
-   * folding the new key {@code newKey} into {@code oldNode} — producing the candidate {@code
-   * newNode} where {@code newKey} routes to a freshly created single-key child — would re-route an
-   * EXISTING key to that child without migrating it (a cross-leaf duplicate / I6 misroute).
+   * Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1). Returns
+   * {@link StrandVerdict#STRANDS} iff folding the new key {@code newKey} into {@code oldNode} —
+   * producing the candidate {@code newNode} where {@code newKey} routes to a freshly created
+   * single-key child — would re-route an EXISTING key to that child without migrating it (a
+   * cross-leaf duplicate / I6 misroute), {@link StrandVerdict#NONE} when no key can, and
+   * {@link StrandVerdict#UNDECIDABLE} when the route-feasible source is larger than one bounded HOT
+   * block: the caller then discards the unpublished candidate and splices through the complete
+   * structural frontier, which places the key by reference without any subtree scan.
    *
    * <p>
    * The faithful HOT port assumes the affected subtree is one-sided on the split bit (Binna's
    * single-TID leaves trivially satisfy this). Sirix's multi-entry leaves can straddle it, so a
    * sibling subtree may already hold keys captured by the new child's partial. PEXT routing is
-   * equality-/most-specific-preferred, so the new child silently steals them. On a detected strand
-   * the caller rejects that unpublished candidate and delegates to the common complete-frontier
-   * splice.
+   * equality-/most-specific-preferred, so the new child silently steals them. On a detected or
+   * undecidable strand the caller rejects that unpublished candidate and delegates to the common
+   * complete-frontier splice.
    */
-  final boolean branchAddStrandsExisting(HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] newKey) {
+  final StrandVerdict branchAddStrandsExisting(HOTIndirectPage oldNode, HOTIndirectPage newNode, byte[] newKey) {
     final int newSlot = newNode.findChildIndex(newKey);
     if (newSlot < 0) {
-      return false;
+      return StrandVerdict.NONE;
     }
     final long endpointProof = classifyWholeNodeOneSidedOnAddedBit(oldNode, newNode, newSlot, newKey);
     if (wholeNodeProofStatus(endpointProof) == WHOLE_NODE_PROOF_OPPOSITE) {
-      return false;
+      return StrandVerdict.NONE;
     }
     try {
-      return existingKeyRoutesToSlot(oldNode, newNode, newSlot, newKey);
+      final StrandVerdict verdict = existingKeyRoutingVerdict(oldNode, newNode, newSlot, newKey);
+      if (verdict == StrandVerdict.UNDECIDABLE) {
+        STRAND_GUARD_BUDGET_DECLINED.incrementAndGet();
+      }
+      return verdict;
     } catch (MutationTraversalRefusal refusal) {
       // Failure-path-only structural evidence for diagnosing a bounded traversal refusal. The
       // packed proof contains enum-like integers and a bit position, never key/value bytes.
@@ -3029,10 +3036,38 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   final boolean existingKeyRoutesToSlot(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot,
       byte[] excludeKey) {
+    requireCandidateSlot(newNode, newSlot);
+    return plannedSourceRoutesToSlot(requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey),
+        newNode, newSlot, excludeKey);
+  }
+
+  /**
+   * {@link #existingKeyRoutesToSlot} for an optional incremental fold: an exact
+   * {@link StrandVerdict#NONE}/{@link StrandVerdict#STRANDS} when the route-feasible source fits one
+   * bounded HOT block, {@link StrandVerdict#UNDECIDABLE} when it does not. The oversized source is
+   * never treated as "no match"; the caller declines the fold instead. Invalid or malformed sources
+   * still refuse fail-closed, exactly as the boolean form does.
+   */
+  final StrandVerdict existingKeyRoutingVerdict(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot,
+      byte[] excludeKey) {
+    requireCandidateSlot(newNode, newSlot);
+    final RebuildFootprint plan = planBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
+    if (plan == null) {
+      return StrandVerdict.UNDECIDABLE;
+    }
+    return plannedSourceRoutesToSlot(plan, newNode, newSlot, excludeKey)
+        ? StrandVerdict.STRANDS
+        : StrandVerdict.NONE;
+  }
+
+  private void requireCandidateSlot(final HOTIndirectPage newNode, final int newSlot) {
     if (newSlot < 0 || newSlot >= newNode.getNumChildren()) {
       throw refuseMutationTraversal("existing-key routing-to-new-slot", "invalid candidate slot " + newSlot);
     }
-    final RebuildFootprint footprint = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
+  }
+
+  private boolean plannedSourceRoutesToSlot(final RebuildFootprint footprint, final HOTIndirectPage newNode,
+      final int newSlot, final byte[] excludeKey) {
     // The preflight's fixed identity array is also the scan plan. Every relevant page was resolved
     // exactly once above; scanning its leaf entries directly avoids a second tree walk/resolution
     // pass and needs no per-mutation collection.
@@ -3068,6 +3103,23 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private RebuildFootprint requireBoundedExistingKeyRoutingTraversal(final HOTIndirectPage oldNode,
       final HOTIndirectPage newNode, final int newSlot, final byte[] newKey) {
+    return requireNonNull(boundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, newKey, true),
+        "fail-closed routing traversal");
+  }
+
+  /**
+   * The same route-feasible scan plan as {@link #requireBoundedExistingKeyRoutingTraversal}, but a
+   * source that merely exceeds the budget yields {@code null} instead of a transaction-poisoning
+   * refusal. Structural defects (unresolvable, repeated, closed or malformed pages, an impure
+   * candidate) still refuse: they are evidence of corruption, not of size.
+   */
+  private @Nullable RebuildFootprint planBoundedExistingKeyRoutingTraversal(final HOTIndirectPage oldNode,
+      final HOTIndirectPage newNode, final int newSlot, final byte[] newKey) {
+    return boundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, newKey, false);
+  }
+
+  private @Nullable RebuildFootprint boundedExistingKeyRoutingTraversal(final HOTIndirectPage oldNode,
+      final HOTIndirectPage newNode, final int newSlot, final byte[] newKey, final boolean failClosedOnBudget) {
     final int oldChildCount = oldNode.getNumChildren();
     final int newChildCount = newNode.getNumChildren();
     if (oldChildCount < 1 || newChildCount != oldChildCount + 1) {
@@ -3124,6 +3176,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       // refusal path perform one more page read than the bounded walker permits.
       if (footprint.pages >= MAX_BOUNDED_REBUILD_PAGES) {
         footprint.reject(RebuildFootprintStatus.PAGE_LIMIT);
+        if (!failClosedOnBudget) {
+          return null;
+        }
         throw refuseMutationTraversal("existing-key routing-to-new-slot",
             existingKeyRoutingRefusalDetail(footprint, feasibleChildCount, i, oldChildCount, newSlot, oldBits, newBits,
                 oldNode, newNode, childStartPages, childStartLeaves, childStartEntries));
@@ -3165,6 +3220,9 @@ public abstract class AbstractHOTIndexWriter<K> {
         footprint.visitedPageOwnerSlots[pageIndex] = candidateOwnerSlot;
       }
       if (!footprint.withinBudget()) {
+        if (!failClosedOnBudget && footprint.status().isBudgetLimit()) {
+          return null;
+        }
         throw refuseMutationTraversal("existing-key routing-to-new-slot",
             existingKeyRoutingRefusalDetail(footprint, feasibleChildCount, i, oldChildCount, newSlot, oldBits, newBits,
                 oldNode, newNode, childStartPages, childStartLeaves, childStartEntries));
@@ -3535,6 +3593,20 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@code beta} strands any key inside it that sits on the opposite ({@code bitValue}) side.
    */
   final boolean subtreeHasKeyWithBit(@Nullable PageReference ref, int beta, int bitValue, byte[] excludeKey) {
+    final StrandVerdict verdict = subtreeKeyWithBitVerdict(ref, beta, bitValue, excludeKey);
+    if (verdict == StrandVerdict.UNDECIDABLE) {
+      throw refuseMutationTraversal("subtree beta-bit stranding", rebuildFootprintScratch.summary());
+    }
+    return verdict == StrandVerdict.STRANDS;
+  }
+
+  /**
+   * {@link #subtreeHasKeyWithBit} for an optional whole-subtree wrap:
+   * {@link StrandVerdict#UNDECIDABLE} when the subtree is larger than one bounded HOT block and its
+   * extrema do not discharge it, so the caller declines the wrap instead of refusing the mutation.
+   * Invalid pages still refuse fail-closed.
+   */
+  final StrandVerdict subtreeKeyWithBitVerdict(@Nullable PageReference ref, int beta, int bitValue, byte[] excludeKey) {
     if (beta < 0 || bitValue < 0 || bitValue > 1) {
       throw refuseMutationTraversal("subtree beta-bit stranding", "invalid beta/bitValue " + beta + '/' + bitValue);
     }
@@ -3555,10 +3627,18 @@ public abstract class AbstractHOTIndexWriter<K> {
         : 0) == bitValue
         && extremeRelationToKeyAtBit(page, false, excludeKey, beta) == EXTREME_RELATION_OPPOSITE_AT_BETA
         && extremeRelationToKeyAtBit(page, true, excludeKey, beta) == EXTREME_RELATION_OPPOSITE_AT_BETA) {
-      return false;
+      return StrandVerdict.NONE;
     }
-    requireBoundedMutationTraversal(page, "subtree beta-bit stranding");
-    return subtreeHasKeyWithBitBounded(page, beta, bitValue, excludeKey, 0);
+    final RebuildFootprint footprint = measureBoundedRebuildFootprint(page);
+    if (!footprint.withinBudget()) {
+      if (footprint.status().isBudgetLimit()) {
+        return StrandVerdict.UNDECIDABLE;
+      }
+      throw refuseMutationTraversal("subtree beta-bit stranding", footprint.summary());
+    }
+    return subtreeHasKeyWithBitBounded(page, beta, bitValue, excludeKey, 0)
+        ? StrandVerdict.STRANDS
+        : StrandVerdict.NONE;
   }
 
   /** Recursive half of {@link #subtreeHasKeyWithBit}; its source was preflighted by the wrapper. */
@@ -4769,8 +4849,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
         boolean published = false;
         try {
-          if (branchAddStrandsExisting(node, newNode, keySlice)) {
+          final StrandVerdict strandVerdict = branchAddStrandsExisting(node, newNode, keySlice);
+          if (strandVerdict != StrandVerdict.NONE) {
             comboLeaf.close();
+            if (strandVerdict == StrandVerdict.UNDECIDABLE) {
+              return false; // guard source exceeds one bounded block: complete structural frontier
+            }
             return dischargeStrandViaLeafFrontier(navResult, node, newNode, insertDepth, keySlice, valueSlice);
           }
           if (nodeStructurallyMalformed(newNode)) {
@@ -4820,10 +4904,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         // Stranding guard: the whole node goes on beta's (1-betaValue) side. If its subtree holds
         // a key with beta==betaValue, that key would strand under the pull-up leaf. Delegate instead.
         try {
-          if (subtreeHasKeyWithBit(pathRefs[insertDepth], beta, betaValue, keySlice)) {
+          final StrandVerdict wrapVerdict = subtreeKeyWithBitVerdict(pathRefs[insertDepth], beta, betaValue, keySlice);
+          if (wrapVerdict != StrandVerdict.NONE) {
             pullUpLeaf.close();
-            STRAND_COMPLETE_FRONTIER.incrementAndGet();
-            return false; // BiNode-wrap strand: complete structural frontier
+            (wrapVerdict == StrandVerdict.STRANDS
+                ? STRAND_COMPLETE_FRONTIER
+                : STRAND_GUARD_BUDGET_DECLINED).incrementAndGet();
+            return false; // BiNode-wrap strand or undecidable guard: complete structural frontier
           }
         } catch (MutationTraversalRefusal refusal) {
           closeSpeculativeLeaf(pullUpLeaf, refusal);
@@ -4926,8 +5013,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
         boolean published = false;
         try {
-          if (branchAddStrandsExisting(child, newChild, keySlice)) {
+          final StrandVerdict strandVerdict = branchAddStrandsExisting(child, newChild, keySlice);
+          if (strandVerdict != StrandVerdict.NONE) {
             comboLeaf.close();
+            if (strandVerdict == StrandVerdict.UNDECIDABLE) {
+              return false; // guard source exceeds one bounded block: complete structural frontier
+            }
             return dischargeStrandViaLeafFrontier(navResult, child, newChild, insertDepth + 1, keySlice, valueSlice);
           }
           if (nodeStructurallyMalformed(newChild)) {
@@ -5091,8 +5182,12 @@ public abstract class AbstractHOTIndexWriter<K> {
           try {
             final HOTIndirectPage newChild = HOTIncrementalInsert.addEntryWithInsertInfo(child, beta, betaValue, 0,
                 child.getNumChildren(), 0, newLeafRef, child.getHeight(), revision, indexType, pageKeyAllocator);
-            if (branchAddStrandsExisting(child, newChild, keySlice)) {
+            final StrandVerdict strandVerdict = branchAddStrandsExisting(child, newChild, keySlice);
+            if (strandVerdict != StrandVerdict.NONE) {
               keyLeaf.close();
+              if (strandVerdict == StrandVerdict.UNDECIDABLE) {
+                return false; // guard source exceeds one bounded block: complete structural frontier
+              }
               return dischargeStrandViaLeafFrontier(navResult, child, newChild, childDepth, keySlice, valueSlice);
             }
             if (nodeStructurallyMalformed(newChild)) {
@@ -5125,10 +5220,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         // Stranding guard: the whole boundary child goes on beta's (1-betaValue) side; if its
         // subtree holds a key with beta==betaValue, that key would strand. Delegate instead.
         try {
-          if (subtreeHasKeyWithBit(pathRefs[childDepth], beta, betaValue, keySlice)) {
+          final StrandVerdict wrapVerdict = subtreeKeyWithBitVerdict(pathRefs[childDepth], beta, betaValue, keySlice);
+          if (wrapVerdict != StrandVerdict.NONE) {
             keyLeaf.close();
-            STRAND_COMPLETE_FRONTIER.incrementAndGet();
-            return false; // BiNode-wrap strand: complete structural frontier
+            (wrapVerdict == StrandVerdict.STRANDS
+                ? STRAND_COMPLETE_FRONTIER
+                : STRAND_GUARD_BUDGET_DECLINED).incrementAndGet();
+            return false; // BiNode-wrap strand or undecidable guard: complete structural frontier
           }
         } catch (MutationTraversalRefusal refusal) {
           closeSpeculativeLeaf(keyLeaf, refusal);
@@ -5164,8 +5262,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         final HOTIndirectPage newNode = HOTIncrementalInsert.addEntryWithInsertInfo(node, beta, betaValue,
             info.firstAffected(), info.affectedCount(), info.subtreePrefix(), newLeafRef, node.getHeight(), revision,
             indexType, pageKeyAllocator);
-        if (branchAddStrandsExisting(node, newNode, keySlice)) {
+        final StrandVerdict strandVerdict = branchAddStrandsExisting(node, newNode, keySlice);
+        if (strandVerdict != StrandVerdict.NONE) {
           keyLeaf.close();
+          if (strandVerdict == StrandVerdict.UNDECIDABLE) {
+            return false; // guard source exceeds one bounded block: complete structural frontier
+          }
           return dischargeStrandViaLeafFrontier(navResult, node, newNode, insertDepth, keySlice, valueSlice);
         }
         if (nodeStructurallyMalformed(newNode)) {
@@ -5557,8 +5659,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       // single-key leaf to the half; if an existing key in the half would now route to it, the half
       // straddles the fold bit. Discard the uncommitted split and splice the canonical leaf frontier.
       try {
-        if (branchAddStrandsExisting(half, foldedHalf, keySlice)) {
+        final StrandVerdict strandVerdict = branchAddStrandsExisting(half, foldedHalf, keySlice);
+        if (strandVerdict != StrandVerdict.NONE) {
           keyLeaf.close();
+          if (strandVerdict == StrandVerdict.UNDECIDABLE) {
+            return false; // guard source exceeds one bounded block: complete structural frontier
+          }
           return dischargeStrandViaLeafFrontier(navResult, half, foldedHalf, -1, keySlice, valueSlice);
         }
       } catch (MutationTraversalRefusal refusal) {
@@ -5929,6 +6035,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Strand cases delegated to the complete structural-frontier primitive. */
   public static final AtomicLong STRAND_COMPLETE_FRONTIER = new AtomicLong();
   /**
+   * Stranding guards whose route-feasible source exceeded the bounded mutation-traversal budget. The
+   * incremental candidate was discarded and the key placed through the complete structural frontier
+   * instead of refusing the mutation: the fold is optional, the guard's exact answer is not.
+   */
+  public static final AtomicLong STRAND_GUARD_BUDGET_DECLINED = new AtomicLong();
+  /**
    * Strands discharged canonically: the descended leaf held keys on both sides of the branch bit, so
    * the union {@code leaf ∪ {K}} was split at its own key-set MSDB and the BiNode integrated at the
    * leaf's depth — Binna's insert, leaving no straddled leaf behind.
@@ -6038,7 +6150,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reconstruct the exact bounded route-feasible old-page plan. It deliberately excludes the
     // speculative fresh slot (which callers may already have closed) and every old child whose
     // sparse routing cannot reach newSlot. Both discharge arms consume this same immutable plan.
-    final RebuildFootprint routingPlan = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, keySlice);
+    final RebuildFootprint routingPlan = planBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, keySlice);
+    if (routingPlan == null) {
+      // The verdict that routed here fit the budget over the same inputs; any other caller with an
+      // oversized source gets the complete frontier rather than a refusal.
+      STRAND_COMPLETE_FRONTIER.incrementAndGet();
+      return false;
+    }
     // (a) On-path: strandable keys confined to the descended leaf -> O(one leaf + path).
     if (strandConfinedToLeaf(routingPlan, newNode, newSlot, keySlice, navResult.leaf().getPageKey())) {
       if (strandDischargeSplitIntegrate(navResult, keySlice, valueSlice)) {
@@ -7791,15 +7909,18 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Returns {@code true} iff at least one key under {@code oldNode} would strand to {@code newSlot}
    * on {@code newNode} and <em>every</em> such key lives in the leaf with page key {@code
-   * leafPageKey}. Used to gate the bounded leaf/frontier handlers.
+   * leafPageKey}. Used to gate the bounded leaf/frontier handlers; a route-feasible source larger
+   * than one bounded block answers {@code false} (nothing bounded can discharge it) without poisoning
+   * the transaction.
    */
   final boolean strandConfinedToLeaf(HOTIndirectPage oldNode, HOTIndirectPage newNode, int newSlot, byte[] excludeKey,
       long leafPageKey) {
     // branchAddStrandsExisting has just run the same route-feasibility preflight. Re-run that
     // allocation-free classifier here instead of walking the whole old node: the shared scratch is
-    // reset into an exact bounded scan plan containing only children which can route to newSlot.
-    final RebuildFootprint footprint = requireBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
-    return strandConfinedToLeaf(footprint, newNode, newSlot, excludeKey, leafPageKey);
+    // reset into an exact bounded scan plan containing only children which can route to newSlot. A
+    // source beyond the budget is not confined to anything the bounded handlers may touch.
+    final RebuildFootprint footprint = planBoundedExistingKeyRoutingTraversal(oldNode, newNode, newSlot, excludeKey);
+    return footprint != null && strandConfinedToLeaf(footprint, newNode, newSlot, excludeKey, leafPageKey);
   }
 
   private boolean strandConfinedToLeaf(final RebuildFootprint footprint, final HOTIndirectPage newNode,
