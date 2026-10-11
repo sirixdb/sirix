@@ -423,26 +423,6 @@ public final class NodeReferencesSerializer {
   }
 
   /**
-   * Read a chunk without constructing a container tree for its packed sorted run. The returned
-   * references own their decoded keys; bitmap consumers can still promote them on demand.
-   */
-  public static NodeReferences deserializeReadChunk(final byte[] bytes) {
-    requireNonNull(bytes, "bytes cannot be null");
-    if (bytes.length == 0 || bytes[0] != PACKED_FORMAT) {
-      return deserializeChunk(bytes);
-    }
-    requireValidChunkPayload(bytes, 0, bytes.length);
-    final int count = bytes[1] & 0xFF;
-    final long[] keys = new long[count];
-    int position = 2;
-    for (int index = 0; index < count; index++) {
-      keys[index] = readKeyBE(bytes, position);
-      position += Long.BYTES;
-    }
-    return NodeReferences.ofSortedArray(keys);
-  }
-
-  /**
    * Range variant of {@link #deserializeChunk(byte[])}.
    *
    * @param bytes serialized payload backing array
