@@ -9,6 +9,7 @@ import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CountDownLatch;
 import java.util.Arrays;
@@ -34,13 +35,13 @@ final class NumericMaskedColumnCacheTest {
     assertEquals(1, cached.minimum(0));
     assertEquals(2, cached.maximum(0));
     assertTrue(cached.allSelectedPresent(0));
-    cached.rowMask(0)[0] = 0;
-    original.rowMask(0)[0] = 0;
+    Objects.requireNonNull(cached.rowMask(0))[0] = 0;
+    Objects.requireNonNull(original.rowMask(0))[0] = 0;
     fields[0] = "changed";
     keys[0] = 9;
     final MaskedColumns repeated = NumericMaskedColumnCache.get(store, new String[] {"value"}, new long[] {10, 11});
     assertNotNull(repeated);
-    assertEquals(3, repeated.rowMask(0)[0]);
+    assertEquals(3, Objects.requireNonNull(repeated.rowMask(0))[0]);
     assertNull(NumericMaskedColumnCache.get(store, fields, keys));
     assertNull(NumericMaskedColumnCache.get(store, new String[] {"value"}, new long[] {10}));
     assertNull(NumericMaskedColumnCache.get(store(), new String[] {"value"}, new long[] {10, 11}),
@@ -55,7 +56,7 @@ final class NumericMaskedColumnCacheTest {
     final MaskedColumns both = new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}},
         new ColumnSlice[][] {{sparseSlice}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 2);
     assertFalse(both.allSelectedPresent(0));
-    both.rowMask(0)[0] = 1;
+    Objects.requireNonNull(both.rowMask(0))[0] = 1;
     assertTrue(both.allSelectedPresent(0));
     assertEquals(1, both.numericLane(0, 0)[0]);
   }
@@ -83,9 +84,10 @@ final class NumericMaskedColumnCacheTest {
       for (int i = 0; i < 1000; i++) {
         final MaskedColumns view = NumericMaskedColumnCache.get(store, fields, keys);
         assertNotNull(view);
-        assertEquals(3, view.rowMask(0)[0]);
+        final long[] rowMask = Objects.requireNonNull(view.rowMask(0));
+        assertEquals(3, rowMask[0]);
         assertEquals(2, view.longValue(0, 0, 1));
-        view.rowMask(0)[0] = 0;
+        rowMask[0] = 0;
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -116,6 +118,7 @@ final class NumericMaskedColumnCacheTest {
     page.appendRow(10, new long[] {1}, new boolean[1], new String[1]);
     page.appendRow(11, new long[] {2}, new boolean[1], new String[1]);
     final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+    assertNotNull(encoded);
     final long[] offsets = new long[encoded.columnSegmentIds().length];
     Arrays.fill(offsets, Constants.NULL_ID_LONG);
     return new ProjectionColumnStore(List.of(

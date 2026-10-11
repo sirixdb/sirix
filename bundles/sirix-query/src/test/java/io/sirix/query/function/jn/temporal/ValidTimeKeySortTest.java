@@ -16,7 +16,7 @@ final class ValidTimeKeySortTest {
         for (final long prefix : new long[] {0, 1L << 47, Long.MIN_VALUE}) {
           final long[] keys = new long[length];
           for (int row = 0; row < keys.length; row++) {
-            keys[row] = prefix | random.nextLong() & mask;
+            keys[row] = prefix | (random.nextLong() & mask);
           }
           final long[] expected = keys.clone();
           Arrays.sort(expected);
@@ -41,7 +41,7 @@ final class ValidTimeKeySortTest {
     ValidTimeKeySort.sort(keys);
     assertArrayEquals(expected, keys);
     for (int row = 0; row < keys.length; row++) {
-      keys[row] = keys.length - row;
+      keys[row] = (long) keys.length - row;
     }
     final long[] descendingExpected = keys.clone();
     Arrays.sort(descendingExpected);

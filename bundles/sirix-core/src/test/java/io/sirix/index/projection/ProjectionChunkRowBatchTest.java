@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,6 +70,7 @@ final class ProjectionChunkRowBatchTest {
     assertEquals(1711929600L, restored.numericColumn(0)[0]);
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
         ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+    assertNotNull(encoded);
     final int entry =
         RowGroupDescriptor.entryIndexOf(encoded.descriptor(), ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
     assertEquals(ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_UTC_TIMESTAMP,
