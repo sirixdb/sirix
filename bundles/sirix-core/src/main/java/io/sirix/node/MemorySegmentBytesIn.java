@@ -4,7 +4,6 @@ import java.io.InputStream;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigInteger;
-import java.nio.ByteOrder;
 
 /**
  * A MemorySegment-based implementation of BytesIn.
@@ -133,6 +132,14 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
     // rebuild in PageKind.deserializeSlottedPage (hot path at cold-cache scan).
     MemorySegment.copy(memorySegment, LE.INT, position, dst, off, len);
     position += (long) len * Integer.BYTES;
+  }
+
+  @Override
+  public void readLongs(final long[] dst, final int off, final int len) {
+    // One native copy vs {@code len} VarHandle reads — used by the HOT-leaf side-trailer
+    // decoder in PageKind.deserializeSegmentRefs (hot path at cold-cache lookups).
+    MemorySegment.copy(memorySegment, LE.LONG, position, dst, off, len);
+    position += (long) len * Long.BYTES;
   }
 
   @Override

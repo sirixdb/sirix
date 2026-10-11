@@ -1,5 +1,6 @@
 package io.sirix.api;
 
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.index.IndexType;
@@ -563,6 +564,12 @@ public interface StorageEngineReader extends AutoCloseable {
     } finally {
       leaf.releaseGuard();
     }
+  }
+
+  /** Optional reader-confined metadata scope; complete loaders need no admission. */
+  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
   }
 
   /**

@@ -44,7 +44,7 @@ final class ProjectionSortedGroupSummary {
     missingCountObserverForTesting = observer;
   }
 
-  private static void observeRead(final int leafId) {
+  static void observeRead(final int leafId) {
     final IntConsumer observer = readObserverForTesting;
     if (observer != null) {
       observer.accept(leafId);
@@ -60,6 +60,21 @@ final class ProjectionSortedGroupSummary {
       final ProjectionSortKeyCodec.Layout layout) {
     if (!layout.groupsByLastLong()) {
       return null;
+    }
+    final ProjectionSortedDataBlock block = source.dataBlock();
+    if (block != null && block.hasSingleDictionaryEntry()) {
+      // Every row shares the same complete leading fields and a present final long. Validate
+      // that dictionary against this layout once; the validated block already proves its extrema.
+      final byte[] first = source.copyKey(0);
+      final int prefix = layout.lastFieldOffset(first, first.length);
+      if (prefix < 0 || first.length != prefix + 1 + 2 * Long.BYTES
+          || first[prefix] != ProjectionSortKeyCodec.PRESENT) {
+        return null;
+      }
+      final byte[] payload = new byte[PAYLOAD_BYTES];
+      ProjectionIndexRowGroupCodec.putLongLEAt(payload, 0, block.minimum());
+      ProjectionIndexRowGroupCodec.putLongLEAt(payload, Long.BYTES, block.maximum());
+      return ProjectionSortedLeaf.encode(new byte[][] {Arrays.copyOf(first, prefix)}, new byte[][] {payload}, 1);
     }
     final int rows = source.rowCount();
     final byte[][] groups = new byte[rows][];
@@ -104,7 +119,7 @@ final class ProjectionSortedGroupSummary {
    *
    * <p>
    * Only a pass that visits every live leaf may sum this into the header, so it runs for the initial
-   * build and the summary backfill alone; maintenance keeps the header count from its own edit keys.
+   * build and the summary rebuild alone; maintenance keeps the header count from its own edit keys.
    * </p>
    */
   static int countMissingLastField(final ProjectionSortedLeaf source, final ProjectionSortKeyCodec.Layout layout) {

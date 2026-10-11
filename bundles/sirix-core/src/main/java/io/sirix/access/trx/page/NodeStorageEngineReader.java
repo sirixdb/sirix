@@ -40,6 +40,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
@@ -62,10 +63,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.index.projection.GlobalValueDictionary;
-import io.sirix.index.projection.SegmentDictionaryAnchors;
 import io.sirix.index.projection.SegmentScopedReadDictionaries;
-import io.sirix.index.projection.TagColumnMap;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
@@ -88,9 +86,12 @@ import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.FlyweightNodeFactory;
 import io.sirix.cache.FrameReusedException;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.HOTProjectionRead;
+import io.sirix.page.HOTProjectionImage;
 import io.sirix.page.HOTMiniPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
@@ -4429,6 +4430,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent, null);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
     assertNotClosed();
     requireNonNull(reference);
     requireNonNull(key);
@@ -4466,6 +4473,36 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     if (reference.getPageFragments().isEmpty() || resourceConfig.versioningType == VersioningType.FULL) {
+      if (intent == HOTReadIntent.SELECTIVE) {
+        // The verified physical frame is borrowed only inside the backend call. No native leaf,
+        // side-reference map or raw page is admitted; a later SCAN still uses the guarded loader.
+        final ProjectionBlobCache lifecycle = resourceBufferManager.getProjectionBlobCache();
+        final long imageGeneration = lifecycle.generation();
+        final boolean retainImage = scope != null && lifecycle.isEnabled();
+        final HOTProjectionImage image = scope != null && retainImage
+            ? scope.image(this, reference, imageGeneration)
+            : null;
+        if (image != null) {
+          final HOTLeafEntry selected = image.select(key, sideReferenceKey);
+          if (selected != null && selected.sideReference() != null) {
+            selected.sideReference().setDatabaseId(databaseId).setResourceId(resourceId);
+          }
+          return selected;
+        }
+        if (scope != null) {
+          scope.discardImage();
+        }
+        final HOTProjectionRead selected =
+            pageReader.readHOTProjectionEntry(reference, resourceConfig, key, sideReferenceKey, retainImage);
+        if (selected != null) {
+          if (selected.indirect() != null) {
+            reference.setPage(selected.indirect());
+          } else if (scope != null && selected.image() != null) {
+            scope.rememberImage(this, reference, selected.image(), imageGeneration);
+          }
+          return selected.entry();
+        }
+      }
       // A self-contained image is already a complete view. Retain it in the complete cache through
       // the ordinary loader, so the published leaf keeps its routing index, off-heap accounting and
       // stamp binding. This does not spend a mini admission or make the other entries miss later.
@@ -4482,11 +4519,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       throw new SirixIOException("Projection point route at key " + reference.getKey() + " is not a HOT page");
     }
-    return readVersionedHOTProjectionEntry(reference, canonicalKey, key, sideReferenceKey, intent);
+    return readVersionedHOTProjectionEntry(reference, canonicalKey, key, sideReferenceKey, intent, scope);
   }
 
   private @Nullable HOTLeafEntry readVersionedHOTProjectionEntry(final PageReference reference,
-      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey, final HOTReadIntent intent) {
+      final PageReference canonicalKey, final byte[] key, final long sideReferenceKey, final HOTReadIntent intent,
+      final @Nullable ReadScope scope) {
     final HOTMiniPageCache miniPages = resourceBufferManager.getHOTMiniPageCache();
     final long generation = miniPages.generation(canonicalKey);
     final HOTMiniPage mini = miniPages.getAndGuard(canonicalKey);
@@ -4503,15 +4541,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         mini.releaseGuard();
       }
     }
-    if (promotionCandidate && miniPages.claimPointPromotion(canonicalKey, generation, key)) {
+    if (intent == HOTReadIntent.POINT && promotionCandidate
+        && miniPages.claimPointPromotion(canonicalKey, generation, key, scope)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
     }
     final HOTLeafEntry result = readHOTProjectionFragmentEntry(reference, canonicalKey, key, sideReferenceKey);
     if (reference.getPage() instanceof HOTIndirectPage) {
       return null; // Let the trie continue descent; never admit an indirect route as a leaf subset.
     }
-    if (miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result)) {
+    if (intent == HOTReadIntent.POINT
+        && miniPages.admit(canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, scope)) {
       return StorageEngineReader.super.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+    }
+    if (intent == HOTReadIntent.SELECTIVE && scope != null) {
+      scope.rememberMetadata(miniPages, canonicalKey, generation, revisionNumber, key, sideReferenceKey, result, this,
+          reference);
     }
     return result;
   }

@@ -317,7 +317,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private volatile boolean hot = false;
 
   // ===== Page references for overflow entries =====
-  private final SideReferenceMap pageReferences;
+  /**
+   * Assigned at construction and replaced at most once, by {@link #readSideReferences(long[], int)}
+   * on an unpublished decoded image, with a map already sized for its trailer. After publication the
+   * reference never changes and every access runs under the side-reference lifecycle.
+   */
+  private SideReferenceMap pageReferences;
 
   private static final int SIDE_REFERENCES_ACTIVE = 0;
   private static final int SIDE_REFERENCES_RETIRED = 1;
@@ -380,6 +385,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     SideReferenceMap(final int expected) {
       super(expected);
+    }
+
+    void fixupIds(final long databaseId, final long resourceId) {
+      final Object[] values = value;
+      for (int slot = 0; slot <= n; slot++) {
+        final PageReference reference = (PageReference) values[slot];
+        if (reference != null) {
+          reference.setDatabaseId(databaseId).setResourceId(resourceId);
+        }
+      }
     }
 
     boolean allDurableAndUnclaimed() {
@@ -447,6 +462,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         }
       }
       return output;
+    }
+
+    /** Number of table slots excluding the null-key slot, i.e. fastutil's {@code n}. */
+    int tableCapacity() {
+      return n;
     }
 
     /** Sever retained page references and release the expanded hash-table arrays after teardown. */
@@ -4825,6 +4845,68 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     beginSideReferenceRead();
     try {
       pageReferences.put(key, reference);
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /**
+   * Install an unpublished leaf's decoded side trailer: {@code count} (compositeKey, diskOffset)
+   * pairs stored interleaved in {@code pairs[0..2*count)}, under one lifecycle hold.
+   *
+   * <p>
+   * The map is created already sized for {@code count} (fastutil sizes its tables in the
+   * constructor), so no rehash of an empty table is ever inlined here, and the loop touches only
+   * primitive arrays and final classes: there is no interface call inside it whose receiver-type
+   * guard a JIT could hoist above the loop. Both shapes previously deoptimized the compiled decoder
+   * in the middle of cold lookups. The install is atomic: a rejected pair leaves the leaf unchanged.
+   * </p>
+   */
+  void readSideReferences(final long[] pairs, final int count) {
+    Objects.requireNonNull(pairs);
+    if (count < 0) {
+      throw new IllegalArgumentException("Negative HOT-leaf side-reference count");
+    }
+    if ((long) count * 2 > pairs.length) {
+      throw new IndexOutOfBoundsException("Truncated HOT-leaf side-reference trailer");
+    }
+    beginSideReferenceRead();
+    try {
+      if (!pageReferences.isEmpty()) {
+        throw new IllegalStateException("Side-reference decoding requires an empty unpublished leaf");
+      }
+      if (count == 0) {
+        return;
+      }
+      final SideReferenceMap decoded = new SideReferenceMap(count);
+      for (int index = 0, pair = 0; index < count; index++, pair += 2) {
+        final long offset = pairs[pair + 1];
+        if (offset < 0) {
+          throw new IllegalStateException("Invalid HOT-leaf side-reference offset");
+        }
+        decoded.put(pairs[pair], new PageReference().setKey(offset));
+      }
+      pageReferences = decoded;
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Package-private probe for decoder tests: the side map's current table slot count. */
+  int sideReferenceTableCapacity() {
+    beginSideReferenceRead();
+    try {
+      return pageReferences.tableCapacity();
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Apply the owning resource identity without a temporary values view, array or list. */
+  void fixupSideReferenceIds(final long databaseId, final long resourceId) {
+    beginSideReferenceRead();
+    try {
+      pageReferences.fixupIds(databaseId, resourceId);
     } finally {
       endSideReferenceRead();
     }

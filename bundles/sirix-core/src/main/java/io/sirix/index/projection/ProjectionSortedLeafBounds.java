@@ -24,12 +24,53 @@ final class ProjectionSortedLeafBounds {
   private static final int LEAF_SHIFT = 4;
   private static final int POSITION_MASK = (1 << LEAF_SHIFT) - 1;
   private static final int CHUNK_BYTES = HEADER_BYTES + (1 << LEAF_SHIFT) * 2 * Long.BYTES;
-  /** Bound the four primitive candidate arrays to 24 MiB; larger views retain the streaming scan. */
+  /** Bound the primitive candidate arrays to 25 MiB; larger views retain the streaming scan. */
   static final int MAX_CANDIDATE_LEAVES = 1 << 20;
 
   private ProjectionSortedLeafBounds() {}
 
-  record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order) {
+  @SuppressWarnings("ArrayRecordComponent") // Primitive candidate lanes are consumed directly; record equality is not
+                                            // used.
+  record Candidates(int[] leafIds, long[] minimums, long[] maximums, int[] order, boolean[] singleGroups) {
+  }
+
+  /**
+   * A direct replacement/removal of a summary invalidates its shortcut, not its old extrema. Normal
+   * maintenance republishes the proof only after data, summary and bounds agree. Keeping the extrema
+   * lets the ordinary reader detect a hash-valid but inconsistent replacement.
+   */
+  static boolean invalidateSummaryProof(final ProjectionIndexHOTStorage storage, final long summarySlot) {
+    return invalidateSummaryProof(storage, summarySlot, false, false);
+  }
+
+  static boolean invalidateSummaryProof(final ProjectionIndexHOTStorage storage, final long summarySlot,
+      final boolean preserveGroupExtrema, final boolean preserveOwnedGroupNodes) {
+    final long leaf = summarySlot - ProjectionSortedGroupSummary.SLOT_BASE;
+    if (leaf < 1 || leaf > Integer.MAX_VALUE) {
+      return false;
+    }
+    try {
+      final boolean groupInvalidated =
+          !preserveGroupExtrema && ProjectionSortedGroupSma.invalidate(storage, preserveOwnedGroupNodes);
+      final long boundsSlot = slot((int) leaf);
+      final byte[] bytes = storage.getBlob(boundsSlot);
+      if (bytes == null) {
+        return groupInvalidated;
+      }
+      validate(bytes);
+      final long proof = 1L << (((leaf - 1) & POSITION_MASK) + 16);
+      final long flags = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
+      if ((flags & proof) == 0) {
+        return groupInvalidated;
+      }
+      final byte[] invalidated = bytes.clone();
+      ProjectionIndexRowGroupCodec.putLongLEAt(invalidated, 8, flags & ~proof);
+      storage.putBlob(boundsSlot, invalidated);
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      storage.failSortedMutation(failure);
+      throw failure;
+    }
   }
 
   /** Clear one leaf's bound; readers then take the exact fallback for that leaf. */
@@ -97,7 +138,8 @@ final class ProjectionSortedLeafBounds {
         chunk = stored.clone();
         chunks.put(slot, chunk);
       }
-      ProjectionIndexRowGroupCodec.putLongLEAt(chunk, 8, ProjectionIndexRowGroupCodec.getLongLE(chunk, 8) & ~mask);
+      ProjectionIndexRowGroupCodec.putLongLEAt(chunk, 8,
+          ProjectionIndexRowGroupCodec.getLongLE(chunk, 8) & ~(mask | mask << 16));
     }
 
     void flush() {
@@ -111,7 +153,7 @@ final class ProjectionSortedLeafBounds {
   private static byte[] newChunk() {
     final byte[] bytes = new byte[CHUNK_BYTES];
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 0, MAGIC);
-    bytes[4] = 1;
+    bytes[4] = 2;
     bytes[5] = LEAF_SHIFT;
     return bytes;
   }
@@ -137,8 +179,12 @@ final class ProjectionSortedLeafBounds {
     final int offset = HEADER_BYTES + position * 2 * Long.BYTES;
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, offset, minimum);
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, offset + Long.BYTES, maximum);
+    final long previous = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
+    final long single = 1L << (position + 16);
     ProjectionIndexRowGroupCodec.putLongLEAt(bytes, 8,
-        ProjectionIndexRowGroupCodec.getLongLE(bytes, 8) | 1L << position);
+        ((previous | 1L << position) & ~single) | (summary.rowCount() == 1
+            ? single
+            : 0L));
   }
 
   /**
@@ -233,6 +279,7 @@ final class ProjectionSortedLeafBounds {
     Arrays.sort(leafIds);
     final long[] minimums = new long[count];
     final long[] maximums = new long[count];
+    final boolean[] singleGroups = new boolean[count];
     final int[] order = new int[count];
     // Every chunk slot is known now, so the chunks are fetched together (one coalesced batch per
     // 1,024 chunks) instead of one root-to-leaf descent plus one payload read per chunk; the loop
@@ -263,6 +310,7 @@ final class ProjectionSortedLeafBounds {
         if (minimums[to] > maximums[to]) {
           throw new IllegalStateException("invalid sorted leaf extrema");
         }
+        singleGroups[to] = (valid & 1L << (position + 16)) != 0;
         order[to] = to;
         to++;
       }
@@ -271,7 +319,7 @@ final class ProjectionSortedLeafBounds {
     if (orderByMinimum) {
       LongArrays.quickSortIndirect(order, minimums);
     }
-    return new Candidates(leafIds, minimums, maximums, order);
+    return new Candidates(leafIds, minimums, maximums, order, singleGroups);
   }
 
   /**
@@ -329,10 +377,70 @@ final class ProjectionSortedLeafBounds {
     return SLOT_BASE + ((leafId - 1) >>> LEAF_SHIFT);
   }
 
+  /**
+   * Bounded query-local cache of one extrema record. A proven single-group chunk needs no separate
+   * summary fetch: its group key is already in the sorted directory and its exact extrema are here.
+   */
+  static final class SummaryReader {
+    private final StorageEngineReader reader;
+    private final int indexNumber;
+    private final ProjectionSortKeyCodec.Layout layout;
+    private long cachedSlot = -1;
+    private byte @Nullable [] cached;
+
+    SummaryReader(final StorageEngineReader reader, final int indexNumber, final ProjectionSortKeyCodec.Layout layout) {
+      this.reader = reader;
+      this.indexNumber = indexNumber;
+      this.layout = layout;
+    }
+
+    @Nullable
+    ProjectionSortedLeaf singleGroup(final int leafId, final byte[] firstKey, final int keyLength) {
+      final long slot = slot(leafId);
+      if (slot != cachedSlot) {
+        cached = ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot);
+        if (cached != null) {
+          validate(cached);
+        }
+        cachedSlot = slot;
+      }
+      if (cached == null || cached[4] != 2) {
+        return null;
+      }
+      final int position = (leafId - 1) & POSITION_MASK;
+      final long valid = ProjectionIndexRowGroupCodec.getLongLE(cached, 8);
+      final long proof = (1L << position) | (1L << (position + 16));
+      if ((valid & proof) != proof) {
+        return null;
+      }
+      final int groupBytes = layout.lastFieldOffset(firstKey, keyLength);
+      if (groupBytes < 0 || keyLength != groupBytes + 1 + 2 * Long.BYTES
+          || firstKey[groupBytes] != ProjectionSortKeyCodec.PRESENT) {
+        throw new IllegalStateException("single-group bounds disagree with directory key shape");
+      }
+      final int offset = HEADER_BYTES + position * 2 * Long.BYTES;
+      final long minimum = ProjectionIndexRowGroupCodec.getLongLE(cached, offset);
+      final long maximum = ProjectionIndexRowGroupCodec.getLongLE(cached, offset + Long.BYTES);
+      if (minimum > maximum) {
+        throw new IllegalStateException("invalid single-group bounds");
+      }
+      final byte[] payload = new byte[2 * Long.BYTES];
+      ProjectionIndexRowGroupCodec.putLongLEAt(payload, 0, minimum);
+      ProjectionIndexRowGroupCodec.putLongLEAt(payload, Long.BYTES, maximum);
+      return ProjectionSortedLeaf.encode(new byte[][] {Arrays.copyOf(firstKey, groupBytes)}, new byte[][] {payload}, 1);
+    }
+  }
+
   private static void validate(final byte[] bytes) {
-    if (bytes.length != CHUNK_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC || bytes[4] != 1
+    if (bytes.length != CHUNK_BYTES || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != MAGIC || bytes[4] != 2
         || bytes[5] != LEAF_SHIFT || bytes[6] != 0 || bytes[7] != 0) {
       throw new IllegalStateException("invalid sorted leaf bounds chunk");
+    }
+    if (bytes[4] == 2) {
+      final long flags = ProjectionIndexRowGroupCodec.getLongLE(bytes, 8);
+      if ((flags >>> 32) != 0 || ((flags >>> 16) & ~flags & 0xFFFFL) != 0) {
+        throw new IllegalStateException("invalid sorted single-group proof bits");
+      }
     }
   }
 }

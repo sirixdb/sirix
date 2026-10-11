@@ -269,6 +269,7 @@ public final class BufferManagerImpl implements BufferManager {
   private final HOTFragmentCache hotLeafFragmentCache;
 
   private final HOTMiniPageCache hotMiniPageCache;
+  private final ProjectionBlobCache projectionBlobCache;
 
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
@@ -373,7 +374,15 @@ public final class BufferManagerImpl implements BufferManager {
     hotMiniPageCache = miniBudget == 0
         ? HOTMiniPageCache.disabled()
         : new HOTMiniPageCache(miniBudget);
-    hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget);
+    // Verified referenced payloads keep their own accounted copies; never swizzle side arrays
+    // into native leaves. Reserve this share from the existing HOT allowance too.
+    final long blobBudget = miniBudget < 2048
+        ? 0
+        : miniBudget / 2;
+    projectionBlobCache = blobBudget == 0
+        ? ProjectionBlobCache.disabled()
+        : new ProjectionBlobCache(blobBudget);
+    hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget - blobBudget);
     hotLeafFragmentCache = new HOTFragmentCache(hotFragmentBudget, hotFragmentBudget <= 0
         ? hotFragmentBudget
         : hotHeapBudget);
@@ -402,6 +411,7 @@ public final class BufferManagerImpl implements BufferManager {
       hotLeafPageCache.evictUnderPressure();
       hotLeafFragmentCache.evictUnderPressure();
       hotMiniPageCache.evictUnderPressure();
+      projectionBlobCache.clear();
       pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
@@ -697,6 +707,11 @@ public final class BufferManagerImpl implements BufferManager {
       failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }
     try {
+      projectionBlobCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       hotLookupCache.clear();
     } catch (final RuntimeException | Error e) {
       failure = ShardedPageCache.retainCleanupFailure(failure, e);
@@ -712,6 +727,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<PageReference, HOTLeafPage> getHOTLeafFragmentCache() {
     return hotLeafFragmentCache;
+  }
+
+  @Override
+  public ProjectionBlobCache getProjectionBlobCache() {
+    return projectionBlobCache;
   }
 
   @Override
@@ -1137,6 +1157,11 @@ public final class BufferManagerImpl implements BufferManager {
     }
     try {
       clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
+      projectionBlobCache.invalidate(matches);
     } catch (final RuntimeException | Error e) {
       failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }

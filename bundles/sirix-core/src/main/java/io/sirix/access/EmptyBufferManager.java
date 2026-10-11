@@ -5,6 +5,7 @@ import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.HOTLookupCache;
 import io.sirix.cache.HOTMiniPageCache;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.cache.GlobalDictionaryRecordCacheKey;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.cache.GlobalVerdictCacheKey;
@@ -83,6 +84,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public HOTMiniPageCache getHOTMiniPageCache() {
     return HOTMiniPageCache.disabled();
+  }
+
+  @Override
+  public ProjectionBlobCache getProjectionBlobCache() {
+    return ProjectionBlobCache.disabled();
   }
 
   @Override

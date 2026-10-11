@@ -5,6 +5,8 @@ package io.sirix.page;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Ultra-light byte-level compressor/decompressor optimised for runs of zero bytes — the dominant
@@ -213,6 +215,80 @@ public final class ZeroRunByteCodec {
       }
     }
     return uncompressed;
+  }
+
+  /**
+   * Decode directly to an owned heap payload. Short literal and zero runs need no foreign-memory view
+   * or segment copy. Input bounds refer to the encoded frame, not any reusable scratch tail.
+   */
+  public static int decode(final byte[] input, final int inputOff, final int inputLen, final byte[] output,
+      final int outputOff) {
+    Objects.requireNonNull(input);
+    Objects.requireNonNull(output);
+    Objects.checkFromIndexSize(inputOff, inputLen, input.length);
+    final int inEnd = inputOff + inputLen;
+    int inPos = inputOff;
+    if (inPos == inEnd || input[inPos++] != FRAME_MARKER) {
+      throw new IllegalStateException("ZeroRunByteCodec: missing frame marker");
+    }
+    final long header = readVarintPacked(input, inPos, inEnd);
+    inPos = (int) (header >>> Integer.SIZE);
+    final int uncompressed = (int) header;
+    Objects.checkFromIndexSize(outputOff, uncompressed, output.length);
+    final int outEnd = outputOff + uncompressed;
+    int outPos = outputOff;
+    while (outPos < outEnd) {
+      if (inPos == inEnd) {
+        throw new IllegalStateException("ZeroRunByteCodec: input exhausted");
+      }
+      final int tag = input[inPos++] & 255;
+      if (tag < 0x80) {
+        final int length = tag + 1;
+        if (length > inEnd - inPos || length > outEnd - outPos) {
+          throw new IllegalStateException("ZeroRunByteCodec: literal overflow");
+        }
+        System.arraycopy(input, inPos, output, outPos, length);
+        inPos += length;
+        outPos += length;
+      } else {
+        final int length;
+        if (tag == 0xff) {
+          final long run = readVarintPacked(input, inPos, inEnd);
+          inPos = (int) (run >>> Integer.SIZE);
+          length = (int) run;
+        } else {
+          length = tag - 0x80 + 2;
+        }
+        if (length < 2 || length > outEnd - outPos) {
+          throw new IllegalStateException("ZeroRunByteCodec: zero-run overflow");
+        }
+        Arrays.fill(output, outPos, outPos + length, (byte) 0);
+        outPos += length;
+      }
+    }
+    if (inPos != inEnd) {
+      throw new IllegalStateException("ZeroRunByteCodec: trailing frame bytes");
+    }
+    return uncompressed;
+  }
+
+  private static long readVarintPacked(final byte[] input, final int offset, final int end) {
+    int position = offset;
+    int result = 0;
+    for (int shift = 0; shift <= 28; shift += 7) {
+      if (position == end) {
+        throw new IllegalStateException("ZeroRunByteCodec: truncated varint");
+      }
+      final int value = input[position++] & 255;
+      if (shift == 28 && (value & 0xf8) != 0) {
+        throw new IllegalStateException("ZeroRunByteCodec: varint length overflow");
+      }
+      result |= (value & 0x7f) << shift;
+      if ((value & 0x80) == 0) {
+        return ((long) position << Integer.SIZE) | result;
+      }
+    }
+    throw new IllegalStateException("ZeroRunByteCodec: varint too long");
   }
 
   /** Reuse one zero source instead of allocating a segment slice for every decoded run. */

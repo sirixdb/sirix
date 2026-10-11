@@ -255,19 +255,26 @@ final class ProjectionSortedRunAccumulator implements ProjectionSortedLeaf.KeySo
   /** Encode the largest prefix of {@code count} keys that fits one bounded leaf; return how many. */
   private static int appendLeaf(final ProjectionSortedDirectory.Builder directory,
       final ProjectionSortedLeaf.KeySource source, final int from, final int count) {
-    int rows = count;
-    ProjectionSortedLeaf leaf;
-    do {
-      leaf = ProjectionSortedLeaf.encodeSortedRun(source, from, rows);
-      if (leaf == null) {
-        rows >>>= 1;
+    int low = 1;
+    int high = count;
+    ProjectionSortedLeaf leaf = null;
+    while (low <= high) {
+      final int rows = (low + high) >>> 1;
+      final ProjectionSortedLeaf candidate = ProjectionSortedLeaf.encodeSortedRun(source, from, rows, rows == 1
+          ? ProjectionSortedLeaf.MAX_BYTES
+          : ProjectionSortedChunks.TARGET_BYTES);
+      if (candidate != null && directory.acceptsBuildChunk(candidate)) {
+        leaf = candidate;
+        low = rows + 1;
+      } else {
+        high = rows - 1;
       }
-    } while (leaf == null && rows > 0);
+    }
     if (leaf == null) {
       throw new IllegalStateException("sorted projection key exceeds a bounded data leaf");
     }
     directory.append(leaf);
-    return rows;
+    return leaf.rowCount();
   }
 
   /** Room for {@code needed} bytes, reusing blocks kept from a spilled run before allocating. */

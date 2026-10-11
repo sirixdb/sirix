@@ -167,6 +167,11 @@ public final class PageUtils {
       return;
     }
 
+    if (page instanceof HOTLeafPage leaf) {
+      leaf.fixupSideReferenceIds(databaseId, resourceId);
+      return;
+    }
+
     // Some page types (like UberPage) don't have PageReferences to fix up
     try {
       var references = page.getReferences();

@@ -32,9 +32,14 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.HOTProjectionRead;
+import io.sirix.page.HOTProjectionImage;
+import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.PageKind;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.page.RevisionRootPage;
@@ -363,6 +368,44 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   @Override
+  public @Nullable HOTProjectionRead readHOTProjectionEntry(final PageReference reference,
+      final ResourceConfiguration configuration, final byte[] key, final long sideReferenceKey,
+      final boolean retainImage) {
+    Objects.requireNonNull(reference);
+    Objects.requireNonNull(configuration);
+    Objects.requireNonNull(key);
+    if (reference.getKey() < 0) {
+      throw new IllegalArgumentException("selective reads require a durable page offset");
+    }
+    if (!byteHandler.supportsMemorySegments()) {
+      return null;
+    }
+    ByteBuffer buffer = null;
+    try {
+      buffer = readPageImage(reference, -1L);
+      if (retainImage && byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()
+          && buffer.remaining() <= HOTProjectionImage.MAX_BYTES
+          && buffer.get(buffer.position()) == PageKind.HOT_LEAF_PAGE.getID()) {
+        final HOTProjectionImage image = HOTProjectionImage.copyVerifiedFrame(buffer, reference, configuration);
+        final HOTLeafEntry entry = image.select(key, sideReferenceKey);
+        if (entry != null && entry.sideReference() != null) {
+          entry.sideReference().setDatabaseId(configuration.getDatabaseId()).setResourceId(configuration.getID());
+        }
+        return new HOTProjectionRead(entry, null, image);
+      }
+      verifyChecksumIfNeeded(buffer, reference, configuration);
+      return deserializeHOTProjectionEntry(configuration, MemorySegment.ofBuffer(buffer), key, sideReferenceKey,
+          retainImage);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      if (buffer != null) {
+        releaseBuffer(buffer);
+      }
+    }
+  }
+
+  @Override
   public long committedDataExtent() {
     if (!BATCH_FILE_SIZE) {
       return -1L;
@@ -390,8 +433,8 @@ public final class FileChannelReader extends AbstractReader {
     return read(reference, resourceConfiguration, lazyRecordPage, batchFileSize, false);
   }
 
-  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
-      final boolean lazyRecordPage, final long batchFileSize, final boolean compactHOTFragment) {
+  /** Borrow exactly one framed page body, with the ordinary bounded-prefix/EOF checks. */
+  private ByteBuffer readPageImage(final PageReference reference, final long batchFileSize) throws IOException {
     ByteBuffer buffer = acquireBuffer(PAGE_PREFIX_BYTES);
     try {
       final long position = reference.getKey();
@@ -428,6 +471,18 @@ public final class FileChannelReader extends AbstractReader {
         buffer.flip();
       }
 
+      return buffer;
+    } catch (final IOException | RuntimeException | Error failure) {
+      releaseBuffer(buffer);
+      throw failure;
+    }
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage, final long batchFileSize, final boolean compactHOTFragment) {
+    ByteBuffer buffer = null;
+    try {
+      buffer = readPageImage(reference, batchFileSize);
       // Deserialize while this thread exclusively owns `buffer`. No shared monitor.
       // The buffer is released in finally — this is safe because deserialize either
       // returns a Page with no reference back to the buffer, or copies the bytes
@@ -439,7 +494,7 @@ public final class FileChannelReader extends AbstractReader {
             ? deserializeHOTLeafFragmentFromSegment(resourceConfiguration, segment)
             : deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
       } else {
-        final byte[] page = new byte[dataLength];
+        final byte[] page = new byte[buffer.remaining()];
         buffer.get(page);
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
         return deserialize(resourceConfiguration, page, reference, lazyRecordPage);
@@ -447,7 +502,9 @@ public final class FileChannelReader extends AbstractReader {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
-      releaseBuffer(buffer);
+      if (buffer != null) {
+        releaseBuffer(buffer);
+      }
     }
   }
 

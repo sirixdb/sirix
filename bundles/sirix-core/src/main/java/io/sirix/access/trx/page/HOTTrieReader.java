@@ -30,6 +30,7 @@ package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -898,6 +899,13 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent, final @Nullable Predicate<byte[]> sideReferenceNeeded) {
+    return readProjectionEntry(rootRef, key, sideReferenceKey, intent, sideReferenceNeeded, null);
+  }
+
+  /** Metadata shares the owning seek's admission budget without changing side-reference policy. */
+  public @Nullable HOTLeafEntry readProjectionEntry(final PageReference rootRef, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable Predicate<byte[]> sideReferenceNeeded,
+      final @Nullable ReadScope scope) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
     Objects.requireNonNull(intent);
@@ -909,8 +917,9 @@ public final class HOTTrieReader implements AutoCloseable {
         if (intent != HOTReadIntent.SCAN && firstKeyCacheEnabled && !(swizzled instanceof HOTIndirectPage)
             && (!(swizzled instanceof HOTLeafPage) || swizzled.isClosed())) {
           clearCurrentLeaf();
-          final HOTLeafEntry entry =
-              storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+          final HOTLeafEntry entry = scope == null
+              ? storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent)
+              : storageEngineReader.readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
           if (!(reference.getPage() instanceof HOTIndirectPage)) {
             return entry != null && entry.sideReference() != null && sideReferenceNeeded != null
                 && !sideReferenceNeeded.test(entry.value())
