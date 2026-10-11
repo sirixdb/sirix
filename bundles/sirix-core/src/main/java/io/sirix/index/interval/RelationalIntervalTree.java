@@ -204,6 +204,35 @@ public final class RelationalIntervalTree {
     }
   }
 
+  /**
+   * One chunk-wise half-open stab ({@code lo <= x < hi}) with no tie delivery: exact from keys when
+   * every candidate's end is represented exactly, which a proven-exact cohort guarantees. The chunk
+   * holding ends equal to x is never read.
+   */
+  public void stabHalfOpenChunks(final long x, final PostingChunkConsumer out) {
+    Objects.requireNonNull(out);
+    if (x < MIN_VALUE || x >= maxValue) {
+      return;
+    }
+    long node = 1L << (height - 1);
+    int level = height - 1;
+    while (true) {
+      if (node == x) {
+        upper.scanChunks(node, x + 1, maxValue, -1, out);
+        return;
+      }
+      final long half = 1L << (level - 1);
+      if (x < node) {
+        lower.scanChunks(node, MIN_VALUE, x, -1, out);
+        node -= half;
+      } else {
+        upper.scanChunks(node, x + 1, maxValue, -1, out);
+        node += half;
+      }
+      level--;
+    }
+  }
+
   /** Stream intervals starting at {@code x}; useful for removing a strict lower-bound tie. */
   public void startingAt(final long x, final LongConsumer out) {
     Objects.requireNonNull(out);

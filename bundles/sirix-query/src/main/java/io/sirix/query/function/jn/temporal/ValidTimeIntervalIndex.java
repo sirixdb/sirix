@@ -258,7 +258,7 @@ public final class ValidTimeIntervalIndex {
       // A known exact cohort needs no closed stab for endpoint verification. Membership still
       // excludes matching intervals in nested/sibling arrays; the proof never loads on an empty stab.
       if (controller.isKnownExactValidTimeArray(reader, exactCohort, document.getNodeKey(), ((Array) document).len())) {
-        return candidates(document, instant, false, true, exactCohort.getID()).members();
+        return exactCohortMembers(document, instant, exactCohort.getID());
       }
     }
     final Sequence sequence = sequence(document, instant, config, false, strictEnd);
@@ -300,7 +300,7 @@ public final class ValidTimeIntervalIndex {
     final IntervalDomain domain = new IntervalDomain();
     final var reader = document.getTrx().getStorageEngineReader();
     final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, indexId, domain);
-    final ChunkCandidates candidates = new ChunkCandidates(document, indexId);
+    final ChunkCandidates candidates = new ChunkCandidates(document, indexId, true);
     final long point = domain.point(instant);
     final boolean exact = domain.isExact(instant);
     tree.stabChunks(point, exact && strictEnd, candidates);
@@ -308,6 +308,19 @@ public final class ValidTimeIntervalIndex {
       tree.startingAtChunks(point, candidates::removeExactStarts);
     }
     return candidates.evidence();
+  }
+
+  /**
+   * Members of a proven-exact cohort valid at an exact instant: one half-open chunk stab is exact
+   * from keys, so neither the tie chunk at the instant nor a verification mask is read.
+   */
+  static long[] exactCohortMembers(final JsonDBItem document, final Instant instant, final int indexId) {
+    final IntervalDomain domain = new IntervalDomain();
+    final var reader = document.getTrx().getStorageEngineReader();
+    final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, indexId, domain);
+    final ChunkCandidates candidates = new ChunkCandidates(document, indexId, false);
+    tree.stabHalfOpenChunks(domain.point(instant), candidates);
+    return candidates.evidence().members();
   }
 
   /** Keep the sorted keys the index registered as members of this document's array, in place. */
@@ -408,7 +421,8 @@ public final class ValidTimeIntervalIndex {
       }
     }
 
-    private ChunkCandidates(final JsonDBItem document, final int indexId) {
+    /** With {@code verify} false every candidate is taken as exact and no verification mask is read. */
+    private ChunkCandidates(final JsonDBItem document, final int indexId, final boolean verify) {
       final var reader = document.getTrx().getStorageEngineReader();
       final long documentKey = document.getNodeKey();
       if (document instanceof Array) {
@@ -419,8 +433,12 @@ public final class ValidTimeIntervalIndex {
             ? PostingMask.from(NodeReferences.ofSortedArray(new long[] {documentKey & 0xFFFFL}))
             : PostingMask.from(null);
       }
-      final HotOrderedStore unverified = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
-      verification = base -> unverified.chunkMask(0, 0, base);
+      if (verify) {
+        final HotOrderedStore unverified = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+        verification = base -> unverified.chunkMask(0, 0, base);
+      } else {
+        verification = _ -> PostingMask.from(null);
+      }
     }
 
     ChunkCandidates(final LongFunction<PostingMask> membership, final LongFunction<PostingMask> verification) {

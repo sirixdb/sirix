@@ -202,7 +202,8 @@ final class ValidTimeRunWorkBudgetTest {
                 "cached dense masks must still emit runs without rescanning full bitmaps")
             .assertZero(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS,
                 "warm stabs must not decode companion chunks again")
-            .assertAtLeast(EngineWorkCounters.VALID_TIME_MASK_HITS, 2, "both companion masks must be reused");
+            .assertAtLeast(EngineWorkCounters.VALID_TIME_MASK_HITS, 2,
+                "the membership masks of both chunks must be reused; a proven-exact cohort reads no verification mask");
       }
     }
   }
