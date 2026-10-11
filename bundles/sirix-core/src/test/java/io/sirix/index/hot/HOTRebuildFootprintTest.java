@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -1011,7 +1012,7 @@ final class HOTRebuildFootprintTest {
       verify(storageEngineWriter, never()).markTransactionRollbackOnly(any(Throwable.class));
       final IllegalStateException refusal = assertThrows(IllegalStateException.class,
           () -> writer.existingKeyRoutesToSlot(oldNode, newNode, 2, twoByteKey(0x80, 0)));
-      assertTrue(refusal.getMessage().contains("status=PAGE_LIMIT"));
+      assertTrue(Objects.requireNonNull(refusal.getMessage()).contains("status=PAGE_LIMIT"));
       verify(storageEngineWriter).markTransactionRollbackOnly(refusal);
     } finally {
       lastLeaf.close();
