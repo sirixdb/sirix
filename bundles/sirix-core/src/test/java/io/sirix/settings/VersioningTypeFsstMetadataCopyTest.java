@@ -10,6 +10,9 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.MemorySegmentBytesOut;
+import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.StringNode;
@@ -38,7 +41,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.AdditionalMatchers.aryEq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Focused FSST metadata-copy regressions at the VersioningType/KVL boundary. */
@@ -53,6 +62,74 @@ final class VersioningTypeFsstMetadataCopyTest {
   private static final byte[] NEWER_DEWEY_ID = new byte[] {1, 7, 4};
   private static final byte[] OLDER_DEWEY_ID = new byte[] {9, 2};
   private static final String DENSE_TOKEN = "versioning-target-only-carrier-";
+
+  @ParameterizedTest(name = "{0}: merged FSST strings remain raw and inline")
+  @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
+  void multiFragmentReadDecodesInlineStringsWithMetadata(final VersioningType versioningType) {
+    final NodeSerializerImpl serializer = spy(new NodeSerializerImpl());
+    final ResourceConfiguration config = new ResourceConfiguration.Builder("inline-fsst-merge")
+        .useDeweyIDs(true).persistenter(serializer).build();
+    final byte[] table = symbolTable(DENSE_TOKEN);
+    final byte[] rawValue = (DENSE_TOKEN.repeat(4) + "inline").getBytes(StandardCharsets.UTF_8);
+    final byte[] compressedValue = FSSTCompressor.encode(rawValue, table);
+    assertTrue(compressedValue.length < rawValue.length);
+    final int stringSlot = TARGET_SLOT + 1;
+    final int legacySlot = TARGET_SLOT + 2;
+
+    final KeyValueLeafPage newest =
+        new KeyValueLeafPage(RECORD_PAGE_KEY, IndexType.DOCUMENT, config, 3, null, null, false);
+    final KeyValueLeafPage older =
+        new KeyValueLeafPage(RECORD_PAGE_KEY, IndexType.DOCUMENT, config, 2, null, null, false);
+    KeyValueLeafPage combined = null;
+    try {
+      newest.setSlotWithNodeKind(MemorySegment.ofArray(booleanSlot(0, true)), 0, NodeKind.BOOLEAN_VALUE.getId());
+      older.setSlotWithNodeKind(MemorySegment.ofArray(objectNamedStringSlot(TARGET_SLOT, compressedValue, true,
+          NEWER_NAME_KEY, NEWER_PATH_NODE_KEY)), TARGET_SLOT, NodeKind.OBJECT_NAMED_STRING.getId());
+      older.setSlotWithNodeKind(MemorySegment.ofArray(stringSlot(stringSlot, compressedValue, true)), stringSlot,
+          NodeKind.STRING_VALUE.getId());
+      older.setSlot(legacyStringSlot(config, legacySlot, compressedValue, true), legacySlot);
+      older.setDeweyId(NEWER_DEWEY_ID, TARGET_SLOT);
+      older.setDeweyId(NEWER_DEWEY_ID, stringSlot);
+      older.setDeweyId(NEWER_DEWEY_ID, legacySlot);
+      older.setFsstSymbolTable(table);
+      older.setFsstSymbolTableId(OLDER_TABLE_ID);
+      assertTrue(older.isFusedObjectNamedStringValueCompressed(TARGET_SLOT));
+
+      @SuppressWarnings("rawtypes")
+      final ResourceSession resourceSession = mock(ResourceSession.class);
+      when(resourceSession.getResourceConfig()).thenReturn(config);
+      final StorageEngineReader reader = mock(StorageEngineReader.class);
+      when(reader.getResourceSession()).thenReturn(resourceSession);
+      when(reader.getRevisionNumber()).thenReturn(3);
+      combined = versioningType.combineRecordPages(List.of(newest, older), 3, reader);
+
+      verify(serializer).deserialize(isA(ByteArrayBytesIn.class), eq(recordKey(legacySlot)),
+          aryEq(NEWER_DEWEY_ID), same(config));
+      assertFalse(combined.isFusedObjectNamedStringValueCompressed(TARGET_SLOT));
+      assertArrayEquals(rawValue, combined.readFusedObjectNamedStringStoredBytes(TARGET_SLOT));
+      assertArrayEquals(objectNamedStringSlot(TARGET_SLOT, rawValue, false, NEWER_NAME_KEY, NEWER_PATH_NODE_KEY),
+          combined.getSlot(TARGET_SLOT).toArray(ValueLayout.JAVA_BYTE));
+      assertArrayEquals(stringSlot(stringSlot, rawValue, false), combined.getSlot(stringSlot).toArray(ValueLayout.JAVA_BYTE));
+      assertArrayEquals(legacyStringSlot(config, legacySlot, rawValue, false),
+          combined.getSlot(legacySlot).toArray(ValueLayout.JAVA_BYTE));
+      assertEquals(NEWER_NAME_KEY, combined.getObjectKeyNameKeyFromSlot(TARGET_SLOT));
+      assertEquals(NEWER_PATH_NODE_KEY, combined.getObjectKeyPathNodeKeyFromSlot(TARGET_SLOT, recordKey(TARGET_SLOT)));
+      for (int slot = TARGET_SLOT; slot <= legacySlot; slot++) {
+        assertTrue(combined.getSlot(slot).isNative());
+        assertTrue(combined.hasSlottedPageSlot(recordKey(slot)));
+        assertNull(combined.getPageReference(recordKey(slot)));
+        assertArrayEquals(NEWER_DEWEY_ID, combined.getDeweyIdAsByteArray(slot));
+      }
+      assertTrue(older.isFusedObjectNamedStringValueCompressed(TARGET_SLOT));
+      assertArrayEquals(compressedValue, older.readFusedObjectNamedStringStoredBytes(TARGET_SLOT));
+    } finally {
+      if (combined != null) {
+        combined.close();
+      }
+      older.close();
+      newest.close();
+    }
+  }
 
   @Test
   void slidingBulkSeedAcceptsOlderTableIndependentSlotsAfterDictionaryRotation() {
@@ -192,11 +269,24 @@ final class VersioningTypeFsstMetadataCopyTest {
   }
 
   private static byte[] rawStringSlot(final int slot, final String value) {
-    final long nodeKey = (RECORD_PAGE_KEY << Constants.NDP_NODE_COUNT_EXPONENT) + slot;
-    final byte[] raw = value.getBytes(StandardCharsets.UTF_8);
+    return stringSlot(slot, value.getBytes(StandardCharsets.UTF_8), false);
+  }
+
+  private static byte[] stringSlot(final int slot, final byte[] value, final boolean compressed) {
+    final long nodeKey = recordKey(slot);
     final MemorySegment scratch = MemorySegment.ofArray(new byte[512]);
-    final int length = StringNode.writeNewRecord(scratch, 0L, new int[6], nodeKey, 0L, 0L, 0L, 0, 0, raw, false);
+    final int length = StringNode.writeNewRecord(scratch, 0L, new int[6], nodeKey, 0L, 0L, 0L, 0, 0, value, compressed);
     return scratch.asSlice(0L, length).toArray(ValueLayout.JAVA_BYTE);
+  }
+
+  private static byte[] legacyStringSlot(final ResourceConfiguration config, final int slot, final byte[] value,
+      final boolean compressed) {
+    final StringNode record = new StringNode(recordKey(slot), 0L, 0, 0, 0L, 0L, 0L, value,
+        config.nodeHashFunction, NEWER_DEWEY_ID, compressed, null);
+    try (final MemorySegmentBytesOut output = new MemorySegmentBytesOut(256)) {
+      config.recordPersister.serialize(output, record, config);
+      return output.getDestination().toArray(ValueLayout.JAVA_BYTE);
+    }
   }
 
   private static byte[] objectNamedStringSlot(final int slot, final byte[] value, final boolean compressed,

@@ -44,6 +44,7 @@ import io.sirix.utils.WeakIdentitySet;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.node.BytesOut;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.jspecify.annotations.Nullable;
@@ -2603,7 +2604,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (overflowSlotSidecar != null) {
       removeSideSlot(slotNumber);
     }
-    if (!isFusedOverflowDescriptor(data, nodeKindId)) {
+    if (!references.isEmpty() && !isFusedOverflowDescriptor(slottedPage,
+        PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(slottedPage, slotNumber)), data.byteSize(), nodeKindId)) {
       references.remove((recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber);
     }
   }
@@ -2855,7 +2857,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (nodeKindId == 0) {
       final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
       final DataRecord legacyRecord =
-          recordPersister.deserialize(new MemorySegmentBytesIn(MemorySegment.ofArray(rewritten)), nodeKey,
+          recordPersister.deserialize(new ByteArrayBytesIn(rewritten), nodeKey,
               source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
       if (!(legacyRecord instanceof StringNode stringNode) || stringNode.isCompressed()) {
         throw new IllegalArgumentException("Legacy rewritten slot is not a raw string record: " + slotNumber);
@@ -2964,10 +2966,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         || kindId == FUSED_OBJECT_NAMED_NUMBER_KIND_ID && isFusedObjectNamedNumberOverflowDescriptor(slotNumber);
   }
 
-  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedStringOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
-  }
-
   private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final long recordBase,
       final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_STRING_KIND_ID
@@ -2982,10 +2980,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         && record.get(ValueLayout.JAVA_BYTE, payloadStart) == ObjectNamedStringNode.PAYLOAD_FLAG_OVERFLOW;
   }
 
-  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedNumberOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
-  }
-
   private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final long recordBase,
       final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_NUMBER_KIND_ID
@@ -2998,11 +2992,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final long payloadStart = recordBase + relativePayloadStart;
     return relativePayloadStart < recordLength
         && record.get(ValueLayout.JAVA_BYTE, payloadStart) == ObjectNamedNumberNode.PAYLOAD_TYPE_OVERFLOW;
-  }
-
-  private static boolean isFusedOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedStringOverflowDescriptor(record, nodeKindId)
-        || isFusedObjectNamedNumberOverflowDescriptor(record, nodeKindId);
   }
 
   private static boolean isFusedOverflowDescriptor(final MemorySegment record, final long recordBase,
