@@ -130,7 +130,10 @@ final class ProjectionSortedDataBlock {
       if (Long.compareUnsigned(record, recordMax) > 0)
         recordMax = record;
       for (int word = 0; word < words; word++) {
-        final long v = le(payloads[from + row], word * 8, 8);
+        // A positive word count comes from the existing non-null payload-length branch.
+        @SuppressWarnings("NullAway")
+        final byte[][] payloadRows = payloads;
+        final long v = le(payloadRows[from + row], word * 8, 8);
         if (Long.compareUnsigned(v, bases[word]) < 0)
           bases[word] = v;
         if (Long.compareUnsigned(v, maxima[word]) > 0)
@@ -187,7 +190,10 @@ final class ProjectionSortedDataBlock {
       put(bytes, block.records + row * rw, be(key, key.length - 8) - recordMin, rw);
       for (int word = 0; word < words; word++) {
         final int w = bytes[HEADER + word * 9] & 255;
-        put(bytes, block.payloadOffsets[word] + row * w, le(payloads[from + row], word * 8, 8) - bases[word], w);
+        // This loop is entered only for the non-null payload branch above.
+        @SuppressWarnings("NullAway")
+        final byte[][] payloadRows = payloads;
+        put(bytes, block.payloadOffsets[word] + row * w, le(payloadRows[from + row], word * 8, 8) - bases[word], w);
       }
     }
     return block;

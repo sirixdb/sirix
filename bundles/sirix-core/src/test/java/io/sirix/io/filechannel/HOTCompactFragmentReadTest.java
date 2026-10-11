@@ -34,6 +34,7 @@ import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -307,8 +308,8 @@ final class HOTCompactFragmentReadTest {
       assertNotNull(result);
       assertNull(result.indirect());
       assertNotNull(result.image());
-      assertArrayEquals(value(250), result.entry().value());
-      assertEquals(777, result.entry().sideReference().getKey());
+      assertArrayEquals(value(250), Objects.requireNonNull(result.entry()).value());
+      assertEquals(777, Objects.requireNonNull(result.entry().sideReference()).getKey());
       assertEquals(configuration.getID(), result.entry().sideReference().getResourceId());
       assertTrue(result.image().retainedSizeBytes() <= HOTProjectionImage.MAX_BYTES + 48);
       final ReadScope scope = new ReadScope();
@@ -323,11 +324,11 @@ final class HOTCompactFragmentReadTest {
       contents.set(frame(new byte[] {0}));
       Arrays.fill(wire, (byte) 0);
       for (int row = 0; row < 512; row++) {
-        assertArrayEquals(value(row), result.image().select(key(row), 42).value());
+        assertArrayEquals(value(row), Objects.requireNonNull(result.image().select(key(row), 42)).value());
       }
       assertNull(result.image().select(new byte[] {0}, 42));
       assertNull(result.image().select(key(999), 42));
-      assertNull(result.image().select(key(10), 43).sideReference());
+      assertNull(Objects.requireNonNull(result.image().select(key(10), 43)).sideReference());
       scope.finish(false);
       assertEquals(0, scope.retainedImageBytes());
       assertNull(scope.image(reader, reference, 1));
@@ -402,12 +403,12 @@ final class HOTCompactFragmentReadTest {
       final HOTProjectionRead result = reader.readHOTProjectionEntry(reference(), CONFIG, key(250), 42, true);
       assertNotNull(result);
       assertNull(result.image(), "a large side trailer must not escape the scoped heap ceiling");
-      assertArrayEquals(value(250), result.entry().value());
-      assertEquals(777, result.entry().sideReference().getKey());
+      assertArrayEquals(value(250), Objects.requireNonNull(result.entry()).value());
+      assertEquals(777, Objects.requireNonNull(result.entry().sideReference()).getKey());
       final HOTProjectionRead unretained = reader.readHOTProjectionEntry(reference(), CONFIG, key(250), 42, false);
       assertNotNull(unretained);
       assertNull(unretained.image());
-      assertArrayEquals(result.entry().value(), unretained.entry().value());
+      assertArrayEquals(result.entry().value(), Objects.requireNonNull(unretained.entry()).value());
     }
   }
 
@@ -438,7 +439,7 @@ final class HOTCompactFragmentReadTest {
     try (FileChannelReader reader = reader(contents, new ByteHandlerPipeline())) {
       assertThrows(SirixCorruptionException.class,
           () -> reader.readHOTProjectionEntry(reference, checked, key(0), 42, true));
-      contents.set(Arrays.copyOf(contents.get(), contents.get().length / 2));
+      contents.set(Arrays.copyOf(contents.get(), Objects.requireNonNull(contents.get()).length / 2));
       assertThrows(SirixIOException.class, () -> reader.readHOTProjectionEntry(reference, checked, key(0), 42, true));
     }
   }

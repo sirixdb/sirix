@@ -8,7 +8,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.ProjectionBlobCache;
-import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.index.IndexType;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.page.HOTLeafPage;
@@ -25,6 +24,7 @@ import org.mockito.MockedStatic;
 import java.util.Arrays;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,7 +71,7 @@ final class ProjectionSortedReadViewTest {
     Arrays.fill(view.leaf().copyKey(0), (byte) 0);
     Arrays.fill(view.leaf().copyPayload(0), (byte) 0);
     if (columnar) {
-      Arrays.fill(view.leaf().dataBlock().bytes(), (byte) 0);
+      Arrays.fill(Objects.requireNonNull(view.leaf().dataBlock()).bytes(), (byte) 0);
     } else {
       Arrays.fill(view.directory().encodedBytes(), (byte) 0);
       Arrays.fill(view.directory().copyKey(0), (byte) 0);
@@ -88,7 +88,7 @@ final class ProjectionSortedReadViewTest {
   void cacheAccountsViewsAndFencesDeferredPublicationAcrossReuse(final boolean columnar) {
     final ProjectionSortedReadView view = view(columnar);
     final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
-    final Key key = new Key(1, 2, 3, 4, 5, 6);
+    final ProjectionBlobCache.Key key = new ProjectionBlobCache.Key(1, 2, 3, 4, 5, 6);
     final long empty = cache.getCurrentWeightBytes();
     assertTrue(cache.put(key, view.copyBytes(), cache.generation()));
     assertTrue(cache.putView(key, view, cache.generation()));
@@ -104,7 +104,7 @@ final class ProjectionSortedReadViewTest {
     assertNull(cache.getView(key));
     assertFalse(cache.putView(key, view, old));
     for (int i = 0; i < 1000; i++) {
-      assertTrue(cache.putView(new Key(1, 2, 3, 4, 5, i), view, cache.generation()));
+      assertTrue(cache.putView(new ProjectionBlobCache.Key(1, 2, 3, 4, 5, i), view, cache.generation()));
       assertTrue(cache.getCurrentWeightBytes() <= cache.getMaxWeightBytes());
     }
     cache.clear();
@@ -115,8 +115,8 @@ final class ProjectionSortedReadViewTest {
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})
   void dataAdmissionWinsAndMetadataWaitsForADataHit(final boolean dataView, final boolean metadataView) {
     final ProjectionBlobCache cache = new ProjectionBlobCache(64 * 1024);
-    final Key dataKey = new Key(1, 2, 3, 4, 5, 6);
-    final Key metadataKey = new Key(1, 2, 3, 4, 5, 7);
+    final ProjectionBlobCache.Key dataKey = new ProjectionBlobCache.Key(1, 2, 3, 4, 5, 6);
+    final ProjectionBlobCache.Key metadataKey = new ProjectionBlobCache.Key(1, 2, 3, 4, 5, 7);
     final ProjectionSortedReadView data = view(true);
     final ProjectionSortedReadView metadata = view(false);
     final byte[] rawData = {1, 2, 3};
@@ -211,7 +211,7 @@ final class ProjectionSortedReadViewTest {
     source.rememberImage(reader, reference, image, cache.generation());
     final ProjectionSortedReadView view =
         ProjectionSortedReadView.open(view(false).copyBytes(), true, reader, 0, HOTReadIntent.SELECTIVE, source);
-    final Key key = new Key(1, 2, 7, 0, 3, 10);
+    final ProjectionBlobCache.Key key = new ProjectionBlobCache.Key(1, 2, 7, 0, 3, 10);
     final long empty = cache.getCurrentWeightBytes();
     source.retainView(cache, key, view, cache.generation(), false);
     assertEquals(empty, cache.getCurrentWeightBytes(), "ambiguous metadata cannot admit its attached image");
@@ -220,7 +220,7 @@ final class ProjectionSortedReadViewTest {
     assertTrue(view.retainedSizeBytes() >= view.encodedSize() + image.retainedSizeBytes());
     assertTrue(cache.getCurrentWeightBytes() >= empty + view.retainedSizeBytes());
     final ReadScope reuse = new ReadScope();
-    cache.getView(key).restoreRouting(reader, reuse);
+    Objects.requireNonNull(cache.getView(key)).restoreRouting(reader, reuse);
     assertSame(image, reuse.image(reader, reference, cache.generation()));
     cache.clear();
     assertNull(reuse.image(reader, reference, cache.generation()), "evicted routing cannot survive offset reuse");
@@ -279,7 +279,7 @@ final class ProjectionSortedReadViewTest {
     scope.rememberImage(reader, reference, image, cache.generation());
     final ProjectionSortedReadView directory =
         ProjectionSortedReadView.open(view(false).copyBytes(), true, reader, 0, HOTReadIntent.SELECTIVE, scope);
-    final Key key = new Key(1, 2, 7, 0, 3, 10);
+    final ProjectionBlobCache.Key key = new ProjectionBlobCache.Key(1, 2, 7, 0, 3, 10);
     final long empty = cache.getCurrentWeightBytes();
     scope.retainView(cache, key, directory, cache.generation(), false);
     assertEquals(coldBytes + 16 + (long) slots * 2 * Long.BYTES, image.retainedSizeBytes(),

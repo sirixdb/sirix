@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,12 +93,13 @@ final class ProjectionSortedGroupEligibilityTest {
             final ProjectionSortedDirectory.Accessor directory =
                 ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0);
             final ProjectionSortedGroupSma.Builder rebuild =
-                new ProjectionSortedGroupSma.Builder(storage, directory.layout());
+                new ProjectionSortedGroupSma.Builder(storage, Objects.requireNonNull(directory).layout());
             final ProjectionSortedDirectory.Accessor.LeafCursor cursor = directory.leaves();
             int chunks = 0;
             while (cursor.id() != 0) {
               final ProjectionSortedLeaf leaf = ProjectionSortedLeafStore.read(storage, cursor.id());
-              rebuild.appendSummary(ProjectionSortedGroupSummary.encode(leaf, directory.layout()));
+              rebuild.appendSummary(
+                  ProjectionSortedGroupSummary.encode(Objects.requireNonNull(leaf), directory.layout()));
               chunks++;
               cursor.advance();
             }
@@ -116,7 +118,7 @@ final class ProjectionSortedGroupEligibilityTest {
               expected.sort(Arrays::compareUnsigned);
               for (int pass = 0; pass < 2; pass++) {
                 final ProjectionSortedDirectory.Accessor.Cursor cursor =
-                    ProjectionSortedDirectory.open(storage, 0).first();
+                    Objects.requireNonNull(ProjectionSortedDirectory.open(storage, 0)).first();
                 for (final byte[] key : expected) {
                   assertTrue(cursor.isValid());
                   assertArrayEquals(key, cursor.copyKey());
@@ -168,7 +170,7 @@ final class ProjectionSortedGroupEligibilityTest {
             final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
                 new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
             for (final byte[] key : keys) {
-              builder.append(ProjectionSortedLeaf.encode(new byte[][] {key}, null, 1));
+              builder.append(Objects.requireNonNull(ProjectionSortedLeaf.encode(new byte[][] {key}, null, 1)));
             }
             builder.finish();
             writer.commit();
@@ -180,7 +182,8 @@ final class ProjectionSortedGroupEligibilityTest {
             for (int i = 1; i <= 40; i++) {
               assertNull(ProjectionIndexHOTStorage.readBlob(storage, 0, ProjectionSortedGroupSma.HEADER_SLOT + i));
             }
-            final ProjectionSortedDirectory.Accessor.Cursor cursor = ProjectionSortedDirectory.open(storage, 0).first();
+            final ProjectionSortedDirectory.Accessor.Cursor cursor =
+                Objects.requireNonNull(ProjectionSortedDirectory.open(storage, 0)).first();
             for (final byte[] key : keys) {
               assertArrayEquals(key, cursor.copyKey());
               cursor.advance();

@@ -4,11 +4,11 @@
 package io.sirix.cache;
 
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
-import io.sirix.cache.ProjectionBlobCache.Key;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,28 +18,28 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionBlobCacheTest {
-  private static Key key(final long database, final long resource, final long offset, final int revision,
-      final long slot) {
-    return new Key(database, resource, offset, 91, revision, slot);
+  private static ProjectionBlobCache.Key key(final long database, final long resource, final long offset,
+      final int revision, final long slot) {
+    return new ProjectionBlobCache.Key(database, resource, offset, 91, revision, slot);
   }
 
   @Test
   void ownsBothSidesOfItsArrayBoundaryAndSeparatesRoutingIdentities() {
     final ProjectionBlobCache cache = new ProjectionBlobCache(1 << 20);
-    final Key key = key(1, 2, 3, 4, 5);
+    final ProjectionBlobCache.Key key = key(1, 2, 3, 4, 5);
     final byte[] bytes = {1, 2, 3};
     assertTrue(cache.put(key, bytes, cache.generation()));
     bytes[0] = 9;
     final byte[] hit = cache.get(key);
     assertArrayEquals(new byte[] {1, 2, 3}, hit);
-    hit[1] = 8;
+    Objects.requireNonNull(hit)[1] = 8;
     assertArrayEquals(new byte[] {1, 2, 3}, cache.get(key));
     assertNull(cache.get(key(2, 2, 3, 4, 5)));
     assertNull(cache.get(key(1, 3, 3, 4, 5)));
     assertNull(cache.get(key(1, 2, 4, 4, 5)));
     assertNull(cache.get(key(1, 2, 3, 5, 5)));
     assertNull(cache.get(key(1, 2, 3, 4, 6)));
-    assertNull(cache.get(new Key(1, 2, 3, 92, 4, 5)));
+    assertNull(cache.get(new ProjectionBlobCache.Key(1, 2, 3, 92, 4, 5)));
   }
 
   @Test
@@ -62,8 +62,8 @@ final class ProjectionBlobCacheTest {
   @Test
   void resourceInvalidationFencesAReadThatFinishesAfterOffsetsAreReused() throws Exception {
     final ProjectionBlobCache cache = new ProjectionBlobCache(1 << 20);
-    final Key removed = key(1, 2, 3, 4, 5);
-    final Key other = key(1, 7, 3, 4, 5);
+    final ProjectionBlobCache.Key removed = key(1, 2, 3, 4, 5);
+    final ProjectionBlobCache.Key other = key(1, 7, 3, 4, 5);
     assertTrue(cache.put(other, new byte[] {7}, cache.generation()));
     final CountDownLatch captured = new CountDownLatch(1);
     final CountDownLatch resolved = new CountDownLatch(1);
@@ -93,8 +93,8 @@ final class ProjectionBlobCacheTest {
   @Test
   void onePointSeekAdmitsDataOrDeferredMetadataAndAnAbandonedOpenAdmitsNothing() {
     final ProjectionBlobCache cache = new ProjectionBlobCache(1 << 20);
-    final Key metadata = key(1, 2, 3, 4, 5);
-    final Key data = key(1, 2, 3, 4, 6);
+    final ProjectionBlobCache.Key metadata = key(1, 2, 3, 4, 5);
+    final ProjectionBlobCache.Key data = key(1, 2, 3, 4, 6);
     final ReadScope scope = new ReadScope();
     scope.retainBlob(cache, metadata, new byte[] {1}, cache.generation(), false);
     assertNull(cache.get(metadata));
@@ -119,7 +119,7 @@ final class ProjectionBlobCacheTest {
   void rejectedDataAdmissionLeavesTheSingleOpportunityForMetadata() {
     final ProjectionBlobCache cache = new ProjectionBlobCache(4096);
     final ReadScope scope = new ReadScope();
-    final Key metadata = key(1, 2, 3, 4, 5);
+    final ProjectionBlobCache.Key metadata = key(1, 2, 3, 4, 5);
     scope.retainBlob(cache, metadata, new byte[] {1}, cache.generation(), false);
     scope.retainBlob(cache, key(1, 2, 3, 4, 6), new byte[8192], cache.generation(), true);
     scope.finish(true);

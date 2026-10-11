@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -315,9 +316,9 @@ final class HOTMiniPageCacheTest {
     assertNotNull(page);
     try {
       final HOTLeafEntry actual = page.copyEntry(page.find(KEY, 9));
-      assertArrayEquals(VALUE, actual.value());
+      assertArrayEquals(VALUE, Objects.requireNonNull(actual).value());
       assertEquals(key(4, 5, 6), actual.sideReference());
-      assertTrue(actual.sideReference().hasHash());
+      assertTrue(Objects.requireNonNull(actual.sideReference()).hasHash());
       assertEquals(0L, actual.sideReference().getHashAsLong());
       assertEquals(7, page.getRevision());
     } finally {
@@ -347,7 +348,7 @@ final class HOTMiniPageCacheTest {
       cache.admit(key, cache.generation(key), 2, KEY, -1, new HOTLeafEntry(VALUE, null));
       final HOTMiniPage current = cache.getAndGuard(key);
       assertNotNull(current);
-      assertArrayEquals(VALUE, current.copyEntry(current.find(KEY, -1)).value(),
+      assertArrayEquals(VALUE, Objects.requireNonNull(current.copyEntry(current.find(KEY, -1))).value(),
           "pending negative metadata cannot leak into a reused offset after invalidation");
       current.releaseGuard();
       cache.clear();

@@ -115,6 +115,7 @@ final class HOTLeafSideTrailerDecodeTest {
   }
 
   @Test
+  @SuppressWarnings("NullAway") // Deliberately pass null to verify rejection by the public API.
   void malformedDimensionsAreRejectedBeforeAnyInstall() {
     try (HOTLeafPage leaf = new HOTLeafPage(1, 1, IndexType.PROJECTION)) {
       assertThrows(IndexOutOfBoundsException.class, () -> leaf.readSideReferences(new long[2 * 9 - 1], 9));

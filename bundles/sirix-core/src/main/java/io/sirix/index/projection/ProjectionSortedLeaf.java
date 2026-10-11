@@ -77,17 +77,19 @@ final class ProjectionSortedLeaf {
   /** Selected single-dictionary build range, preserving the generic encoder's representation. */
   ProjectionSortedLeaf sliceBlock(final int from, final int count) {
     final ProjectionSortedDataBlock source = Objects.requireNonNull(block, "columnar source");
-    return chooseSlice(from, source.slice(from, count));
+    return chooseSlice(source, from, source.slice(from, count));
   }
 
   /** Initial packing reuses the sizing pass's column statistics. */
   ProjectionSortedLeaf fittingSliceBlock(final int from, final int byteLimit) {
-    return chooseSlice(from, Objects.requireNonNull(block, "columnar source").sliceFitting(from, byteLimit));
+    final ProjectionSortedDataBlock source = Objects.requireNonNull(block, "columnar source");
+    return chooseSlice(source, from, source.sliceFitting(from, byteLimit));
   }
 
-  private ProjectionSortedLeaf chooseSlice(final int from, final ProjectionSortedDataBlock sliced) {
+  private ProjectionSortedLeaf chooseSlice(final ProjectionSortedDataBlock source, final int from,
+      final ProjectionSortedDataBlock sliced) {
     final int count = sliced.rows();
-    if (sliced.bytes().length < block.prefixBytes(from, count))
+    if (sliced.bytes().length < source.prefixBytes(from, count))
       return new ProjectionSortedLeaf(sliced);
     final byte[][] keys = new byte[count][];
     final byte[][] payloads = new byte[count][];

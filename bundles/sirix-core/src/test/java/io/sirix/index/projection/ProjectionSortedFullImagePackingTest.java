@@ -18,6 +18,7 @@ import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -30,7 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.TreeMap;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -131,7 +134,7 @@ final class ProjectionSortedFullImagePackingTest {
             assertNotNull(groups);
             assertEquals(32, groups.size());
             for (final var group : groups) {
-              final int id = Integer.parseInt(group.key().substring(1)) - 1000;
+              final int id = Integer.parseInt(Objects.requireNonNull(group.key()).substring(1)) - 1000;
               assertEquals(id * 1_000_000L, group.min());
               assertEquals(id * 1_000_000L + 1022L * (id + 1), group.max());
             }
@@ -160,8 +163,8 @@ final class ProjectionSortedFullImagePackingTest {
     return bytes;
   }
 
-  private static void edit(final int operation, final ProjectionSortedDirectory.Editor editor,
-      final TreeMap<byte[], byte[]> expected) {
+  private static void edit(final int operation, final ProjectionSortedDirectory.@Nullable Editor editor,
+      final @Nullable Map<byte[], byte[]> expected) {
     final byte[] key = key(operation / 3 % GROUPS, 8, operation % 3 != 0);
     final byte[] value = payload(1_000_000L + operation);
     if (editor != null) {

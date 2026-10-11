@@ -21,6 +21,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -59,7 +60,7 @@ final class ProjectionSortedCacheLifecycleTest {
           Arrays.fill(values, payload(1));
           final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
               new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
-          builder.append(ProjectionSortedLeaf.encode(keys, values, keys.length));
+          builder.append(Objects.requireNonNull(ProjectionSortedLeaf.encode(keys, values, keys.length)));
           builder.finish();
           writer.commit();
         }

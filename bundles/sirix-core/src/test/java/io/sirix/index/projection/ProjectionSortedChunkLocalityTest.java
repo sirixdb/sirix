@@ -271,7 +271,7 @@ final class ProjectionSortedChunkLocalityTest {
   }
 
   private static void assertRows(final JsonResourceSession session, final int revision,
-      final TreeMap<byte[], byte[]> expected) {
+      final Map<byte[], byte[]> expected) {
     try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionSortedDirectory.Accessor directory =
           ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);

@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -52,7 +53,7 @@ final class ProjectionSortedSingleGroupProofTest {
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-          final byte[] unproven = storage.getBlob(ProjectionSortedLeafBounds.slot(1)).clone();
+          final byte[] unproven = Objects.requireNonNull(storage.getBlob(ProjectionSortedLeafBounds.slot(1))).clone();
           ProjectionIndexRowGroupCodec.putLongLEAt(unproven, 8,
               ProjectionIndexRowGroupCodec.getLongLE(unproven, 8) & 0xFFFFL);
           storage.putBlob(ProjectionSortedLeafBounds.slot(1), unproven);
@@ -119,16 +120,16 @@ final class ProjectionSortedSingleGroupProofTest {
           JsonNodeTrx writer = session.beginNodeTrx()) {
         SortedScanFixtures.build(writer, List.of(new SortedScanFixtures.Row("a", 1, 1)), new int[] {1});
         final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
-        final byte[] invalid = storage.getBlob(ProjectionSortedLeafBounds.slot(1)).clone();
+        final byte[] invalid = Objects.requireNonNull(storage.getBlob(ProjectionSortedLeafBounds.slot(1))).clone();
         invalid[4] = 1;
         storage.putBlob(ProjectionSortedLeafBounds.slot(1), invalid);
         assertThrows(IllegalStateException.class, () -> ProjectionSortedLeafBounds.read(writer.getStorageEngineWriter(),
-            0, ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0)));
+            0, Objects.requireNonNull(ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0))));
         invalid[4] = 2;
         ProjectionIndexRowGroupCodec.putLongLEAt(invalid, 8, 1L << 16);
         storage.putBlob(ProjectionSortedLeafBounds.slot(1), invalid);
         assertThrows(IllegalStateException.class, () -> ProjectionSortedLeafBounds.read(writer.getStorageEngineWriter(),
-            0, ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0)));
+            0, Objects.requireNonNull(ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0))));
       }
     }
   }

@@ -4,9 +4,11 @@
 package io.sirix.index.projection;
 
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.Random;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -76,7 +78,7 @@ final class ProjectionSortedDataBlockTest {
           }
         }
         final ProjectionSortedLeaf source = ProjectionSortedLeaf.encode(keys, payloads, keys.length);
-        assertNotNull(source.dataBlock());
+        assertNotNull(Objects.requireNonNull(source).dataBlock());
         final byte[] original = source.encodedBytes().clone();
         final byte[] outlier = new byte[words * Long.BYTES];
         for (int word = 0; word < words; word++) {
@@ -117,7 +119,8 @@ final class ProjectionSortedDataBlockTest {
     }
   }
 
-  private static void assertSameEncoding(final ProjectionSortedLeaf expected, final ProjectionSortedLeaf actual) {
+  private static void assertSameEncoding(final @Nullable ProjectionSortedLeaf expected,
+      final @Nullable ProjectionSortedLeaf actual) {
     assertNotNull(expected);
     assertNotNull(actual);
     assertArrayEquals(expected.encodedBytes(), actual.encodedBytes());
@@ -267,10 +270,12 @@ final class ProjectionSortedDataBlockTest {
     assertTrue(leaf.encodedBytes().length < 1024);
     final byte[] inserted = SortedScanFixtures.key(new SortedScanFixtures.Row("g101", 75, 999));
     final byte[] payload = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
-    final ProjectionSortedLeaf edited = ProjectionSortedLeaf.open(leaf.withInserted(inserted, payload).encodedBytes());
+    final ProjectionSortedLeaf edited =
+        ProjectionSortedLeaf.open(Objects.requireNonNull(leaf.withInserted(inserted, payload)).encodedBytes());
     assertArrayEquals(payload, edited.copyPayload(edited.lowerBound(inserted)));
-    assertArrayEquals(leaf.encodedBytes(), edited.withRemoved(inserted).encodedBytes());
-    final ProjectionSortedLeaf replaced = edited.withReplaced(edited.lowerBound(inserted), inserted, new byte[8]);
+    assertArrayEquals(leaf.encodedBytes(), Objects.requireNonNull(edited.withRemoved(inserted)).encodedBytes());
+    final ProjectionSortedLeaf replaced =
+        Objects.requireNonNull(edited.withReplaced(edited.lowerBound(inserted), inserted, new byte[8]));
     assertArrayEquals(new byte[8], replaced.copyPayload(replaced.lowerBound(inserted)));
   }
 
@@ -279,7 +284,7 @@ final class ProjectionSortedDataBlockTest {
     final byte[][] keys = new byte[64][];
     for (int row = 0; row < keys.length; row++)
       keys[row] = SortedScanFixtures.key(new SortedScanFixtures.Row("a", row, row + 1));
-    final byte[] bytes = ProjectionSortedDataBlock.encode(keys, null, 0, keys.length).bytes();
+    final byte[] bytes = Objects.requireNonNull(ProjectionSortedDataBlock.encode(keys, null, 0, keys.length)).bytes();
     for (int length = 0; length < bytes.length; length++) {
       final byte[] truncated = Arrays.copyOf(bytes, length);
       assertThrows(IllegalArgumentException.class, () -> ProjectionSortedLeaf.open(truncated));

@@ -8,7 +8,6 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import io.sirix.cache.ProjectionBlobCache;
-import io.sirix.cache.ProjectionBlobCache.Key;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.PathKeySerializer;
@@ -22,6 +21,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -100,16 +100,17 @@ final class HOTProjectionImageTest {
       final HOTLeafEntry entry = image.select(key(row), row - 256);
       assertNotNull(entry);
       assertArrayEquals(value(row), entry.value());
-      assertEquals(row + 1000, entry.sideReference().getKey());
+      assertEquals(row + 1000, Objects.requireNonNull(entry.sideReference()).getKey());
       Arrays.fill(entry.value(), (byte) 0);
       entry.sideReference().setKey(0);
-      assertArrayEquals(value(row), image.select(key(row), row - 256).value());
-      assertEquals(row + 1000, image.select(key(row), row - 256).sideReference().getKey());
+      assertArrayEquals(value(row), Objects.requireNonNull(image.select(key(row), row - 256)).value());
+      assertEquals(row + 1000,
+          Objects.requireNonNull(Objects.requireNonNull(image.select(key(row), row - 256)).sideReference()).getKey());
     }
     assertNull(image.select(new byte[] {0}, 0));
     assertNull(image.select(key(512), 0));
-    assertNull(image.select(key(10), Long.MIN_VALUE).sideReference());
-    assertNull(image.select(key(10), Long.MAX_VALUE).sideReference());
+    assertNull(Objects.requireNonNull(image.select(key(10), Long.MIN_VALUE)).sideReference());
+    assertNull(Objects.requireNonNull(image.select(key(10), Long.MAX_VALUE)).sideReference());
   }
 
   @Test
@@ -212,7 +213,7 @@ final class HOTProjectionImageTest {
     final long coldBytes = 72 + ((16L + relocated.length + 7) & ~7L);
     assertEquals(coldBytes, image.retainedSizeBytes(), "cold images must not expand every word slot");
     for (int row = 0; row < keys.length; row++) {
-      assertArrayEquals(value(row), image.select(wordKey(keys[row]), row - 6).value());
+      assertArrayEquals(value(row), Objects.requireNonNull(image.select(wordKey(keys[row]), row - 6)).value());
     }
     assertEquals(coldBytes, image.retainedSizeBytes(), "uncached selection must retain no word directory");
     image.prepareForCache();
@@ -226,9 +227,9 @@ final class HOTProjectionImageTest {
       final HOTLeafEntry entry = image.select(wordKey(keys[row]), row - 6);
       assertNotNull(entry);
       assertArrayEquals(value(row), entry.value());
-      assertEquals(row + 1000, entry.sideReference().getKey());
+      assertEquals(row + 1000, Objects.requireNonNull(entry.sideReference()).getKey());
       Arrays.fill(entry.value(), (byte) 0);
-      assertArrayEquals(value(row), image.select(wordKey(keys[row]), row - 6).value());
+      assertArrayEquals(value(row), Objects.requireNonNull(image.select(wordKey(keys[row]), row - 6)).value());
     }
     assertNull(image.select(wordKey(2), 0));
     assertNull(image.select(Arrays.copyOf(wordKey(0), Long.BYTES - 1), 0));
@@ -273,7 +274,8 @@ final class HOTProjectionImageTest {
       scope.rememberImage(reader, reference, image, cache.generation());
       final ImageSnapshot routing = scope.snapshotImage();
       assertNotNull(routing);
-      final Key key = new Key(0, 0, reference.getKey(), reference.getHashAsLong(), 1, 0);
+      final ProjectionBlobCache.Key key =
+          new ProjectionBlobCache.Key(0, 0, reference.getKey(), reference.getHashAsLong(), 1, 0);
       final boolean admitted = cache.put(key, new byte[] {7}, routing, cache.generation());
       assertEquals(cold + 16 + 6 * 2 * Long.BYTES, image.retainedSizeBytes(),
           "preparation must finish before the combined admission weight is computed");

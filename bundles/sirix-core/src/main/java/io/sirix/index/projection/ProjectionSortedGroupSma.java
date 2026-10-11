@@ -11,6 +11,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeMap;
 
 /**
@@ -375,9 +376,15 @@ final class ProjectionSortedGroupSma {
         tree.dropAll();
         return;
       }
-      final boolean touched = !unchanged && groups != null;
-      if (touched && !refresh()) {
-        return;
+      final Map<byte[], GroupChange> changedGroups = groups;
+      final boolean touched;
+      if (!unchanged && changedGroups != null) {
+        touched = true;
+        if (!refresh(changedGroups)) {
+          return;
+        }
+      } else {
+        touched = false;
       }
       if (!coarserThanChunks(tree.groups, chunks)) {
         tree.dropAll();
@@ -389,14 +396,14 @@ final class ProjectionSortedGroupSma {
     }
 
     /** Apply every collected group change to the tree; {@code false} after invalidating the tree. */
-    private boolean refresh() {
+    private boolean refresh(final Map<byte[], GroupChange> changedGroups) {
       final ProjectionSortedDirectory.Accessor directory =
           ProjectionSortedDirectory.open(storage.getStorageEngineReader(), storage.getIndexNumber());
       if (directory == null || directory.unencodableRows() != 0 || directory.holdsRowsWithoutAggregateValues()) {
         tree.dropAll();
         return false;
       }
-      for (final var entry : groups.entrySet()) {
+      for (final var entry : changedGroups.entrySet()) {
         final GroupChange change = entry.getValue();
         if (!change.refresh)
           continue;

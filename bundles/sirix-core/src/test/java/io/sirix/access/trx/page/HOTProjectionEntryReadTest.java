@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -96,8 +97,9 @@ final class HOTProjectionEntryReadTest {
         final ReadScope scope = new ReadScope();
         for (int read = 0; read < 2; read++) {
           assertArrayEquals(VALUE,
-              fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope)
-                             .value());
+              Objects.requireNonNull(
+                  fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope))
+                     .value());
         }
         verify(fixture.disk, times(enabled
             ? 1
@@ -108,8 +110,9 @@ final class HOTProjectionEntryReadTest {
         if (enabled) {
           lifecycle.clear();
           assertArrayEquals(VALUE,
-              fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope)
-                             .value());
+              Objects.requireNonNull(
+                  fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope))
+                     .value());
           verify(fixture.disk, times(2)).readHOTProjectionEntry(eq(fixture.chain), any(ResourceConfiguration.class),
               eq(KEY), eq(SIDE_KEY), eq(true));
         }

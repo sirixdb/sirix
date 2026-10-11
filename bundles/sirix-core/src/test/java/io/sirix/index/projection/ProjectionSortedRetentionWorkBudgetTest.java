@@ -24,6 +24,7 @@ import org.mockito.MockedStatic;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,7 +70,8 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           for (int from = 0; from < keys.length; from += 256) {
             final byte[][] values = new byte[256][];
             Arrays.fill(values, payload);
-            builder.append(ProjectionSortedLeaf.encode(Arrays.copyOfRange(keys, from, from + 256), values, 256));
+            builder.append(Objects.requireNonNull(
+                ProjectionSortedLeaf.encode(Arrays.copyOfRange(keys, from, from + 256), values, 256)));
           }
           builder.finish();
           writer.commit();
@@ -111,7 +113,7 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           for (int read = 0; read < 4; read++) {
             final ProjectionSortedDirectory.Accessor sorted =
                 ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
-            assertArrayEquals(keys[0], sorted.seek(keys[0]).copyKey());
+            assertArrayEquals(keys[0], Objects.requireNonNull(sorted).seek(keys[0]).copyKey());
           }
         }
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(1)) {
@@ -125,7 +127,7 @@ final class ProjectionSortedRetentionWorkBudgetTest {
           final byte hotKind = PageKind.HOT_LEAF_PAGE.getID();
           try (MockedStatic<PageKind> decodes = mockStatic(PageKind.class, CALLS_REAL_METHODS)) {
             final ProjectionSortedDirectory.Accessor sorted = ProjectionSortedDirectory.open(reader, 0);
-            final ProjectionSortedDirectory.Accessor.Cursor firstVisit = sorted.seek(keys[256]);
+            final ProjectionSortedDirectory.Accessor.Cursor firstVisit = Objects.requireNonNull(sorted).seek(keys[256]);
             assertArrayEquals(keys[256], firstVisit.copyKey());
             final byte[] result = new byte[payload.length];
             firstVisit.copyPayloadTo(result, 0);
@@ -203,7 +205,7 @@ final class ProjectionSortedRetentionWorkBudgetTest {
             final long before = sideReads[0];
             final long walks = VersioningType.pointLeafReads();
             final ProjectionSortedDirectory.Accessor fresh = ProjectionSortedDirectory.open(reader, 0);
-            final ProjectionSortedDirectory.Accessor.Cursor point = fresh.seek(keys[0]);
+            final ProjectionSortedDirectory.Accessor.Cursor point = Objects.requireNonNull(fresh).seek(keys[0]);
             point.copyPayloadTo(result, 0);
             assertArrayEquals(payload, result);
             if (query >= 8) {
@@ -217,7 +219,7 @@ final class ProjectionSortedRetentionWorkBudgetTest {
               final MockedStatic<ProjectionSortedDirectoryNode> directoryReads =
                   mockStatic(ProjectionSortedDirectoryNode.class, CALLS_REAL_METHODS)) {
             final ProjectionSortedDirectory.Accessor fresh = ProjectionSortedDirectory.open(reader, 0);
-            final ProjectionSortedDirectory.Accessor.Cursor point = fresh.seek(keys[0]);
+            final ProjectionSortedDirectory.Accessor.Cursor point = Objects.requireNonNull(fresh).seek(keys[0]);
             assertArrayEquals(keys[0], point.copyKey());
             point.copyPayloadTo(result, 0);
             assertArrayEquals(payload, result);

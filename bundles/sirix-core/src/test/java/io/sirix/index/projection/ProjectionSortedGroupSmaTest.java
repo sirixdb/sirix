@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -62,7 +63,7 @@ final class ProjectionSortedGroupSmaTest {
         final byte[][] keys = rows.stream().map(SortedScanFixtures::key).toArray(byte[][]::new);
         Arrays.sort(keys, Arrays::compareUnsigned);
         for (int from = 0; from < keys.length; from += 4)
-          builder.append(ProjectionSortedLeaf.encode(keys, null, from, 4));
+          builder.append(Objects.requireNonNull(ProjectionSortedLeaf.encode(keys, null, from, 4)));
         builder.finish();
         verify(storage, never()).getBlob(longThat(slot -> slot > ProjectionSortedGroupSma.HEADER_SLOT
             && slot <= ProjectionSortedGroupSma.HEADER_SLOT + Integer.MAX_VALUE));
@@ -158,7 +159,7 @@ final class ProjectionSortedGroupSmaTest {
             ProjectionSortedGroupScan.topK(trx.getStorageEngineReader(), 0, 3, Order.MIN_ASC, 1, true));
         final byte[] expectedKey = SortedScanFixtures.key(rows.get(20));
         final ProjectionSortedDirectory.Accessor.Cursor cursor =
-            ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0).seek(expectedKey);
+            Objects.requireNonNull(ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0)).seek(expectedKey);
         assertTrue(cursor.isValid());
         final byte[] actualKey = new byte[cursor.keyLength()];
         cursor.copyKeyTo(actualKey);
@@ -202,7 +203,7 @@ final class ProjectionSortedGroupSmaTest {
           assertEquals(0, queryDataReads, "group SMAs prune every data chunk");
           final ProjectionSortedDirectory.Accessor sorted =
               ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0);
-          assertTrue(sorted.first().isValid());
+          assertTrue(Objects.requireNonNull(sorted).first().isValid());
         } finally {
           ProjectionSortedGroupSummary.setReadObserverForTesting(null);
           ProjectionSortedLeafStore.setQueryLeafReadObserverForTesting(null);
