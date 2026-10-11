@@ -15,7 +15,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;

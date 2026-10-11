@@ -31,7 +31,6 @@ import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.StringBoundProjection;
 import io.sirix.query.SirixQueryContext;
-import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;

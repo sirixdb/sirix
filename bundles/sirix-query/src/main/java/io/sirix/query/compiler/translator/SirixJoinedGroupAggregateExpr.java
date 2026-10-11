@@ -106,19 +106,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     this.keyFields = keyFields;
     this.aggFuncs = aggFuncs;
     this.aggKinds = new byte[aggFuncs.length];
-    boolean pairs = false;
-    for (int a = 0; a < aggFuncs.length; a++) {
-      aggKinds[a] = switch (aggFuncs[a]) {
-        case "count" -> COUNT;
-        case "count-distinct" -> COUNT_DISTINCT;
-        case "sum" -> SUM;
-        case "min" -> MIN;
-        case "max" -> MAX;
-        default -> throw new IllegalArgumentException("Unsupported joined aggregate: " + aggFuncs[a]);
-      };
-      pairs |= aggKinds[a] == COUNT && aggFields[a] == null;
-    }
-    this.countPairs = pairs;
+    this.countPairs = initializeAggregateKinds(aggFields);
     this.aggSides = aggSides;
     this.aggFields = aggFields;
     this.progCode = progCode;
@@ -163,6 +151,53 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     this.progSlots = new int[progFields.length][];
     this.progOperandSides = new int[progFields.length][];
+    initializeProgramSlots(progSides, progFields, rosters);
+    this.aggSlots = new int[aggFields.length];
+    this.aggPrograms = new int[aggFields.length];
+    initializeAggregateSlots(rosters);
+    this.residualSlots = new int[this.residualSides.length];
+    if (residualSlots.length != 0) {
+      final String[] fields = Objects.requireNonNull(residualFields, "residual operands require field names");
+      for (int i = 0; i < residualSlots.length; i++) {
+        residualTemporal[i] = fields[i].startsWith("timestamp:");
+        residualSlots[i] = slot(rosters.get(this.residualSides[i]), fields[i].substring(residualTemporal[i]
+            ? 10
+            : 7));
+      }
+    }
+    this.sideFields = new String[][] {rosters.get(0).toArray(new String[0]), rosters.get(1).toArray(new String[0])};
+  }
+
+  private void initializeAggregateSlots(final List<List<String>> rosters) {
+    Arrays.fill(aggPrograms, -1);
+    for (int a = 0; a < aggFields.length; a++) {
+      if (aggFields[a] != null && aggFields[a].startsWith(COMPUTED_PREFIX)) {
+        aggPrograms[a] = Integer.parseInt(aggFields[a].substring(COMPUTED_PREFIX.length()));
+      }
+      aggSlots[a] = aggFields[a] == null || aggFields[a].startsWith(COMPUTED_PREFIX)
+          ? -1
+          : slot(rosters.get(aggSides[a]), aggFields[a]);
+    }
+  }
+
+  private boolean initializeAggregateKinds(final String[] aggFields) {
+    boolean pairs = false;
+    for (int a = 0; a < aggFuncs.length; a++) {
+      aggKinds[a] = switch (aggFuncs[a]) {
+        case "count" -> COUNT;
+        case "count-distinct" -> COUNT_DISTINCT;
+        case "sum" -> SUM;
+        case "min" -> MIN;
+        case "max" -> MAX;
+        default -> throw new IllegalArgumentException("Unsupported joined aggregate: " + aggFuncs[a]);
+      };
+      pairs |= aggKinds[a] == COUNT && aggFields[a] == null;
+    }
+    return pairs;
+  }
+
+  private void initializeProgramSlots(final int[] progSides, final String[][] progFields,
+      final List<List<String>> rosters) {
     for (int p = 0; p < progFields.length; p++) {
       progSlots[p] = new int[progFields[p].length];
       progOperandSides[p] = new int[progFields[p].length];
@@ -177,28 +212,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             : field);
       }
     }
-    this.aggSlots = new int[aggFields.length];
-    this.aggPrograms = new int[aggFields.length];
-    Arrays.fill(aggPrograms, -1);
-    for (int a = 0; a < aggFields.length; a++) {
-      if (aggFields[a] != null && aggFields[a].startsWith(COMPUTED_PREFIX)) {
-        aggPrograms[a] = Integer.parseInt(aggFields[a].substring(COMPUTED_PREFIX.length()));
-      }
-      aggSlots[a] = aggFields[a] == null || aggFields[a].startsWith(COMPUTED_PREFIX)
-          ? -1
-          : slot(rosters.get(aggSides[a]), aggFields[a]);
-    }
-    this.residualSlots = new int[this.residualSides.length];
-    if (residualSlots.length != 0) {
-      final String[] fields = Objects.requireNonNull(residualFields, "residual operands require field names");
-      for (int i = 0; i < residualSlots.length; i++) {
-        residualTemporal[i] = fields[i].startsWith("timestamp:");
-        residualSlots[i] = slot(rosters.get(this.residualSides[i]), fields[i].substring(residualTemporal[i]
-            ? 10
-            : 7));
-      }
-    }
-    this.sideFields = new String[][] {rosters.get(0).toArray(new String[0]), rosters.get(1).toArray(new String[0])};
   }
 
   private static int slot(final List<String> roster, final String field) {
@@ -375,9 +388,15 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           joinExtrema(buildColumns, buildRows, nextRow, denseHeads, probeColumns, extrema, stringKeys, timestampKeys);
       return result;
     }
+    return probeJoin(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys, buildRows, nextRow,
+        denseHeads, firstRow, denseBuild);
+  }
+
+  private Sequence probeJoin(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
+      final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
+      final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
+      final boolean denseBuild) {
     // PROBE: every admitted row, every matching build row, one pair folded into its group.
-    final int keyCount = keyFields.length;
-    final int aggCount = aggFuncs.length;
     final int probeFieldCount = sideFields[probeSide].length;
     final int distinctCapacity = distinctCapacity(buildColumns, buildSide, probeColumns);
     final DistinctDomain[] distinctDomains = distinctDomains(buildColumns, buildSide, probeColumns);
@@ -392,15 +411,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         probeTimestamps[field] = probeColumns.isTimestamp(field);
       }
     }
-    final long[] keyComponents = new long[keyCount + 1]; // the last word packs the missing flags
-    final long[] operands = new long[8];
-    final long[] stack = new long[64];
-    final long[] programValues = new long[progCode.length];
-    final byte[] programState = new byte[progCode.length];
     final Map<GroupKey, GroupState> groups = rowOutput
         ? Map.of()
         : new LinkedHashMap<>();
-    final Long2ObjectOpenHashMap<GroupState> singleGroups = !rowOutput && keyCount == 1
+    final Long2ObjectOpenHashMap<GroupState> singleGroups = !rowOutput && keyFields.length == 1
         ? new Long2ObjectOpenHashMap<>()
         : null;
     final Ordering rowOrdering;
@@ -410,8 +424,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       rowModifiers[orderModifiers.length] = new Ordering.OrderModifier(true, true, null);
       rowModifiers[orderModifiers.length + 1] = new Ordering.OrderModifier(true, true, null);
       rowOrdering = new Ordering(new Expr[0], rowModifiers);
-      final boolean[] textKeys = new boolean[keyCount];
-      for (int key = 0; key < keyCount; key++) {
+      final boolean[] textKeys = new boolean[stringKeys.length];
+      for (int key = 0; key < textKeys.length; key++) {
         textKeys[key] = stringKeys[key] || timestampKeys[key];
       }
       rowColumns = new ColumnarRecordSequence.Builder(outputNames, textKeys, 256);
@@ -419,10 +433,37 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       rowOrdering = null;
       rowColumns = null;
     }
+    final int emittedRows =
+        probeRows(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys, buildRows, nextRow,
+            denseHeads, firstRow, distinctCapacity, distinctDomains, probeValues, probePresent, denseProbe, probeLanes,
+            probeTimestamps, groups, singleGroups, rowOrdering, rowColumns, denseBuild && denseProbe);
+    SirixVectorizedExecutor.noteJoinGroupServed();
+    return rowOrdering != null
+        ? orderedRows(rowOrdering, emittedRows, rowColumns)
+        : emit(groups, buildColumns, stringKeys, timestampKeys);
+  }
+
+  private int probeRows(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
+      final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
+      final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
+      final int distinctCapacity, final DistinctDomain[] distinctDomains, final long[] probeValues,
+      final boolean[] probePresent, final boolean denseProbe, final long[][] probeLanes,
+      final boolean[] probeTimestamps, final Map<GroupKey, GroupState> groups,
+      final @Nullable Long2ObjectOpenHashMap<GroupState> singleGroups, final @Nullable Ordering rowOrdering,
+      final ColumnarRecordSequence.@Nullable Builder rowColumns, final boolean allPresent) {
+    final int keyCount = keyFields.length;
+    final int aggCount = aggFuncs.length;
+    final int buildFieldCount = buildRows.fieldCount;
+    final int probeFieldCount = probeValues.length;
+    final long[] keyComponents = new long[keyCount + 1]; // the last word packs the missing flags
+    final long[] operands = new long[8];
+    final long[] stack = new long[64];
+    final long[] programValues = new long[progCode.length];
+    final byte[] programState = new byte[progCode.length];
     final boolean[] residualStack = new boolean[Math.max(1, residualCode.length)];
-    int emittedRows = 0;
-    final GroupKey probeKey = new GroupKey(keyComponents); // the scratch key: hashed per pair, cloned on insert
+    final GroupKey probeKey = new GroupKey(keyComponents); // Scratch key, cloned on insert.
     final int accWidth = 1 + 4 * aggCount;
+    int emittedRows = 0;
     for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
       final long[] mask = probeColumns.rowMask(leaf);
       if (mask == null) {
@@ -446,11 +487,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           final long joinKey = denseProbe
               ? probeLanes[0][row]
               : probeColumns.longValue(0, leaf, row);
-          int at = denseHeads == null
-              ? firstRow.get(joinKey)
-              : joinKey < buildRows.minimumJoinKey || joinKey > buildRows.maximumJoinKey
-                  ? -1
-                  : denseHeads[(int) (joinKey - buildRows.minimumJoinKey)];
+          int at = firstMatch(joinKey, buildRows, denseHeads, firstRow);
           if (at < 0) {
             continue;
           }
@@ -460,8 +497,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             readProbeRow(probeColumns, leaf, row, probeFieldCount, probeValues, probePresent);
           }
           for (; at >= 0; at = nextRow[at]) {
-            if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack,
-                denseBuild && denseProbe)) {
+            if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack, allPresent)) {
               continue;
             }
             if (rowOrdering != null) {
@@ -472,15 +508,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             }
             foldPair(keyCount, aggCount, accWidth, buildSide, buildFieldCount, buildRows, at, probeValues, probePresent,
                 keyComponents, probeKey, groups, singleGroups, distinctCapacity, distinctDomains, operands, stack,
-                programValues, programState, denseBuild && denseProbe);
+                programValues, programState, allPresent);
           }
         }
       }
     }
-    SirixVectorizedExecutor.noteJoinGroupServed();
-    return rowOrdering != null
-        ? orderedRows(rowOrdering, emittedRows, rowColumns)
-        : emit(groups, buildColumns, stringKeys, timestampKeys);
+    return emittedRows;
+  }
+
+  private static int firstMatch(final long joinKey, final BuildRows buildRows, final int @Nullable [] denseHeads,
+      final Long2IntOpenHashMap firstRow) {
+    return denseHeads == null
+        ? firstRow.get(joinKey)
+        : joinKey < buildRows.minimumJoinKey || joinKey > buildRows.maximumJoinKey
+            ? -1
+            : denseHeads[(int) (joinKey - buildRows.minimumJoinKey)];
   }
 
   /**
@@ -493,8 +535,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   private @Nullable DenseExtrema denseExtrema(final MaskedColumns buildColumns, final int buildSide,
       final MaskedColumns probeColumns) {
-    if (keyFields.length != 1 || keySides[0] != buildSide || !buildColumns.isLong(keySlots[0]) || aggKinds.length != 3
-        || progCode.length != 1 || !residualAnd || residualOps.length != 2) {
+    if (!denseExtremaShape(buildColumns, buildSide)) {
       return null;
     }
     int distinct = -1;
@@ -515,11 +556,19 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       return null;
     }
     final int[] code = progCode[0];
-    if (code.length != 3 || code[2] != ProjectionIndexByteScan.COMPUTED_OP_SUB || code[0] < 0 || code[1] < 0
-        || code[0] >= progSlots[0].length || code[1] >= progSlots[0].length
-        || progOperandSides[0][code[0]] == progOperandSides[0][code[1]]) {
+    if (!crossSideSubtraction(code)) {
       return null;
     }
+    return bindDenseExtrema(buildColumns, buildSide, probeColumns, distinct, minimum, maximum, code);
+  }
+
+  private boolean denseExtremaShape(final MaskedColumns buildColumns, final int buildSide) {
+    return !(keyFields.length != 1 || keySides[0] != buildSide || !buildColumns.isLong(keySlots[0])
+        || aggKinds.length != 3 || progCode.length != 1 || !residualAnd || residualOps.length != 2);
+  }
+
+  private @Nullable DenseExtrema bindDenseExtrema(final MaskedColumns buildColumns, final int buildSide,
+      final MaskedColumns probeColumns, final int distinct, final int minimum, final int maximum, final int[] code) {
     int buildFrom = -1;
     int buildTo = -1;
     int probeFrom = -1;
@@ -553,6 +602,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             ? 1
             : 0]],
         buildMinusProbe, buildFrom, buildTo, probeFrom, probeTo);
+  }
+
+  private boolean crossSideSubtraction(final int[] code) {
+    return !(code.length != 3 || code[2] != ProjectionIndexByteScan.COMPUTED_OP_SUB || code[0] < 0 || code[1] < 0
+        || code[0] >= progSlots[0].length || code[1] >= progSlots[0].length
+        || progOperandSides[0][code[0]] == progOperandSides[0][code[1]]);
   }
 
   private Sequence joinExtrema(final MaskedColumns buildColumns, final BuildRows buildRows, final int[] nextRow,
@@ -605,33 +660,40 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             if (probeFrom >= build[base + plan.buildToSlot()] || build[base + plan.buildFromSlot()] >= probeTo) {
               continue;
             }
-            final long groupKey = build[base + plan.groupSlot()];
-            final int group = (int) (groupKey - plan.groupMinimum());
-            GroupState state = states[group];
-            if (state == null) {
-              state = new GroupState(width, aggFuncs, 16, domains);
-              state.acc[minBase + 2] = Long.MAX_VALUE;
-              state.acc[maxBase + 3] = Long.MIN_VALUE;
-              states[group] = state;
-              groups.put(new GroupKey(new long[] {groupKey, 0}), state);
-            }
-            state.distinct[plan.distinct()].add(plan.distinctBuild()
-                ? build[base + plan.distinctSlot()]
-                : probeDistinct);
-            final long buildMargin = build[base + plan.buildMarginSlot()];
-            final long value = plan.buildMinusProbe()
-                ? Math.subtractExact(buildMargin, probeMargin)
-                : Math.subtractExact(probeMargin, buildMargin);
-            state.acc[minBase] = 1;
-            state.acc[maxBase] = 1;
-            state.acc[minBase + 2] = Math.min(state.acc[minBase + 2], value);
-            state.acc[maxBase + 3] = Math.max(state.acc[maxBase + 3], value);
+            foldExtrema(plan, states, groups, domains, width, minBase, maxBase, build, base, probeDistinct,
+                probeMargin);
           }
         }
       }
     }
     SirixVectorizedExecutor.noteJoinGroupServed();
     return emit(groups, buildColumns, stringKeys, timestampKeys);
+  }
+
+  private void foldExtrema(final DenseExtrema plan, final GroupState[] states, final Map<GroupKey, GroupState> groups,
+      final DistinctDomain[] domains, final int width, final int minBase, final int maxBase, final long[] build,
+      final int base, final long probeDistinct, final long probeMargin) {
+    final long groupKey = build[base + plan.groupSlot()];
+    final int group = (int) (groupKey - plan.groupMinimum());
+    GroupState state = states[group];
+    if (state == null) {
+      state = new GroupState(width, aggFuncs, 16, domains);
+      state.acc[minBase + 2] = Long.MAX_VALUE;
+      state.acc[maxBase + 3] = Long.MIN_VALUE;
+      states[group] = state;
+      groups.put(new GroupKey(new long[] {groupKey, 0}), state);
+    }
+    state.distinct[plan.distinct()].add(plan.distinctBuild()
+        ? build[base + plan.distinctSlot()]
+        : probeDistinct);
+    final long buildMargin = build[base + plan.buildMarginSlot()];
+    final long value = plan.buildMinusProbe()
+        ? Math.subtractExact(buildMargin, probeMargin)
+        : Math.subtractExact(probeMargin, buildMargin);
+    state.acc[minBase] = 1;
+    state.acc[maxBase] = 1;
+    state.acc[minBase + 2] = Math.min(state.acc[minBase + 2], value);
+    state.acc[maxBase + 3] = Math.max(state.acc[maxBase + 3], value);
   }
 
   private static boolean denseNumeric(final MaskedColumns columns, final int fields) {
@@ -756,33 +818,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             ? stack[top - 1] && right
             : stack[top - 1] || right;
       } else {
-        final int left = 2 * instruction;
-        final int right = left + 1;
-        final boolean leftBuild = residualSides[left] == buildSide;
-        final boolean rightBuild = residualSides[right] == buildSide;
-        final int leftSlot = residualSlots[left];
-        final int rightSlot = residualSlots[right];
-        final boolean leftPresent = allPresent || (leftBuild
-            ? build.present[row * build.fieldCount + leftSlot]
-            : probePresent[leftSlot]);
-        final boolean rightPresent = allPresent || (rightBuild
-            ? build.present[row * build.fieldCount + rightSlot]
-            : probePresent[rightSlot]);
-        final long a = leftBuild
-            ? build.values[row * build.fieldCount + leftSlot]
-            : probeValues[leftSlot];
-        final long b = rightBuild
-            ? build.values[row * build.fieldCount + rightSlot]
-            : probeValues[rightSlot];
-        final boolean matched = leftPresent && rightPresent && switch (residualOps[instruction]) {
-          case 0 -> a == b;
-          case 1 -> a != b;
-          case 2 -> a < b;
-          case 3 -> a <= b;
-          case 4 -> a > b;
-          case 5 -> a >= b;
-          default -> throw new IllegalStateException("Invalid residual comparison");
-        };
+        final boolean matched =
+            matchesComparison(build, row, buildSide, probeValues, probePresent, allPresent, instruction);
         if (residualAnd) {
           if (!matched) {
             return false;
@@ -793,6 +830,37 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     return residualAnd || top == 0 || stack[0];
+  }
+
+  private boolean matchesComparison(final BuildRows build, final int row, final int buildSide, final long[] probeValues,
+      final boolean[] probePresent, final boolean allPresent, final int instruction) {
+    final int left = 2 * instruction;
+    final int right = left + 1;
+    final boolean leftBuild = residualSides[left] == buildSide;
+    final boolean rightBuild = residualSides[right] == buildSide;
+    final int leftSlot = residualSlots[left];
+    final int rightSlot = residualSlots[right];
+    final boolean leftPresent = allPresent || (leftBuild
+        ? build.present[row * build.fieldCount + leftSlot]
+        : probePresent[leftSlot]);
+    final boolean rightPresent = allPresent || (rightBuild
+        ? build.present[row * build.fieldCount + rightSlot]
+        : probePresent[rightSlot]);
+    final long a = leftBuild
+        ? build.values[row * build.fieldCount + leftSlot]
+        : probeValues[leftSlot];
+    final long b = rightBuild
+        ? build.values[row * build.fieldCount + rightSlot]
+        : probeValues[rightSlot];
+    return leftPresent && rightPresent && switch (residualOps[instruction]) {
+      case 0 -> a == b;
+      case 1 -> a != b;
+      case 2 -> a < b;
+      case 3 -> a <= b;
+      case 4 -> a > b;
+      case 5 -> a >= b;
+      default -> throw new IllegalStateException("Invalid residual comparison");
+    };
   }
 
   private Sequence emit(final Map<GroupKey, GroupState> groups, final MaskedColumns interner,
@@ -1028,22 +1096,27 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             readNumericRow(lanes, timestamps, row, values);
             System.arraycopy(values, 0, buildRows.values, at * buildFieldCount, buildFieldCount);
           } else {
-            for (int f = 0; f < buildFieldCount; f++) {
-              final boolean present = buildColumns.present(f, leaf, row);
-              buildRows.present[at * buildFieldCount + f] = present;
-              if (present) {
-                buildRows.values[at * buildFieldCount + f] = buildColumns.isString(f)
-                    ? buildColumns.stringId(f, leaf, row)
-                    : buildColumns.isTimestamp(f)
-                        ? Math.multiplyExact(buildColumns.longValue(f, leaf, row), 1000L)
-                        : buildColumns.longValue(f, leaf, row);
-              }
-            }
+            readBuildRow(buildColumns, leaf, row, buildFieldCount, buildRows, at);
           }
         }
       }
     }
     return nextRow;
+  }
+
+  private static void readBuildRow(final MaskedColumns buildColumns, final int leaf, final int row,
+      final int buildFieldCount, final BuildRows buildRows, final int at) {
+    for (int f = 0; f < buildFieldCount; f++) {
+      final boolean present = buildColumns.present(f, leaf, row);
+      buildRows.present[at * buildFieldCount + f] = present;
+      if (present) {
+        buildRows.values[at * buildFieldCount + f] = buildColumns.isString(f)
+            ? buildColumns.stringId(f, leaf, row)
+            : buildColumns.isTimestamp(f)
+                ? Math.multiplyExact(buildColumns.longValue(f, leaf, row), 1000L)
+                : buildColumns.longValue(f, leaf, row);
+      }
+    }
   }
 
   private static void readProbeRow(final MaskedColumns probeColumns, final int leaf, final int row,

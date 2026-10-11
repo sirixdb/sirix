@@ -104,19 +104,24 @@ final class RelationalIntervalTreeTest {
             tree.endingAt(start, matches::remove);
           }
           expected.clear();
-          for (int lo = 1; lo <= max; lo++) {
-            for (int hi = lo; hi <= max; hi++) {
-              if (((strict & 1) != 0
-                  ? lo < end
-                  : lo <= end)
-                  && ((strict & 2) != 0
-                      ? start < hi
-                      : start <= hi)) {
-                expected.add(lo * 64L + hi);
-              }
-            }
-          }
+          expectedRange(max, start, end, strict, expected);
           assertEquals(expected, matches, "strictness " + strict + " window " + start + "," + end);
+        }
+      }
+    }
+  }
+
+  private static void expectedRange(final int max, final int start, final int end, final int strict,
+      final LongOpenHashSet expected) {
+    for (int lo = 1; lo <= max; lo++) {
+      for (int hi = lo; hi <= max; hi++) {
+        if (((strict & 1) != 0
+            ? lo < end
+            : lo <= end)
+            && ((strict & 2) != 0
+                ? start < hi
+                : start <= hi)) {
+          expected.add(lo * 64L + hi);
         }
       }
     }

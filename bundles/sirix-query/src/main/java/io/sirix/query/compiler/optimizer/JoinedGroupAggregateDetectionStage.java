@@ -295,6 +295,11 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         }
         return true;
       }
+      return comparisonResidual(node, vars, sides, fields, ops, code);
+    }
+
+    private static boolean comparisonResidual(final AST node, final QNm[] vars, final List<Integer> sides,
+        final List<String> fields, final List<Integer> ops, final List<Integer> code) {
       if (node.getType() != XQ.ComparisonExpr || node.getChildCount() != 3) {
         return false;
       }
@@ -721,9 +726,7 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         return "post-group let: not count/sum/min/max";
       }
       AST arg = call.getChild(0);
-      final boolean distinct =
-          "count".equals(fn.getLocalName()) && unaryFunction(arg) && arg.getValue() instanceof QNm distinctFn
-              && "distinct-values".equals(distinctFn.getLocalName()) && builtin(distinctFn);
+      final boolean distinct = distinctCount(fn, arg);
       if (distinct) {
         arg = arg.getChild(0);
       }
@@ -742,12 +745,22 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
         }
         return "post-group let: argument is neither a variable nor a direct field";
       }
+      return variableAggregate(argVar, var, vars, lets, keyVars, postVars, postFuncs, postSides, postFields, distinct
+          ? "count-distinct"
+          : fn.getLocalName());
+    }
+
+    private static boolean distinctCount(final QNm fn, final AST arg) {
+      return "count".equals(fn.getLocalName()) && unaryFunction(arg) && arg.getValue() instanceof QNm distinctFn
+          && "distinct-values".equals(distinctFn.getLocalName()) && builtin(distinctFn);
+    }
+
+    private static @Nullable String variableAggregate(final QNm argVar, final QNm var, final QNm[] vars,
+        final List<SideLet> lets, final List<QNm> keyVars, final List<QNm> postVars, final List<String> postFuncs,
+        final List<Integer> postSides, final List<String> postFields, final String func) {
       if (keyVars.contains(argVar)) {
         return "post-group let: grouping variables are scalar values";
       }
-      final String func = distinct
-          ? "count-distinct"
-          : fn.getLocalName();
       if (argVar.equals(vars[0]) || argVar.equals(vars[1])) {
         if (!"count".equals(func)) {
           return "post-group let: value function over a loop var";
@@ -917,12 +930,50 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
     /** Only the served annotations consume these predicates; the generic join remains intact. */
     private static @Nullable AST rangeSource(final AST source, final List<AST> comparisons, final QNm var,
         final QNm[] loopVars, final Set<AST> consumed) {
+      final boolean composed = !arrayMembers(source);
+      final AST doc = rangeDocument(source, composed);
+      if (doc == null) {
+        return null;
+      }
+      RangeBound start = null;
+      RangeBound end = null;
+      for (final AST comparison : comparisons) {
+        final RangeBound bound = rangeBound(comparison, var);
+        if (bound != null && !(bound.limit().getType() == XQ.VariableRef
+            && (loopVars[0].equals(bound.limit().getValue()) || loopVars[1].equals(bound.limit().getValue())))) {
+          if (bound.start() && start == null) {
+            start = bound;
+          } else if (!bound.start() && end == null) {
+            end = bound;
+          }
+        }
+      }
+      if (start == null || end == null) {
+        return null;
+      }
+      final AST call = new AST(XQ.FunctionCall, ScanValidTimeIndex.SCAN_VALID_TIME_INDEX);
+      call.setProperty(ScanValidTimeIndex.DEFERRED_RANGE, true);
+      call.addChild(doc.copyTree());
+      call.addChild(start.limit().copyTree());
+      call.addChild(new AST(XQ.Str, new Str(start.field())));
+      call.addChild(new AST(XQ.Str, new Str(end.field())));
+      final int mode = rangeMode(start, end, comparisons);
+      call.addChild(new AST(XQ.Int, new Int32(mode)));
+      call.addChild(end.limit().copyTree());
+      if (composed) {
+        call.addChild(source.copyTree());
+      }
+      consumed.add(start.comparison());
+      consumed.add(end.comparison());
+      return call;
+    }
+
+    private static @Nullable AST rangeDocument(final AST source, final boolean composed) {
       final AST doc;
       AST normalized = source;
       while (normalized.getType() == XQ.ParenthesizedExpr && normalized.getChildCount() == 1) {
         normalized = normalized.getChild(0);
       }
-      final boolean composed = !arrayMembers(source);
       if (composed) {
         final IndexRoutedSourceStage.Source routed = IndexRoutedSourceStage.source(source);
         if (routed == null) {
@@ -948,29 +999,11 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
           || !("doc".equals(fn.getLocalName()) || "open".equals(fn.getLocalName()))) {
         return null;
       }
-      RangeBound start = null;
-      RangeBound end = null;
-      for (final AST comparison : comparisons) {
-        final RangeBound bound = rangeBound(comparison, var);
-        if (bound != null && !(bound.limit().getType() == XQ.VariableRef
-            && (loopVars[0].equals(bound.limit().getValue()) || loopVars[1].equals(bound.limit().getValue())))) {
-          if (bound.start() && start == null) {
-            start = bound;
-          } else if (!bound.start() && end == null) {
-            end = bound;
-          }
-        }
-      }
-      if (start == null || end == null) {
-        return null;
-      }
-      final AST call = new AST(XQ.FunctionCall, ScanValidTimeIndex.SCAN_VALID_TIME_INDEX);
-      call.setProperty(ScanValidTimeIndex.DEFERRED_RANGE, true);
-      call.addChild(doc.copyTree());
-      call.addChild(start.limit().copyTree());
-      call.addChild(new AST(XQ.Str, new Str(start.field())));
-      call.addChild(new AST(XQ.Str, new Str(end.field())));
-      final int mode = (start.strict()
+      return doc;
+    }
+
+    private static int rangeMode(final RangeBound start, final RangeBound end, final List<AST> comparisons) {
+      return (start.strict()
           ? 1
           : 0)
           | (end.strict()
@@ -991,14 +1024,6 @@ public final class JoinedGroupAggregateDetectionStage implements Stage {
           | (end.fieldLeft()
               ? 64
               : 0);
-      call.addChild(new AST(XQ.Int, new Int32(mode)));
-      call.addChild(end.limit().copyTree());
-      if (composed) {
-        call.addChild(source.copyTree());
-      }
-      consumed.add(start.comparison());
-      consumed.add(end.comparison());
-      return call;
     }
 
     private static boolean dateTimeCast(final AST node) {

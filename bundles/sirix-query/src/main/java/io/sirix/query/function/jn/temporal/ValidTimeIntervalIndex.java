@@ -6,6 +6,8 @@ import io.brackit.query.atomic.DateTime;
 import io.brackit.query.jdm.json.Array;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.index.IndexDef;
 import io.sirix.index.interval.IntervalDomain;
@@ -121,8 +123,8 @@ public final class ValidTimeIntervalIndex {
       // decline if eager bound evaluation raises an error that a false first predicate can hide.
       return null;
     }
-    if (!(upperValue instanceof DateTime upper) || upper.getTimezone() == null
-        || !(lowerValue instanceof DateTime lower) || lower.getTimezone() == null) {
+    if (!(upperValue instanceof DateTime upper) || !(lowerValue instanceof DateTime lower)
+        || !zonedBounds(upper, lower)) {
       return null;
     }
     final DateTimeToInstant converter = new DateTimeToInstant();
@@ -138,6 +140,16 @@ public final class ValidTimeIntervalIndex {
     if (!domain.isExact(lo) || !domain.isExact(hi) || lo.isAfter(hi)) {
       return null;
     }
+    return exactRangeSequence(document, config, strictStart, strictEnd, definition, reader, controller, domain, lo, hi);
+  }
+
+  private static boolean zonedBounds(final DateTime upper, final DateTime lower) {
+    return upper.getTimezone() != null && lower.getTimezone() != null;
+  }
+
+  private static Sequence exactRangeSequence(final JsonDBItem document, final ValidTimeConfig config,
+      final boolean strictStart, final boolean strictEnd, final IndexDef definition, final StorageEngineReader reader,
+      final JsonIndexController controller, final IntervalDomain domain, final Instant lo, final Instant hi) {
     final int revision = document.getTrx().getRevisionNumber();
     final long arrayKey = document.getNodeKey();
     final long lowerPoint = domain.point(lo);
@@ -154,31 +166,39 @@ public final class ValidTimeIntervalIndex {
       return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), cached);
     }
     final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, definition.getID(), domain);
+    // Exact cohort admission proved timestamp representation; membership still excludes sibling arrays.
+    final long[] matches = readEvidence(document, definition.getID(),
+        collectRangeKeys(document, tree, lowerPoint, upperPoint, strictStart, strictEnd), false).members();
+    ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
+        lowerPoint, upperPoint, mode, matches);
+    return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
+  }
+
+  private static long[] collectRangeKeys(final JsonDBItem document, final RelationalIntervalTree tree,
+      final long lowerPoint, final long upperPoint, final boolean strictStart, final boolean strictEnd) {
     final long maximum = document.getTrx().getMaxNodeKey();
-    if (maximum >= 0 && maximum <= ValidTimeRangeKeys.MAXIMUM_KEY && maximum <= Math.max(65536L, array.len() * 32L)) {
+    if (maximum >= 0 && maximum <= ValidTimeRangeKeys.MAXIMUM_KEY
+        && maximum <= Math.max(65536L, ((Array) document).len() * 32L)) {
       // At most 2 MiB, and only a compact resource domain. Sparse/large resources retain the
       // output-sized collector below. The bitmap removes ties directly and emits sorted keys.
       final ValidTimeRangeKeys keys = new ValidTimeRangeKeys((int) maximum);
-      tree.intersect(domain.point(lo), domain.point(hi), keys);
+      tree.intersect(lowerPoint, upperPoint, keys);
       if (strictStart) {
-        tree.startingAt(domain.point(hi), keys::remove);
+        tree.startingAt(upperPoint, keys::remove);
       }
       if (strictEnd) {
-        tree.endingAt(domain.point(lo), keys::remove);
+        tree.endingAt(lowerPoint, keys::remove);
       }
-      final long[] matches = readEvidence(document, definition.getID(), keys.sortedKeys(), false).members();
-      ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
-          lowerPoint, upperPoint, mode, matches);
-      return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
+      return keys.sortedKeys();
     }
     final LongArrayList keys = new LongArrayList();
-    tree.intersect(domain.point(lo), domain.point(hi), keys::add);
+    tree.intersect(lowerPoint, upperPoint, keys::add);
     final LongArrayList ties = new LongArrayList(0);
     if (strictStart) {
-      tree.startingAt(domain.point(hi), ties::add);
+      tree.startingAt(upperPoint, ties::add);
     }
     if (strictEnd) {
-      tree.endingAt(domain.point(lo), ties::add);
+      tree.endingAt(lowerPoint, ties::add);
     }
     final long[] sorted = keys.toLongArray();
     final long[] excluded = ties.toLongArray();
@@ -196,14 +216,9 @@ public final class ValidTimeIntervalIndex {
       }
       previous = key;
     }
-    // Exact cohort admission already proved every member's timestamp representation. Only
-    // membership remains: the same interval index can also contain nested or sibling arrays.
-    final long[] matches = readEvidence(document, definition.getID(), count == sorted.length
+    return count == sorted.length
         ? sorted
-        : Arrays.copyOf(sorted, count), false).members();
-    ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
-        lowerPoint, upperPoint, mode, matches);
-    return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
+        : Arrays.copyOf(sorted, count);
   }
 
   private static void sortRangeKeys(final long[] keys) {

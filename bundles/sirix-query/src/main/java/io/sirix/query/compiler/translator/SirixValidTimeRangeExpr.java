@@ -82,6 +82,10 @@ final class SirixValidTimeRangeExpr implements Expr {
     if (range.revision() != base.revision()) {
       return null;
     }
+    return intersect(base, range);
+  }
+
+  private static RoutedKeys intersect(final RoutedKeys base, final RoutedKeys range) {
     final long[] left = base.keys();
     final long[] right = range.keys();
     final long[] intersection = new long[Math.min(left.length, right.length)];

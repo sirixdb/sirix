@@ -9418,39 +9418,58 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] cols = new int[fields.length];
       final byte[] kinds = new byte[fields.length];
-      for (int i = 0; i < fields.length; i++) {
-        final int col = handle.columnOf(fields[i]);
-        if (col < 0 || !store.columnSliceable(col)
-            || !(handle.timestampColumnPureUtc(col, fetcher) || handle.columnSparseClean(col, fetcher, materializer))) {
-          return maskedColumnsDecline("field " + fields[i] + " absent, unsliceable or null-bearing (col " + col + ")");
-        }
-        final byte kind = handle.columnKindOf(col);
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          if (!handle.numericColumnIsIntegral(col, fetcher)) {
-            return maskedColumnsDecline("field " + fields[i] + " is not integral");
-          }
-        } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            && !handle.timestampColumnPureUtc(col, fetcher)) {
-          return maskedColumnsDecline("field " + fields[i] + " has kind " + kind);
-        }
-        cols[i] = col;
-        kinds[i] = kind;
+      final String invalid = maskedColumnLayout(handle, store, fetcher, materializer, fields, cols, kinds);
+      if (invalid != null) {
+        return maskedColumnsDecline(invalid);
       }
-      if (wtx == null && rowKeys != null) {
-        final MaskedColumns cached = NumericMaskedColumnCache.get(store, fields, rowKeys);
-        if (cached != null) {
-          return cached;
-        }
-      }
-      final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
-      if (result != null && wtx == null && rowKeys != null) {
-        NumericMaskedColumnCache.put(store, fields, rowKeys, result);
-      }
-      return result;
+      return readOrCacheMaskedColumns(store, fetcher, rowKeys, fields, cols, kinds);
     } catch (final RuntimeException e) {
       failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
       return null;
     }
+  }
+
+  private @Nullable MaskedColumns readOrCacheMaskedColumns(final ProjectionColumnStore store,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final String[] fields,
+      final int[] cols, final byte[] kinds) {
+    final long @Nullable [] cacheKeys = wtx == null
+        ? rowKeys
+        : null;
+    if (cacheKeys != null) {
+      final MaskedColumns cached = NumericMaskedColumnCache.get(store, fields, cacheKeys);
+      if (cached != null) {
+        return cached;
+      }
+    }
+    final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
+    if (result != null && cacheKeys != null) {
+      NumericMaskedColumnCache.put(store, fields, cacheKeys, result);
+    }
+    return result;
+  }
+
+  private static @Nullable String maskedColumnLayout(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore store, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final Supplier<List<byte[]>> materializer, final String[] fields, final int[] cols, final byte[] kinds) {
+    for (int i = 0; i < fields.length; i++) {
+      final int col = handle.columnOf(fields[i]);
+      if (col < 0 || !store.columnSliceable(col)
+          || !(handle.timestampColumnPureUtc(col, fetcher) || handle.columnSparseClean(col, fetcher, materializer))) {
+        return "field " + fields[i] + " absent, unsliceable or null-bearing (col " + col + ")";
+      }
+      final byte kind = handle.columnKindOf(col);
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        if (!handle.numericColumnIsIntegral(col, fetcher)) {
+          return "field " + fields[i] + " is not integral";
+        }
+      } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          && !handle.timestampColumnPureUtc(col, fetcher)) {
+        return "field " + fields[i] + " has kind " + kind;
+      }
+      cols[i] = col;
+      kinds[i] = kind;
+    }
+    return null;
   }
 
   /**
