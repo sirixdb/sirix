@@ -236,12 +236,14 @@ final class ChangeLogWorkBudgetTest {
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession("data");
           JsonNodeTrx writer = session.beginNodeTrx()) {
-        final StringBuilder json = new StringBuilder(rows * 20).append('[');
+        final StringBuilder json = new StringBuilder(rows * 100).append('[');
         for (int row = 0; row < rows; row++) {
           if (row != 0) {
             json.append(',');
           }
-          json.append("{\"g\":1,\"n\":").append(row).append('}');
+          json.append("{\"g\":1,\"n\":")
+              .append(row)
+              .append(",\"lo\":\"1970-01-01T00:00:00.001Z\",\"hi\":\"1970-01-01T00:00:00.002Z\"}");
         }
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append(']').toString()),
             JsonNodeTrx.Commit.NO);

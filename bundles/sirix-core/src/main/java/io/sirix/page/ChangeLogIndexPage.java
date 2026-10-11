@@ -91,45 +91,6 @@ public final class ChangeLogIndexPage extends AbstractForwardingPage implements 
     }
   }
 
-  /**
-   * Determine whether a physical change log tree id has ever been initialized without creating a
-   * structural reference.
-   *
-   * @param index the physical index number
-   * @return {@code true} if allocator metadata or a non-virgin root reserves the id
-   */
-  public boolean isIndexInitialized(final int index) {
-    checkIndex(index);
-    return isIndexInitializedUnchecked(index);
-  }
-
-  /** Return the first physical change log tree id that has never been initialized. */
-  public int nextUnallocatedIndex() {
-    return nextUnallocatedIndex(0);
-  }
-
-  /**
-   * Return the first uninitialized physical change log tree id at or after {@code fromInclusive}.
-   *
-   * <p>
-   * The scan is read-only: neither sparse nor full delegates gain placeholder references.
-   * </p>
-   *
-   * @param fromInclusive first physical id to inspect
-   * @return the first uninitialized id
-   * @throws IllegalStateException if the remaining reference space is exhausted
-   */
-  public int nextUnallocatedIndex(final int fromInclusive) {
-    checkIndex(fromInclusive);
-    for (int index = fromInclusive; index < Constants.INP_REFERENCE_COUNT; index++) {
-      if (!isIndexInitializedUnchecked(index)) {
-        return index;
-      }
-    }
-    throw new IllegalStateException("Temporal aggregate index reference space exhausted at or after " + fromInclusive
-        + ": " + Constants.INP_REFERENCE_COUNT + " physical ids available");
-  }
-
   public long getMaxHotPageKey(final int indexNo) {
     checkIndex(indexNo);
     return maxHotPageKeys.get(indexNo);
@@ -148,14 +109,6 @@ public final class ChangeLogIndexPage extends AbstractForwardingPage implements 
     final long newKey = Math.incrementExact(maxHotPageKeys.get(indexNo));
     maxHotPageKeys.put(indexNo, newKey);
     return newKey;
-  }
-
-  private boolean isIndexInitializedUnchecked(final int index) {
-    if (maxHotPageKeys.containsKey(index)) {
-      return true;
-    }
-    final PageReference reference = getIndexReference(index);
-    return reference != null && !reference.isVirginStructuralPlaceholder();
   }
 
   /** Return an existing change log-tree root without creating a structural reference. */

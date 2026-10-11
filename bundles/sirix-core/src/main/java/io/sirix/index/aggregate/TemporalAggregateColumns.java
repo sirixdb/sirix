@@ -60,18 +60,16 @@ final class TemporalAggregateColumns {
 
   @Nullable
   Instant endpoint(final ProjectionIndexRowGroupPage page, final int column, final int row) {
+    if (!present(page, column, row)) {
+      return null;
+    }
     if (page.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP) {
       if (!page.columnPureUtcTimestamp(column)) {
         throw new Unservable();
       }
-      return present(page, column, row)
-          ? Instant.ofEpochSecond(page.numericColumn(column)[row])
-          : null;
+      return Instant.ofEpochSecond(page.numericColumn(column)[row]);
     }
-    final String text = string(page, column, row);
-    return text == null
-        ? null
-        : Instant.parse(text);
+    return Instant.parse(Objects.requireNonNull(string(page, column, row)));
   }
 
   byte[] group(final ProjectionIndexRowGroupPage page, final int row, final List<Integer> columns) {

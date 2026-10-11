@@ -160,6 +160,9 @@ public final class TemporalAggregateIndexes {
     if (!row.object) {
       return Row.UNSUPPORTED;
     }
+    if (!row.present(fromColumn) && !row.present(toColumn)) {
+      return Row.EMPTY;
+    }
     try {
       final long from = endpoint(row, kinds, fromColumn, false, instants);
       final long to = endpoint(row, kinds, toColumn, true, instants);
@@ -225,14 +228,14 @@ public final class TemporalAggregateIndexes {
 
   private static long endpoint(final ChangeLogSlab.Row row, final byte[] kinds, final int column, final boolean upper,
       final Map<String, Long> instants) {
+    if (!row.present(column)) {
+      return upper
+          ? DOMAIN.maxValue() + 1
+          : DOMAIN.lowerBound(null);
+    }
     if (kinds[column] == ChangeLogSlab.TIMESTAMP) {
       if ((row.flags[column] & (ChangeLogSlab.NON_DOUBLE | ChangeLogSlab.NON_INTEGRAL)) != 0) {
         throw new UnsupportedCell();
-      }
-      if (!row.present(column)) {
-        return upper
-            ? DOMAIN.maxValue() + 1
-            : DOMAIN.lowerBound(null);
       }
       final Instant instant = Instant.ofEpochSecond(row.numbers[column]);
       if (!DOMAIN.isExact(instant)) {
@@ -241,11 +244,6 @@ public final class TemporalAggregateIndexes {
       return DOMAIN.point(instant);
     }
     requireSupported(row, column);
-    if (!row.present(column)) {
-      return upper
-          ? DOMAIN.maxValue() + 1
-          : DOMAIN.lowerBound(null);
-    }
     if (kinds[column] != ChangeLogSlab.STRING) {
       throw new UnsupportedCell();
     }
@@ -406,6 +404,10 @@ public final class TemporalAggregateIndexes {
       if ((!directObjectFields || !hasField)
           && reader.getRecord(record, IndexType.DOCUMENT, -1).getKind() != NodeKind.OBJECT) {
         return Row.UNSUPPORTED;
+      }
+      if (!TemporalAggregateColumns.present(original, fromColumn, offset)
+          && !TemporalAggregateColumns.present(original, toColumn, offset)) {
+        return Row.EMPTY;
       }
       ProjectionIndexRowGroupPage page = original;
       int row = offset;
