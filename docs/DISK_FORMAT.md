@@ -680,9 +680,12 @@ These persisted projection structures were added after the previous release:
 - **Sorted-view slots**, only when `projectionSort` is declared: data chunks at `2^46 + leafId`,
   the directory header at `2^46 + 2^32` followed by its nodes, group summaries at
   `2^46 + 2^33 + leafId`, and leaf-bounds records (16 chunks each) from `2^46 + 3·2^32`.
-  Each data chunk and summary is packed to a 384-byte target with a 512-byte inline cap.
-  An individual oversized tuple remains a single generic referenced blob. The overflow-page
-  sorted-leaf layout is no longer written or supported as a separate layout.
+  Encoded sorted-view chunks target 6144 bytes with an 8192-byte cap, independent of the
+  512-byte inline payload limit. Ordinary data chunks, summaries and directory nodes above
+  that inline limit are stored as referenced side pages (generic `OverflowPage` blobs);
+  payloads at or below it remain inline. An individual oversized tuple remains a single
+  generic referenced blob. The former overflow-page sorted-leaf layout is no longer written
+  or supported as a separate layout; encoded chunks still use generic referenced blob storage.
 - **Encoded sorted data**: `PSL1` scheme 2 stores an ordered dictionary of leading key fields,
   byte-width unsigned deltas for the trailing long and record id, and up to four covering
   payload words. Scheme 1 stores prefix-compressed rows for other key/payload shapes and
@@ -690,8 +693,10 @@ These persisted projection structures were added after the previous release:
 - **Sorted directory header version 5** is the only supported version. It records the key layout,
   chunk count/high-water ids, unencodable-row count and exact missing-aggregate count (or `-1`
   for a layout that does not aggregate its last field). Bounded nodes store child ids and fences;
-  when two fences cannot fit inline, stable separator records from `2^46 + 4·2^32` ensure
-  tree fanout. Only an individual oversized separator spills to a generic referenced blob.
+  when two fences cannot fit within the 8192-byte encoded-node cap, stable separator records
+  from `2^46 + 4·2^32` ensure tree fanout. Directory nodes and individual separator records
+  use generic referenced `OverflowPage` blobs whenever their payloads exceed the 512-byte
+  inline limit, including ordinary directory nodes within the encoded-node cap.
 - **Sorted bounds version 2** is the only supported version. A 272-byte record covers 16 chunk
   ids, with valid-extrema bits and exact single-group proof bits. A proven chunk can use the
   directory's group key plus the bounds' extrema without fetching a separate summary.
