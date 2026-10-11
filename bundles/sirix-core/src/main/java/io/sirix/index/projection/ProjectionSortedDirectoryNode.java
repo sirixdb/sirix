@@ -17,7 +17,14 @@ import java.util.Objects;
  * reader reconstructs a combined PSL1 leaf from these key records.
  */
 final class ProjectionSortedDirectoryNode {
-  static final long SEPARATOR_SLOT_BASE = ProjectionSortedLeafStore.LEAF_SLOT_BASE + (4L << 32);
+  /**
+   * Separator key records live in their own {@code 1 << 32} family above every other sorted-view
+   * family (data leaves {@code +0}, directory header/nodes {@code +1}, group summaries {@code +2},
+   * leaf bounds {@code +3}, numeric proofs {@code +4}, group SMA nodes {@code +5}). The family at
+   * {@code +4} is {@link ProjectionNumericProofs#SLOT_BASE}: a separator id must never alias a
+   * column-0 numeric-proof chunk.
+   */
+  static final long SEPARATOR_SLOT_BASE = ProjectionSortedLeafStore.LEAF_SLOT_BASE + (6L << 32);
   private final ProjectionSortedLeaf leaf;
   private final byte @Nullable [][] separatorKeys;
 

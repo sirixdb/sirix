@@ -4784,7 +4784,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(intent, "intent");
     final boolean sortedSlot = slotKey >= ProjectionSortedLeafStore.LEAF_SLOT_BASE
-        && slotKey < ProjectionSortedGroupSma.HEADER_SLOT + (1L << 32);
+        && slotKey < ProjectionSortedDirectoryNode.SEPARATOR_SLOT_BASE + (1L << 32);
     final ProjectionBlobCache cache = sortedSlot && !reader.hasTrxIntentLog()
         ? reader.getBufferManager().getProjectionBlobCache()
         : ProjectionBlobCache.disabled();
