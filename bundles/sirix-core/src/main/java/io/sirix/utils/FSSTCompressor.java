@@ -30,6 +30,7 @@ package io.sirix.utils;
 
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1486,7 +1487,7 @@ public final class FSSTCompressor {
    * @throws NullPointerException if encoded is null
    * @throws IllegalStateException if data is corrupted
    */
-  public static byte[] decode(final byte[] encoded, final byte[] symbolTable) {
+  public static byte[] decode(final byte[] encoded, final byte @Nullable [] symbolTable) {
     Objects.requireNonNull(encoded, "encoded must not be null");
 
     if (encoded.length == 0) {

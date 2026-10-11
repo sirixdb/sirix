@@ -25,8 +25,8 @@ final class KeyValueLeafPageSlotInstallationTest {
   @MethodSource("representations")
   void descriptorRetainsCompanionAndInlineReplacementRemovesIt(final NodeKind kind, final boolean nativeInput,
       final boolean deweyIDs) {
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("slot-installation")
-        .useDeweyIDs(deweyIDs).build();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("slot-installation").useDeweyIDs(deweyIDs).build();
     try (final Arena arena = Arena.ofConfined();
         final KeyValueLeafPage page = new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, null, null, false)) {
       final int slot = 7;
@@ -63,7 +63,7 @@ final class KeyValueLeafPageSlotInstallationTest {
 
   private static Stream<Arguments> representations() {
     return Stream.of(NodeKind.OBJECT_NAMED_STRING, NodeKind.OBJECT_NAMED_NUMBER)
-        .flatMap(kind -> Stream.of(Arguments.of(kind, false, false), Arguments.of(kind, false, true),
-            Arguments.of(kind, true, false), Arguments.of(kind, true, true)));
+                 .flatMap(kind -> Stream.of(Arguments.of(kind, false, false), Arguments.of(kind, false, true),
+                     Arguments.of(kind, true, false), Arguments.of(kind, true, true)));
   }
 }

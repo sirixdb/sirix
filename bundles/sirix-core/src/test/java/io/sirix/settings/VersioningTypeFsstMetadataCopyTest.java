@@ -67,8 +67,8 @@ final class VersioningTypeFsstMetadataCopyTest {
   @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
   void multiFragmentReadDecodesInlineStringsWithMetadata(final VersioningType versioningType) {
     final NodeSerializerImpl serializer = spy(new NodeSerializerImpl());
-    final ResourceConfiguration config = new ResourceConfiguration.Builder("inline-fsst-merge")
-        .useDeweyIDs(true).persistenter(serializer).build();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("inline-fsst-merge").useDeweyIDs(true).persistenter(serializer).build();
     final byte[] table = symbolTable(DENSE_TOKEN);
     final byte[] rawValue = (DENSE_TOKEN.repeat(4) + "inline").getBytes(StandardCharsets.UTF_8);
     final byte[] compressedValue = FSSTCompressor.encode(rawValue, table);
@@ -83,8 +83,10 @@ final class VersioningTypeFsstMetadataCopyTest {
     KeyValueLeafPage combined = null;
     try {
       newest.setSlotWithNodeKind(MemorySegment.ofArray(booleanSlot(0, true)), 0, NodeKind.BOOLEAN_VALUE.getId());
-      older.setSlotWithNodeKind(MemorySegment.ofArray(objectNamedStringSlot(TARGET_SLOT, compressedValue, true,
-          NEWER_NAME_KEY, NEWER_PATH_NODE_KEY)), TARGET_SLOT, NodeKind.OBJECT_NAMED_STRING.getId());
+      older.setSlotWithNodeKind(
+          MemorySegment.ofArray(
+              objectNamedStringSlot(TARGET_SLOT, compressedValue, true, NEWER_NAME_KEY, NEWER_PATH_NODE_KEY)),
+          TARGET_SLOT, NodeKind.OBJECT_NAMED_STRING.getId());
       older.setSlotWithNodeKind(MemorySegment.ofArray(stringSlot(stringSlot, compressedValue, true)), stringSlot,
           NodeKind.STRING_VALUE.getId());
       older.setSlot(legacyStringSlot(config, legacySlot, compressedValue, true), legacySlot);
@@ -103,13 +105,14 @@ final class VersioningTypeFsstMetadataCopyTest {
       when(reader.getRevisionNumber()).thenReturn(3);
       combined = versioningType.combineRecordPages(List.of(newest, older), 3, reader);
 
-      verify(serializer).deserialize(isA(ByteArrayBytesIn.class), eq(recordKey(legacySlot)),
-          aryEq(NEWER_DEWEY_ID), same(config));
+      verify(serializer).deserialize(isA(ByteArrayBytesIn.class), eq(recordKey(legacySlot)), aryEq(NEWER_DEWEY_ID),
+          same(config));
       assertFalse(combined.isFusedObjectNamedStringValueCompressed(TARGET_SLOT));
       assertArrayEquals(rawValue, combined.readFusedObjectNamedStringStoredBytes(TARGET_SLOT));
       assertArrayEquals(objectNamedStringSlot(TARGET_SLOT, rawValue, false, NEWER_NAME_KEY, NEWER_PATH_NODE_KEY),
           combined.getSlot(TARGET_SLOT).toArray(ValueLayout.JAVA_BYTE));
-      assertArrayEquals(stringSlot(stringSlot, rawValue, false), combined.getSlot(stringSlot).toArray(ValueLayout.JAVA_BYTE));
+      assertArrayEquals(stringSlot(stringSlot, rawValue, false),
+          combined.getSlot(stringSlot).toArray(ValueLayout.JAVA_BYTE));
       assertArrayEquals(legacyStringSlot(config, legacySlot, rawValue, false),
           combined.getSlot(legacySlot).toArray(ValueLayout.JAVA_BYTE));
       assertEquals(NEWER_NAME_KEY, combined.getObjectKeyNameKeyFromSlot(TARGET_SLOT));
@@ -281,8 +284,8 @@ final class VersioningTypeFsstMetadataCopyTest {
 
   private static byte[] legacyStringSlot(final ResourceConfiguration config, final int slot, final byte[] value,
       final boolean compressed) {
-    final StringNode record = new StringNode(recordKey(slot), 0L, 0, 0, 0L, 0L, 0L, value,
-        config.nodeHashFunction, NEWER_DEWEY_ID, compressed, null);
+    final StringNode record = new StringNode(recordKey(slot), 0L, 0, 0, 0L, 0L, 0L, value, config.nodeHashFunction,
+        NEWER_DEWEY_ID, compressed, null);
     try (final MemorySegmentBytesOut output = new MemorySegmentBytesOut(256)) {
       config.recordPersister.serialize(output, record, config);
       return output.getDestination().toArray(ValueLayout.JAVA_BYTE);

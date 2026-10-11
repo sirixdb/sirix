@@ -574,8 +574,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final @Nullable MemorySegment slotMemory,
+      final @Nullable MemorySegment deweyIdMemory) {
     this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, true);
   }
 
@@ -589,8 +589,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *        by close()
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final @Nullable MemorySegment slotMemory,
+      final @Nullable MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
     this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, externallyAllocatedMemory,
         null, null);
   }
@@ -600,7 +600,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Both additional arguments are {@code null} on every production path.
    */
   KeyValueLeafPage(final long recordPageKey, final IndexType indexType, final ResourceConfiguration resourceConfig,
-      final int revisionNumber, final MemorySegment slotMemory, final MemorySegment deweyIdMemory,
+      final int revisionNumber, final @Nullable MemorySegment slotMemory, final @Nullable MemorySegment deweyIdMemory,
       final boolean externallyAllocatedMemory, final @Nullable MemorySegmentAllocator allocatorForTesting,
       final @Nullable Runnable afterFrameAcquireForTesting) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
@@ -723,8 +723,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final int lastSlotIndex) {
+      final RecordSerializer recordPersister, final Map<Long, PageReference> references,
+      final @Nullable MemorySegment slotMemory, final @Nullable MemorySegment deweyIdMemory, final int lastSlotIndex) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
@@ -5297,7 +5297,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
   }
 
-  private void requireFsstTableForOverflow(final byte[] symbolTable, final long nodeKey) {
+  private void requireFsstTableForOverflow(final byte @Nullable [] symbolTable, final long nodeKey) {
     if (symbolTable == null || symbolTable.length == 0) {
       throw new IllegalStateException(
           "Compressed record " + nodeKey + " cannot enter OverflowPage without its FSST symbol table");
