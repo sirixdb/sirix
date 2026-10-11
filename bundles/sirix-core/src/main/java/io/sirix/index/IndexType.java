@@ -105,11 +105,10 @@ public enum IndexType {
   }
 
   /**
-   * Direct id-indexed lookup table. IDs are dense [0..9] today; if a sparser id space is ever
-   * introduced, this needs to grow OR fall back to a switch. Replaces a
-   * {@code HashMap<Byte, IndexType>} that was autoboxing the {@code byte} key on every call
-   * ({@code IndexType.getType} showed at ~3% of CPU under Temurin C2 in the 100M-record scan
-   * profile).
+   * Direct id-indexed lookup table sized from the enum's maximum id; unassigned slots are rejected by
+   * {@link #getType(byte)}. Replaces a {@code HashMap<Byte, IndexType>} that was autoboxing the
+   * {@code byte} key on every call ({@code IndexType.getType} showed at ~3% of CPU under Temurin C2
+   * in the 100M-record scan profile).
    */
   private static final IndexType[] BY_ID;
 

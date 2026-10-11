@@ -478,7 +478,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Protected constructor.
    *
    * @param storageEngineWriter the storage engine writer
-   * @param indexType the HOT index type (PATH, CAS, NAME, PROJECTION, or VALIDTIME)
+   * @param indexType the HOT index type accepted by {@link #createPageKeyAllocator}
    * @param indexNumber the index number
    */
   protected AbstractHOTIndexWriter(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
@@ -732,8 +732,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * <p>
    * The returned {@link LongSupplier} allocates monotonically increasing page keys that are persisted
-   * across transactions via the owning Path/CAS/Name/Projection/ValidTime container page. The
-   * allocator therefore never restarts at a hard-coded transaction-local value.
+   * across transactions via the owning secondary-index container page. The allocator therefore never
+   * restarts at a hard-coded transaction-local value.
    * </p>
    *
    * @param writer the storage engine writer
@@ -1907,11 +1907,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
-  /**
-   * Initialize the HOT index tree structure for VALIDTIME interval index.
-   *
-   * @throws SirixIOException if initialization fails
-   */
   protected void initializeTemporalAggregateIndex() {
     try {
       final TemporalAggregateIndexPage vtPage =
