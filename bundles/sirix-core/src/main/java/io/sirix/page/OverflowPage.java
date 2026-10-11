@@ -13,7 +13,12 @@ import java.util.List;
 /**
  * OverflowPage: opaque immutable bytes hung off a leaf's side map by a bare durable offset key —
  * heap-backed for ordinary pages, or a bounded native-reservoir view while a bulk side page is
- * pending. It is the working template for reference-bearing values (#1076). Two producers:
+ * pending. Byte-array consumers ({@link #getDataBytes()}) get the page's own array with no copy;
+ * segment consumers ({@link #getData()}) get a native mirror of it, made once per page, so that
+ * record deserialization never runs on a heap segment (a heap receiver there would feed the
+ * process-wide receiver profile of the segment accessors every page shares, see
+ * {@link PageLayout#getBitmapWord(byte[], int)}). It is the working template for reference-bearing
+ * values (#1076). Two producers:
  *
  * <ul>
  * <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
@@ -39,6 +44,13 @@ public final class OverflowPage implements Page {
    * Heap data to be stored, or {@code null} for a view into a transaction-owned native reservoir.
    */
   private final byte @Nullable [] heapData;
+
+  /**
+   * Read-only native mirror of {@link #heapData}, made on the first {@link #getData()} and kept for
+   * the page's lifetime (GC-owned, see {@link GcOwnedNativeMemory}). Benignly racy: two threads may
+   * each mirror the array once, and both mirrors are equivalent.
+   */
+  private volatile @Nullable MemorySegment nativeMirror;
 
   /** Shared, read-only native reservoir for a staged immutable page. */
   private final @Nullable MemorySegment nativeData;
@@ -136,16 +148,32 @@ public final class OverflowPage implements Page {
   }
 
   /**
-   * Get the data as a MemorySegment (for compatibility with existing code). Returns a heap segment
-   * backed by the byte array.
+   * The payload as a read-only native segment.
+   *
+   * <p>
+   * A heap-backed page mirrors its array onto GC-owned native memory once, on the first call, and
+   * answers with that mirror from then on, so no reader ever deserializes from a heap segment and a
+   * cached page pays the copy once. A reservoir view is copied on every call: a view into a reusable
+   * reservoir must not leak to callers; the page serializer uses {@link #writeDataTo}, which keeps
+   * the zero-allocation native-to-native path.
+   * </p>
    */
   public MemorySegment getData() {
-    if (heapData != null) {
-      return MemorySegment.ofArray(heapData);
+    final MemorySegment mirror = nativeMirror;
+    if (mirror != null) {
+      return mirror;
     }
-    // Do not leak a view into a reusable reservoir to compatibility callers. The page serializer
-    // uses writeDataTo(), which retains the zero-allocation native-to-native path.
-    return MemorySegment.ofArray(getDataBytes());
+    if (heapData != null) {
+      final MemorySegment created = GcOwnedNativeMemory.allocate(dataLength);
+      MemorySegment.copy(heapData, 0, created, ValueLayout.JAVA_BYTE, 0L, dataLength);
+      final MemorySegment view = created.asReadOnly();
+      nativeMirror = view;
+      return view;
+    }
+    ensureNativeViewOpen();
+    final MemorySegment copy = GcOwnedNativeMemory.allocate(dataLength);
+    MemorySegment.copy(nativeData, nativeOffset, copy, 0L, dataLength);
+    return copy.asReadOnly();
   }
 
   /**
@@ -223,7 +251,9 @@ public final class OverflowPage implements Page {
    */
   MemorySegment payloadSegmentForSerializer() {
     if (heapData != null) {
-      return MemorySegment.ofArray(heapData);
+      // The codec election reads the payload through segment accessors; give it the native mirror
+      // rather than a heap view of the array (one copy per compressible page, read-only afterwards).
+      return getData();
     }
     ensureNativeViewOpen();
     return nativeData;

@@ -28,11 +28,11 @@ import java.util.function.Function;
  */
 public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage> {
   private final ShardedPageCache<HOTLeafPage> nativeImages;
-  private final ShardedPageCache<HOTLeafPage> heapImages;
+  private final ShardedPageCache<HOTLeafPage> compactImages;
 
   public HOTFragmentCache(final long nativeMaxWeightBytes, final long heapMaxWeightBytes) {
     nativeImages = new ShardedPageCache<>(nativeMaxWeightBytes);
-    heapImages = new ShardedPageCache<>(heapMaxWeightBytes);
+    compactImages = new ShardedPageCache<>(heapMaxWeightBytes);
   }
 
   /** The allocator-frame half, bounded by the off-heap-derived fragment budget. */
@@ -41,20 +41,27 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   /** The compact-decode half, bounded by the retained-heap ceiling. */
-  public ShardedPageCache<HOTLeafPage> heapImages() {
-    return heapImages;
+  /**
+   * The images allocator pressure cannot reclaim: compact decoded point-lookup fragments (GC-owned
+   * packed bytes, see HOTLeafPage#isCompactImage) and any heap-resident image. This half keeps its
+   * own budget and sweeper, as the retained-heap half it used to be.
+   */
+  public ShardedPageCache<HOTLeafPage> compactImages() {
+    return compactImages;
   }
 
   private ShardedPageCache<HOTLeafPage> cacheFor(final HOTLeafPage page) {
-    return page.slots().isNative()
-        ? nativeImages
-        : heapImages;
+    // The compact half holds what allocator pressure cannot reclaim: a compact decoded image (native
+    // memory it owns outright, see HOTLeafPage#isCompactImage) and any heap-resident image.
+    return page.isCompactImage() || !page.slots().isNative()
+        ? compactImages
+        : nativeImages;
   }
 
   @Override
   public @Nullable HOTLeafPage getAndGuard(final PageReference key) {
-    // Heap images first: they answer the requested-slot reads, which is the latency-sensitive path.
-    final HOTLeafPage compact = heapImages.getAndGuard(key);
+    // Compact images first: they answer the requested-slot reads, which is the latency-sensitive path.
+    final HOTLeafPage compact = compactImages.getAndGuard(key);
     return compact != null
         ? compact
         : nativeImages.getAndGuard(key);
@@ -79,7 +86,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
 
   @Override
   public @Nullable HOTLeafPage get(final PageReference key) {
-    final HOTLeafPage compact = heapImages.get(key);
+    final HOTLeafPage compact = compactImages.get(key);
     return compact != null
         ? compact
         : nativeImages.get(key);
@@ -121,7 +128,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
     HOTLeafPage resident = null;
     Throwable failure = null;
     try {
-      compact = heapImages.removeAndGet(key);
+      compact = compactImages.removeAndGet(key);
     } catch (final RuntimeException | Error e) {
       failure = e;
     }
@@ -163,7 +170,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
     // keys from here and go back through remove/removeAndGet, which route by residency.
     final ConcurrentMap<PageReference, HOTLeafPage> union = new ConcurrentHashMap<>();
     union.putAll(nativeImages.asMap());
-    union.putAll(heapImages.asMap());
+    union.putAll(compactImages.asMap());
     return union;
   }
 
@@ -171,7 +178,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   public void clear() {
     Throwable failure = null;
     try {
-      heapImages.clear();
+      compactImages.clear();
     } catch (final RuntimeException | Error e) {
       failure = e;
     }
@@ -194,19 +201,19 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   public long getCurrentWeightBytes() {
-    return nativeImages.getCurrentWeightBytes() + heapImages.getCurrentWeightBytes();
+    return nativeImages.getCurrentWeightBytes() + compactImages.getCurrentWeightBytes();
   }
 
   public long getMaxWeightBytes() {
-    return nativeImages.getMaxWeightBytes() + heapImages.getMaxWeightBytes();
+    return nativeImages.getMaxWeightBytes() + compactImages.getMaxWeightBytes();
   }
 
   public long size() {
-    return nativeImages.size() + heapImages.size();
+    return nativeImages.size() + compactImages.size();
   }
 
   void evictUnderPressure() {
-    // Allocator pressure concerns the native half only; the heap half holds no frame to release.
+    // Allocator pressure concerns the resident half only; a compact image holds no frame to release.
     nativeImages.evictUnderPressure();
   }
 }

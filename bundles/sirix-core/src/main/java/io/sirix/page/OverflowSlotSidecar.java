@@ -4,6 +4,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.settings.Constants;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 
 /**
@@ -140,21 +141,46 @@ final class OverflowSlotSidecar implements AutoCloseable {
    * Copy an image to unpublished native storage and return an opaque token for {@link #publish}.
    */
   long prepare(final int kind, final MemorySegment image, final int length) {
-    requireOpen();
-    if (kind < 0 || kind > 0xFF) {
-      throw new IllegalArgumentException("kind out of unsigned-byte range: " + kind);
-    }
     if (image == null) {
       throw new NullPointerException("image");
     }
-    if (length <= 0 || length > MAX_IMAGE_BYTES || length > image.byteSize()) {
-      throw new IllegalArgumentException("side-slot image length must be 1.." + MAX_IMAGE_BYTES + ": " + length);
-    }
-
+    checkPrepare(kind, length, image.byteSize());
     ensureAppendCapacity(length);
     final int chunkIndex = chunkCount - 1;
     final int offset = chunkUsed[chunkIndex];
     MemorySegment.copy(image, 0L, chunks[chunkIndex], offset, length);
+    return publishPrepared(kind, chunkIndex, offset, length);
+  }
+
+  /**
+   * As {@link #prepare(int, MemorySegment, int)} for an image held in a byte array: the decoder's
+   * read scratch stays an array and enters the native chunk through the array copy overload, so no
+   * heap segment travels the copy path shared with native page memory.
+   */
+  long prepare(final int kind, final byte[] image, final int length) {
+    if (image == null) {
+      throw new NullPointerException("image");
+    }
+    checkPrepare(kind, length, image.length);
+    ensureAppendCapacity(length);
+    final int chunkIndex = chunkCount - 1;
+    final int offset = chunkUsed[chunkIndex];
+    MemorySegment.copy(image, 0, chunks[chunkIndex], ValueLayout.JAVA_BYTE, offset, length);
+    return publishPrepared(kind, chunkIndex, offset, length);
+  }
+
+  private void checkPrepare(final int kind, final int length, final long available) {
+    requireOpen();
+    if (kind < 0 || kind > 0xFF) {
+      throw new IllegalArgumentException("kind out of unsigned-byte range: " + kind);
+    }
+    if (length <= 0 || length > MAX_IMAGE_BYTES || length > available) {
+      throw new IllegalArgumentException("side-slot image length must be 1.." + MAX_IMAGE_BYTES + ": " + length);
+    }
+  }
+
+  /** Record a copied image as the pending prepare and hand out its token. */
+  private long publishPrepared(final int kind, final int chunkIndex, final int offset, final int length) {
     chunkUsed[chunkIndex] = offset + length;
     // Until publish claims the bytes they are ordinary append garbage. This also makes an abandoned
     // prepare token harmless and eligible for the next compaction.

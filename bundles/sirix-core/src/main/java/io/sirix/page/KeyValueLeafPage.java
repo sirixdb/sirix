@@ -319,11 +319,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Reused cold-path workspace for constructing one bounded side-slot image without young-gen churn.
    */
   private static final ThreadLocal<MemorySegment> SIDE_SLOT_IMAGE_SCRATCH =
-      ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[OverflowSlotSidecar.MAX_IMAGE_BYTES]));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(OverflowSlotSidecar.MAX_IMAGE_BYTES));
 
   /** Maximum old flyweight image plus DeltaVarIntCodec's documented nine-byte field growth. */
   private static final ThreadLocal<MemorySegment> RESIZE_OVERFLOW_SCRATCH =
-      ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE + 9]));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(PageConstants.MAX_RECORD_SIZE + 9));
 
   /**
    * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
@@ -1672,7 +1672,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final byte[] deweyIdBytes;
     if (areDeweyIDsStored && deweyIdLength > 0) {
       deweyIdBytes = new byte[deweyIdLength];
-      MemorySegment.copy(slottedPage, oldRecordBase + oldRecordOnlyLength, MemorySegment.ofArray(deweyIdBytes), 0L,
+      MemorySegment.copy(slottedPage, ValueLayout.JAVA_BYTE, oldRecordBase + oldRecordOnlyLength, deweyIdBytes, 0,
           deweyIdLength);
     } else {
       deweyIdBytes = null;
@@ -3071,6 +3071,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * consumed by {@link #publishSideSlot(int, long)}; this method does not alter the logical slot.
    */
   public long prepareSideSlot(final int nodeKindId, final MemorySegment image, final int length) {
+    OverflowSlotSidecar sidecar = overflowSlotSidecar;
+    if (sidecar == null) {
+      final OverflowSlotSidecar created = new OverflowSlotSidecar(segmentAllocator);
+      try {
+        final long token = created.prepare(nodeKindId, image, length);
+        overflowSlotSidecar = created;
+        return token;
+      } catch (final RuntimeException | Error failure) {
+        try {
+          created.close();
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+        throw failure;
+      }
+    }
+    return sidecar.prepare(nodeKindId, image, length);
+  }
+
+  /**
+   * As {@link #prepareSideSlot(int, MemorySegment, int)} for an image held in a byte array (the
+   * decoder's sidecar read scratch), which never gets wrapped as a heap segment.
+   */
+  public long prepareSideSlot(final int nodeKindId, final byte[] image, final int length) {
     OverflowSlotSidecar sidecar = overflowSlotSidecar;
     if (sidecar == null) {
       final OverflowSlotSidecar created = new OverflowSlotSidecar(segmentAllocator);
@@ -5300,7 +5324,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         throw new IllegalArgumentException("Record is too large for OverflowPage: " + length);
       }
       final byte[] serialized = new byte[(int) length];
-      MemorySegment.copy(output.baseSegment(), 0L, MemorySegment.ofArray(serialized), 0L, length);
+      MemorySegment.copy(output.baseSegment(), ValueLayout.JAVA_BYTE, 0L, serialized, 0, (int) length);
       return serialized;
     }
   }
@@ -7954,7 +7978,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             throw new IllegalArgumentException("Record is too large for OverflowPage: " + usedSize);
           }
           byte[] persistentBuffer = new byte[(int) usedSize];
-          MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
+          MemorySegment.copy(base, ValueLayout.JAVA_BYTE, 0L, persistentBuffer, 0, (int) usedSize);
 
           installCanonicalOverflowCarrier(record, persistentBuffer, offset, deweyIdBytes);
         } else {

@@ -6,6 +6,10 @@ import io.sirix.settings.Constants;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
+import java.util.Objects;
 
 /**
  * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for
@@ -423,6 +427,55 @@ public final class PageLayout {
   /** Read a bitmap word (one of 16 longs). */
   public static long getBitmapWord(final MemorySegment page, final int wordIndex) {
     return page.get(JAVA_LONG_UNALIGNED, BITMAP_OFF + ((long) wordIndex << 3));
+  }
+
+  // ==================== ON-DISK HEADER HELD IN A BYTE ARRAY ====================
+  //
+  // The deserializer reads the 160-byte on-disk header into a byte array before the page's native
+  // memory exists. It stays an array on purpose. Every MemorySegment accessor above is a thin wrapper
+  // over one JDK access path whose receiver-type profile is process-wide; wrapping the header as a
+  // heap
+  // segment makes that profile heap+native, and the JIT then compiles the hottest native-page loops
+  // (the column-region builders) with both receiver classes inlined and a heap-only guard hoisted
+  // above
+  // the loop, which deoptimises on every native page. Byte-array view handles keep the header off
+  // that
+  // path while remaining bounds-checked.
+
+  /** Little-endian long view over a byte array, for the on-disk header; see the note above. */
+  private static final VarHandle HEADER_LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
+  /** Little-endian short view over a byte array, for the on-disk header; see the note above. */
+  private static final VarHandle HEADER_SHORT_LE =
+      MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
+
+  /** Read a bitmap word of an on-disk header held in a byte array. */
+  public static long getBitmapWord(final byte[] header, final int wordIndex) {
+    Objects.checkIndex(wordIndex, BITMAP_WORDS);
+    return (long) HEADER_LONG_LE.get(header, BITMAP_OFF + (wordIndex << 3));
+  }
+
+  /** Read the populated slot count of an on-disk header held in a byte array. */
+  public static int getPopulatedCount(final byte[] header) {
+    return Short.toUnsignedInt((short) HEADER_SHORT_LE.get(header, OFF_POPULATED_COUNT));
+  }
+
+  /** Read the flags byte of an on-disk header held in a byte array. */
+  public static byte getFlags(final byte[] header) {
+    return header[OFF_FLAGS];
+  }
+
+  /** Whether an on-disk header held in a byte array declares complete column coverage. */
+  public static boolean hasCompleteColumnCoverage(final byte[] header) {
+    return (getFlags(header) & FLAG_COMPLETE_COLUMN_COVERAGE) != 0;
+  }
+
+  /** Copy the slot bitmap of an on-disk header held in a byte array into {@code dest}. */
+  public static void copyBitmapTo(final byte[] header, final long[] dest) {
+    for (int i = 0; i < BITMAP_WORDS; i++) {
+      dest[i] = getBitmapWord(header, i);
+    }
   }
 
   /** Write a bitmap word (one of 16 longs). */

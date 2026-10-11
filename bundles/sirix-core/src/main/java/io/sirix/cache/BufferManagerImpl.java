@@ -601,11 +601,12 @@ public final class BufferManagerImpl implements BufferManager {
       LOGGER.info("Started GLOBAL ClockSweeper thread for HOTLeafFragmentCache");
     }
 
-    // Start ClockSweeper for the compact (heap-resident) half of HOTLeafFragmentCache (GLOBAL)
+    // Start ClockSweeper for the compact (frame-less) half of HOTLeafFragmentCache (GLOBAL)
     {
-      final ShardedPageCache.Shard<HOTLeafPage> shard = hotLeafFragmentCache.heapImages().getShard(new PageReference());
+      final ShardedPageCache.Shard<HOTLeafPage> shard =
+          hotLeafFragmentCache.compactImages().getShard(new PageReference());
       final ClockSweeper sweeper =
-          new ClockSweeper(shard, hotLeafFragmentCache.heapImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
+          new ClockSweeper(shard, hotLeafFragmentCache.compactImages(), globalEpochTracker, sweepIntervalMs, 0, 0, 0);
       final Thread thread = new Thread(sweeper, "ClockSweeper-HOTLeafFragmentHeap-GLOBAL");
       thread.setDaemon(true);
       thread.start();
@@ -802,9 +803,9 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache.nativeImages().getCurrentWeightBytes();
   }
 
-  /** Current retained heap (bytes) held by the fragment cache's compact decoded images. */
+  /** Current weight (bytes) held by the fragment cache's compact decoded images. */
   public long getHeapHOTLeafFragmentCacheCurrentWeightBytes() {
-    return hotLeafFragmentCache.heapImages().getCurrentWeightBytes();
+    return hotLeafFragmentCache.compactImages().getCurrentWeightBytes();
   }
 
   /** Off-heap budget of the fragment cache's allocator-frame images, unaffected by the heap cap. */
@@ -812,9 +813,9 @@ public final class BufferManagerImpl implements BufferManager {
     return hotLeafFragmentCache.nativeImages().getMaxWeightBytes();
   }
 
-  /** Retained-heap budget of the fragment cache's compact decoded images. */
+  /** Budget of the fragment cache's compact decoded images. */
   public long getHeapHOTLeafFragmentCacheMaxWeightBytes() {
-    return hotLeafFragmentCache.heapImages().getMaxWeightBytes();
+    return hotLeafFragmentCache.compactImages().getMaxWeightBytes();
   }
 
   @Override
@@ -1156,7 +1157,7 @@ public final class BufferManagerImpl implements BufferManager {
       failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }
     try {
-      clearHotPageCache(hotLeafFragmentCache.heapImages(), matches);
+      clearHotPageCache(hotLeafFragmentCache.compactImages(), matches);
     } catch (final RuntimeException | Error e) {
       failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }

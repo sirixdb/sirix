@@ -6,24 +6,26 @@ package io.sirix.page.pax;
 import io.sirix.node.LE;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 
 /**
- * Delta-of-delta ("DoubleDelta") codec for {@code long[]} sequences over an
- * off-heap {@link MemorySegment}. Sibling of {@link NumberRegionCompact}: where
- * that codec removes a shared frame-of-reference base and bit-packs the
- * residuals, this one removes both the base <em>and the slope</em>, bit-packing
- * only the change in stride between consecutive values.
+ * Delta-of-delta ("DoubleDelta") codec for {@code long[]} sequences over an off-heap
+ * {@link MemorySegment}. Sibling of {@link NumberRegionCompact}: where that codec removes a shared
+ * frame-of-reference base and bit-packs the residuals, this one removes both the base <em>and the
+ * slope</em>, bit-packing only the change in stride between consecutive values.
  *
- * <p>The target workload is temporal columns — commit timestamps, valid-time
- * bounds, monotonic sequence numbers — where values advance by a near-constant
- * stride. For a strictly constant stride (e.g. one tick per row) every
- * delta-of-delta is {@code 0}, the bit width collapses to {@code 0}, and the
- * body disappears entirely: the whole column reduces to {@code firstValue} +
- * {@code firstDelta} regardless of length. This is the same family of codec
- * ClickHouse exposes as {@code DoubleDelta} and Gorilla uses for its timestamp
- * stream.
+ * <p>
+ * The target workload is temporal columns — commit timestamps, valid-time bounds, monotonic
+ * sequence numbers — where values advance by a near-constant stride. For a strictly constant stride
+ * (e.g. one tick per row) every delta-of-delta is {@code 0}, the bit width collapses to {@code 0},
+ * and the body disappears entirely: the whole column reduces to {@code firstValue} +
+ * {@code firstDelta} regardless of length. This is the same family of codec ClickHouse exposes as
+ * {@code DoubleDelta} and Gorilla uses for its timestamp stream.
  *
  * <h2>Wire format</h2>
+ * 
  * <pre>
  * byte    version      // format version, currently VERSION_V1
  * byte    ddBitWidth   // 0..64; bits per zig-zag(delta-of-delta). 0 ⇒ no body
@@ -33,25 +35,25 @@ import java.lang.foreign.ValueLayout;
  * byte[]  body          // ceil(max(0,n-2) * ddBitWidth / 8) bytes, bit-packed LE
  * </pre>
  *
- * <p>Decode is a running prefix sum: {@code delta += dd; value += delta}. That
- * is inherently sequential, so unlike {@link NumberRegionCompact} random access
- * costs {@code O(index)} ({@link #readDelta}); bulk {@link #decodeAll} is the
- * fast path and is what scan operators use.
+ * <p>
+ * Decode is a running prefix sum: {@code delta += dd; value += delta}. That is inherently
+ * sequential, so unlike {@link NumberRegionCompact} random access costs {@code O(index)}
+ * ({@link #readDelta}); bulk {@link #decodeAll} is the fast path and is what scan operators use.
  *
  * <h2>Zone maps</h2>
- * <p>This codec deliberately does <em>not</em> compute or store min/max. In the
- * PAX layout the enclosing {@link NumberRegion} header already carries the
- * global and per-tag zone maps (computed from the raw values before any value
- * codec runs), exactly as it does for {@link NumberRegionCompact}. Duplicating
- * them here would waste bytes and risk divergence.
+ * <p>
+ * This codec deliberately does <em>not</em> compute or store min/max. In the PAX layout the
+ * enclosing {@link NumberRegion} header already carries the global and per-tag zone maps (computed
+ * from the raw values before any value codec runs), exactly as it does for
+ * {@link NumberRegionCompact}. Duplicating them here would waste bytes and risk divergence.
  *
  * <h2>HFT-grade constraints</h2>
  * <ul>
- *   <li>Zero allocation on both encode and decode hot paths.</li>
- *   <li>All shifts + masks; the only branch in the steady state is the
- *       word-straddle check inherited from the bit-packing layer.</li>
- *   <li>Accepts both on-heap-backed and native-backed MemorySegments.</li>
- *   <li>Operates on {@code long} offsets throughout — no 2 GiB wrap risk.</li>
+ * <li>Zero allocation on both encode and decode hot paths.</li>
+ * <li>All shifts + masks; the only branch in the steady state is the word-straddle check inherited
+ * from the bit-packing layer.</li>
+ * <li>Accepts both on-heap-backed and native-backed MemorySegments.</li>
+ * <li>Operates on {@code long} offsets throughout — no 2 GiB wrap risk.</li>
  * </ul>
  */
 public final class NumberRegionDelta {
@@ -83,9 +85,16 @@ public final class NumberRegionDelta {
     return headerBytes(count) + bodyBytes(count, bitWidth);
   }
 
+  // The encoder writes into the region's byte array through array view handles. A heap
+  // MemorySegment over that array would put a heap receiver on the segment access path the native
+  // page decoders share, and the JIT then compiles the record page's column-region builders — this
+  // writer runs inside them — with both receiver classes; see PageLayout#getBitmapWord(byte[], int).
+  private static final VarHandle ARRAY_LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
   /**
-   * Bytes the fixed header consumes for {@code n == count}: the count field is
-   * varint-encoded, the two anchor longs are always present.
+   * Bytes the fixed header consumes for {@code n == count}: the count field is varint-encoded, the
+   * two anchor longs are always present.
    */
   public static long headerBytes(final int count) {
     if (count < 0) {
@@ -96,9 +105,8 @@ public final class NumberRegionDelta {
   }
 
   /**
-   * Exact size of the bit-packed body for {@code count} values at
-   * {@code ddBitWidth} bits. Only {@code max(0, count-2)} residuals are stored
-   * (the first two values are the raw anchors).
+   * Exact size of the bit-packed body for {@code count} values at {@code ddBitWidth} bits. Only
+   * {@code max(0, count-2)} residuals are stored (the first two values are the raw anchors).
    */
   public static long bodyBytes(final int count, final int bitWidth) {
     if (count < 0) {
@@ -107,7 +115,9 @@ public final class NumberRegionDelta {
     if (bitWidth < 0 || bitWidth > 64) {
       throw new IllegalArgumentException("bitWidth=" + bitWidth);
     }
-    final int residuals = count > 2 ? count - 2 : 0;
+    final int residuals = count > 2
+        ? count - 2
+        : 0;
     if (bitWidth == 0 || residuals == 0) {
       return 0L;
     }
@@ -116,9 +126,9 @@ public final class NumberRegionDelta {
   }
 
   /**
-   * Smallest bit width W such that every zig-zag(delta-of-delta) residual fits
-   * in unsigned W bits. Returns 0 when there are fewer than three values, or
-   * when every residual is 0 (constant-stride shortcut — no body needed).
+   * Smallest bit width W such that every zig-zag(delta-of-delta) residual fits in unsigned W bits.
+   * Returns 0 when there are fewer than three values, or when every residual is 0 (constant-stride
+   * shortcut — no body needed).
    *
    * @param values source array
    * @param count number of valid entries
@@ -157,18 +167,17 @@ public final class NumberRegionDelta {
   // ─────────────────────────────────────────────────────────────── encoding
 
   /**
-   * Encode {@code count} values from {@code values[0..count)} into
-   * {@code target} starting at {@code offset}.
+   * Encode {@code count} values from {@code values[0..count)} into {@code target} starting at
+   * {@code offset}.
    *
-   * @param target destination segment (must have ≥ {@link #maxEncodedSize}
-   *     bytes available at {@code offset})
+   * @param target destination array (must have ≥ {@link #maxEncodedSize} bytes available at
+   *        {@code offset})
    * @param offset byte offset at which to start writing
    * @param values source values; only the {@code count} prefix is read
    * @param count number of values to encode
    * @return total bytes written (header + body)
    */
-  public static long writeDelta(final MemorySegment target, final long offset,
-      final long[] values, final int count) {
+  public static long writeDelta(final byte[] target, final int offset, final long[] values, final int count) {
     if (target == null) {
       throw new IllegalArgumentException("target");
     }
@@ -181,55 +190,56 @@ public final class NumberRegionDelta {
     // Guard against the *actual* header size (the count varint may be up to 5
     // bytes), so an undersized target fails with IllegalArgumentException here
     // rather than an IndexOutOfBoundsException from a later store.
-    if (offset < 0 || offset + headerBytes(count) > target.byteSize()) {
-      throw new IllegalArgumentException(
-          "offset=" + offset + " byteSize=" + target.byteSize());
+    if (offset < 0 || offset + headerBytes(count) > target.length) {
+      throw new IllegalArgumentException("offset=" + offset + " length=" + target.length);
     }
 
     final int bitWidth = computeBitWidth(values, count);
-    final long firstValue = count >= 1 ? values[0] : 0L;
-    final long firstDelta = count >= 2 ? values[1] - values[0] : 0L;
+    final long firstValue = count >= 1
+        ? values[0]
+        : 0L;
+    final long firstDelta = count >= 2
+        ? values[1] - values[0]
+        : 0L;
     final long bodyBytes = bodyBytes(count, bitWidth);
 
-    long pos = offset;
-    target.set(ValueLayout.JAVA_BYTE, pos, VERSION_V1);
-    pos++;
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) bitWidth);
-    pos++;
+    int pos = offset;
+    target[pos++] = VERSION_V1;
+    target[pos++] = (byte) bitWidth;
     pos += writeVarintUnsigned(target, pos, count);
-    target.set(LE.LONG, pos, firstValue);
-    pos += 8L;
-    target.set(LE.LONG, pos, firstDelta);
-    pos += 8L;
+    ARRAY_LONG_LE.set(target, pos, firstValue);
+    pos += 8;
+    ARRAY_LONG_LE.set(target, pos, firstDelta);
+    pos += 8;
 
     if (bodyBytes > 0L) {
-      if (pos + bodyBytes > target.byteSize()) {
+      if (pos + bodyBytes > target.length) {
         throw new IllegalArgumentException(
             "target too small: need " + (pos + bodyBytes - offset) + " bytes at offset " + offset);
       }
       packResiduals(target, pos, values, count, bitWidth);
-      pos += bodyBytes;
+      pos += (int) bodyBytes;
     }
     return pos - offset;
   }
 
   /**
-   * Bit-pack the {@code count-2} zig-zag(delta-of-delta) residuals starting at
-   * {@code bodyOff}. Recomputes deltas in one pass — no scratch allocation.
+   * Bit-pack the {@code count-2} zig-zag(delta-of-delta) residuals starting at {@code bodyOff}.
+   * Recomputes deltas in one pass — no scratch allocation.
    */
-  private static void packResiduals(final MemorySegment target, final long bodyOff,
-      final long[] values, final int count, final int bitWidth) {
+  private static void packResiduals(final byte[] target, final int bodyOff, final long[] values, final int count,
+      final int bitWidth) {
     long prevDelta = values[1] - values[0];
     if (bitWidth == 64) {
       // Every residual is byte-aligned (index*64 bits = index*8 bytes), so a
       // direct 64-bit store per value avoids the straddle logic — and its
       // {@code 1L << 64} masking hazard — entirely.
-      long off = bodyOff;
+      int off = bodyOff;
       for (int i = 2; i < count; i++) {
         final long delta = values[i] - values[i - 1];
-        target.set(LE.LONG, off, zigZagEncode(delta - prevDelta));
+        ARRAY_LONG_LE.set(target, off, zigZagEncode(delta - prevDelta));
         prevDelta = delta;
-        off += 8L;
+        off += 8;
       }
       return;
     }
@@ -240,7 +250,7 @@ public final class NumberRegionDelta {
     if (bitWidth <= 56) {
       long buf = 0L;
       int bitsInBuf = 0;
-      long writePos = bodyOff;
+      int writePos = bodyOff;
       for (int i = 2; i < count; i++) {
         final long delta = values[i] - values[i - 1];
         final long zz = zigZagEncode(delta - prevDelta) & mask;
@@ -248,14 +258,13 @@ public final class NumberRegionDelta {
         buf |= zz << bitsInBuf;
         bitsInBuf += bitWidth;
         while (bitsInBuf >= 8) {
-          target.set(ValueLayout.JAVA_BYTE, writePos, (byte) buf);
-          writePos++;
+          target[writePos++] = (byte) buf;
           buf >>>= 8;
           bitsInBuf -= 8;
         }
       }
       if (bitsInBuf > 0) {
-        target.set(ValueLayout.JAVA_BYTE, writePos, (byte) buf);
+        target[writePos] = (byte) buf;
       }
       return;
     }
@@ -268,20 +277,21 @@ public final class NumberRegionDelta {
       prevDelta = delta;
       final long bitOff = (long) residualIndex * (long) bitWidth;
       residualIndex++;
-      final long byteOff = bodyOff + (bitOff >>> 3);
+      final int byteOff = bodyOff + (int) (bitOff >>> 3);
       final int bitInByte = (int) (bitOff & 7L);
       final int bitsFromLo = Math.min(bitWidth, 64 - bitInByte);
       final long loWord = readUpToLongLE(target, byteOff);
-      final long loMask = bitsFromLo == 64 ? ~0L : (((1L << bitsFromLo) - 1L) << bitInByte);
+      final long loMask = bitsFromLo == 64
+          ? ~0L
+          : (((1L << bitsFromLo) - 1L) << bitInByte);
       final long loShifted = (zz & ((1L << bitsFromLo) - 1L)) << bitInByte;
       writeWord(target, byteOff, (loWord & ~loMask) | loShifted);
       if (bitsFromLo < bitWidth) {
         final int remaining = bitWidth - bitsFromLo;
         final long hiMask = (1L << remaining) - 1L;
-        final long hiWord = readUpToLongLE(target, byteOff + 8L);
+        final long hiWord = readUpToLongLE(target, byteOff + 8);
         final long hiValBits = (zz >>> bitsFromLo) & hiMask;
-        writeWordPartial(target, byteOff + 8L, (hiWord & ~hiMask) | hiValBits,
-            (remaining + 7) >>> 3);
+        writeWordPartial(target, byteOff + 8, (hiWord & ~hiMask) | hiValBits, (remaining + 7) >>> 3);
       }
     }
   }
@@ -289,8 +299,8 @@ public final class NumberRegionDelta {
   // ─────────────────────────────────────────────────────────────── decoding
 
   /**
-   * Parsed header describing a delta payload. Reusable across calls to
-   * minimise allocation pressure on scan paths.
+   * Parsed header describing a delta payload. Reusable across calls to minimise allocation pressure
+   * on scan paths.
    */
   public static final class Header {
     public byte version;
@@ -362,9 +372,8 @@ public final class NumberRegionDelta {
   }
 
   /**
-   * Bulk decode into a caller-supplied buffer. Writes exactly
-   * {@code header.count} values starting at {@code out[0]}. This is the fast
-   * path — a single sequential prefix-sum over the residuals.
+   * Bulk decode into a caller-supplied buffer. Writes exactly {@code header.count} values starting at
+   * {@code out[0]}. This is the fast path — a single sequential prefix-sum over the residuals.
    *
    * @param src source segment
    * @param header parsed header
@@ -421,11 +430,10 @@ public final class NumberRegionDelta {
   }
 
   /**
-   * Random-access read of the value at {@code index}. Unlike
-   * {@link NumberRegionCompact#readCompact}, delta-of-delta has no closed-form
-   * random access: this replays the prefix sum from the start and therefore
-   * costs {@code O(index)}. Provided for correctness and point probes; scan
-   * loops must use {@link #decodeAll}.
+   * Random-access read of the value at {@code index}. Unlike {@link NumberRegionCompact#readCompact},
+   * delta-of-delta has no closed-form random access: this replays the prefix sum from the start and
+   * therefore costs {@code O(index)}. Provided for correctness and point probes; scan loops must use
+   * {@link #decodeAll}.
    *
    * @param src source segment
    * @param header parsed header
@@ -475,8 +483,8 @@ public final class NumberRegionDelta {
   // ─────────────────────────────────────────────────────── bit-pack / unpack
 
   /**
-   * Unsigned bit-unpack of the residual at {@code residualIndex}. Widths ≤ 56
-   * need a single unaligned 64-bit load; widths 57..64 may straddle two words.
+   * Unsigned bit-unpack of the residual at {@code residualIndex}. Widths ≤ 56 need a single unaligned
+   * 64-bit load; widths 57..64 may straddle two words.
    */
   private static long bitUnpack(final MemorySegment src, final long baseOff, final int bitWidth,
       final int residualIndex) {
@@ -498,31 +506,47 @@ public final class NumberRegionDelta {
     return v;
   }
 
-  private static void writeWord(final MemorySegment target, final long off, final long word) {
-    final long size = target.byteSize();
-    if (off + 8L <= size) {
-      target.set(LE.LONG, off, word);
+  private static void writeWord(final byte[] target, final int off, final long word) {
+    final int size = target.length;
+    if (off + 8 <= size) {
+      ARRAY_LONG_LE.set(target, off, word);
       return;
     }
-    final long remaining = Math.max(0L, size - off);
-    for (long k = 0L; k < remaining; k++) {
-      target.set(ValueLayout.JAVA_BYTE, off + k, (byte) (word >>> (k << 3)));
+    final int remaining = Math.max(0, size - off);
+    for (int k = 0; k < remaining; k++) {
+      target[off + k] = (byte) (word >>> (k << 3));
     }
   }
 
-  private static void writeWordPartial(final MemorySegment target, final long off,
-      final long word, final int bytes) {
-    final long size = target.byteSize();
-    final long limit = Math.min((long) bytes, Math.max(0L, size - off));
-    for (long k = 0L; k < limit; k++) {
-      target.set(ValueLayout.JAVA_BYTE, off + k, (byte) (word >>> (k << 3)));
+  private static void writeWordPartial(final byte[] target, final int off, final long word, final int bytes) {
+    final int size = target.length;
+    final int limit = Math.min(bytes, Math.max(0, size - off));
+    for (int k = 0; k < limit; k++) {
+      target[off + k] = (byte) (word >>> (k << 3));
     }
+  }
+
+  /** Array twin of {@link #readUpToLongLE(MemorySegment, long)}, for the read-modify-write packer. */
+  private static long readUpToLongLE(final byte[] src, final int off) {
+    final int size = src.length;
+    if (off + 8 <= size) {
+      return (long) ARRAY_LONG_LE.get(src, off);
+    }
+    if (off >= size) {
+      return 0L;
+    }
+    long v = 0L;
+    final int remaining = size - off;
+    for (int k = 0; k < remaining; k++) {
+      v |= ((long) (src[off + k] & 0xFF)) << (k << 3);
+    }
+    return v;
   }
 
   /**
-   * Read up to 8 little-endian bytes as a {@code long} even if fewer bytes
-   * remain. Bytes past the segment end read as zero; callers mask to bitWidth
-   * and the valid bits of the last residual always lie inside the segment.
+   * Read up to 8 little-endian bytes as a {@code long} even if fewer bytes remain. Bytes past the
+   * segment end read as zero; callers mask to bitWidth and the valid bits of the last residual always
+   * lie inside the segment.
    */
   private static long readUpToLongLE(final MemorySegment src, final long off) {
     final long size = src.byteSize();
@@ -542,17 +566,15 @@ public final class NumberRegionDelta {
 
   // ───────────────────────────────────────────────────────────────── varint
 
-  private static int writeVarintUnsigned(final MemorySegment target, final long offset,
-      final long value) {
+  private static int writeVarintUnsigned(final byte[] target, final int offset, final long value) {
     long v = value;
-    long pos = offset;
+    int pos = offset;
     while ((v & ~0x7FL) != 0L) {
-      target.set(ValueLayout.JAVA_BYTE, pos, (byte) ((v & 0x7FL) | 0x80L));
-      pos++;
+      target[pos++] = (byte) ((v & 0x7FL) | 0x80L);
       v >>>= 7;
     }
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) v);
-    return (int) (pos - offset + 1L);
+    target[pos] = (byte) v;
+    return pos - offset + 1;
   }
 
   private static long readVarintUnsignedPacked(final MemorySegment src, final long offset) {

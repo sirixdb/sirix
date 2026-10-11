@@ -876,7 +876,7 @@ final class ElisionDeriver {
    * region index, type byte and heap width, and overrides each with an exception where the page
    * carries one.
    *
-   * @param headerBitmapSeg the page's 160-byte header + slot bitmap, walked to map entry to slot
+   * @param headerBitmap the page's 160-byte on-disk header + slot bitmap, walked to map entry to slot
    * @param populatedCount number of populated entries
    * @param compactDir per-entry packed (on-disk length, kind id)
    * @param outSlots receives the elided slots, ascending
@@ -885,7 +885,7 @@ final class ElisionDeriver {
    * @param outAbsIdx receives each elided slot's absolute region index
    * @return the number of elided entries written into the output arrays
    */
-  int deriveValueMetadata(final MemorySegment headerBitmapSeg, final int populatedCount, final int[] compactDir,
+  int deriveValueMetadata(final byte[] headerBitmap, final int populatedCount, final int[] compactDir,
       final short[] outSlots, final byte[] outTypes, final int[] outWidths, final int[] outAbsIdx) {
     int ordinal = 0;
     int typeCursor = 0;
@@ -895,7 +895,7 @@ final class ElisionDeriver {
     long bmWord = 0L;
     for (int i = 0; i < populatedCount; i++) {
       while (bmWord == 0) {
-        bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
+        bmWord = PageLayout.getBitmapWord(headerBitmap, bmIdx++);
         if (bmIdx > PageLayout.BITMAP_WORDS) {
           throw new SirixIOException("value elision: bitmap exhausted at entry " + i + " / " + populatedCount);
         }
@@ -955,13 +955,13 @@ final class ElisionDeriver {
    * Name-key elision is all-or-nothing over the page's fused {@code OBJECT_NAMED_*} slots, so the
    * covered set is exactly those, taken from the compact directory.
    *
-   * @param headerBitmapSeg the page's 160-byte header + slot bitmap, walked to map entry to slot
+   * @param headerBitmap the page's 160-byte on-disk header + slot bitmap, walked to map entry to slot
    * @param populatedCount number of populated entries
    * @param compactDir per-entry packed (on-disk length, kind id)
    * @param outWidths receives one width per covered slot, ascending
    * @return the number of widths written
    */
-  int deriveNameKeyWidths(final MemorySegment headerBitmapSeg, final int populatedCount, final int[] compactDir,
+  int deriveNameKeyWidths(final byte[] headerBitmap, final int populatedCount, final int[] compactDir,
       final byte[] outWidths) {
     int ordinal = 0;
     int cursor = 0;
@@ -969,7 +969,7 @@ final class ElisionDeriver {
     long bmWord = 0L;
     for (int i = 0; i < populatedCount; i++) {
       while (bmWord == 0) {
-        bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
+        bmWord = PageLayout.getBitmapWord(headerBitmap, bmIdx++);
         if (bmIdx > PageLayout.BITMAP_WORDS) {
           throw new SirixIOException("name-key elision: bitmap exhausted at entry " + i + " / " + populatedCount);
         }

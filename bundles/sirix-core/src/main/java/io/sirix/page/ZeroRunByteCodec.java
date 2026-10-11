@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
@@ -63,7 +64,13 @@ public final class ZeroRunByteCodec {
   public static final byte FRAME_MARKER = (byte) 0xFF;
 
   private static final int ZERO_FILL_BYTES = 4096;
-  private static final MemorySegment ZERO_FILL = MemorySegment.ofArray(new byte[ZERO_FILL_BYTES]);
+
+  /**
+   * The zero source for decoded runs. Native, so the segment-to-segment copy into a native output
+   * sees native memory on both sides (a heap source would make that shared copy path bimorphic; see
+   * PageLayout#getBitmapWord(byte[], int)); zero-filled once and never written again.
+   */
+  private static final MemorySegment ZERO_FILL = Arena.ofAuto().allocate(ZERO_FILL_BYTES).fill((byte) 0);
 
   /**
    * Bytes of framing overhead: 1 byte marker + 1..5 byte varint(uncompressedSize). Use this +

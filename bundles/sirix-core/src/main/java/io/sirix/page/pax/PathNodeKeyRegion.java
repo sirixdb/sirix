@@ -3,9 +3,6 @@
  */
 package io.sirix.page.pax;
 
-import io.sirix.node.LE;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -107,20 +104,22 @@ public final class PathNodeKeyRegion {
     }
 
     final int size = 1 + numUnique * 4 + 2 + 128 + count;
-    final MemorySegment seg = MemorySegment.ofArray(out);
-    seg.set(ValueLayout.JAVA_BYTE, 0L, (byte) numUnique);
-    long off = 1;
+    // Array view handles, not a heap MemorySegment over the scratch: the segment accessors are
+    // shared with native page memory and their receiver profile is process-wide (see
+    // PageLayout#getBitmapWord(byte[], int)).
+    out[0] = (byte) numUnique;
+    int off = 1;
     for (int i = 0; i < numUnique; i++) {
-      seg.set(LE.INT, off, dictScratch[i]);
+      INT_LE.set(out, off, dictScratch[i]);
       off += 4;
     }
-    seg.set(LE.SHORT, off, (short) count);
+    SHORT_LE.set(out, off, (short) count);
     off += 2;
     for (int i = 0; i < 16; i++) {
-      seg.set(LE.LONG, off, bitmapScratch[i]);
+      LONG_LE.set(out, off, bitmapScratch[i]);
       off += 8;
     }
-    MemorySegment.copy(dictIdsScratch, 0, seg, ValueLayout.JAVA_BYTE, off, count);
+    System.arraycopy(dictIdsScratch, 0, out, off, count);
     return size;
   }
 
