@@ -35,10 +35,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @Isolated
 final class ValidTimeRunWorkBudgetTest {
   private static final int ROWS = 20_000;
-  private static final WorkCapture WORK = WorkCapture.of(EngineWorkCounters.INDEX_ROOT_LOADS,
-      EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS,
-      EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, EngineWorkCounters.VALID_TIME_MASK_HITS,
-      QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS);
+  private static final WorkCapture WORK =
+      WorkCapture.of(EngineWorkCounters.INDEX_ROOT_LOADS, EngineWorkCounters.VALID_TIME_INTERVAL_REFS,
+          EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS,
+          EngineWorkCounters.VALID_TIME_MASK_HITS, QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS);
 
   @TempDir
   Path directory;
@@ -53,14 +53,16 @@ final class ValidTimeRunWorkBudgetTest {
     final NodeReferences references = NodeReferences.ofSortedArray(new long[] {7});
     final PostingMask membership = PostingMask.from(references);
     final PostingMask verification = PostingMask.from(null);
-    final WorkCapture words = WorkCapture.of(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS,
-        QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS);
+    final WorkCapture words =
+        WorkCapture.of(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS);
     for (final int chunks : new int[] {16, 1000}) {
       final var capture = words.call(() -> ValidTimeRunProbe.select(chunks, references, membership, verification));
-      capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, chunks,
-          "one selected key per chunk must inspect only its occupied word, without full bitmap scans");
-      capture.work().assertZero(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS,
-          "sparse chunks must not allocate a dense candidate bitmap");
+      capture.work()
+             .assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, chunks,
+                 "one selected key per chunk must inspect only its occupied word, without full bitmap scans");
+      capture.work()
+             .assertZero(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS,
+                 "sparse chunks must not allocate a dense candidate bitmap");
       final long[] expected = new long[chunks];
       for (int chunk = 0; chunk < chunks; chunk++) {
         expected[chunk] = ((long) chunk << 16) | 7;
@@ -74,10 +76,12 @@ final class ValidTimeRunWorkBudgetTest {
     final NodeReferences dense = NodeReferences.ofSortedArray(denseKeys);
     final PostingMask denseMembership = PostingMask.from(dense);
     final var capture = words.call(() -> ValidTimeRunProbe.select(1, dense, denseMembership, verification));
-    capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, 1024,
-        "the dense positive control must inspect every occupied word once");
-    capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS, 1,
-        "the dense positive control must retain one candidate bitmap");
+    capture.work()
+           .assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, 1024,
+               "the dense positive control must inspect every occupied word once");
+    capture.work()
+           .assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS, 1,
+               "the dense positive control must retain one candidate bitmap");
     assertArrayEquals(denseKeys, capture.result());
   }
 
@@ -87,10 +91,12 @@ final class ValidTimeRunWorkBudgetTest {
     final PostingMask membership = PostingMask.from(references);
     final PostingMask verification = PostingMask.from(null);
     final int chunks = 1000;
-    final var capture = WorkCapture.of(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS)
-                                   .call(() -> ValidTimeRunProbe.select(chunks, references, membership, verification, 2));
-    capture.work().assertBetween(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, chunks * 4, chunks * 6,
-        "intersect and merge sparse runs without scanning unoccupied bitmap words");
+    final var capture =
+        WorkCapture.of(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS)
+                   .call(() -> ValidTimeRunProbe.select(chunks, references, membership, verification, 2));
+    capture.work()
+           .assertBetween(QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS, chunks * 4, chunks * 6,
+               "intersect and merge sparse runs without scanning unoccupied bitmap words");
     final long[] expected = new long[chunks * 2];
     for (int chunk = 0; chunk < chunks; chunk++) {
       expected[chunk * 2] = ((long) chunk << 16) | 7;
@@ -113,8 +119,10 @@ final class ValidTimeRunWorkBudgetTest {
       // Repeating the same run crosses the cumulative count, but never its unique cardinality.
       final var capture = work.call(() -> ValidTimeRunProbe.select(1, references, membership, verification, 3));
       assertArrayEquals(expected, capture.result());
-      capture.work().assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS, matches == 1024 ? 1 : 0,
-          "promote at 1024 unique matches, never from duplicate references");
+      capture.work()
+             .assertExactly(QueryWorkCounters.VALID_TIME_CANDIDATE_BITMAPS, matches == 1024
+                 ? 1
+                 : 0, "promote at 1024 unique matches, never from duplicate references");
     }
   }
 

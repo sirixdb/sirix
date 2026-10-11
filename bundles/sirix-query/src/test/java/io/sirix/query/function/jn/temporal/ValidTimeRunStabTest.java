@@ -81,8 +81,7 @@ final class ValidTimeRunStabTest {
       for (int chunk = 2; chunk >= 0; chunk--) {
         final long base = (long) chunk << 16;
         for (int run = 16; run >= 0; run--) {
-          final NodeReferences refs =
-              NodeReferences.ofSortedArray(new long[] {run, 17 + run, 34 + run, 63, 65535});
+          final NodeReferences refs = NodeReferences.ofSortedArray(new long[] {run, 17 + run, 34 + run, 63, 65535});
           if (bitmap) {
             refs.getNodeKeys();
           }

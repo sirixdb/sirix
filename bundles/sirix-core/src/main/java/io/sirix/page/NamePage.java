@@ -494,7 +494,8 @@ public final class NamePage extends AbstractForwardingPage {
       case ATTRIBUTE -> attributes;
       case PROCESSING_INSTRUCTION -> processingInstructions;
       case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-          OBJECT_NAMED_NULL -> jsonObjectKeys;
+          OBJECT_NAMED_NULL ->
+        jsonObjectKeys;
       default -> throw new IllegalStateException("No other node types supported!");
     };
     if (names != null) {
@@ -508,7 +509,8 @@ public final class NamePage extends AbstractForwardingPage {
         case ATTRIBUTE -> attributes = loaded;
         case PROCESSING_INSTRUCTION -> processingInstructions = loaded;
         case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-            OBJECT_NAMED_NULL -> jsonObjectKeys = loaded;
+            OBJECT_NAMED_NULL ->
+          jsonObjectKeys = loaded;
         default -> throw new IllegalStateException("No other node types supported!");
       }
     }

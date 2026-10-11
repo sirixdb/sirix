@@ -164,7 +164,8 @@ public final class HotOrderedStore implements OrderedStore {
               if (size == 1 && value.get(ValueLayout.JAVA_BYTE, 0) == (byte) 0xFE) {
                 payload = null;
               } else {
-                payload = value.toArray(ValueLayout.JAVA_BYTE);
+                payload = new byte[(int) size];
+                MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0L, payload, 0, (int) size);
                 base = (key.get(INT_BE, ValidTimeKeySerializer.KEY_BYTES) & 0xFFFFFFFFL) << 16;
                 endpoint = key.get(LONG_BE, 9) ^ Long.MIN_VALUE;
               }

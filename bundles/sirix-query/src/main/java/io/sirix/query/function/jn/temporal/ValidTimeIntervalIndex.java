@@ -15,7 +15,6 @@ import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.AbstractJsonDBArray;
 import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.function.DateTimeToInstant;
-import it.unimi.dsi.fastutil.longs.Long2ObjectAVLTreeMap;
 import io.sirix.index.interval.PostingChunkConsumer;
 import io.sirix.index.interval.PostingMask;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -27,7 +26,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
-import java.util.function.LongConsumer;
+import org.roaringbitmap.RelativeRangeConsumer;
 import java.util.function.LongFunction;
 
 public final class ValidTimeIntervalIndex {
@@ -144,13 +143,17 @@ public final class ValidTimeIntervalIndex {
     return candidates.evidence();
   }
 
-  static final class ChunkCandidates implements PostingChunkConsumer, LongConsumer {
+  static final class ChunkCandidates implements PostingChunkConsumer, RelativeRangeConsumer {
     private static final int WORDS = 1024;
     // An eight-byte run key and an eight-byte bitmap word break even at 1024 matches.
     private static final int DENSE_THRESHOLD = WORDS;
     private final LongFunction<PostingMask> membership;
     private final LongFunction<PostingMask> verification;
-    private final Long2ObjectAVLTreeMap<Chunk> chunks = new Long2ObjectAVLTreeMap<>();
+    // Chunks keyed by base in ascending order: a stab touches a handful of 64K chunks, so a sorted
+    // pair of arrays beats a tree and keeps the fastutil map interface monomorphic for the JIT.
+    private long[] chunkBases = new long[8];
+    private Chunk[] chunkValues = new Chunk[8];
+    private int chunkCount;
     private final RunBuffer runKeys = new RunBuffer();
     private final long[] scratch = new long[WORDS];
     private final int[] touchedWords = new int[WORDS];
@@ -231,23 +234,76 @@ public final class ValidTimeIntervalIndex {
       this.verification = Objects.requireNonNull(verification);
     }
 
-    @Override
-    public void accept(final long key) {
-      final int word = (int) (key >>> 6);
+    private void mark(final int key) {
+      final int word = key >>> 6;
       if (scratch[word] == 0) {
         touchedWords[touchedCount++] = word;
       }
       scratch[word] |= 1L << key;
     }
 
-    private Chunk chunk(final long base) {
-      Chunk chunk = chunks.get(base);
-      if (chunk != null) {
-        return chunk;
+    /**
+     * Mark every key of one chunk's references: a plain loop over the packed run, or a word-wise bitmap
+     * walk.
+     */
+    private void collect(final NodeReferences references) {
+      final long[] keys = references.sortedKeysOrNull();
+      if (keys != null) {
+        for (final long key : keys) {
+          mark((int) key);
+        }
+        return;
       }
-      chunk = new Chunk(membership.apply(base));
-      chunks.put(base, chunk);
+      references.getNodeKeys().forAllInRange(0L, WORDS << 6, this);
+    }
+
+    @Override
+    public void acceptPresent(final int relativePos) {
+      mark(relativePos);
+    }
+
+    @Override
+    public void acceptAbsent(final int relativePos) {}
+
+    @Override
+    public void acceptAllPresent(final int relativeFrom, final int relativeTo) {
+      final int firstWord = relativeFrom >>> 6;
+      final int lastWord = (relativeTo - 1) >>> 6;
+      for (int word = firstWord; word <= lastWord; word++) {
+        if (scratch[word] == 0) {
+          touchedWords[touchedCount++] = word;
+        }
+      }
+      PostingMask.fillRange(scratch, relativeFrom, relativeTo);
+    }
+
+    @Override
+    public void acceptAllAbsent(final int relativeFrom, final int relativeTo) {}
+
+    private Chunk chunk(final long base) {
+      final int index = Arrays.binarySearch(chunkBases, 0, chunkCount, base);
+      if (index >= 0) {
+        return chunkValues[index];
+      }
+      final Chunk chunk = new Chunk(membership.apply(base));
+      final int insert = -index - 1;
+      if (chunkCount == chunkBases.length) {
+        chunkBases = Arrays.copyOf(chunkBases, chunkCount << 1);
+        chunkValues = Arrays.copyOf(chunkValues, chunkCount << 1);
+      }
+      System.arraycopy(chunkBases, insert, chunkBases, insert + 1, chunkCount - insert);
+      System.arraycopy(chunkValues, insert, chunkValues, insert + 1, chunkCount - insert);
+      chunkBases[insert] = base;
+      chunkValues[insert] = chunk;
+      chunkCount++;
       return chunk;
+    }
+
+    private @Nullable Chunk chunkOrNull(final long base) {
+      final int index = Arrays.binarySearch(chunkBases, 0, chunkCount, base);
+      return index >= 0
+          ? chunkValues[index]
+          : null;
     }
 
     @Override
@@ -259,7 +315,7 @@ public final class ValidTimeIntervalIndex {
       if (chunk.membership.isEmpty()) {
         return;
       }
-      references.forEachNodeKey(this);
+      collect(references);
       try {
         if (Diagnostics.SCAN_DIAGNOSTICS) {
           Diagnostics.CANDIDATE_WORDS_VISITED.add(touchedCount);
@@ -350,11 +406,11 @@ public final class ValidTimeIntervalIndex {
     }
 
     void removeExactStarts(final long base, final NodeReferences references, final boolean ignored) {
-      final Chunk chunk = chunks.get(base);
+      final Chunk chunk = chunkOrNull(base);
       if (chunk == null || chunk.count == 0) {
         return;
       }
-      references.forEachNodeKey(this);
+      collect(references);
       try {
         final PostingMask unverified = Objects.requireNonNull(chunk.unverified);
         final long[] selected = chunk.selected;
@@ -404,15 +460,16 @@ public final class ValidTimeIntervalIndex {
 
     Evidence evidence() {
       int capacity = 0;
-      for (final Chunk chunk : chunks.values()) {
-        capacity = Math.addExact(capacity, chunk.count);
+      for (int index = 0; index < chunkCount; index++) {
+        capacity = Math.addExact(capacity, chunkValues[index].count);
       }
       final long[] keys = new long[capacity];
       final long[] source = runKeys.keys;
       final Roaring64Bitmap unverifiedKeys = new Roaring64Bitmap();
       int position = 0;
-      for (final var entry : chunks.long2ObjectEntrySet()) {
-        final Chunk chunk = entry.getValue();
+      for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        final long chunkBase = chunkBases[chunkIndex];
+        final Chunk chunk = chunkValues[chunkIndex];
         if (chunk.count == 0) {
           continue;
         }
@@ -421,7 +478,7 @@ public final class ValidTimeIntervalIndex {
         if (selected != null) {
           for (int word = 0; word < WORDS; word++) {
             long bits = selected[word];
-            final long prefix = entry.getLongKey() | ((long) word << 6);
+            final long prefix = chunkBase | ((long) word << 6);
             while (bits != 0) {
               keys[position++] = prefix | Long.numberOfTrailingZeros(bits);
               bits &= bits - 1;
@@ -449,7 +506,7 @@ public final class ValidTimeIntervalIndex {
             for (long words = wordGroups[group]; words != 0; words &= words - 1) {
               final int word = (group << 6) | Long.numberOfTrailingZeros(words);
               long bits = scratch[word];
-              final long prefix = entry.getLongKey() | ((long) word << 6);
+              final long prefix = chunkBase | ((long) word << 6);
               while (bits != 0) {
                 keys[position++] = prefix | Long.numberOfTrailingZeros(bits);
                 bits &= bits - 1;
@@ -464,7 +521,9 @@ public final class ValidTimeIntervalIndex {
           }
         }
       }
-      return new Evidence(position == keys.length ? keys : Arrays.copyOf(keys, position), unverifiedKeys);
+      return new Evidence(position == keys.length
+          ? keys
+          : Arrays.copyOf(keys, position), unverifiedKeys);
     }
 
     private int mergeRuns(final Chunk chunk) {

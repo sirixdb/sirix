@@ -133,8 +133,7 @@ final class ValidTimeDisabledLookupCacheTest {
 
   private static PostingMask[] masks(final StorageEngineReader storage) {
     final var reader = HOTIndexReader.create(storage, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, 0);
-    return new PostingMask[] {
-        new HotOrderedStore(ValidTimeKey.STORE_LOWER, null, reader).chunkMask(16, 10, 0),
+    return new PostingMask[] {new HotOrderedStore(ValidTimeKey.STORE_LOWER, null, reader).chunkMask(16, 10, 0),
         new HotOrderedStore(ValidTimeKey.STORE_UPPER, null, reader).chunkMask(16, 20, 0),
         ValidTimeIntervalIndexFactory.createMembershipStore(storage, 0).chunkMask(0, 0, 0),
         ValidTimeIntervalIndexFactory.createVerificationStore(storage, 0).chunkMask(0, 0, 0),
@@ -145,6 +144,8 @@ final class ValidTimeDisabledLookupCacheTest {
     for (int mask = 0; mask < 4; mask++) {
       assertEquals(1L << reference, masks[mask].word(0));
     }
-    assertEquals(unordered ? 1 : 0, masks[4].word(0));
+    assertEquals(unordered
+        ? 1
+        : 0, masks[4].word(0));
   }
 }
