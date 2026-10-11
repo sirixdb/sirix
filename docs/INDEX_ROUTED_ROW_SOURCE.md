@@ -100,15 +100,15 @@ projection admission, including in pre-group predicates; nested dereferences rem
 steps. Joined and correlated returns must have unique names across the complete emitted record,
 so duplicate names retain the generic `BIT_DUPLICATE_OBJECT_FIELD` error.
 
-Per evaluation the expression evaluates the instants, resolves the document at `T` (the revision
-current at that instant), takes the valid rows' record keys from the valid-time index
-(`ValidTimeIntervalIndex.keys`, half-open, exact — inexact candidates are verified), acquires the
-executor bound to that resource and revision through the chain's per-source resolver, and serves.
+Per evaluation the routed source resolves its revision and exact record-key set under the
+[point and range admission rules](VALID_TIME_KEY_SLICES.md#admission-and-exact-fallbacks). The consumer
+acquires the executor bound to that resource and revision through the chain's per-source resolver,
+and serves.
 Lease acquisition enforces resource identity for every consumer. One leaf keep mask bounds every
 key and operand fill; an empty source fetches no columns. Anything on the
 way that cannot be served — an instant that is not a dateTime, a resource without valid-time
 configuration, a projection that does not cover the fields, an executor at another revision — falls
-back to the generic pipeline, which evaluates the very same opener.
+back to the generic pipeline, which evaluates the same routed source.
 
 **Order.** The opener yields rows in record-key order; the projection folds them in physical row
 order. The two agree except at order exceptions, so a routed grouping is served only under an

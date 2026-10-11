@@ -422,6 +422,13 @@ primitive lists and a bounded radix sort that skips constant bytes; its scratch 
 capped at 32 MiB or 1/128 of heap. Small, signed, or larger inputs retain comparison sorting.
 The persisted membership check still excludes nested and sibling arrays.
 
+Exact range keys can reuse one immutable snapshot per resource session, keyed by the revision index
+controller's identity, revision number, array key, index id, bounds and strictness. Controller
+invalidation prevents reuse after truncation and recommit with the same revision number
+(`ValidTimeRangeCacheTest.reusedRevisionDoesNotServeRangeKeysCachedBeforeTruncation`). Publication
+clones the keys, and callers receive copies. Session keys are weak; total retained weight is bounded
+by the smaller of 16 MiB and 1/64 of heap, with a 1 MiB floor.
+
 Joined kernels prove complete presence from the selected masks before choosing direct numeric
 leaf feeds. Compact integer join domains use bounded head arrays (at most 1 Mi entries and four
 per build row); other domains keep primitive hash heads. AND-only paired residuals use direct

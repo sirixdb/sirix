@@ -266,6 +266,36 @@ final class IntervalRangeJoinTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void standaloneProjectionConsumersPreserveTheRangeMask(final VersioningType versioning) throws Exception {
+    build(versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String prolog = """
+          declare variable $L := xs:dateTime('2024-04-01T00:00:00Z');
+          declare variable $U := xs:dateTime('2024-07-01T00:00:00Z');
+          """;
+      final String source = """
+          for $c in jn:doc('range','contracts',1)[]
+          where xs:dateTime($c.vf) lt $U and $L lt xs:dateTime($c.vt)
+          """;
+      final String[] tails = {"order by $c.cost return $c.id", "and $c.cost ge 0 return $c.id",
+          "return {'id':$c.id,'cost':$c.cost}", "return $c.vf"};
+      final String[] expected = {"1", "1", "{\"id\":1,\"cost\":7}", "\"2024-04-01T00:00:00Z\""};
+      for (int i = 0; i < tails.length; i++) {
+        final String query = prolog + source + tails[i];
+        assertEquals(expected[i], run(generic, ctx, query), query);
+        assertEquals(expected[i], run(chain, ctx, query), query);
+      }
+      final String topK = prolog + "subsequence((" + source + tails[0] + "),1,1)";
+      assertEquals("1", run(generic, ctx, topK));
+      assertEquals("1", run(chain, ctx, topK));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void singleRangesKeepClosedStrictFractionalAndOutOfRangeAnswers(final VersioningType versioning) throws Exception {
     build(versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();

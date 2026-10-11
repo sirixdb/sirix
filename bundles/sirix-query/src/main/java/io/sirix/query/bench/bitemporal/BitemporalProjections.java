@@ -26,11 +26,9 @@ import java.util.Set;
  * columns.
  *
  * <p>
- * This is what turns the grouped SH1 queries (Q6-Q9, Q11, Q12) into column scans: the valid-time
- * index yields the record keys of the segments valid at the query's instant, and the projection
- * executor folds exactly those rows' {@code grade}, {@code qty}, {@code cost} and {@code sid}
- * columns — no segment object is materialised. The declaration itself is a kit configuration, not a
- * query-time choice.
+ * The declaration is a kit configuration, not a query-time choice: routed consumers require these
+ * columns before they can serve the valid-time key mask without materialising segment objects. The
+ * query route inventory is maintained in {@code bundles/sirix-query/bench/bitemporal/README.md}.
  * </p>
  */
 public final class BitemporalProjections {

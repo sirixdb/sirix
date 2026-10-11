@@ -17,8 +17,8 @@ final class ValidTimeRangeCache {
               .build();
 
   @SuppressWarnings("ArrayRecordComponent") // Keys are cloned on publication; record equality is unused.
-  private record Snapshot(JsonIndexController controller, int revision, long array, int index, long lower,
-      long upper, int mode, long[] keys, int weight) {
+  private record Snapshot(JsonIndexController controller, int revision, long array, int index, long lower, long upper,
+      int mode, long[] keys, int weight) {
     boolean matches(final JsonIndexController controller, final int revision, final long array, final int index,
         final long lower, final long upper, final int mode) {
       return this.controller == controller && this.revision == revision && this.array == array && this.index == index
@@ -41,7 +41,8 @@ final class ValidTimeRangeCache {
       final long array, final int index, final long lower, final long upper, final int mode, final long[] keys) {
     final long bytes = 128L + 8L * keys.length;
     if (bytes <= MAX_BYTES) {
-      CACHE.put(session, new Snapshot(controller, revision, array, index, lower, upper, mode, keys.clone(), (int) bytes));
+      CACHE.put(session,
+          new Snapshot(controller, revision, array, index, lower, upper, mode, keys.clone(), (int) bytes));
     }
   }
 }
