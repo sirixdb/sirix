@@ -90,7 +90,9 @@ public final class ProjectionChangeLog implements AutoCloseable {
           for (int column = 0; column < page.getColumnCount(); column++) {
             poisoned |= page.columnUnrepresentable(column) || page.columnNumericNonIntegral(column)
                 || (page.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE
-                    && !page.columnPureDoubleSource(column));
+                    && !page.columnPureDoubleSource(column))
+                || (page.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+                    && !page.columnPureUtcTimestamp(column));
             present |= (page.presenceColumnBits(column)[row >>> 6] & (1L << row)) != 0;
           }
           // A direct object field proves an object only for direct array-element declarations.
@@ -148,7 +150,9 @@ public final class ProjectionChangeLog implements AutoCloseable {
         if (provenance != null) {
           captured.flags[column] |= provenance[column + 1];
         }
-        if (!captured.present(column) || (captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0) {
+        if (!captured.present(column)
+            || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
+                && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
           continue;
         }
         switch (kinds[column]) {
@@ -191,7 +195,9 @@ public final class ProjectionChangeLog implements AutoCloseable {
         if (provenance != null) {
           captured.flags[column] |= provenance[column + 1];
         }
-        if (!captured.present(column) || (captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0) {
+        if (!captured.present(column)
+            || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
+                && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
           continue;
         }
         switch (kinds[column]) {

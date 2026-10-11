@@ -213,7 +213,7 @@ public final class ChangeLogSlab {
         throw new IllegalArgumentException("Unknown change-log cell flags");
       }
       out.writeByte(flag);
-      if ((flag & PRESENT) == 0 || (flag & UNREPRESENTABLE) != 0) {
+      if ((flag & PRESENT) == 0 || ((flag & UNREPRESENTABLE) != 0 && kinds[column] != TIMESTAMP)) {
         continue;
       }
       switch (kinds[column]) {
@@ -289,7 +289,7 @@ public final class ChangeLogSlab {
         throw new IllegalStateException("Unknown change-log cell flags");
       }
       row.flags[column] = flags;
-      if ((flags & PRESENT) == 0 || (flags & UNREPRESENTABLE) != 0) {
+      if ((flags & PRESENT) == 0 || ((flags & UNREPRESENTABLE) != 0 && kinds[column] != TIMESTAMP)) {
         continue;
       }
       switch (kinds[column]) {

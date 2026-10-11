@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -49,6 +50,28 @@ final class TemporalAggregateColumns {
       throw new Unservable();
     }
     return page.numericColumn(column)[row];
+  }
+
+  static boolean endpointNeedsRecovery(final ProjectionIndexRowGroupPage page, final int column) {
+    return page.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+        ? !page.columnPureUtcTimestamp(column)
+        : page.columnUnrepresentable(column) || page.columnNumericNonIntegral(column);
+  }
+
+  @Nullable
+  Instant endpoint(final ProjectionIndexRowGroupPage page, final int column, final int row) {
+    if (page.columnKind(column) == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP) {
+      if (!page.columnPureUtcTimestamp(column)) {
+        throw new Unservable();
+      }
+      return present(page, column, row)
+          ? Instant.ofEpochSecond(page.numericColumn(column)[row])
+          : null;
+    }
+    final String text = string(page, column, row);
+    return text == null
+        ? null
+        : Instant.parse(text);
   }
 
   byte[] group(final ProjectionIndexRowGroupPage page, final int row, final List<Integer> columns) {

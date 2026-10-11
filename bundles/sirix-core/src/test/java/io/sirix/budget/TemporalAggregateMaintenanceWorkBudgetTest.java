@@ -28,7 +28,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -53,8 +52,8 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
   File directory;
 
   @ParameterizedTest
-  @ValueSource(ints = {256, 4096})
-  void changedRowsBoundNodeAndPageWrites(final int rows) throws Exception {
+  @CsvSource({"256,false", "4096,false", "256,true", "4096,true"})
+  void changedRowsBoundNodeAndPageWrites(final int rows, final boolean typedTimestamps) throws Exception {
     final var databasePath = directory.toPath().resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -73,14 +72,17 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
           }
           json.append("{\"g\":1,\"ignored\":0,\"amount\":")
               .append(row)
-              .append(",\"lo\":\"1970-01-01T00:00:00.001Z\",\"hi\":\"1970-01-01T00:00:00.002Z\"}");
+              .append(typedTimestamps
+                  ? ",\"lo\":\"1970-01-01T00:00:01Z\",\"hi\":\"1970-01-01T00:00:02Z\"}"
+                  : ",\"lo\":\"1970-01-01T00:00:00.001Z\",\"hi\":\"1970-01-01T00:00:00.002Z\"}");
         }
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append(']').toString()),
             JsonNodeTrx.Commit.NO);
         final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
         final List<Path<QNm>> fields = List.of(path("g"), path("amount"), path("lo"), path("hi"), path("ignored"));
+        final Type endpointType = typedTimestamps ? Type.DATI : Type.STR;
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fields,
-            List.of(Type.LON, Type.LON, Type.STR, Type.STR, Type.LON), 0, IndexDef.DbType.JSON);
+            List.of(Type.LON, Type.LON, endpointType, endpointType, Type.LON), 0, IndexDef.DbType.JSON);
         controller.createIndexes(Set.of(projection), writer);
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"),
             List.of("sum(amount)", "min(amount)", "max(amount)"));
@@ -148,7 +150,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             final AggregateSummary[] summaries = new AggregateSummary[1];
             storage.groups(Long.MAX_VALUE,
                 (key, group) -> summaries[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
-                    new TemporalAggregateDomain().height()).point(storage.parts(), group.parts(), 1));
+                    new TemporalAggregateDomain().height()).point(storage.parts(), group.parts(), typedTimestamps
+                        ? 1000
+                        : 1));
             final AggregateSummary summary = summaries[0];
             assertTrue(storage.nodesRead() <= 3,
                 "Point queries must read compressed summaries, never the contributor population");

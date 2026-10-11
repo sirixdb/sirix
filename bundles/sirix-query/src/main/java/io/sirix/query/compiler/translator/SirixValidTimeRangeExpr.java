@@ -109,7 +109,7 @@ final class SirixValidTimeRangeExpr implements Expr {
 
   private @Nullable RoutedKeys baseKeys(final QueryContext ctx, final Tuple tuple) {
     if (baseSource instanceof SirixValidTimeScanExpr scan) {
-      return scan.routedKeys(ctx, tuple);
+      return scan.routedKeys(ctx, tuple, scan.document(ctx, tuple));
     }
     if (baseSource instanceof SirixValidTimeRangeExpr range) {
       return range.routedKeys(ctx, tuple);

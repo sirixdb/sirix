@@ -225,6 +225,21 @@ public final class TemporalAggregateIndexes {
 
   private static long endpoint(final ChangeLogSlab.Row row, final byte[] kinds, final int column, final boolean upper,
       final Map<String, Long> instants) {
+    if (kinds[column] == ChangeLogSlab.TIMESTAMP) {
+      if ((row.flags[column] & (ChangeLogSlab.NON_DOUBLE | ChangeLogSlab.NON_INTEGRAL)) != 0) {
+        throw new UnsupportedCell();
+      }
+      if (!row.present(column)) {
+        return upper
+            ? DOMAIN.maxValue() + 1
+            : DOMAIN.lowerBound(null);
+      }
+      final Instant instant = Instant.ofEpochSecond(row.numbers[column]);
+      if (!DOMAIN.isExact(instant)) {
+        throw new UnsupportedCell();
+      }
+      return DOMAIN.point(instant);
+    }
     requireSupported(row, column);
     if (!row.present(column)) {
       return upper
@@ -394,7 +409,8 @@ public final class TemporalAggregateIndexes {
       }
       ProjectionIndexRowGroupPage page = original;
       int row = offset;
-      boolean recover = poisoned(page, fromColumn) || poisoned(page, toColumn);
+      boolean recover = TemporalAggregateColumns.endpointNeedsRecovery(page, fromColumn)
+          || TemporalAggregateColumns.endpointNeedsRecovery(page, toColumn);
       for (final int column : spec.groupColumns()) {
         recover |= poisoned(page, column);
       }
@@ -407,14 +423,8 @@ public final class TemporalAggregateIndexes {
         row = 0;
       }
       try {
-        final String fromText = columns.string(page, fromColumn, row);
-        final String toText = columns.string(page, toColumn, row);
-        final Instant fromInstant = fromText == null
-            ? null
-            : Instant.parse(fromText);
-        final Instant toInstant = toText == null
-            ? null
-            : Instant.parse(toText);
+        final Instant fromInstant = columns.endpoint(page, fromColumn, row);
+        final Instant toInstant = columns.endpoint(page, toColumn, row);
         if ((fromInstant != null && !DOMAIN.isExact(fromInstant))
             || (toInstant != null && !DOMAIN.isExact(toInstant))) {
           return Row.UNSUPPORTED;

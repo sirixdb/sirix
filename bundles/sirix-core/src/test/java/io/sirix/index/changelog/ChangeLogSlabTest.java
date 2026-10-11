@@ -66,6 +66,31 @@ final class ChangeLogSlabTest {
   }
 
   @Test
+  void lexicalTimestampFlagsPreserveEpochsAndProvenance() {
+    final byte[] kinds = {ChangeLogSlab.TIMESTAMP, ChangeLogSlab.TIMESTAMP, ChangeLogSlab.STRING};
+    final Row before = new Row(true, kinds.length);
+    Arrays.fill(before.flags, (byte) (ChangeLogSlab.PRESENT | ChangeLogSlab.UNREPRESENTABLE));
+    before.numbers[0] = 1_704_067_200L;
+    before.numbers[1] = -62_167_219_200L;
+    before.flags[1] |= ChangeLogSlab.NON_DOUBLE;
+    final Row after = before.copy();
+    after.numbers[0] += 86_400;
+    after.flags[1] = 0;
+    after.numbers[1] = 0;
+    final ChangeLogSlab slab = new ChangeLogSlab(0, 2, 1, kinds,
+        List.of(new Entry(1, new long[] {3}, before, after)));
+    final ChangeLogSlab decoded = ChangeLogSlab.decode(slab.encode());
+    final Row old = Objects.requireNonNull(decoded.entries().getFirst().before());
+    final Row current = Objects.requireNonNull(decoded.entries().getFirst().after());
+    assertArrayEquals(before.numbers, old.numbers);
+    assertArrayEquals(before.flags, old.flags);
+    assertArrayEquals(after.numbers, current.numbers);
+    assertArrayEquals(after.flags, current.flags);
+    assertNull(old.text[2]);
+    assertArrayEquals(slab.encode(), decoded.encode());
+  }
+
+  @Test
   void rejectsTruncatedUnsupportedAndTrailingFormats() {
     final byte[] bytes = new ChangeLogSlab(0, 1, 0, new byte[] {1}, List.of()).encode();
     for (int end = 0; end < bytes.length; end++) {
