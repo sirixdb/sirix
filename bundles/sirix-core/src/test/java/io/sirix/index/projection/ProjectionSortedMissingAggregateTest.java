@@ -189,17 +189,24 @@ final class ProjectionSortedMissingAggregateTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void obsoleteDirectoryHeaderIsRejectedByReadersAndEditors(final VersioningType versioning) {
-    withView(fixture(false), "obsolete-header", versioning, (session, reader) -> {
-      downgradeHeader(session);
-      try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-        assertThrows(IllegalStateException.class,
-            () -> ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0));
-      }
-      try (JsonNodeTrx writer = session.beginNodeTrx()) {
-        assertThrows(IllegalStateException.class, () -> new ProjectionSortedDirectory.Editor(
-            new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));
-      }
-    });
+    for (final byte version : new byte[] {3, 4, 5}) {
+      withView(fixture(false), "obsolete-header-" + version, versioning, (session, reader) -> {
+        downgradeHeader(session, version);
+        final String expectedMessage = "obsolete or unsupported sorted projection directory version " + version
+            + "; rebuild projection index";
+        try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
+          final IllegalStateException failure = assertThrows(IllegalStateException.class,
+              () -> ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0));
+          assertEquals(expectedMessage, failure.getMessage());
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          final IllegalStateException failure = assertThrows(IllegalStateException.class,
+              () -> new ProjectionSortedDirectory.Editor(
+                  new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));
+          assertEquals(expectedMessage, failure.getMessage());
+        }
+      });
+    }
   }
 
   @Test
@@ -739,23 +746,25 @@ final class ProjectionSortedMissingAggregateTest {
     }
   }
 
-  /**
-   * Rewrite the published header in the version-3 form, which carried no missing-aggregate count.
-   * That is what a view built before the count existed holds on disk.
-   */
-  private static void downgradeHeader(final JsonResourceSession session) {
+  private static void downgradeHeader(final JsonResourceSession session, final byte version) {
     try (JsonNodeTrx writer = session.beginNodeTrx()) {
       final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0);
       final byte[] counted = storage.getBlob(ProjectionSortedDirectory.HEADER_SLOT);
       assertNotNull(counted);
+      assertEquals(6, counted[VERSION_OFFSET]);
       final int fields = counted[FIXED_HEADER_BYTES - 1] & 0xFF;
       assertEquals(FIXED_HEADER_BYTES + fields, counted.length);
-      final byte[] uncounted = new byte[FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE + fields];
-      System.arraycopy(counted, 0, uncounted, 0, FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE - 1);
-      uncounted[VERSION_OFFSET] = VERSION_WITHOUT_MISSING_AGGREGATE;
-      uncounted[FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE - 1] = (byte) fields;
-      System.arraycopy(counted, FIXED_HEADER_BYTES, uncounted, FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE, fields);
-      storage.putBlob(ProjectionSortedDirectory.HEADER_SLOT, uncounted);
+      final byte[] obsolete;
+      if (version == VERSION_WITHOUT_MISSING_AGGREGATE) {
+        obsolete = new byte[FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE + fields];
+        System.arraycopy(counted, 0, obsolete, 0, FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE - 1);
+        obsolete[FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE - 1] = (byte) fields;
+        System.arraycopy(counted, FIXED_HEADER_BYTES, obsolete, FIXED_HEADER_BYTES_WITHOUT_MISSING_AGGREGATE, fields);
+      } else {
+        obsolete = counted.clone();
+      }
+      obsolete[VERSION_OFFSET] = version;
+      storage.putBlob(ProjectionSortedDirectory.HEADER_SLOT, obsolete);
       writer.commit();
     }
   }

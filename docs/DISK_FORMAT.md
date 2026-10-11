@@ -721,8 +721,8 @@ A `projectionSort` definition adds a revisioned sorted view. Its current format 
 | Directory header / nodes | `2^46 + 2^32` / header slot + node id |
 | Group summary | `2^46 + 2^33 + leafId` |
 | Bounds record | `2^46 + 3·2^32 + ((leafId − 1) >> 4)` |
-| Indirect directory separator | `2^46 + 4·2^32 + separatorId` |
 | Group-extrema header / nodes | `2^46 + 5·2^32` / header slot + node id |
+| Indirect directory separator | `2^46 + 6·2^32 + separatorId` |
 
 Encoded sorted-view chunks target 6144 bytes with an 8192-byte cap and at most 256 rows,
 independent of the 512-byte inline payload limit. Ordinary data chunks, summaries and directory
@@ -768,12 +768,12 @@ The leading key fields form the ordered dictionary; its entries must be unique, 
 and not prefix-overlapping. Opening checks dictionary offsets/IDs, exact encoded length, row order
 and the header's exact value extrema.
 
-**Directory header version 5** is the only supported version; its size is `39 + fieldCount` bytes:
+**Directory header version 6** is the only supported version; its size is `39 + fieldCount` bytes:
 
 | Offset | Width | Field |
 |---|---|---|
 | 0 | i32 | magic `0x31445350` (`PSD1`) |
-| 4 | u8 | version 5 |
+| 4 | u8 | version 6 |
 | 5 | u8 | height (0..32) |
 | 6 | i32 | rootId (0 = empty) |
 | 10 | i32 | nodeCount (node-id high-water mark) |
@@ -835,10 +835,15 @@ The nonsorted additions retain their existing readers: version-0 metadata and se
 still parse; missing flag-summary and numeric-proof slots fall back to the descriptor and BODY
 paths, and a definition without `projectionSort` has no sorted view. Sorted views require the encoded chunk layout:
 older directory and bounds versions are rejected, with no migration or compatibility mode.
+Directory version 6 moves indirect separators from family `4·2^32` to `6·2^32` above the
+`2^46` base, avoiding the numeric-proof family. Directory versions 3, 4 and 5 are obsolete:
+queries decline the index and maintenance fails the owning transaction with a rebuild-required
+format error. Drop and rebuild the projection index before using its sorted view with this code;
+there is no in-place conversion or dual-family reader.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
 that names a value-summary capability on a dictionary string column, version-1 set-summary chunks,
-and version-5 sorted directory headers, as corrupt: queries decline the index and maintenance fails
+and version-6 sorted directory headers, as corrupt: queries decline the index and maintenance fails
 the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the remaining
 slots and the `projectionSort` element, so its maintenance would leave them stale even in an index
 it does not reject. When downgrading, drop the projection index and rebuild it with the previous
