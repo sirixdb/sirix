@@ -148,8 +148,8 @@ public final class ValidTimeIntervalIndex {
         | (strictEnd
             ? 2
             : 0);
-    final long[] cached = ValidTimeRangeCache.get(document.getResourceSession(), revision, arrayKey, definition.getID(),
-        lowerPoint, upperPoint, mode);
+    final long[] cached = ValidTimeRangeCache.get(document.getResourceSession(), controller, revision, arrayKey,
+        definition.getID(), lowerPoint, upperPoint, mode);
     if (cached != null) {
       return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), cached);
     }
@@ -167,8 +167,8 @@ public final class ValidTimeIntervalIndex {
         tree.endingAt(domain.point(lo), keys::remove);
       }
       final long[] matches = readEvidence(document, definition.getID(), keys.sortedKeys(), false).members();
-      ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint,
-          upperPoint, mode, matches);
+      ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
+          lowerPoint, upperPoint, mode, matches);
       return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
     }
     final LongArrayList keys = new LongArrayList();
@@ -201,8 +201,8 @@ public final class ValidTimeIntervalIndex {
     final long[] matches = readEvidence(document, definition.getID(), count == sorted.length
         ? sorted
         : Arrays.copyOf(sorted, count), false).members();
-    ValidTimeRangeCache.put(document.getResourceSession(), revision, arrayKey, definition.getID(), lowerPoint,
-        upperPoint, mode, matches);
+    ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
+        lowerPoint, upperPoint, mode, matches);
     return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
   }
 
