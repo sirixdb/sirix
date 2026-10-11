@@ -109,7 +109,7 @@ final class HOTDirectionOneSplitHalfAtomicityTest {
     // directionOneIntoSplitHalf must re-resolve that child before producing the refreshed split.
     shape.tallChildRef.setPage(shape.tallChild);
     final HOTIncrementalInsert.BiNode split =
-        HOTIncrementalInsert.splitIndirect(shape.originalNode, 2, new AtomicLong(500)::getAndIncrement);
+        HOTIncrementalInsert.splitIndirect(shape.originalNode, 2, IndexType.PATH, new AtomicLong(500)::getAndIncrement);
     shape.tallChildRef.setPage(null);
     return split;
   }

@@ -441,6 +441,39 @@ final class ProjectionOpenRowGroupTail {
     }
   }
 
+  static byte[] materializeKeys(final long rowGroupId, final byte[] descriptor, final Header header,
+      final byte[] baseKeys, final List<byte[]> rowBlobs) {
+    final ProjectionIndexColumnSegmentCodec.KeysView base =
+        ProjectionIndexColumnSegmentCodec.decodeKeysView(header.baseDescriptor(), baseKeys);
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[0]);
+    final long[] longs = new long[0];
+    final boolean[] bools = new boolean[0];
+    final byte[][] strings = new byte[0][];
+    for (int row = 0; row < base.recordKeys().length; row++) {
+      page.appendTailRow(base.recordKeys()[row], longs, bools, strings, null, null, bools, bools, bools, bools,
+          base.orderExceptionAt(row), base.copyOrderLabelAt(row));
+    }
+    final byte[] kinds = new byte[RowGroupDescriptor.columnCount(descriptor)];
+    for (int column = 0; column < kinds.length; column++) {
+      kinds[column] = RowGroupDescriptor.kind(descriptor, column);
+    }
+    int rows = 0;
+    if (rowBlobs.size() != header.blobCount()) {
+      throw new IllegalStateException("projection tail blob count disagrees with its header");
+    }
+    for (final byte[] blob : rowBlobs) {
+      for (final Row row : decodeRows(blob, kinds, rowGroupId)) {
+        page.appendTailRow(row.recordKey(), longs, bools, strings, null, null, bools, bools, bools, bools,
+            row.orderException(), row.orderLabel());
+        rows++;
+      }
+    }
+    if (rows != header.rowCount() || page.getRowCount() != RowGroupDescriptor.rowCount(descriptor)) {
+      throw new IllegalStateException("projection tail KEYS row count disagrees with its descriptor");
+    }
+    return ProjectionIndexColumnSegmentCodec.encodePooled(page).segments()[0];
+  }
+
   /**
    * Merge the base segments and the tail rows into the row group every reader sees, and prove that it
    * is the row group the writer published: the re-encoded descriptor must equal

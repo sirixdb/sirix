@@ -13,6 +13,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
@@ -561,38 +562,42 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       return pcrSet;
     }
 
-    pcrSet = new LongOpenHashSet();
+    // A writer's path summary shares its record reader with the document cursor. Keep its pin
+    // while the cache-miss walk fetches the path-summary root through that reader.
+    try (final RecordPageGuard guard = storageEngineReader.preserveRecordPageGuard()) {
+      pcrSet = new LongOpenHashSet();
 
-    final boolean isAttributePattern = path.isAttribute();
-    final int pathLength = path.getLength();
+      final boolean isAttributePattern = path.isAttribute();
+      final int pathLength = path.getLength();
 
-    final long nodeKey = currentNode.getNodeKey();
-    moveToDocumentRoot();
-    for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
-      axis.nextLong();
-      final PathNode node = this.getPathNode();
+      final long nodeKey = currentNode.getNodeKey();
+      moveToDocumentRoot();
+      for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
+        axis.nextLong();
+        final PathNode node = this.getPathNode();
 
-      if (node == null) {
-        continue;
+        if (node == null) {
+          continue;
+        }
+
+        if (node.getLevel() < pathLength) {
+          continue;
+        }
+
+        if (isAttributePattern ^ (node.getPathKind() == NodeKind.ATTRIBUTE)) {
+          continue;
+        }
+
+        final Path<QNm> nodePath = getPath();
+        assert nodePath != null;
+        if (path.matches(nodePath)) {
+          pcrSet.add(node.getNodeKey());
+        }
       }
-
-      if (node.getLevel() < pathLength) {
-        continue;
-      }
-
-      if (isAttributePattern ^ (node.getPathKind() == NodeKind.ATTRIBUTE)) {
-        continue;
-      }
-
-      final Path<QNm> nodePath = getPath();
-      assert nodePath != null;
-      if (path.matches(nodePath)) {
-        pcrSet.add(node.getNodeKey());
-      }
+      moveTo(nodeKey);
+      pathCache.put(path, pcrSet);
+      return pcrSet;
     }
-    moveTo(nodeKey);
-    pathCache.put(path, pcrSet);
-    return pcrSet;
   }
 
   @Override

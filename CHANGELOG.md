@@ -6,6 +6,24 @@ All notable changes to SirixDB are documented in this file.
 
 ### Added
 
+- **Encoded sorted projection chunks** — sorted views pack byte-addressable numeric columns
+  and prefix rows into encoded chunks. The [sorted-view format](docs/DISK_FORMAT.md#encoded-sorted-views)
+  defines their inline or referenced placement. Edits split or merge local ranges; directory
+  metadata shares a bounded point-read cache budget, and scans retain complete HOT pages.
+  Exact single-group bounds can answer queries without fetching a separate summary.
+  This replaces the old sorted-view storage format; old directory and bounds versions are rejected.
+- **Index-routed projection queries** — projection scans can consume index-selected rows,
+  with grouped computed aggregates and column-side joins. The SH1 loader now declares business
+  resource projections. Admission, count semantics and fallbacks are specified in
+  [Index-routed row source](docs/INDEX_ROUTED_ROW_SOURCE.md).
+- **Unchanged commits skip index-catalogue serialization.** Shared resource sessions cache catalogue
+  lookups and parsed definitions. See the [catalogue persistence rules](docs/ARCHITECTURE.md#index-catalogues)
+  and [commit work budgets](bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
+- **Projection tail appends extract only new rows.** Eligibility and fallback rules are described in
+  [incremental maintenance](docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
+- **Closing a committed writer skips redundant data-file forces.** The durability conditions are owned by
+  [FileChannelWriter](bundles/sirix-core/src/main/java/io/sirix/io/filechannel/FileChannelWriter.java)
+  and guarded by `CommitReinstantiationWorkBudgetTest`.
 - **Open projection row-group tails** — append-only commits retain base column segments
   and store new rows as referenced side pages. Every reader resolves the merged group;
   completion and other edits fold it atomically. A bounded writer-seeded merge memo
@@ -108,19 +126,11 @@ All notable changes to SirixDB are documented in this file.
 - **A database has one owning process and shared state across local handles.** Opens take an
   exclusive OS lock; independently closeable handles share revision and catalogue state while
   preserving user attribution. See the [ownership and lifecycle rules](docs/operations.md#10-known-limitations-and-operational-caveats).
-- **A commit no longer lists the index-catalogue directory.** Every commit re-instantiates the
-  writer, which asks for the catalogue of the revision it is about to create; that file cannot
-  exist yet, so the lookup fell back to one listing of `indexes/`, which holds one catalogue file
-  per revision that had definitions: work proportional to the revision count on every commit (78 %
-  of a one-operation-per-commit load's commit CPU after 21,000 revisions). A resource session now
-  resolves a lookup from the requested revision's own file, then from what it already knows — the
-  newest catalogue the resource's writers serialized or an earlier listing found — then from the
-  previous revision's file, and lists the directory only when none of those can answer: for a
-  session's writers at most once, when the resource has no catalogue or its catalogue was emptied;
-  a reader of an old revision with neither its own nor its predecessor's catalogue still lists. The
-  revision's own file remains the first, exact answer whenever present. Resource sessions now share
-  their catalogue knowledge as well as their committed view. The resolved definitions and on-disk
-  layout of `indexes/` are unchanged. Guarded by the `IndexCatalogueResolutionWorkBudgetTest` work budget.
+
+- **CAS and VALIDTIME posting chunks** now use append-only deltas and referenced folded payloads.
+  The authoritative key layout, marker encoding, integrity checks, and format replacement policy
+  are in [On-disk format](docs/DISK_FORMAT.md#cas-and-validtime-posting-chunks).
+
 - **Versioned HOT projection reads** resolve explicitly requested slots from guarded raw fragments,
   retain bounded resolved-slot mini pages, and promote repeated point demand to complete leaves. The
   index-metadata record, resolved by every serving decision and every commit, is read this way
@@ -255,11 +265,11 @@ All notable changes to SirixDB are documented in this file.
   is now discharged through that same complete-frontier splice: the parent's subtree is split
   immediately before the key and the key gets its own leaf. When the overflow was a byte overflow on a
   key the leaf already holds, that leaf carries the merged value and the split drops the stale entry;
-  projection side-reference ownership on that route is specified in
-  [the merge path](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path). Further into the same load,
-  splitting a full node published a half that broke the trie condition (I11) against its own child:
-  a half keeps only the bits that still vary within it, so a child that sat safely below the node's
-  most significant bit can sit above the half's. Only the
+  side-reference ownership and refusal behavior are specified in
+  [HOT index specification §4.5.2](docs/HOT_INDEX_SPECIFICATION.md#452-merge-path).
+  Further into the same load, splitting a full node published a half that broke the
+  trie condition (I11) against its own child: a half keeps only the bits that still vary within it, so
+  a child that sat safely below the node's most significant bit can sit above the half's. Only the
   half the new key joins was checked and lies on the key's route, so the other went out unseen,
   committed, and stopped the load three publications later with `HOT published structural path is
   malformed`, when an insert was first routed through it. A full-node decomposition, and the

@@ -2,13 +2,10 @@ package io.sirix.index.interval;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Cache;
-import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.BufferManager;
-import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
@@ -16,15 +13,16 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
 /**
- * Session-scoped memo of immutable companion posting masks, plus per-walk trie readers.
+ * Session-scoped memo of immutable companion posting masks.
  *
  * <p>
- * Readers are deliberately NOT cached across transactions. Doing so needs a forwarding
- * {@code StorageEngineReader} to re-point a parked trie at the current transaction, and that
- * wrapper is a second loaded implementation of the interface every record read goes through. On a
- * JVM that only reads, the JIT otherwise binds those calls statically; loading the wrapper at the
- * first stab invalidated that assumption for the whole cold read path and cost more than the
- * readers saved (measured on cold Q4/Q9). Constructing a trie reader is two small objects per walk.
+ * Only masks are memoized. Trie readers are deliberately NOT parked across transactions:
+ * re-pointing one at the current transaction needs a forwarding {@code StorageEngineReader}, a
+ * second loaded implementation of the interface every record read goes through. On a JVM that only
+ * reads, the JIT otherwise binds those calls statically; loading the wrapper at the first stab
+ * invalidated that assumption for the whole cold read path and cost more than the readers saved
+ * (measured on cold Q4/Q9). Each walk constructs its own trie reader, two small objects bound to
+ * the transaction.
  */
 public final class ValidTimeReadCache {
   private static final LongAdder MASK_HITS = new LongAdder();
@@ -70,48 +68,7 @@ public final class ValidTimeReadCache {
     return cache.masks.get(key, _ -> PostingMask.from(load.get()));
   }
 
-  /** One trie reader for one walk, bound to the transaction's own storage reader. */
-  public static Lease borrow(final HOTIndexReader<ValidTimeKey> reader) {
-    final StorageEngineReader storage = reader.getStorageEngineReader();
-    return new Lease(new State(storage, reader.getIndexNumber()));
-  }
-
   public void clear() {
     masks.invalidateAll();
-  }
-
-  private static final class State {
-    private final HOTIndexReader<ValidTimeKey> index;
-    private final HOTTrieReader trie;
-
-    private State(final StorageEngineReader storage, final int indexNumber) {
-      index = HOTIndexReader.create(storage, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, indexNumber);
-      trie = new HOTTrieReader(storage);
-    }
-  }
-
-  public static final class Lease implements AutoCloseable {
-    private final State state;
-    private boolean closed;
-
-    private Lease(final State state) {
-      this.state = state;
-    }
-
-    public HOTTrieReader trie() {
-      return state.trie;
-    }
-
-    public @Nullable PageReference root() {
-      return state.index.getRootReference();
-    }
-
-    @Override
-    public void close() {
-      if (!closed) {
-        closed = true;
-        state.trie.close();
-      }
-    }
   }
 }

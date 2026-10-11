@@ -301,17 +301,13 @@ final class ProjectionSortedSpanScanTest {
       }
     }
     Databases.clearGlobalCaches();
-    final String previous = System.getProperty("sirix.projection.heapSpanPriority");
-    final String previousDense = System.getProperty("sirix.projection.denseSpanBounds");
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
         JsonResourceSession session = database.beginResourceSession("resource")) {
       for (int revision = 1; revision <= 2; revision++) {
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(revision)) {
           final StorageEngineReader reader = trx.getStorageEngineReader();
           assertTrue(ProjectionSortedDirectory.open(reader, 0).dataLeafCount() >= 1024);
-          for (int mode = 0; mode < 4; mode++) {
-            System.setProperty("sirix.projection.heapSpanPriority", Boolean.toString((mode & 1) != 0));
-            System.setProperty("sirix.projection.denseSpanBounds", Boolean.toString((mode & 2) != 0));
+          {
             for (final long divisor : new long[] {1, 7, 100}) {
               for (final int limit : new int[] {1, 3, 17, 32}) {
                 final List<Group> answer = expected(revision == 1
@@ -324,15 +320,6 @@ final class ProjectionSortedSpanScanTest {
           }
         }
       }
-    } finally {
-      if (previous == null)
-        System.clearProperty("sirix.projection.heapSpanPriority");
-      else
-        System.setProperty("sirix.projection.heapSpanPriority", previous);
-      if (previousDense == null)
-        System.clearProperty("sirix.projection.denseSpanBounds");
-      else
-        System.setProperty("sirix.projection.denseSpanBounds", previousDense);
     }
   }
 
@@ -345,7 +332,6 @@ final class ProjectionSortedSpanScanTest {
       rows.add(new Row("group" + group, 777, rows.size() + 1));
     }
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
-    final String previous = System.getProperty("sirix.projection.heapSpanPriority");
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
@@ -354,17 +340,9 @@ final class ProjectionSortedSpanScanTest {
           writer.commit();
         }
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx(1)) {
-          for (final boolean heap : new boolean[] {false, true}) {
-            System.setProperty("sirix.projection.heapSpanPriority", Boolean.toString(heap));
-            assertNull(bounded(trx.getStorageEngineReader(), 3, 1));
-          }
+          assertNull(bounded(trx.getStorageEngineReader(), 3, 1));
         }
       }
-    } finally {
-      if (previous == null)
-        System.clearProperty("sirix.projection.heapSpanPriority");
-      else
-        System.setProperty("sirix.projection.heapSpanPriority", previous);
     }
   }
 

@@ -33,13 +33,18 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import io.sirix.io.StorageType;
+import io.sirix.settings.VersioningType;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Objects;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -256,6 +261,84 @@ final class ValidTimeSliceWorkBudgetTest {
         : (start
             ? bound + " " + operator + " " + point
             : point + " " + operator + " " + bound);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void exactHalfOpenRoutedKeysNeedOnlyOneStab(final VersioningType versioning) throws Exception {
+    shredRows("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+          "nested":[{"id":99,"vf":"2023-01-01T00:00:00.000500Z","vt":"2024-01-01T00:00:00.000500Z"},
+                    {"id":98,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]},
+         {"id":2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":3,"vf":"2023-01-01T00:00:00Z","vt":"2024-01-01T00:00:00Z"}]
+        """, versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final LongArrayList expected = new LongArrayList(2);
+      final Sequence oracle = new Query(chain, """
+          for $x at $position in jn:doc('budget','rows')[]
+          where xs:dateTime($x.vf) le xs:dateTime('2024-01-01T00:00:00Z')
+            and xs:dateTime('2024-01-01T00:00:00Z') lt xs:dateTime($x.vt)
+          return $x
+          """).execute(context);
+      assertNotNull(oracle);
+      try (var iterator = oracle.iterate()) {
+        for (var item = iterator.next(); item != null; item = iterator.next()) {
+          expected.add(((JsonDBItem) item).getNodeKey());
+        }
+      }
+      assertEquals(2, expected.size());
+      final long[] expectedKeys = expected.toLongArray();
+      Arrays.sort(expectedKeys);
+      final JsonDBItem document = Objects.requireNonNull(store.lookup("budget").getDocument("rows"));
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+      assertArrayEquals(expectedKeys,
+          ValidTimeIntervalIndex.keys(observed, Instant.parse("2024-01-01T00:00:00Z"), true));
+      clearInvocations(cursor);
+      final var captured =
+          INDEX_WORK.call(() -> ValidTimeIntervalIndex.keys(observed, Instant.parse("2024-01-01T00:00:00Z"), true));
+      assertArrayEquals(expectedKeys, captured.result());
+      captured.work()
+              .assertAtMost(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 4,
+                  "one half-open stab visits the two outer matches and at most two nested candidates")
+              .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+                  "cohort admission uses compressed evidence rather than enumerating its members");
+      verify(cursor, never()).moveTo(anyLong());
+      assertTimestampReads(cursor, 0, 0);
+      captured.result()[0] = -1L;
+      assertArrayEquals(expectedKeys,
+          ValidTimeIntervalIndex.keys(observed, Instant.parse("2024-01-01T00:00:00Z"), true),
+          "the caller owns its result array without changing later lookups");
+      final var session = document.getResourceSession();
+      try (var writer = session.getNodeTrx().orElseGet(session::beginNodeTrx)) {
+        assertTrue(writer.moveTo(document.getNodeKey()));
+        assertTrue(writer.moveToLastChild());
+        expected.add(writer.getNodeKey());
+        assertTrue(writer.moveToLastChild());
+        assertEquals("vt", writer.getName().getLocalName());
+        writer.setStringValue("2024-01-01T00:00:00.000500Z");
+        writer.commit();
+      }
+      final long[] updatedKeys = expected.toLongArray();
+      Arrays.sort(updatedKeys);
+      final JsonDBItem updated = Objects.requireNonNull(store.lookup("budget").getDocument("rows"));
+      for (int lookup = 0; lookup < 2; lookup++) {
+        assertArrayEquals(updatedKeys,
+            ValidTimeIntervalIndex.keys(updated, Instant.parse("2024-01-01T00:00:00Z"), true),
+            "an inexact endpoint in a new revision must retain verification");
+      }
+      assertArrayEquals(expectedKeys,
+          ValidTimeIntervalIndex.keys(observed, Instant.parse("2024-01-01T00:00:00Z"), true),
+          "the historical snapshot keeps its own exact cohort proof");
+    }
   }
 
   @ParameterizedTest
@@ -861,12 +944,17 @@ final class ValidTimeSliceWorkBudgetTest {
   }
 
   private void shredRows(final String json) {
+    shredRows(json, VersioningType.SLIDING_SNAPSHOT);
+  }
+
+  private void shredRows(final String json, final VersioningType versioning) {
     final Path databasePath = directory.resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("rows")
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .validTimePaths("vf", "vt")
+                                                   .versioningApproach(versioning)
                                                    .build());
       try (var session = database.beginResourceSession("rows"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);

@@ -178,7 +178,9 @@ public final class Main {
 
     System.out.println();
     System.out.println("Query result");
-    xq.serialize(ctx, System.out);
+    final SirixStringSerializer serializer = new SirixStringSerializer(System.out);
+    serializer.setFormat(xq.isPrettyPrint());
+    xq.serialize(ctx, serializer);
     System.out.println();
     System.out.println();
   }

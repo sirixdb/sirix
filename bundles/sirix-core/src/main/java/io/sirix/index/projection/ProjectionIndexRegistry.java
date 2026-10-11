@@ -717,6 +717,13 @@ public final class ProjectionIndexRegistry {
       return evidence != INTEGRALITY_UNKNOWN && col >= 0 && col < evidence.length && evidence[col];
     }
 
+    /** True when every persisted leaf proves a canonical UTC timestamp epoch lane. */
+    public boolean timestampColumnPureUtc(final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+      return col >= 0 && columnStore != null && columnStore.columnSliceable(col)
+          && columnStore.columnKind(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+          && columnFlagAll(col, ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_UTC_TIMESTAMP, fetcher);
+    }
+
     /**
      * {@code true} iff column {@code col} can serve SPARSE-CORRECT answers: every leaf carries a valid
      * presence tail and the column never saw a present-but-unrepresentable value (JSON null,

@@ -27,11 +27,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Every answer asserted with {@link #BRACKIT_TABLE_JOIN_FIX_REQUIRED}, namely the two correlated
  * nested-FLWOR shapes and the hoisted stored join, is only reachable with the Brackit TableJoin fix
- * from <a href="https://github.com/sirixdb/brackit/pull/119">sirixdb/brackit#119</a>. Sirix
- * resolves {@code io.sirix:brackit:1.0-alpha10-SNAPSHOT} from {@code mavenLocal()} before Sonatype,
- * so a failure of those assertions on a developer machine almost always means a stale local Brackit
- * install in {@code ~/.m2}; reinstall Brackit master locally to refresh it. The expected answers
- * are hand-computed from the fixtures below and must never be adjusted to match observed output.
+ * from <a href="https://github.com/sirixdb/brackit/pull/119">sirixdb/brackit#119</a>. Dependency
+ * resolution and the local-artifact opt-in are documented in {@code CONTRIBUTING.md}. The expected
+ * answers are hand-computed from the fixtures below and must never be adjusted to match observed
+ * output.
  * </p>
  */
 final class LetBoundSequenceTest {

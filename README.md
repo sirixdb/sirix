@@ -515,7 +515,7 @@ Database (directory)
 
 ### Indexes
 
-Three secondary index types, all updated **synchronously** inside the writing transaction — queries never see a stale index:
+The path, CAS and name indexes are updated **synchronously** inside the writing transaction — queries never see a stale index:
 
 - **Path index** — index specific JSON or XML paths for faster navigation. XML indexes cover
   elements, attributes, namespace declarations, and processing instructions.
@@ -530,10 +530,12 @@ Three secondary index types, all updated **synchronously** inside the writing tr
 All three use one canonical [Height-Optimized Trie](docs/ARCHITECTURE.md#hot-height-optimized-trie-index)
 representation over off-heap leaf pages. Create an index before inserting nodes or over a populated
 resource, including nodes inserted in the current uncommitted transaction; both cover the same
-node kinds. Initial creation may bulk-build a virgin tree, while every later insert, update, and
-delete mutates only the affected posting chunk in that same format. There is no per-resource backend
-selector or alternate mutation route. For PATH and CAS scans, an empty path filter imposes no path
-restriction; supplied paths that match no path classes return no nodes.
+node kinds. Initial creation may bulk-build a virgin tree; later insert, update, and delete
+operations maintain the affected posting list. The authoritative
+[CAS/VALIDTIME posting layout](docs/DISK_FORMAT.md#cas-and-validtime-posting-chunks) describes delta
+updates and folded side pages. There is no per-resource backend selector or alternate mutation
+route. For PATH and CAS scans, an empty path filter imposes no path restriction; supplied paths
+that match no path classes return no nodes.
 
 Like the rest of the engine, indexes are **fully versioned**: opening an index at revision *N*
 returns the index state as of *N*—never a later commit's. This is verified across point and range
@@ -570,7 +572,7 @@ documents storage compatibility and encoding.
 
 ### Projection indexes (experimental, analytical)
 
-A fourth, columnar index type accelerates analytical queries — aggregates, filtered counts,
+A columnar index type accelerates analytical queries — aggregates, filtered counts,
 group-bys, count-distinct — over homogeneous record sets. A **projection index** extracts
 declared fields into column-oriented leaves (frame-of-reference numerics, string dictionaries,
 presence bitmaps) that the vectorized executor scans with SIMD kernels instead of walking the
@@ -593,6 +595,10 @@ return {"revision": sdb:commit($doc)}
 Usage guide, maintenance semantics, REST gate, and current limits:
 [`docs/PROJECTION_INDEXES.md`](docs/PROJECTION_INDEXES.md); internals:
 [`docs/PROJECTION_INDEX_DEEP_DIVE.md`](docs/PROJECTION_INDEX_DEEP_DIVE.md).
+
+For grouped aggregates at a valid-time point, a covering projection can also back a
+[versioned temporal aggregate index](docs/TEMPORAL_AGGREGATE_INDEX.md). That reference owns its
+declaration API, synchronous maintenance and query fallback rules.
 
 ## Correctness & Formal Verification
 

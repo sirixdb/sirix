@@ -17,12 +17,13 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Structural tests for {@link ValidTimeIndexPage} plus the backward-compatibility guarantee for the
- * {@link RevisionRootPage} reference-count growth from 10 to 11 (adding the VALIDTIME slot).
+ * Structural tests for {@link ValidTimeIndexPage} and the current {@link RevisionRootPage}
+ * reference layout, including dense and sparse bitmap serialization.
  *
  * @author Johannes Lichtenberger
  */
@@ -108,81 +109,58 @@ final class ValidTimeIndexPageTest {
   }
 
   @Test
-  void revisionRoot_referenceCountConstantIsEleven_andValidTimeIsLastSlot() {
-    assertEquals(11, RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT);
+  void revisionRoot_referenceCountIncludesEveryIndexContainer() {
+    assertEquals(13, RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT);
     final RevisionRootPage root = new RevisionRootPage();
-    // The pre-existing sibling references plus the new VALIDTIME slot are all materialized on a
-    // fresh revision root, and each typed getter returns a non-null reference.
+    // Typed getters must preserve each container's assigned slot as new containers are appended.
     assertNotNull(root.getNamePageReference());
     assertNotNull(root.getCASPageReference());
     assertNotNull(root.getPathPageReference());
     assertNotNull(root.getDeweyIdPageReference());
     assertNotNull(root.getVectorPageReference());
     assertNotNull(root.getProjectionIndexPageReference());
-    assertNotNull(root.getValidTimeIndexPageReference());
+    assertSame(root.getOrCreateReference(10), root.getValidTimeIndexPageReference());
+    assertSame(root.getOrCreateReference(11), root.getTemporalAggregateIndexPageReference());
+    assertSame(root.getOrCreateReference(12), root.getChangeLogIndexPageReference());
   }
 
   /**
-   * Backward-compatibility: the {@link RevisionRootPage} delegate is a {@link BitmapReferencesPage}
-   * whose on-disk form stores a presence BITMAP, and whose deserializer
-   * ({@link io.sirix.page.SerializationType#deserializeBitmapReferencesPage}) reads EXACTLY
-   * {@code bitmap.cardinality()} references — it IGNORES the {@code referenceCount} argument.
-   * Therefore:
-   *
-   * <ul>
-   * <li>a NEW revision root (11 set bits) round-trips to 11 references, and</li>
-   * <li>an OLD revision root written before the VALIDTIME slot existed (only offsets 0..9 set, 10
-   * references) round-trips to 10 references WITHOUT error, even though the deserialize ctor is now
-   * called with {@code referenceCount = 11}.</li>
-   * </ul>
-   *
-   * After deserializing the old form, the missing VALIDTIME slot (offset 10) is materialized lazily
-   * via {@link BitmapReferencesPage#getOrCreateReference(int)} (which is exactly what
-   * {@code NodeStorageEngineReader.getValidTimeIndexPage} relies on), so the new code reads old
-   * databases transparently.
+   * The revision-root wire contract stores a presence bitmap followed by only the populated
+   * references. All current slots must round-trip, while absent containers must remain absent until
+   * requested without changing already persisted references.
    */
   @Test
-  void backwardCompat_tenSlotAndElevenSlotBothDeserialize() {
-    // --- NEW format: 11 occupied offsets (0..10). ---
-    final BitmapReferencesPage elevenSlot = new BitmapReferencesPage(11);
-    for (int offset = 0; offset <= 10; offset++) {
-      elevenSlot.getOrCreateReference(offset).setKey(1000L + offset);
+  void denseAndSparseRevisionRootReferencesRoundTrip() {
+    final int referenceCount = RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT;
+    final BitmapReferencesPage dense = new BitmapReferencesPage(referenceCount);
+    for (int offset = 0; offset < referenceCount; offset++) {
+      dense.getOrCreateReference(offset).setKey(1000L + offset);
     }
-    final BitmapReferencesPage elevenRoundTripped = roundTrip(elevenSlot, 11);
-    assertEquals(11, elevenRoundTripped.getBitmap().cardinality(), "11-slot must round-trip to 11 refs");
-    for (int offset = 0; offset <= 10; offset++) {
-      assertTrue(elevenRoundTripped.getBitmap().get(offset), "offset " + offset + " must be present");
-      assertEquals(1000L + offset, elevenRoundTripped.getOrCreateReference(offset).getKey());
+    final BitmapReferencesPage denseRoundTripped = roundTrip(dense, referenceCount);
+    assertEquals(referenceCount, denseRoundTripped.getBitmap().cardinality());
+    for (int offset = 0; offset < referenceCount; offset++) {
+      assertTrue(denseRoundTripped.getBitmap().get(offset), "offset " + offset + " must be present");
+      assertEquals(1000L + offset, denseRoundTripped.getOrCreateReference(offset).getKey());
     }
 
-    // --- OLD format: only offsets 0..9 occupied (no VALIDTIME slot), 10 references. ---
-    final BitmapReferencesPage tenSlot = new BitmapReferencesPage(11);
-    for (int offset = 0; offset <= 9; offset++) {
-      tenSlot.getOrCreateReference(offset).setKey(2000L + offset);
+    final int populatedCount = 10;
+    final BitmapReferencesPage sparse = new BitmapReferencesPage(referenceCount);
+    for (int offset = 0; offset < populatedCount; offset++) {
+      sparse.getOrCreateReference(offset).setKey(2000L + offset);
     }
-    assertFalse(tenSlot.getBitmap().get(10), "simulated old page must NOT have the VALIDTIME slot set");
-
-    // Deserialize with referenceCount = 11 (the value the NEW code passes), exactly like
-    // PageKind.REVISIONROOTPAGE now does. The cardinality-driven reader must yield 10 refs.
-    final BitmapReferencesPage tenRoundTripped = roundTrip(tenSlot, 11);
-    assertEquals(10, tenRoundTripped.getBitmap().cardinality(),
-        "old 10-slot page must round-trip to 10 refs even when deserialized with referenceCount=11");
-    for (int offset = 0; offset <= 9; offset++) {
-      assertEquals(2000L + offset, tenRoundTripped.getOrCreateReference(offset).getKey(),
-          "old reference at offset " + offset + " must survive");
+    final BitmapReferencesPage sparseRoundTripped = roundTrip(sparse, referenceCount);
+    assertEquals(populatedCount, sparseRoundTripped.getBitmap().cardinality());
+    for (int offset = 0; offset < populatedCount; offset++) {
+      assertEquals(2000L + offset, sparseRoundTripped.getOrCreateReference(offset).getKey());
     }
-    assertFalse(tenRoundTripped.getBitmap().get(10),
-        "the VALIDTIME slot must still be absent right after deserializing an old page");
-
-    // Lazy materialization of the VALIDTIME slot on first access (the production path through
-    // getValidTimeIndexPage). No exception; a fresh empty reference appears.
-    final PageReference lazyVt = tenRoundTripped.getOrCreateReference(10);
-    assertNotNull(lazyVt, "VALIDTIME slot must materialize lazily on an old page");
-    assertTrue(tenRoundTripped.getBitmap().get(10), "VALIDTIME slot is now present after lazy access");
-    assertEquals(11, tenRoundTripped.getBitmap().cardinality());
-    // The other 10 references are untouched by the lazy add.
-    for (int offset = 0; offset <= 9; offset++) {
-      assertEquals(2000L + offset, tenRoundTripped.getOrCreateReference(offset).getKey());
+    for (int offset = populatedCount; offset < referenceCount; offset++) {
+      assertFalse(sparseRoundTripped.getBitmap().get(offset), "unset slot must remain absent on read");
+      assertNotNull(sparseRoundTripped.getOrCreateReference(offset));
+      assertTrue(sparseRoundTripped.getBitmap().get(offset));
+      assertEquals(offset + 1, sparseRoundTripped.getBitmap().cardinality());
+    }
+    for (int offset = 0; offset < populatedCount; offset++) {
+      assertEquals(2000L + offset, sparseRoundTripped.getOrCreateReference(offset).getKey());
     }
   }
 

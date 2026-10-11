@@ -7,7 +7,7 @@ import com.google.gson.JsonPrimitive;
 import com.sun.management.HotSpotDiagnosticMXBean;
 import io.brackit.query.Query;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.page.BulkAdoptionDiagnostics;
 import io.sirix.access.trx.node.HashType;
@@ -536,7 +536,7 @@ public final class ClickBenchLoadMain {
       final Sequence result = new Query(chain, query).execute(ctx);
       final StringWriter out = new StringWriter();
       try (PrintWriter pw = new PrintWriter(out)) {
-        new StringSerializer(pw).serialize(result);
+        new SirixStringSerializer(pw).serialize(result);
       }
       final String first = out.toString().trim();
       if (first.isEmpty()) {

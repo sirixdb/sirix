@@ -780,7 +780,6 @@ public final class NumberRegion {
     private byte lastTagKind;
     private byte lastEncodingKind;
     private byte[] output;
-    private MemorySegment outputView;
     private int encodedLength;
 
     public Encoder(final int initialCapacity) {
@@ -1148,8 +1147,8 @@ public final class NumberRegion {
       // clearing the exact nested range restores the zero-initialized-array invariant of the wire.
       Arrays.fill(output, position, totalBytes, (byte) 0);
       final long written = encodingKind == ENC_COMPACT_ZM
-          ? NumberRegionCompact.writeCompact(outputView, position, sortedValues, count)
-          : NumberRegionDelta.writeDelta(outputView, position, sortedValues, count);
+          ? NumberRegionCompact.writeCompact(output, position, sortedValues, count)
+          : NumberRegionDelta.writeDelta(output, position, sortedValues, count);
       if (written != nestedBytes || (long) position + written != totalBytes) {
         throw new IllegalStateException(
             "nested number codec size mismatch: expected=" + nestedBytes + " written=" + written);
@@ -1233,7 +1232,6 @@ public final class NumberRegion {
       tagWidths = new byte[capacity];
       final int outputCapacity = checkedEncodedLength(64L + 36L * capacity);
       output = new byte[outputCapacity];
-      outputView = MemorySegment.ofArray(output);
     }
 
     private void ensureOutputCapacity(final int required) {
@@ -1242,7 +1240,6 @@ public final class NumberRegion {
       }
       final long doubled = Math.min((long) Integer.MAX_VALUE, (long) output.length << 1);
       output = new byte[checkedEncodedLength(Math.max((long) required, doubled))];
-      outputView = MemorySegment.ofArray(output);
     }
   }
 

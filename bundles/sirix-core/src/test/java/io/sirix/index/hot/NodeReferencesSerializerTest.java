@@ -8,6 +8,7 @@ package io.sirix.index.hot;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.index.hot.NodeReferencesSerializer.ChunkAccumulator;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.utils.OS;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -759,5 +761,42 @@ class NodeReferencesSerializerTest {
       descending[2 + Long.BYTES + i] = first;
     }
     assertRangeMergeRejects(descending);
+  }
+
+  @Test
+  void decodedRoaringChunkOwnershipSurvivesExpansionAndAccumulatorReuse() {
+    final NodeReferences source = new NodeReferences();
+    for (int i = 0; i < 700; i++) {
+      source.addNodeKey(i * 3L);
+    }
+    final byte[] payload = NodeReferencesSerializer.serialize(source);
+    final HOTLeafPage leaf = leafWithValue(payload);
+    try {
+      final ChunkAccumulator accumulator = ChunkAccumulator.forChunkLookup();
+      accumulator.addChunk(leaf, leaf.valueRef(0), 0);
+      final NodeReferences first = accumulator.toNodeReferencesAndReset();
+      assertNotNull(first);
+      assertEquals(700, first.cardinality());
+      first.addNodeKey(60_000);
+
+      accumulator.addChunk(leaf, leaf.valueRef(0), 0);
+      accumulator.addChunk(leaf, leaf.valueRef(0), 1L << 16);
+      final NodeReferences expanded = accumulator.toNodeReferencesAndReset();
+      assertNotNull(expanded);
+      assertEquals(1400, expanded.cardinality());
+      assertFalse(expanded.contains(60_000));
+      assertTrue(expanded.contains((1L << 16) | (699 * 3L)));
+      assertTrue(expanded.removeNodeKey(0));
+      assertTrue(first.contains(0));
+      assertTrue(first.contains(60_000));
+      assertArrayEquals(payload, leaf.getValue(0));
+
+      accumulator.addChunk(leaf, leaf.valueRef(0), 0);
+      final NodeReferences reread = accumulator.toNodeReferencesAndReset();
+      assertNotNull(reread);
+      assertArrayEquals(source.toSortedArray(), reread.toSortedArray());
+    } finally {
+      leaf.close();
+    }
   }
 }

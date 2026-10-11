@@ -33,6 +33,7 @@ import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
 import io.sirix.query.compiler.expression.StoredDateTimeCast;
 import io.sirix.query.function.StoredDateTimeConstructor;
+import io.sirix.query.function.sdb.trx.Commit;
 import io.brackit.query.function.ConstructorFunction;
 import io.brackit.query.jdm.Type;
 import io.sirix.query.compiler.expression.MaterializeExpr;
@@ -197,6 +198,24 @@ public class SirixTranslator extends TopDownTranslator {
     return table.bound().length;
   }
 
+  /**
+   * One of an index-routed source's instant expressions, compiled in the current (pipeline entry)
+   * scope: prolog and outer variables resolve, pipeline-bound ones do not exist yet — the admission
+   * stage guarantees the expression references none of the latter.
+   */
+  Expr routedInstant(final AST node) throws QueryException {
+    return anyExpr(node);
+  }
+
+  /**
+   * Release every binding made since {@code initialBindings} (a prefix operator's loop variables).
+   */
+  void unbindTo(final int initialBindings) {
+    for (int count = table.bound().length - initialBindings; count > 0; count--) {
+      table.unbind();
+    }
+  }
+
   Expr pipelineReturn(final AST node, final int initialBindings) {
     final Expr result = anyExpr(node);
     for (int count = table.bound().length - initialBindings; count > 0; count--) {
@@ -240,6 +259,24 @@ public class SirixTranslator extends TopDownTranslator {
    */
   @Override
   protected Expr functionCall(AST node) throws QueryException {
+    if (Commit.COMMIT.equals(node.getValue()) && node.getChildCount() > 0
+        && ctx.getFunctions().resolve(Commit.COMMIT, node.getChildCount()) instanceof Commit commit) {
+      for (int i = 0; i < node.getChildCount(); i++) {
+        if (node.getChild(i).getType() == XQ.ArgumentPlaceHolder) {
+          return super.functionCall(node);
+        }
+      }
+      final Expr[] arguments = new Expr[node.getChildCount()];
+      for (int i = 0; i < arguments.length; i++) {
+        arguments[i] = expr(node.getChild(i), i != 0);
+      }
+      return new FunctionExpr(node.getStaticContext(), commit, arguments) {
+        @Override
+        public boolean isUpdating() {
+          return arguments[0].isUpdating();
+        }
+      };
+    }
     final ConstructorFunction constructor = dateTimeConstructor(node);
     if (constructor != null) {
       return new FunctionExpr(node.getStaticContext(), new StoredDateTimeConstructor(constructor),
@@ -253,24 +290,42 @@ public class SirixTranslator extends TopDownTranslator {
       }
       return new FunctionExpr(ctx, OpenBitemporal.forSlice(), arguments);
     }
+    if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue())
+        && (node.getChildCount() == 6 || node.getChildCount() == 7)
+        && node.checkProperty(ScanValidTimeIndex.DEFERRED_RANGE)) {
+      return new SirixValidTimeRangeExpr(ctx, expr(node.getChild(0), true), expr(node.getChild(1), true),
+          expr(node.getChild(5), true), ((Str) node.getChild(2).getValue()).stringValue(),
+          ((Str) node.getChild(3).getValue()).stringValue(), ((IntNumeric) node.getChild(4).getValue()).intValue(),
+          node.getChildCount() == 7
+              ? expr(node.getChild(6), true)
+              : null);
+    }
     if (ScanValidTimeIndex.SCAN_VALID_TIME_INDEX.equals(node.getValue()) && node.getChildCount() == 5
         && node.checkProperty(ScanValidTimeIndex.DEFERRED_POINT)) {
-      final AST pointNode = node.getChild(1);
-      Expr point = expr(pointNode, true);
-      if (pointNode.getType() == XQ.FunctionCall) {
-        try {
-          point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
-        } catch (final QueryException ignored) {
-        }
-      }
-      final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
-          ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
-          ((IntNumeric) node.getChild(4).getValue()).intValue());
-      if (point instanceof BoundVariable variable) {
-        table.resolve(variable.getName(), scan);
-      }
-      return scan;
+      return validTimePoint(node);
     }
+    return computedAggregateOrFunction(node);
+  }
+
+  private Expr validTimePoint(final AST node) {
+    final AST pointNode = node.getChild(1);
+    Expr point = expr(pointNode, true);
+    if (pointNode.getType() == XQ.FunctionCall) {
+      try {
+        point = new DateTime(Whitespace.normalizeXML11(pointNode.getChild(0).getStringValue()));
+      } catch (final QueryException ignored) {
+      }
+    }
+    final SirixValidTimeScanExpr scan = new SirixValidTimeScanExpr(ctx, expr(node.getChild(0), true), point,
+        ((Str) node.getChild(2).getValue()).stringValue(), ((Str) node.getChild(3).getValue()).stringValue(),
+        ((IntNumeric) node.getChild(4).getValue()).intValue());
+    if (point instanceof BoundVariable variable) {
+      table.resolve(variable.getName(), scan);
+    }
+    return scan;
+  }
+
+  private Expr computedAggregateOrFunction(final AST node) {
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())
@@ -278,8 +333,7 @@ public class SirixTranslator extends TopDownTranslator {
       // Built-in aggregates only: unprefixed calls resolve to the JSONiq default function
       // namespace, fn:* to the XQuery one — both are the builtins. A user-defined
       // local:sum must never be served with fn:sum semantics.
-      final String ns = fn.getNamespaceURI();
-      if (ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      if (builtinAggregate(fn)) {
         final AST pipe = node.getChild(0);
         final String[] sourcePath = (String[]) pipe.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
         final SourceRef sourceRef = (SourceRef) pipe.getProperty("VECTORIZED_SOURCE_REF");
@@ -298,6 +352,11 @@ public class SirixTranslator extends TopDownTranslator {
       }
     }
     return super.functionCall(node);
+  }
+
+  private static boolean builtinAggregate(final QNm fn) {
+    final String ns = fn.getNamespaceURI();
+    return ns == null || ns.isEmpty() || Namespaces.FN_NSURI.equals(ns) || Namespaces.DEFAULT_FN_NSURI.equals(ns);
   }
 
   private @Nullable ConstructorFunction dateTimeConstructor(final AST node) {

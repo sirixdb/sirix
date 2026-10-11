@@ -44,6 +44,7 @@ import io.sirix.utils.WeakIdentitySet;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.node.BytesOut;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.jspecify.annotations.Nullable;
@@ -319,11 +320,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Reused cold-path workspace for constructing one bounded side-slot image without young-gen churn.
    */
   private static final ThreadLocal<MemorySegment> SIDE_SLOT_IMAGE_SCRATCH =
-      ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[OverflowSlotSidecar.MAX_IMAGE_BYTES]));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(OverflowSlotSidecar.MAX_IMAGE_BYTES));
 
   /** Maximum old flyweight image plus DeltaVarIntCodec's documented nine-byte field growth. */
   private static final ThreadLocal<MemorySegment> RESIZE_OVERFLOW_SCRATCH =
-      ThreadLocal.withInitial(() -> MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE + 9]));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(PageConstants.MAX_RECORD_SIZE + 9));
 
   /**
    * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
@@ -573,8 +574,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final @Nullable MemorySegment slotMemory,
+      final @Nullable MemorySegment deweyIdMemory) {
     this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, true);
   }
 
@@ -588,8 +589,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *        by close()
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final @Nullable MemorySegment slotMemory,
+      final @Nullable MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
     this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, externallyAllocatedMemory,
         null, null);
   }
@@ -599,7 +600,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Both additional arguments are {@code null} on every production path.
    */
   KeyValueLeafPage(final long recordPageKey, final IndexType indexType, final ResourceConfiguration resourceConfig,
-      final int revisionNumber, final MemorySegment slotMemory, final MemorySegment deweyIdMemory,
+      final int revisionNumber, final @Nullable MemorySegment slotMemory, final @Nullable MemorySegment deweyIdMemory,
       final boolean externallyAllocatedMemory, final @Nullable MemorySegmentAllocator allocatorForTesting,
       final @Nullable Runnable afterFrameAcquireForTesting) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
@@ -722,8 +723,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final int lastSlotIndex) {
+      final RecordSerializer recordPersister, final Map<Long, PageReference> references,
+      final @Nullable MemorySegment slotMemory, final @Nullable MemorySegment deweyIdMemory, final int lastSlotIndex) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
@@ -1672,7 +1673,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final byte[] deweyIdBytes;
     if (areDeweyIDsStored && deweyIdLength > 0) {
       deweyIdBytes = new byte[deweyIdLength];
-      MemorySegment.copy(slottedPage, oldRecordBase + oldRecordOnlyLength, MemorySegment.ofArray(deweyIdBytes), 0L,
+      MemorySegment.copy(slottedPage, ValueLayout.JAVA_BYTE, oldRecordBase + oldRecordOnlyLength, deweyIdBytes, 0,
           deweyIdLength);
     } else {
       deweyIdBytes = null;
@@ -2603,7 +2604,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (overflowSlotSidecar != null) {
       removeSideSlot(slotNumber);
     }
-    if (!isFusedOverflowDescriptor(data, nodeKindId)) {
+    if (!references.isEmpty() && !isFusedOverflowDescriptor(slottedPage,
+        PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(slottedPage, slotNumber)), data.byteSize(),
+        nodeKindId)) {
       references.remove((recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber);
     }
   }
@@ -2854,9 +2857,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     if (nodeKindId == 0) {
       final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
-      final DataRecord legacyRecord =
-          recordPersister.deserialize(new MemorySegmentBytesIn(MemorySegment.ofArray(rewritten)), nodeKey,
-              source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
+      final DataRecord legacyRecord = recordPersister.deserialize(new ByteArrayBytesIn(rewritten), nodeKey,
+          source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
       if (!(legacyRecord instanceof StringNode stringNode) || stringNode.isCompressed()) {
         throw new IllegalArgumentException("Legacy rewritten slot is not a raw string record: " + slotNumber);
       }
@@ -2964,10 +2966,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         || kindId == FUSED_OBJECT_NAMED_NUMBER_KIND_ID && isFusedObjectNamedNumberOverflowDescriptor(slotNumber);
   }
 
-  private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedStringOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
-  }
-
   private static boolean isFusedObjectNamedStringOverflowDescriptor(final MemorySegment record, final long recordBase,
       final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_STRING_KIND_ID
@@ -2982,10 +2980,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         && record.get(ValueLayout.JAVA_BYTE, payloadStart) == ObjectNamedStringNode.PAYLOAD_FLAG_OVERFLOW;
   }
 
-  private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedNumberOverflowDescriptor(record, 0L, record.byteSize(), nodeKindId);
-  }
-
   private static boolean isFusedObjectNamedNumberOverflowDescriptor(final MemorySegment record, final long recordBase,
       final long recordLength, final int nodeKindId) {
     if (nodeKindId != FUSED_OBJECT_NAMED_NUMBER_KIND_ID
@@ -2998,11 +2992,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final long payloadStart = recordBase + relativePayloadStart;
     return relativePayloadStart < recordLength
         && record.get(ValueLayout.JAVA_BYTE, payloadStart) == ObjectNamedNumberNode.PAYLOAD_TYPE_OVERFLOW;
-  }
-
-  private static boolean isFusedOverflowDescriptor(final MemorySegment record, final int nodeKindId) {
-    return isFusedObjectNamedStringOverflowDescriptor(record, nodeKindId)
-        || isFusedObjectNamedNumberOverflowDescriptor(record, nodeKindId);
   }
 
   private static boolean isFusedOverflowDescriptor(final MemorySegment record, final long recordBase,
@@ -3071,6 +3060,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * consumed by {@link #publishSideSlot(int, long)}; this method does not alter the logical slot.
    */
   public long prepareSideSlot(final int nodeKindId, final MemorySegment image, final int length) {
+    OverflowSlotSidecar sidecar = overflowSlotSidecar;
+    if (sidecar == null) {
+      final OverflowSlotSidecar created = new OverflowSlotSidecar(segmentAllocator);
+      try {
+        final long token = created.prepare(nodeKindId, image, length);
+        overflowSlotSidecar = created;
+        return token;
+      } catch (final RuntimeException | Error failure) {
+        try {
+          created.close();
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+        throw failure;
+      }
+    }
+    return sidecar.prepare(nodeKindId, image, length);
+  }
+
+  /**
+   * As {@link #prepareSideSlot(int, MemorySegment, int)} for an image held in a byte array (the
+   * decoder's sidecar read scratch), which never gets wrapped as a heap segment.
+   */
+  public long prepareSideSlot(final int nodeKindId, final byte[] image, final int length) {
     OverflowSlotSidecar sidecar = overflowSlotSidecar;
     if (sidecar == null) {
       final OverflowSlotSidecar created = new OverflowSlotSidecar(segmentAllocator);
@@ -5284,7 +5297,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
   }
 
-  private void requireFsstTableForOverflow(final byte[] symbolTable, final long nodeKey) {
+  private void requireFsstTableForOverflow(final byte @Nullable [] symbolTable, final long nodeKey) {
     if (symbolTable == null || symbolTable.length == 0) {
       throw new IllegalStateException(
           "Compressed record " + nodeKey + " cannot enter OverflowPage without its FSST symbol table");
@@ -5300,7 +5313,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         throw new IllegalArgumentException("Record is too large for OverflowPage: " + length);
       }
       final byte[] serialized = new byte[(int) length];
-      MemorySegment.copy(output.baseSegment(), 0L, MemorySegment.ofArray(serialized), 0L, length);
+      MemorySegment.copy(output.baseSegment(), ValueLayout.JAVA_BYTE, 0L, serialized, 0, (int) length);
       return serialized;
     }
   }
@@ -7954,7 +7967,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             throw new IllegalArgumentException("Record is too large for OverflowPage: " + usedSize);
           }
           byte[] persistentBuffer = new byte[(int) usedSize];
-          MemorySegment.copy(base, 0L, MemorySegment.ofArray(persistentBuffer), 0L, usedSize);
+          MemorySegment.copy(base, ValueLayout.JAVA_BYTE, 0L, persistentBuffer, 0, (int) usedSize);
 
           installCanonicalOverflowCarrier(record, persistentBuffer, offset, deweyIdBytes);
         } else {

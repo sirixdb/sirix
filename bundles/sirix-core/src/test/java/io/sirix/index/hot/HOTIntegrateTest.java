@@ -61,10 +61,8 @@ final class HOTIntegrateTest {
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(rootLeaf, rootLeaf.getKey(0), VALUE, 1, IndexType.CAS,
         allocator::getAndIncrement);
     final PageReference rootRef = built.rootReference();
-    final PageReference newRoot = HOTIncrementalInsert
-                                                      .integrate(new HOTIndirectPage[0], new PageReference[] {rootRef},
-                                                          new int[0], 0, biNode, 1, allocator::getAndIncrement)
-                                                      .rootRef();
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[0], new PageReference[] {rootRef},
+        new int[0], 0, biNode, 1, IndexType.CAS, allocator::getAndIncrement).rootRef();
 
     assertSame(rootRef, newRoot, "depth-0 integration re-points the index-root reference");
     assertCleanAndRoutes(newRoot, keys, "direct-new-root");
@@ -81,7 +79,7 @@ final class HOTIntegrateTest {
     final HOTIndirectPage root = (HOTIndirectPage) built.rootPage();
 
     // splitIndirect yields a not-full compound node with leaf children — the addEntry target.
-    final BiNode rootSplit = HOTIncrementalInsert.splitIndirect(root, 1, allocator::getAndIncrement);
+    final BiNode rootSplit = HOTIncrementalInsert.splitIndirect(root, 1, IndexType.CAS, allocator::getAndIncrement);
     final PageReference halfRef = rootSplit.left().getPage() instanceof HOTIndirectPage
         ? rootSplit.left()
         : rootSplit.right();
@@ -99,11 +97,9 @@ final class HOTIntegrateTest {
     final BiNode biNode =
         HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // integrate folds the BiNode in via addEntry — a clean canonical fold.
-    final PageReference newRoot = HOTIncrementalInsert
-                                                      .integrate(new HOTIndirectPage[] {half},
-                                                          new PageReference[] {halfRef, half.getChildReference(slot)},
-                                                          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement)
-                                                      .rootRef();
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
+        new PageReference[] {halfRef, half.getChildReference(slot)}, new int[] {slot}, 1, biNode, 1, IndexType.CAS,
+        allocator::getAndIncrement).rootRef();
     assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
     assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
     assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
@@ -134,7 +130,8 @@ final class HOTIntegrateTest {
                                                       .integrate(new HOTIndirectPage[] {root},
                                                           new PageReference[] {built.rootReference(),
                                                               root.getChildReference(slot)},
-                                                          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement)
+                                                          new int[] {slot}, 1, biNode, 1, IndexType.CAS,
+                                                          allocator::getAndIncrement)
                                                       .rootRef();
     final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
     assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
@@ -182,7 +179,7 @@ final class HOTIntegrateTest {
     // each level — a clean two-level cascade.
     final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root, mid},
         new PageReference[] {built.rootReference(), root.getChildReference(midSlot), mid.getChildReference(leafSlot)},
-        new int[] {midSlot, leafSlot}, 2, biNode, 1, allocator::getAndIncrement).rootRef();
+        new int[] {midSlot, leafSlot}, 2, biNode, 1, IndexType.CAS, allocator::getAndIncrement).rootRef();
     assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
         "a full-path cascade grows the height by exactly one");
     assertCleanAndRoutes(newRoot, keys, "multi-level-cascade");

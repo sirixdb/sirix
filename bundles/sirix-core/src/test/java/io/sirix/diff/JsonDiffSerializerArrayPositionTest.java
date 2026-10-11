@@ -16,6 +16,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * The ordinals the sidecar writes. How much traversal producing them costs is budgeted separately,
@@ -31,6 +34,47 @@ final class JsonDiffSerializerArrayPositionTest {
   @AfterEach
   void tearDown() {
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void pathSummaryReadersAreReusedOnlyWithinTheirRevisionAndSerialization() {
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storeDiffs(false).build();
+    try (
+        final var database = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(), config);
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx writer = session.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[10,20,30]"), JsonNodeTrx.Commit.NO);
+      writer.commit();
+      assertTrue(writer.moveToDocumentRoot() && writer.moveToFirstChild() && writer.moveToFirstChild());
+      final long firstKey = writer.getNodeKey();
+      writer.setNumberValue(11);
+      assertTrue(writer.moveToRightSibling());
+      final long secondKey = writer.getNodeKey();
+      writer.setNumberValue(21);
+      assertTrue(writer.moveToRightSibling());
+      final long deletedKey = writer.getNodeKey();
+      writer.remove();
+      writer.commit();
+
+      final JsonResourceSession observed = spy(session);
+      final JsonDiffSerializer serializer = new JsonDiffSerializer(database.getName(), observed, 1, 2,
+          List.of(deleted(deletedKey), updated(firstKey), updated(secondKey)));
+      final String serialized = serializer.serializeSidecar();
+      final JsonObject document = JsonParser.parseString(serialized).getAsJsonObject();
+      final var operations = document.getAsJsonArray("diffs");
+      assertEquals("/[2]", operations.get(0).getAsJsonObject().getAsJsonObject("delete").get("path").getAsString());
+      assertEquals("/[0]", operations.get(1).getAsJsonObject().getAsJsonObject("update").get("path").getAsString());
+      assertEquals(11, operations.get(1).getAsJsonObject().getAsJsonObject("update").get("value").getAsInt());
+      assertEquals("/[1]", operations.get(2).getAsJsonObject().getAsJsonObject("update").get("path").getAsString());
+      assertEquals(21, operations.get(2).getAsJsonObject().getAsJsonObject("update").get("value").getAsInt());
+      verify(observed, times(1)).openPathSummary(1);
+      verify(observed, times(1)).openPathSummary(2);
+
+      assertEquals(serialized, serializer.serializeSidecar(), "a later serialization owns fresh readers");
+      verify(observed, times(2)).openPathSummary(1);
+      verify(observed, times(2)).openPathSummary(2);
+    }
   }
 
   @Test

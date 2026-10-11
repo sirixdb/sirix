@@ -28,7 +28,9 @@ Two independent instruments that must (and do) agree:
    `12,288 + Σgross == file size` (delta = 0).
 2. **Writer-side profiler** — the existing `io.sirix.io.file.StorageProfile`
    (`-Dsirix.storage.profile=true`, hooked in `FileChannelWriter`) records payload bytes per page
-   class at write time. Totals match the walk byte-for-byte (e.g. RevisionRootPage 308,236 B in
+   class at write time. HOT leaf labels include their index kind (`HOTLeafPage:CAS`,
+   `HOTLeafPage:VALIDTIME`, `HOTLeafPage:PROJECTION`) so posting bytes can be attributed separately.
+   Totals match the walk byte-for-byte (e.g. RevisionRootPage 308,236 B in
    both). `-Dsirix.pageSectionDiag=true` additionally splits KVLP payloads into
    headerBitmap/encodedBody/regionTable/overlong/fsst.
 

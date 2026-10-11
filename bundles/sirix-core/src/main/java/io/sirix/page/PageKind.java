@@ -36,6 +36,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -167,16 +168,13 @@ public enum PageKind {
       // certificate says whether bounded column reads may trust that no value lives in overflow.
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
-      out[4] = PageLayout.hasCompleteColumnCoverage(headerBitmapSeg)
+      out[4] = PageLayout.hasCompleteColumnCoverage(headerBitmapBytes)
           ? 1L
           : 0L;
       if (bitmapOut != null) {
         // Skipping this bitmap made every chunk-read fragment claim that it defined no slots and
         // silently disabled the versioned merge.
-        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-          bitmapOut[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
-        }
+        PageLayout.copyBitmapTo(headerBitmapBytes, bitmapOut);
       }
       out[2] = source.readInt(); // populatedCount
       source.readInt(); // onDiskHeapSize
@@ -243,11 +241,8 @@ public enum PageKind {
       // reconstruction, and it costs one 160-byte read we are passing over anyway.
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final long[] slotBitmap = new long[PageLayout.BITMAP_WORDS];
-      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-        slotBitmap[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
-      }
+      PageLayout.copyBitmapTo(headerBitmapBytes, slotBitmap);
 
       // Fixed prefix of the encoded body. Both body shapes — offset-table dedup and the
       // degenerate templateCount == 0 fallback — end in {compressedLen, codec, blob}, which is
@@ -322,7 +317,7 @@ public enum PageKind {
     }
 
     /** Validate the fixed header before it can index any page-sized scratch array. */
-    private static void validatePopulatedCount(final long pageKey, final MemorySegment headerBitmap,
+    private static void validatePopulatedCount(final long pageKey, final byte[] headerBitmap,
         final int populatedCount) {
       if (populatedCount < 0 || populatedCount > PageLayout.SLOT_COUNT) {
         throw new SirixIOException("page " + pageKey + " declares " + populatedCount
@@ -428,11 +423,12 @@ public enum PageKind {
       final MemorySegmentAllocator memorySegmentAllocator = Allocators.getInstance();
 
       // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
+      // The header stays a byte array (never a heap MemorySegment view): see the note at
+      // PageLayout#getBitmapWord(byte[], int).
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
-      final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
-      validatePopulatedCount(recordPageKey, headerBitmapSeg, populatedCount);
+      final int populatedCount = PageLayout.getPopulatedCount(headerBitmapBytes);
+      validatePopulatedCount(recordPageKey, headerBitmapBytes, populatedCount);
 
       // 2. Read the prefix of uncompressed fixed-size headers:
       // - populatedCount (int) — matches the compactDir array length
@@ -892,7 +888,7 @@ public enum PageKind {
                 if (bmWordIdx >= PageLayout.BITMAP_WORDS) {
                   throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
                 }
-                bmBits = PageLayout.getBitmapWord(headerBitmapSeg, bmWordIdx++);
+                bmBits = PageLayout.getBitmapWord(headerBitmapBytes, bmWordIdx++);
               }
               slotNodeKeys[i] = pageKeyBase + (((bmWordIdx - 1) << 6) | Long.numberOfTrailingZeros(bmBits));
               bmBits &= bmBits - 1;
@@ -1210,21 +1206,21 @@ public enum PageKind {
                 ? pathNodeKeyColumnBytes
                 : null);
             if (valueElisionActive) {
-              valueElidedCount = elisionDeriver.deriveValueMetadata(headerBitmapSeg, populatedCount, compactDir,
+              valueElidedCount = elisionDeriver.deriveValueMetadata(headerBitmapBytes, populatedCount, compactDir,
                   valueElidedSlots, valueElidedTypes, valueElidedWidths, valueElidedAbsIdx);
               decodeState.bindValueElision(true, valueElidedCount, valueElidedSlots, valueElidedWidths, valueOffs,
                   valueWidths);
             }
             if (nameKeyElisionActive) {
-              final int derivedWidths = elisionDeriver.deriveNameKeyWidths(headerBitmapSeg, populatedCount, compactDir,
-                  nameKeyElidedWidthsPacked);
+              final int derivedWidths = elisionDeriver.deriveNameKeyWidths(headerBitmapBytes, populatedCount,
+                  compactDir, nameKeyElidedWidthsPacked);
               if (derivedWidths > nameKeyElidedWidthsPacked.length) {
                 throw new SirixIOException("page " + recordPageKey + " derives " + derivedWidths
                     + " name-key widths into a " + nameKeyElidedWidthsPacked.length + "-entry buffer");
               }
             }
           }
-          inMemHeapSize = decodeState.deriveAll(headerBitmapSeg, populatedCount);
+          inMemHeapSize = decodeState.deriveAll(headerBitmapBytes, populatedCount);
         }
         // 4. Allocate slotted page MemorySegment — size to actual (in-memory) heap content.
         // The allocator rounds up to its next power-of-two size class (4/8/16/32/
@@ -1241,7 +1237,8 @@ public enum PageKind {
         slottedPage = memorySegmentAllocator.allocate(allocSize);
 
         // 5. Copy header + bitmap into page (first 160 bytes)
-        MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+        MemorySegment.copy(headerBitmapBytes, 0, slottedPage, ValueLayout.JAVA_BYTE, 0L,
+            PageLayout.DISK_HEADER_BITMAP_SIZE);
 
         // 6. Zero-fill preservation bitmap region (runtime-only, never on disk).
         // Kept — isSlotPreserved() reads this region by slot index regardless of
@@ -2117,8 +2114,9 @@ public enum PageKind {
           throw new SirixIOException("page " + page.getPageKey() + " sidecar slot " + slot
               + " kind/image mismatch: declared=" + kindId + ", image=" + (scratch[0] & 0xFF));
         }
-        final MemorySegment image = MemorySegment.ofArray(scratch).asSlice(0L, imageLength);
-        final long prepared = page.prepareSideSlot(kindId, image, imageLength);
+        // The scratch stays a byte array on the way into the sidecar; wrapping it as a heap segment
+        // would put a heap receiver on the segment copy path shared with native page memory.
+        final long prepared = page.prepareSideSlot(kindId, scratch, imageLength);
         page.publishSideSlot(slot, prepared);
       }
       final long consumed = source.position() - payloadStart;
@@ -2341,7 +2339,7 @@ public enum PageKind {
       if (populatedCount > 0) {
         final byte[] templatePool = TEMPLATE_POOL_SCRATCH.get();
         final byte[] slotTemplateIds = SLOT_TEMPLATE_IDS_SCRATCH.get();
-        final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
+        final Long2IntOpenHashMap templateMap = TEMPLATE_MAP.get();
         final OffsetTableTemplatePool.BuildResult br = OffsetTableTemplatePool.build(slottedPage, populatedCount,
             slotKindIds, slotHeapOffs, templatePool, slotTemplateIds, templateMap);
         if (br.isDedupEnabled()) {
@@ -5866,25 +5864,48 @@ public enum PageKind {
         return;
       }
 
-      final int encodedFullCount = hotLeaf.isCompleteDump()
-          ? hotLeaf.getEntryCount() | 0x80000000
-          : hotLeaf.getEntryCount();
-      sink.writeInt(encodedFullCount);
-      sink.writeInt(hotLeaf.getUsedSlotsSize());
-
-      // Write slot offsets
-      int entryCount = hotLeaf.getEntryCount();
-      for (int i = 0; i < entryCount; i++) {
-        sink.writeInt(hotLeaf.getSlotOffset(i));
-      }
-
-      // Copy the exact live prefix straight into the sink. The warm pinned-spill path writes into a
-      // pooled MemorySegment-backed BytesOut, so materialising this payload as a byte[] would create
-      // one full-page allocation per spill. writeSegment copies synchronously and transfers no
-      // ownership: the HOT leaf remains the sole owner of its slot memory.
-      final MemorySegment slots = hotLeaf.slots();
+      final int entryCount = hotLeaf.getEntryCount();
       final int usedSize = hotLeaf.getUsedSlotsSize();
-      sink.writeSegment(slots, 0L, usedSize);
+      final MemorySegment slots = hotLeaf.slots();
+      int liveSize = 0;
+      for (int i = 0; i < entryCount; i++) {
+        final int offset = hotLeaf.getSlotOffset(i);
+        final int size = hotLeaf.getSlotSize(i);
+        if (offset < 0 || size <= 0 || offset > usedSize - size) {
+          throw new IllegalStateException("Invalid full HOT-leaf slot " + i + ": offset=" + offset + ", size=" + size
+              + ", usedSlotBytes=" + usedSize);
+        }
+        liveSize = Math.addExact(liveSize, size);
+      }
+      if (liveSize > usedSize || usedSize > slots.byteSize()) {
+        throw new IllegalStateException("Invalid full HOT-leaf payload: live=" + liveSize + ", used=" + usedSize
+            + ", capacity=" + slots.byteSize());
+      }
+      final int encodedFullCount = hotLeaf.isCompleteDump()
+          ? entryCount | 0x80000000
+          : entryCount;
+      sink.writeInt(encodedFullCount);
+      sink.writeInt(liveSize);
+
+      if (liveSize == usedSize) {
+        // Already dense: preserve the physical order and copy in one bulk write.
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeInt(hotLeaf.getSlotOffset(i));
+        }
+        sink.writeSegment(slots, 0L, usedSize);
+      } else {
+        // Growing/shrinking replacements and deletes leave retired records below the high-water
+        // mark. Pack only the serialized image; the source's offsets, dirty bits and native ownership
+        // must remain unchanged. Direct segment ranges need neither scratch nor per-slot arrays.
+        int packedOffset = 0;
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeInt(packedOffset);
+          packedOffset += hotLeaf.getSlotSize(i);
+        }
+        for (int i = 0; i < entryCount; i++) {
+          sink.writeSegment(slots, hotLeaf.getSlotOffset(i), hotLeaf.getSlotSize(i));
+        }
+      }
       if (hasSegmentRefs) {
         serializeSegmentRefs(sink, hotLeaf);
       }
@@ -6187,6 +6208,72 @@ public enum PageKind {
 
       PageKind.serializeMaxHotPageKeys(sink, validTimePage.maxHotPageKeysForSerialization());
     }
+  },
+
+  TEMPORAL_AGGREGATEPAGE((byte) 18) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      return switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
+
+          yield new TemporalAggregateIndexPage(delegate, maxHotPageKeys);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      };
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final TemporalAggregateIndexPage temporalAggregatePage = (TemporalAggregateIndexPage) page;
+      final Page delegate = temporalAggregatePage.delegate();
+      sink.writeByte(TEMPORAL_AGGREGATEPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      PageKind.serializeMaxHotPageKeys(sink, temporalAggregatePage.maxHotPageKeysForSerialization());
+    }
+  },
+
+  CHANGE_LOGPAGE((byte) 19) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+
+      return switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
+
+          yield new ChangeLogIndexPage(delegate, maxHotPageKeys);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      };
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ChangeLogIndexPage changeLogPage = (ChangeLogIndexPage) page;
+      final Page delegate = changeLogPage.delegate();
+      sink.writeByte(CHANGE_LOGPAGE.id);
+      writeVersionAndFlags(sink);
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      PageKind.serializeMaxHotPageKeys(sink, changeLogPage.maxHotPageKeysForSerialization());
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {
@@ -6415,6 +6502,14 @@ public enum PageKind {
   private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_KEYS =
       ThreadLocal.withInitial(() -> new long[HOTLeafPage.MAX_ENTRIES]);
 
+  /**
+   * Reusable decoder scratch for a HOT leaf's side trailer: {@code count} interleaved (compositeKey,
+   * diskOffsetKey) pairs read with one bulk copy. Sized like the serializer scratch, for twice the
+   * reference count.
+   */
+  private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_PAIRS =
+      ThreadLocal.withInitial(() -> new long[2 * HOTLeafPage.MAX_ENTRIES]);
+
   /** Tiny introsort partitions are faster as a branch-light in-place insertion pass. */
   private static final int HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD = 24;
 
@@ -6491,19 +6586,36 @@ public enum PageKind {
       throw new IllegalStateException(
           "HOT-leaf side-reference count " + required + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
-    long[] scratch = HOT_LEAF_SIDE_REFERENCE_KEYS.get();
+    return grownScratch(HOT_LEAF_SIDE_REFERENCE_KEYS, required, MAX_HOT_LEAF_SIDE_REFERENCES);
+  }
+
+  /** Return reusable decoder scratch holding {@code count} interleaved side-reference pairs. */
+  private static long[] hotLeafSideReferencePairScratch(final int count) {
+    if (count < 0 || count > MAX_HOT_LEAF_SIDE_REFERENCES) {
+      throw new IllegalStateException(
+          "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
+    }
+    return grownScratch(HOT_LEAF_SIDE_REFERENCE_PAIRS, 2 * count, 2 * MAX_HOT_LEAF_SIDE_REFERENCES);
+  }
+
+  /**
+   * Grow a thread-local scratch to at least {@code required} longs by doubling, capped at
+   * {@code limit}. Growth only happens on a new per-thread high-water mark, never on warm reuse.
+   */
+  private static long[] grownScratch(final ThreadLocal<long[]> holder, final int required, final int limit) {
+    long[] scratch = holder.get();
     if (scratch.length >= required) {
       return scratch;
     }
 
     int capacity = scratch.length;
     while (capacity < required) {
-      capacity = capacity <= MAX_HOT_LEAF_SIDE_REFERENCES / 2
+      capacity = capacity <= limit / 2
           ? capacity << 1
-          : MAX_HOT_LEAF_SIDE_REFERENCES;
+          : limit;
     }
     scratch = new long[capacity];
-    HOT_LEAF_SIDE_REFERENCE_KEYS.set(scratch);
+    holder.set(scratch);
     return scratch;
   }
 
@@ -6653,20 +6765,28 @@ public enum PageKind {
     }
   }
 
-  /** Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. */
+  /**
+   * Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. The
+   * whole trailer is read with one bulk copy into thread-local scratch; the leaf then installs it
+   * from primitive pairs with a map sized once for the count.
+   */
   private static void deserializeSegmentRefs(final BytesIn<?> source, final HOTLeafPage page) {
     final long count = Utils.getVarLong(source);
     if (count < 0L || count > MAX_HOT_LEAF_SIDE_REFERENCES) {
       throw new IllegalStateException(
           "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
     }
-    for (long i = 0; i < count; i++) {
-      final long compositeKey = source.readLong();
-      final long diskKey = source.readLong();
-      final PageReference ref = new PageReference();
-      ref.setKey(diskKey);
-      page.setPageReference(compositeKey, ref);
+    if (count == 0L) {
+      return;
     }
+    final int referenceCount = (int) count;
+    final int longCount = 2 * referenceCount;
+    if ((long) longCount * Long.BYTES > source.remaining()) {
+      throw new IndexOutOfBoundsException("Truncated HOT-leaf side-reference trailer");
+    }
+    final long[] pairs = hotLeafSideReferencePairScratch(referenceCount);
+    source.readLongs(pairs, 0, longCount);
+    page.readSideReferences(pairs, referenceCount);
   }
 
   /**
@@ -6698,6 +6818,105 @@ public enum PageKind {
           + " (allowed mask 0x" + Integer.toHexString(allowedMask & 0xFF) + ") — page written by a newer version");
     }
     return flags;
+  }
+
+  /**
+   * Inspect the existing self-contained wire image while its verified input is borrowed. Binary
+   * search reads only bounded slot headers; the side trailer is streamed without creating a map. Only
+   * the selected value and its side reference escape. This does not transfer input ownership.
+   */
+  static @Nullable HOTLeafEntry deserializeHOTProjectionEntry(final BytesIn<?> source, final byte[] key,
+      final long sideReferenceKey) {
+    Objects.requireNonNull(key);
+    final byte flags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+    final long pageKey = Utils.getVarLong(source);
+    final int revision = source.readInt();
+    if (pageKey < 0 || revision < 0 || IndexType.getType(source.readByte()) != IndexType.PROJECTION) {
+      throw new IllegalStateException("Invalid projection leaf header");
+    }
+    final int prefixLength = Short.toUnsignedInt(source.readShort());
+    boolean prefixMatches = key.length >= prefixLength;
+    for (int i = 0; i < prefixLength; i++) {
+      final byte value = source.readByte();
+      prefixMatches &= i < key.length && key[i] == value;
+    }
+    final int count = source.readInt() & Integer.MAX_VALUE;
+    final int used = source.readInt();
+    if (count > HOTLeafPage.MAX_ENTRIES || used < 0 || used > HOTLeafPage.DEFAULT_SIZE
+        || (long) count * Integer.BYTES + used > source.remaining()) {
+      throw new IllegalStateException("Invalid projection leaf dimensions");
+    }
+    final long offsets = source.position();
+    final long slots = offsets + (long) count * Integer.BYTES;
+    byte[] value = null;
+    if (prefixMatches) {
+      int low = 0;
+      int high = count - 1;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        source.position(offsets + (long) middle * Integer.BYTES);
+        final int offset = source.readInt();
+        if (offset < 0 || offset > used - 2 * Short.BYTES) {
+          throw new IllegalStateException("Invalid projection slot offset");
+        }
+        source.position(slots + offset);
+        final int suffixLength = Short.toUnsignedInt(source.readShort());
+        if (suffixLength > used - offset - 2 * Short.BYTES) {
+          throw new IllegalStateException("Invalid projection slot key length");
+        }
+        final long suffix = source.position();
+        final int wanted = key.length - prefixLength;
+        int comparison = 0;
+        for (int i = 0, length = Math.min(suffixLength, wanted); i < length; i++) {
+          comparison = (source.readByte() & 255) - (key[prefixLength + i] & 255);
+          if (comparison != 0) {
+            break;
+          }
+        }
+        if (comparison == 0) {
+          comparison = Integer.compare(suffixLength, wanted);
+        }
+        if (comparison < 0) {
+          low = middle + 1;
+        } else if (comparison > 0) {
+          high = middle - 1;
+        } else {
+          source.position(suffix + suffixLength);
+          final int length = Short.toUnsignedInt(source.readShort());
+          if (length > slots + used - source.position()) {
+            throw new IllegalStateException("Invalid projection slot value length");
+          }
+          value = new byte[length];
+          source.read(value);
+          break;
+        }
+      }
+    }
+    source.position(slots + used);
+    PageReference side = null;
+    if ((flags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
+      final long references = Utils.getVarLong(source);
+      if (references < 0 || references > MAX_HOT_LEAF_SIDE_REFERENCES
+          || references > source.remaining() / (2 * Long.BYTES)) {
+        throw new IllegalStateException("Invalid projection side-reference count");
+      }
+      for (long i = 0; i < references; i++) {
+        final long composite = source.readLong();
+        final long diskKey = source.readLong();
+        if (diskKey < 0) {
+          throw new IllegalStateException("Invalid projection side-reference offset");
+        }
+        if (value != null && composite == sideReferenceKey) {
+          side = new PageReference().setKey(diskKey);
+        }
+      }
+    }
+    if (source.remaining() != 0) {
+      throw new IllegalStateException("Trailing projection leaf bytes");
+    }
+    return value == null
+        ? null
+        : new HOTLeafEntry(value, side);
   }
 
   /** Read the existing HOT wire image without allocating writable capacity or routing metadata. */
@@ -6762,9 +6981,20 @@ public enum PageKind {
         // Own only the packed slot bytes. No allocator frame or PEXT index is needed to answer
         // a point lookup. This is a complete raw image in the existing fragment cache;
         // ranges still reconstruct it and writers take their ordinary full-capacity copy.
-        final byte[] slots = new byte[usedSlotMemorySize];
-        source.read(slots);
-        slotMemory = MemorySegment.ofArray(slots);
+        //
+        // GcOwnedNativeMemory gives this image an independent lifetime: it stays readable while
+        // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
+        // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
+        final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
+        if (source instanceof MemorySegmentBytesIn segmentSource) {
+          MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
+          source.skip(usedSlotMemorySize);
+        } else {
+          final byte[] slots = new byte[usedSlotMemorySize];
+          source.read(slots);
+          MemorySegment.copy(slots, 0, owned, ValueLayout.JAVA_BYTE, 0L, usedSlotMemorySize);
+        }
+        slotMemory = owned;
         stampBase = null;
       } else if (canZeroCopy) {
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
@@ -8117,12 +8347,11 @@ public enum PageKind {
    * Per-thread fastutil map for packed-key → templateId lookup during dedup. Default return value is
    * -1 (sentinel for "not present").
    */
-  private static final ThreadLocal<it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap> TEMPLATE_MAP =
-      ThreadLocal.withInitial(() -> {
-        final var m = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(256);
-        m.defaultReturnValue(-1);
-        return m;
-      });
+  private static final ThreadLocal<Long2IntOpenHashMap> TEMPLATE_MAP = ThreadLocal.withInitial(() -> {
+    final var m = new Long2IntOpenHashMap(256);
+    m.defaultReturnValue(-1);
+    return m;
+  });
 
   /**
    * Per-thread staging buffer for the dedup-transformed record heap before {@link ZeroRunByteCodec}
@@ -8344,13 +8573,14 @@ public enum PageKind {
   private static final ThreadLocal<byte[]> OVERFLOW_DECODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[1 << 16]);
 
   /**
-   * Per-thread NATIVE landing area for an LZ77 frame being read back.
+   * Per-thread NATIVE landing area for an overflow payload being read back.
    *
    * <p>
-   * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding. An
-   * {@link OverflowPage} owns an exact-length heap array, so decode into padded thread-local storage
-   * and copy the result into that array. This also applies to small frames: the Java fallback for an
-   * exact-length destination already uses scratch storage and a final copy.
+   * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding, and an
+   * {@link OverflowPage} owns an exact-length heap array, so codecs 2 (byte-run) and 3 (LZ77) decode
+   * into padded native thread-local storage and copy the result into that array. Codec 0 (zero-run)
+   * decodes directly between byte arrays. Neither path wraps the output array as a heap segment; see
+   * PageLayout#getBitmapWord(byte[], int).
    * </p>
    *
    * <p>
@@ -8458,28 +8688,26 @@ public enum PageKind {
 
     final byte[] data = new byte[decodedLength];
     final int produced;
-    if (codec == 3 && decodedLength > 0 && SirixLZ77NativeDecoder.isAvailable()) {
-      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
+    if (codec == 0) {
+      produced = ZeroRunByteCodec.decode(in, 0, storedLength, data, 0);
+    } else {
       // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant: the dispatch tests the OUTPUT against 64
       // bytes of slack and the input against 16. This read INPUT until it was measured, which left
       // the landing 48 bytes short and the native path silently declined — the detour was inert.
+      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
       final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
       if (landing.byteSize() < needed) {
         landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
         OVERFLOW_DECODE_NATIVE.set(landing);
       }
-      produced = SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+      produced = switch (codec) {
+        case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
+        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
+      };
       if (produced == decodedLength) {
         MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
       }
-    } else {
-      final MemorySegment out = MemorySegment.ofArray(data);
-      produced = switch (codec) {
-        case 0 -> ZeroRunByteCodec.decode(in, 0, storedLength, out, 0L);
-        case 2 -> ByteRunCodec.decode(in, 0, storedLength, out, 0L);
-        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, out, 0L);
-        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
-      };
     }
     if (produced != decodedLength) {
       throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " produced " + produced
@@ -8636,7 +8864,7 @@ public enum PageKind {
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_OUT = ThreadLocal.withInitial(() -> {
     // Start at 128 KiB; {@link #lz4OutScratch} grows it as needed.
-    return java.lang.foreign.Arena.ofAuto().allocate(128 * 1024);
+    return Arena.ofAuto().allocate(128 * 1024);
   });
 
   /**
@@ -8644,7 +8872,7 @@ public enum PageKind {
    * call works without JNI round-trips.
    */
   private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_STAGING =
-      ThreadLocal.withInitial(() -> java.lang.foreign.Arena.ofAuto().allocate(128 * 1024));
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
 
   /**
    * Per-thread pointer to the decompressed body blob and its heap-section offset. Bridges the
@@ -8662,7 +8890,7 @@ public enum PageKind {
   private static MemorySegment v1StagingScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_STAGING.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_STAGING.set(s);
     }
     return s;
@@ -8672,7 +8900,7 @@ public enum PageKind {
   private static MemorySegment v1Lz4OutScratch(final int needed) {
     MemorySegment s = V1_HEAP_LZ4_OUT.get();
     if (s.byteSize() < needed) {
-      s = java.lang.foreign.Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
+      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
       V1_HEAP_LZ4_OUT.set(s);
     }
     return s;
@@ -8688,7 +8916,9 @@ public enum PageKind {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind ID " + (page.id & 0xFF) + " for " + duplicateId + " and " + page);
       }
-      final PageKind duplicateClass = INSTANCEFORCLASS.put(page.clazz, page);
+      final PageKind duplicateClass = page.clazz == null
+          ? null
+          : INSTANCEFORCLASS.put(page.clazz, page);
       if (duplicateClass != null) {
         throw new ExceptionInInitializerError(
             "Duplicate PageKind class " + page.clazz.getName() + " for " + duplicateClass + " and " + page);
@@ -8704,14 +8934,19 @@ public enum PageKind {
   /**
    * Class.
    */
-  private final Class<? extends Page> clazz;
+  private final @Nullable Class<? extends Page> clazz;
 
   /**
-   * Constructor.
+   * Optional container kind; resolve its implementation class only when used.
    *
    * @param id unique identifier
-   * @param clazz class
+   *
    */
+  PageKind(final byte id) {
+    this.id = id;
+    this.clazz = null;
+  }
+
   PageKind(final byte id, final Class<? extends Page> clazz) {
     this.id = id;
     this.clazz = clazz;
@@ -8919,10 +9154,23 @@ public enum PageKind {
    */
   public static PageKind getKind(final Class<? extends Page> clazz) {
     final PageKind page = INSTANCEFORCLASS.get(clazz);
-    if (page == null) {
-      throw new IllegalStateException();
+    if (page != null) {
+      return page;
     }
-    return page;
+    return OptionalAggregatePageKinds.get(clazz);
+  }
+
+  /** Optional containers must not load their implementation classes for unrelated page reads. */
+  private static final class OptionalAggregatePageKinds {
+    private static PageKind get(final Class<? extends Page> clazz) {
+      if (clazz == TemporalAggregateIndexPage.class) {
+        return TEMPORAL_AGGREGATEPAGE;
+      }
+      if (clazz == ChangeLogIndexPage.class) {
+        return CHANGE_LOGPAGE;
+      }
+      throw new IllegalStateException("Unknown PageKind class: " + clazz);
+    }
   }
 
   /**
@@ -9081,11 +9329,11 @@ public enum PageKind {
      * parallel with the entry loop to map entry index → slot bit. Both elision sections are
      * slot-ascending, so their cursors advance with the same walk.
      *
-     * @param headerBitmapSeg the page's 160-byte header + slot bitmap
+     * @param headerBitmap the page's 160-byte on-disk header + slot bitmap
      * @param populatedCount number of populated entries
      * @return the total in-memory heap size
      */
-    int deriveAll(final MemorySegment headerBitmapSeg, final int populatedCount) {
+    int deriveAll(final byte[] headerBitmap, final int populatedCount) {
       long running = 0L;
       final long maximum = (long) populatedCount * PageConstants.MAX_RECORD_SIZE;
       int bmIdx = 0;
@@ -9094,7 +9342,7 @@ public enum PageKind {
       nameKeyElidedReadCursor = 0;
       for (int i = 0; i < populatedCount; i++) {
         while (bmWord == 0) {
-          bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
+          bmWord = PageLayout.getBitmapWord(headerBitmap, bmIdx++);
           if (bmIdx > PageLayout.BITMAP_WORDS) {
             throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
           }

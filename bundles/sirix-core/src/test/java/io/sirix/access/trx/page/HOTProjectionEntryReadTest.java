@@ -4,6 +4,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.HOTReadIntent;
 import io.sirix.access.trx.page.HOTTrieReader.LowerBoundResult;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.RevisionEpochTracker.Ticket;
@@ -12,6 +13,8 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.HOTMiniPageCache;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -20,6 +23,8 @@ import io.sirix.page.HOTLeafEntry;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTMiniPage;
+import io.sirix.page.HOTProjectionImage;
+import io.sirix.page.HOTProjectionRead;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
@@ -35,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -68,6 +75,52 @@ final class HOTProjectionEntryReadTest {
   private static final byte[] KEY = {7, 11};
   private static final byte[] VALUE = {13, 17};
   private static final long SIDE_KEY = 42;
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void scopedCompleteImagesRequireAnEnabledLifecycleFence(final VersioningType versioning) {
+    for (final boolean enabled : new boolean[] {false, true}) {
+      try (Fixture fixture = new Fixture(false, versioning, 1)) {
+        final ProjectionBlobCache lifecycle = enabled
+            ? new ProjectionBlobCache(1024)
+            : ProjectionBlobCache.disabled();
+        when(fixture.buffers.getProjectionBlobCache()).thenReturn(lifecycle);
+        final HOTProjectionImage image = mock(HOTProjectionImage.class);
+        final HOTLeafEntry entry = new HOTLeafEntry(VALUE, null);
+        when(image.select(KEY, SIDE_KEY)).thenReturn(entry);
+        when(fixture.disk.readHOTProjectionEntry(eq(fixture.chain), any(ResourceConfiguration.class), eq(KEY),
+            eq(SIDE_KEY), anyBoolean()))
+                                        .thenAnswer(call -> new HOTProjectionRead(entry, null,
+                                            call.<Boolean>getArgument(4)
+                                                ? image
+                                                : null));
+        final ReadScope scope = new ReadScope();
+        for (int read = 0; read < 2; read++) {
+          assertArrayEquals(VALUE,
+              Objects.requireNonNull(
+                  fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope))
+                     .value());
+        }
+        verify(fixture.disk, times(enabled
+            ? 1
+            : 2)).readHOTProjectionEntry(eq(fixture.chain), any(ResourceConfiguration.class), eq(KEY), eq(SIDE_KEY),
+                eq(enabled));
+        assertEquals(0, fixture.completeCache.size());
+        assertTrue(fixture.reads.isEmpty(), "selective reads never load a native page");
+        if (enabled) {
+          lifecycle.clear();
+          assertArrayEquals(VALUE,
+              Objects.requireNonNull(
+                  fixture.storage.readHOTProjectionEntry(fixture.chain, KEY, SIDE_KEY, HOTReadIntent.SELECTIVE, scope))
+                     .value());
+          verify(fixture.disk, times(2)).readHOTProjectionEntry(eq(fixture.chain), any(ResourceConfiguration.class),
+              eq(KEY), eq(SIDE_KEY), eq(true));
+        }
+        scope.finish(false);
+        assertEquals(0, scope.retainedImageBytes());
+      }
+    }
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
@@ -826,6 +879,7 @@ final class HOTProjectionEntryReadTest {
       when(buffers.getHOTLeafPageCache()).thenReturn(completeCache);
       when(buffers.getHOTLeafFragmentCache()).thenReturn(fragmentCache);
       when(buffers.getHOTMiniPageCache()).thenReturn(miniCache);
+      when(buffers.getProjectionBlobCache()).thenReturn(ProjectionBlobCache.disabled());
       when(disk.readHOTLeafFragment(any(PageReference.class), any(ResourceConfiguration.class))).thenCallRealMethod();
       when(disk.readHOTLeafFragment(any(PageReference.class), any(ResourceConfiguration.class),
           anyLong())).thenCallRealMethod();

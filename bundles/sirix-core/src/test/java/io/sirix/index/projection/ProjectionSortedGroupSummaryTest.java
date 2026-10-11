@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,7 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class ProjectionSortedGroupSummaryTest {
-  private static final String PROPERTY = "sirix.projection.sortedGroupSummaries";
 
   @TempDir
   Path directory;
@@ -231,7 +231,7 @@ final class ProjectionSortedGroupSummaryTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void overflowSummariesSurviveSplitsAndExtremaEditsAcrossAsyncFlushes(final VersioningType versioning) {
+  void chunkSummariesStayBoundedAcrossExtremaEditsAndAsyncFlushes(final VersioningType versioning) {
     final Path path = directory.resolve("async-summaries");
     final byte[][] keys = new byte[ProjectionSortedLeaf.MAX_ROWS][];
     for (int row = 0; row < keys.length; row++) {
@@ -292,8 +292,12 @@ final class ProjectionSortedGroupSummaryTest {
           assertEquals(revision == 1
               ? 1_270_128
               : 1_270_000, maximum.getFirst().max());
-          assertTrue(ProjectionIndexHOTStorage.collectBlobLocators(reader, 0, ProjectionSortedGroupSummary.slot(1), 1)
-                                              .offset(0) != Constants.NULL_ID_LONG);
+          final byte[] summary = ProjectionIndexHOTStorage.readBlob(reader, 0, ProjectionSortedGroupSummary.slot(1));
+          assertNotNull(summary);
+          assertTrue(summary.length <= ProjectionSortedChunks.MAX_BYTES);
+          assertEquals(summary.length <= ProjectionIndexHOTStorage.INLINE_SEGMENT_MAX_BYTES,
+              ProjectionIndexHOTStorage.collectBlobLocators(reader, 0, ProjectionSortedGroupSummary.slot(1), 1)
+                                       .offset(0) == Constants.NULL_ID_LONG);
         }
       }
     }
@@ -440,12 +444,13 @@ final class ProjectionSortedGroupSummaryTest {
   }
 
   @Test
-  void splittingThenDeletingAnEntireGroupKeepsEachRevisionExact() {
+  void chunkedGroupEditsAndDeletionKeepEachRevisionExact() {
     final Path path = directory.resolve("split");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
+        final int initialLeaves;
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Builder builder = new ProjectionSortedDirectory.Builder(
               new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0), SortedScanFixtures.GROUP_VALUE);
@@ -455,12 +460,19 @@ final class ProjectionSortedGroupSummaryTest {
           }
           builder.append(leaf(keys));
           builder.finish();
+          initialLeaves = Objects.requireNonNull(ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0))
+                                 .dataLeafCount();
+          assertEquals(1, initialLeaves, "the encoded row-cap chunk fits the coarse byte budget");
           writer.commit();
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final ProjectionSortedDirectory.Editor editor =
               new ProjectionSortedDirectory.Editor(new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0));
           editor.insert(key("a", -1, 1000), new byte[0]);
+          assertEquals(
+              2, Objects.requireNonNull(ProjectionSortedDirectory.open(writer.getStorageEngineWriter(), 0))
+                        .dataLeafCount(),
+              "the 257th row splits the row-cap chunk before the last singleton is removed");
           editor.remove(key("a", 255, 255));
           writer.commit();
         }
@@ -480,7 +492,7 @@ final class ProjectionSortedGroupSummaryTest {
             assertNotNull(accessor);
             assertEquals(revision == 3
                 ? 0
-                : revision, accessor.dataLeafCount());
+                : initialLeaves, accessor.dataLeafCount());
             assertEquals(revision == 3
                 ? List.of()
                 : List.of(new Group("a", revision == 1
@@ -533,17 +545,9 @@ final class ProjectionSortedGroupSummaryTest {
     if (minOnly) {
       assertEquals(summarized, ProjectionSortedGroupScan.topKFromBounds(reader, 0, accessor, 10));
     }
-    final String prior = System.getProperty(PROPERTY);
-    System.setProperty(PROPERTY, "false");
-    try {
-      assertEquals(ProjectionSortedGroupScan.topK(reader, 0, 10, order, 1, minOnly), summarized);
-    } finally {
-      if (prior == null) {
-        System.clearProperty(PROPERTY);
-      } else {
-        System.setProperty(PROPERTY, prior);
-      }
-    }
+    assertEquals(
+        ProjectionSortedGroupScan.topKFromKeys(accessor, ProjectionSortedDirectory.NO_BOUND, 10, order, 1, minOnly),
+        summarized);
   }
 
   @Test

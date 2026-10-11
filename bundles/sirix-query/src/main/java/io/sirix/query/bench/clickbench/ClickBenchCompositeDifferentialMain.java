@@ -4,7 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.cache.Allocators;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -207,7 +207,7 @@ public final class ClickBenchCompositeDifferentialMain {
         while ((item = iter.next()) != null) {
           final StringWriter buffer = new StringWriter(128);
           try (PrintWriter writer = new PrintWriter(buffer)) {
-            new StringSerializer(writer).serialize(item);
+            new SirixStringSerializer(writer).serialize(item);
           }
           final String row = buffer.toString().strip();
           count++;

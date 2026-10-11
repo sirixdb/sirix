@@ -1,8 +1,8 @@
 # Projection read performance
 
 These read paths depend on storage metadata, column encodings, and query semantics. They do not
-recognize benchmark names, query numbers, particular field names, or dataset values. Existing
-revisioned storage formats and fine-grained mutation paths remain unchanged.
+recognize benchmark names, query numbers, particular field names, or dataset values. Sorted views
+use the [encoded chunk format](DISK_FORMAT.md#encoded-sorted-views) and local copy-on-write edits.
 
 ## Storage reads
 
@@ -60,7 +60,7 @@ The newest image supplies the side-page reference even when an older fragment su
 Every raw image is guarded through its use, and raw images have a separate cache from complete
 leaves. A requested-slot result never becomes a complete-leaf swizzle.
 
-`FileChannelReader` decodes these raw images into independently owned packed heap bytes and an
+`FileChannelReader` decodes these raw images into independently GC-owned packed native bytes and an
 exact-size offset directory, without allocating a writable native frame or building routing
 metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
 extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
@@ -73,7 +73,7 @@ Segment-backed binary searches for eight-byte keys with a nonempty suffix prepar
 probe word per search. When the stored suffix has the expected length and at least eight bytes
 remain at its start, an unsigned word comparison reads the suffix in one load. Differently sized stored
 keys and suffixes with fewer than eight segment bytes remaining use the bounded generic comparator.
-Packed heap fragments retain their array comparator.
+Compact fragments use the same segment-backed comparator.
 
 Materialized leaves let inline blob values and tombstones omit the side-reference map access.
 Requested-slot fragment and mini-page reads retain complete provenance internally; referenced
@@ -84,10 +84,14 @@ Read intent controls cache admission:
 - `POINT` may cache a resolved slot, including a known absence or tombstone. Four distinct point
   demands on one leaf, or an accumulated packed-size limit, request complete reconstruction. The
   index-metadata record, which every serving decision and every commit resolves on its own, and a
-  single advertised set-summary column read this way. Sorted-directory seek descents and their
-  first data leaf also use `POINT`; directory headers and in-order cursor advances retain `SCAN`.
+  single advertised set-summary column read this way. A sorted seek's first data chunk uses `POINT`.
+- `SELECTIVE` resolves sorted-directory metadata without admitting it immediately. A reader-confined
+  scope remembers one bounded, detached metadata miss. A successful point seek can admit it only
+  if the data read did not consume the scope's single admission. Failed seeks and scans discard it.
 - `SCAN` uses complete leaves. General blob reads retain this intent because they may enumerate
-  many slots. Writers and shared-page backends use the ordinary complete loader.
+  many slots. A sorted cursor consumes its owned logical chunk without native promotion. Needing
+  another chunk, or skipping a prefix, promotes through the guarded loader. Writers and shared-page
+  backends use the ordinary complete loader.
 
 Mini pages hold only bounded packed results and durable side-reference provenance. They use the
 normal guarded cache lifecycle and byte accounting. Invalidation fences in-flight admissions on one
@@ -99,25 +103,67 @@ Their budget is one sixteenth of the existing complete-HOT allowance, capped at 
 heap ceiling below, taken from that complete allowance. Complete adoption discards the corresponding
 mini page.
 
+Committed sorted slots also have a byte-bounded `ProjectionBlobCache`. It retains private copies of
+length/hash-verified payloads under database/resource identity, committed root offset and integrity,
+revision and logical slot. Raw blob hits return private copies. Sorted data and directory hits reuse
+fully validated immutable descriptors, including directory child validation. Every array-returning
+API on those retained views copies; writers cannot mutate the retained bytes. Descriptor objects,
+column offsets and indirect separator arrays count toward the same byte ceiling. An admitted
+sorted header or directory may also own its verified physical routing image. The complete image
+and its scalar identity are charged to that same entry, even when another entry shares the image;
+retention introduces no additional admission or cache allowance.
+Cold point misses use selective slot resolution. One successful seek may admit its data payload or,
+if that opportunity remains unused, one deferred routing payload. An abandoned open admits neither.
+Group-tree reads use selective slot resolution and the same bounded retention.
+
+For self-contained HOT images, the file-channel backend can select the requested projection entry
+from the verified wire bytes without constructing or adopting a native leaf or a side-reference map.
+The complete frame still passes its normal checksum/decompression checks. For bounded uncompressed
+images, the owned heap copy feeds both checksum verification and selection. The immutable envelope
+and ordered side-reference trailer are validated once; each selection checks every slot header it
+visits. One read scope may own one image of at most 64 KiB plus aligned object/array headers, shared
+by that query's related logical reads. Database, resource, revision, durable offset/hash and
+invalidation generation fence reuse, including snapshots restored from an admitted routing entry.
+No transaction, mutable page reference or guard is retained with that snapshot. Scope completion
+releases its ownership; cached routing remains under its entry's byte charge. Larger images are
+selected without retention. Metadata scans preserve
+their ordinary blob-cache admission policy while sharing this bounded physical image. Existing
+materialized pages still use guards, and later scan promotion uses the ordinary complete loader.
+
+First-use referenced payloads decode zero-run frames directly into their owned heap arrays. This
+preserves the existing codec and validates the encoded slice without reading reusable scratch tails.
+Fragment side trailers reserve their validated reference count once and hold their lifecycle guard
+for the batch; resource-ID fixup walks the map without constructing a temporary reference list.
+
+This cache reserves half the mini-page allowance from the remaining complete-HOT share, preserving
+the total HOT budget. Its fixed associative sets account for retained bytes and object/table
+allowances, reject payloads above 32 KiB, and evict within their byte limits. Resource/database clear,
+truncate and rollback invalidate entries and fence in-flight admissions by generation. Allocator
+pressure also clears the retained payloads. Writers bypass this committed-payload cache.
+
 HOT cache sweepers skip guarded images.
 
-The raw-fragment cache is mixed-residency and is split accordingly. A committed fragment decodes
+The raw-fragment cache is split by allocation ownership. A committed fragment decodes
 into an allocator frame on every backend that does not implement the compact reads — `MEMORY_MAPPED`,
 anything reached through a plain `Reader` default — and on any byte pipeline whose handler has no
-memory-segment support; it decodes into packed Java-heap bytes only on `FILE_CHANNEL` with a
-segment-capable pipeline. One budget cannot bound both honestly, so `HOTFragmentCache` holds two
-separately weighted halves and consults both on lookup, routing each admission by the image's own
-residency. The native half keeps the pre-existing off-heap fragment share in full, with the allocator
-pressure listener still behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
+memory-segment support; on `FILE_CHANNEL` with a segment-capable pipeline, it uses independently
+GC-owned packed native bytes. One budget cannot bound both honestly, so `HOTFragmentCache` holds two
+separately weighted halves and consults both on lookup, routing compact images and any heap-backed
+images to `compactImages()`, and allocator-frame images to `nativeImages()`. The allocator-frame half
+keeps the pre-existing off-heap fragment share in full, with the allocator pressure listener still
+behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
 unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the native fragment
 share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
-reserving mini pages. The compact half and the mini cache retain heap instead, are each charged
-their packed bytes plus the page's conservative fixed per-page heap estimate, and are each bounded by
-`sirix.hotHeapCache.maxBytes` — one sixteenth of `Runtime.maxMemory()` by default, floored at
+reserving mini pages and sorted payloads. The compact half retains GC-owned native bytes plus heap
+metadata; the mini cache retains heap bytes. Each is charged its packed bytes plus the page's
+conservative fixed per-page heap estimate and bounded by `sirix.hotHeapCache.maxBytes` — one
+sixteenth of `Runtime.maxMemory()` by default, floored at
 32 × 64 KiB. The property accepts positive byte counts; malformed or non-positive values use the
 default. The compact half spends no native fragment allowance; the mini reservation comes from the
-complete-leaf share described above. A heap-resident image holds no allocator frame, so each heap
-cache has its own clock sweeper rather than relying on allocator pressure. Point fragment walks,
+complete-leaf share described above. Compact allocations have independent lifetimes, so retaining
+one image cannot pin unrelated images' storage. Neither compact fragments nor mini pages hold an
+allocator frame, so these caches have their own clock sweepers rather than relying on allocator
+pressure. Point fragment walks,
 including walks answered from cached raw images, contribute to `EngineWorkCounters.HOT_LEAF_LOADS`;
 older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or mini-page hits
 contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.
@@ -214,13 +260,8 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.packedDictionaryCounts` | `true` | Count eligible packed dictionary IDs without a dense ID array. |
 | `sirix.projection.longLaneCompositeCounts` | `true` | Count composite keys with exact long identities in a separate primitive loop. |
 | `sirix.projection.dictionaryCountBatches` | `true` | Accumulate plain local-dictionary COUNT groups in reusable per-entry counters before folding the group table. |
-| `sirix.projection.parallelSortedSummaries` | `true` | Permit independent readers for committed sorted summaries. |
-| `sirix.projection.batchSortedSummaries` | `true` | Reuse traversal workspace within each summary window; false restores per-blob readers. |
 | `sirix.projection.sortedSummaryMaxWorkers` | `4` | Worker ceiling, clamped to 1–8 and further limited by CPUs and one worker per 1,024 leaves of the queried key range. |
 | `sirix.projection.sortedLookahead` | `8` | Candidate leaves the sorted bound walk and span scan fetch as one batch, clamped to 1–64; 1 restores one read per step. |
-| `sirix.projection.sortedSpanBounds` | `true` | Enable bounded best-first grouped spans on committed revisions. |
-| `sirix.projection.heapSpanPriority` | `true` | Reuse the candidate permutation as a max-heap for span views with at least 1,024 leaves. |
-| `sirix.projection.denseSpanBounds` | `true` | Index validated dense physical leaf bounds directly; sparse IDs retain binary search. |
 
 The retained-buffer population and summary windows are bounded; decoded column fills also obey the
 existing projection memory budget. Input properties do not weaken revision or integrity checks.
@@ -254,10 +295,9 @@ history, edits, asynchronous flushes, and worker cleanup. `ProjectionSortedMissi
 checks the four range shapes over an optional aggregate field — a range fully containing a leaf
 without a summary declines without the second walk, the two meeting such a leaf at an end still
 walk, one of them still serving, and a range whose leaves all have summaries is served from them
-alone — every shape answering what it answered with the count absent, plus a version-3 header
-parsing with the count unknown, per-commit insert/update/delete maintenance of the count, a
-spilled build, the summary backfill, and the leaf recount staying a build-time cost no maintenance
-write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
+alone — against independent answers, plus rejection of obsolete headers across all four versioning
+types, per-commit insert/update/delete maintenance of the count, a spilled build, summary rebuilding,
+and the leaf recount staying a build-time cost no maintenance write pays. `ProjectionBlobBatchReadTest` checks ordered sparse and duplicate requests,
 inline/overflow transitions, writer-local state, historical revisions, and per-payload integrity
 while reusing traversal workspace.
 `LongLaneCompositeCountTest` checks 1–64 numeric/temporal keys, conditional global IDs, missing
@@ -315,9 +355,9 @@ compares as the interpreter compares it; any other shape falls back to the gener
 A row whose key cannot be represented exactly (an unrepresentable or non-integral cell, or a whole
 encoded key longer than 4 KiB, record key included) is still stored, under a reserved key that
 sorts after every ordinary key. The directory header counts such rows, and the sorted route
-declines — the generic route then answers — while the count is nonzero. The key bound keeps room for
-at least fifteen keys in every leaf and directory node. The header also records the view's key
-layout. If the configured column kinds no longer produce that layout (for example after a
+declines — the generic route then answers — while the count is nonzero. The key bound limits individual tuple storage; an oversized tuple can use the generic blob side
+page, and oversized directory fences use separate separator records. The header also records the
+view's key layout. If the configured column kinds no longer produce that layout (for example after a
 `sirix.projection.temporalKinds` change for a timestamp key column), maintenance writes every row
 it touches under the reserved key rather than mixing two encodings, so the view declines until
 those rows are rewritten under matching kinds. This has a write cost: in that state, every commit
@@ -350,31 +390,27 @@ range whose own rows all carry a value — including the ranges that leaf serves
 — and that loses more than the walk it saves. As it stands the case costs exactly what it cost
 before the count existed, never more, and the full-key walk can still serve such a range outright.
 
-The directory header counts the view's rows without a value, beside the rows under the reserved
-unencodable key. The count is what makes the per-leaf proof sound, and it is consulted only where
-it is exactly right: while it is zero, a leaf without a summary can only mean a revision whose
-summaries were never built, so no per-leaf test runs at all and every route keeps the decisions it
-had; while it is unknown, a leaf without a summary may mean either, so the full-key walk still
-runs. Only a nonzero count — a view that demonstrably holds such rows — turns a missing summary
-inside the range into a proof. A wrong count could therefore cost a walk or spare one; it can
-never change an answer.
+The directory header counts rows without an aggregate value, beside the reserved
+unencodable rows. Only a positive count turns a missing summary wholly inside the range into a
+proof that the key walk must also decline. A zero count leaves the ordinary fallback in place.
+Reserved unencodable keys are not well-formed row keys, so the two counts never overlap.
+The [header contract](DISK_FORMAT.md#encoded-sorted-views) specifies count applicability and format rejection.
 
-A reserved unencodable key is not a well-formed row key, so it is never also counted as a row
-without an aggregate value; the two header counts never overlap.
+Each inserted or removed key is classified from its own bytes, so the count follows edits without
+extra reads. Initial builds and explicit summary rebuilding count a leaf's missing values only
+when it has no summary: a summarized leaf provably holds none. Non-aggregate layouts need no count.
 
-A view written before the count existed carries a version-3 header, which has no count. It parses
-unchanged, reports the count as unknown and keeps exactly the behaviour it had — both walks
-included — until a rebuild or a `ProjectionSortedGroupScan.buildLeafSummaries` backfill publishes
-an exact count in a version-4 header. A view whose last key field is not an ordered long
-aggregates nothing and can never consult the count, so it keeps none either: its header stays at
-version 3 rather than recording a zero a later release could misread. Maintenance never invents a
-count: a commit sees only the rows it touches, never the rest of the view. Per commit, each
-inserted or removed key is classified from its own bytes, so the count follows inserts, updates
-and deletes without reading anything extra; the initial build, including its spilling external
-sort and merge, and the backfill walk a leaf's keys for the count only when that leaf gets no
-summary, since a summarized leaf provably holds none. A view that aggregates nothing summarizes no
-leaf at all and no route of it ever reads the total, so neither pass walks a single leaf's keys
-for one.
+Chunk encodings, packing limits, blob residence and persisted proof flags are specified in
+[On-disk format: encoded sorted views](DISK_FORMAT.md#encoded-sorted-views).
+A proven single-group chunk supplies its group key from the directory fence and its extrema from
+bounds, avoiding a summary read. Chunks without that proof use ordinary summaries.
+
+An eligible `ProjectionSortedGroupSma` adds one exact min/max entry per logical group above the
+chunk summaries. It is maintained only while groups do not outnumber chunks; missing aggregate
+values and group keys wider than 128 encoded bytes decline this acceleration. A private edit-path
+node cache bounds repeated metadata decoding. Interior changes retain their proven extrema;
+insert-only changes combine existing and inserted extrema exactly; removed endpoints use an exact
+post-edit group scan. Invalidated or retired trees leave the bounds/summary/key routes available.
 
 Memory and maintenance cost:
 
@@ -401,7 +437,9 @@ Memory and maintenance cost:
   built inside the open transaction, is found with one ordered scan. The commit's removals and
   insertions are applied as one sorted batch: each touched leaf is rewritten, and its group summary
   re-encoded, once; each touched bounds chunk is copied and published once. A leaf that overflows
-  splits into balanced leaves, and only directory nodes whose entries change are rewritten.
+  is repacked into bounded local chunks; small chunks may merge with their right neighbor. Only
+  directory nodes whose entries change are rewritten, with an edit-local node cache avoiding
+  repeated decoding. Unaffected chunk IDs and bytes remain stable.
 
 ## Sorted span candidate priority
 
@@ -417,10 +455,10 @@ N-entry bounds array covers the complete dense range. Such views can use `leafId
 views keep binary search, and missing IDs still raise. Neither change allocates another candidate
 array or changes stored formats, revision visibility, write granularity or memory ceilings.
 
-`ProjectionSortedSpanScanTest` exercises both switches in all four combinations against independent
+`ProjectionSortedSpanScanTest` exercises the adaptive heap and dense-bound routes against independent
 row folds, including large cross-leaf groups, deletions, inserted splits, reordered histories, signed
 division and different K values under every versioning strategy. An unselective tied view checks
-that both priority algorithms retain the existing bounded fallback.
+that candidate priority retains the existing bounded fallback.
 
 ## Overlapping committed directory loading
 

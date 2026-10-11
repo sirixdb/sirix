@@ -1,5 +1,6 @@
 package io.sirix.api;
 
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.index.IndexType;
@@ -8,6 +9,8 @@ import io.sirix.page.CASPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
@@ -116,6 +119,30 @@ public interface StorageEngineReader extends AutoCloseable {
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 
   boolean hasTrxIntentLog();
+
+  /**
+   * The view that includes this reader's uncommitted records when it belongs to a writer. A
+   * standalone read-only transaction returns itself. The returned view shares this transaction's
+   * lifetime; callers must not close it independently.
+   *
+   * @return the associated writer view, or this read-only reader
+   */
+  StorageEngineReader getTransactionView();
+
+  /** A scope whose close restores the caller's previously pinned record page. */
+  interface RecordPageGuard extends AutoCloseable {
+    @Override
+    void close();
+  }
+
+  /**
+   * Preserve the current record-page pin while temporary record reads use this transaction. Closing
+   * the scope releases the temporary pin and restores the saved one, keeping a caller's node cursor
+   * valid across candidate-value checks. Scopes must close in reverse acquisition order.
+   *
+   * @return the scope to close after the temporary reads
+   */
+  RecordPageGuard preserveRecordPageGuard();
 
   /**
    * Get the transaction-ID.
@@ -398,6 +425,10 @@ public interface StorageEngineReader extends AutoCloseable {
    */
   ValidTimeIndexPage getValidTimeIndexPage(RevisionRootPage revisionRoot);
 
+  TemporalAggregateIndexPage getTemporalAggregateIndexPage(RevisionRootPage revisionRoot);
+
+  ChangeLogIndexPage getChangeLogIndexPage(RevisionRootPage revisionRoot);
+
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
    *
@@ -539,6 +570,12 @@ public interface StorageEngineReader extends AutoCloseable {
     } finally {
       leaf.releaseGuard();
     }
+  }
+
+  /** Optional reader-confined metadata scope; complete loaders need no admission. */
+  default @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
   }
 
   /**

@@ -6,15 +6,18 @@ package io.sirix.page.pax;
 import io.sirix.node.LE;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 
 /**
- * Schema-aware Frame-of-Reference (FOR) + bit-packed codec for {@code long[]}
- * sequences over an off-heap {@link MemorySegment}. Designed as a structural
- * replacement for LZ4 on numeric PAX regions: knowing the payload is a
- * {@code long[]} lets us encode it with ~LZ4 size but near-zero decompress
- * CPU (a right-shift + mask per value).
+ * Schema-aware Frame-of-Reference (FOR) + bit-packed codec for {@code long[]} sequences, encoded
+ * into byte arrays and decoded from a {@link MemorySegment}. Designed as a structural replacement
+ * for LZ4 on numeric PAX regions: knowing the payload is a {@code long[]} lets us encode it with
+ * ~LZ4 size but near-zero decompress CPU (a right-shift + mask per value).
  *
  * <h2>Wire format</h2>
+ * 
  * <pre>
  * byte    version     // format version, currently VERSION_V1
  * byte    bitWidth    // 0..64; 0 ⇒ constant-only, no body
@@ -23,34 +26,34 @@ import java.lang.foreign.ValueLayout;
  * byte[]  body        // ceil(n * bitWidth / 8) bytes, bit-packed LE
  * </pre>
  *
- * <p>When {@code bitWidth == 0} every value equals {@code minValue} — the
- * body is omitted. When {@code n == 0} the segment contains only the
- * 10-byte minimal header (1+1+1+8 if the 1-byte varint 0 is used).
+ * <p>
+ * When {@code bitWidth == 0} every value equals {@code minValue} — the body is omitted. When
+ * {@code n == 0} the payload contains only the 11-byte minimal header (1+1+1+8 if the 1-byte varint
+ * 0 is used).
  *
  * <h2>Value layout and random access</h2>
- * <p>Each logical value is {@code v[i] = minValue + u[i]} where {@code u[i]}
- * is the unsigned bit-packed width-{@code W}-bits payload at bit offset
- * {@code i*W}. Reads fetch one aligned 64-bit word (two if the value
- * straddles a word boundary at widths > 56), shift, and mask — no branches
+ * <p>
+ * Each logical value is {@code v[i] = minValue + u[i]} where {@code u[i]} is the unsigned
+ * bit-packed width-{@code W}-bits payload at bit offset {@code i*W}. Reads fetch one aligned 64-bit
+ * word (two if the value straddles a word boundary at widths > 56), shift, and mask — no branches
  * in the steady state beyond the straddle check.
  *
  * <h2>Why this beats LZ4 on numeric columns</h2>
  * <ul>
- *   <li><b>Size</b>: A narrow range (e.g. 1M salaries, spread ≤ 2^20) packs
- *       to 20 bits × N + 10 B header — matches or beats LZ4 on delta-varint
- *       of the same data.</li>
- *   <li><b>CPU</b>: Scan = 1 word load + shift + mask per value. LZ4 costs
- *       ~16% of cold CPU at 100M scale (see umbra-iter6 memory).</li>
- *   <li><b>Composability</b>: Output is a contiguous range in an existing
- *       MemorySegment — no extra allocation, no decompress buffer.</li>
+ * <li><b>Size</b>: A narrow range (e.g. 1M salaries, spread ≤ 2^20) packs to 20 bits × N plus the
+ * varint-sized header — matches or beats LZ4 on delta-varint of the same data.</li>
+ * <li><b>CPU</b>: Scan = 1 word load + shift + mask per value. LZ4 costs ~16% of cold CPU at 100M
+ * scale (see umbra-iter6 memory).</li>
+ * <li><b>Composability</b>: Output is a contiguous range in a caller-supplied byte array — no extra
+ * allocation, no decompress buffer.</li>
  * </ul>
  *
  * <h2>HFT-grade constraints</h2>
  * <ul>
- *   <li>Zero allocation on both encode and decode hot paths.</li>
- *   <li>All shifts + masks; no conditional inside bit-unpack for widths ≤ 56.</li>
- *   <li>Accepts both on-heap-backed and native-backed MemorySegments.</li>
- *   <li>Operates on {@code long} offsets throughout — no 2 GiB wrap risk.</li>
+ * <li>Zero allocation on both encode and decode hot paths.</li>
+ * <li>All shifts + masks; no conditional inside bit-unpack for widths ≤ 56.</li>
+ * <li>Decoding accepts both on-heap-backed and native-backed MemorySegments.</li>
+ * <li>Encoding uses {@code int} array offsets; decoding uses {@code long} segment offsets.</li>
  * </ul>
  */
 public final class NumberRegionCompact {
@@ -59,7 +62,15 @@ public final class NumberRegionCompact {
   public static final byte VERSION_V1 = 1;
 
   /** Header bytes when {@code n == 0} and bitWidth == 0. */
-  private static final int MIN_HEADER_BYTES = 1 /* version */ + 1 /* bitWidth */ + 1 /* varint n=0 */ + 8 /* minValue */;
+  private static final int MIN_HEADER_BYTES =
+      1 /* version */ + 1 /* bitWidth */ + 1 /* varint n=0 */ + 8 /* minValue */;
+
+  // The encoder writes into the region's byte array through array view handles. A heap
+  // MemorySegment over that array would put a heap receiver on the segment access path the native
+  // page decoders share, and the JIT then compiles the record page's column-region builders — this
+  // writer runs inside them — with both receiver classes; see PageLayout#getBitmapWord(byte[], int).
+  private static final VarHandle ARRAY_LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   private NumberRegionCompact() {
     // utility class
@@ -86,9 +97,9 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Exact size of the encoded body (bit-packed payload) for {@code count}
-   * values at {@code bitWidth} bits. Always 8-byte aligned reads are safe
-   * thanks to {@link #readUpToLongLE} inside {@link #readCompact}.
+   * Exact size of the encoded body (bit-packed payload) for {@code count} values at {@code bitWidth}
+   * bits. Always 8-byte aligned reads are safe thanks to {@link #readUpToLongLE} inside
+   * {@link #readCompact}.
    */
   public static long bodyBytes(final int count, final int bitWidth) {
     if (count < 0) {
@@ -105,8 +116,8 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Bytes the header consumes for {@code n == count}. Varies because the
-   * count is varint-encoded (1 byte up to 127, 2 bytes up to 16383, etc.).
+   * Bytes the header consumes for {@code n == count}. Varies because the count is varint-encoded (1
+   * byte up to 127, 2 bytes up to 16383, etc.).
    */
   public static long headerBytes(final int count) {
     if (count < 0) {
@@ -117,10 +128,9 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Smallest bit width W such that every {@code values[i] - min} fits in
-   * unsigned W bits. Returns 0 when {@code min == max} (constant-run
-   * shortcut — no body needed). Returns 64 when the span overflows signed
-   * range (fallback to plain 64-bit storage).
+   * Smallest bit width W such that every {@code values[i] - min} fits in unsigned W bits. Returns 0
+   * when {@code min == max} (constant-run shortcut — no body needed). Returns 64 when the span
+   * overflows signed range (fallback to plain 64-bit storage).
    *
    * @param values source array
    * @param count number of valid entries
@@ -163,19 +173,17 @@ public final class NumberRegionCompact {
   // ─────────────────────────────────────────────────────────────── encoding
 
   /**
-   * Encode {@code count} values from {@code values[0..count)} into
-   * {@code target} starting at {@code offset}. Writes version, bit width,
-   * varint count, min-value, and bit-packed body.
+   * Encode {@code count} values from {@code values[0..count)} into {@code target} starting at
+   * {@code offset}. Writes version, bit width, varint count, min-value, and bit-packed body.
    *
-   * @param target destination segment (must have ≥ {@link #maxEncodedSize}
-   *     bytes available at {@code offset})
+   * @param target destination array (must have ≥ {@link #maxEncodedSize} bytes available at
+   *        {@code offset})
    * @param offset byte offset at which to start writing
    * @param values source values; only the {@code count} prefix is read
    * @param count number of values to encode
    * @return total bytes written (header + body)
    */
-  public static long writeCompact(final MemorySegment target, final long offset,
-      final long[] values, final int count) {
+  public static long writeCompact(final byte[] target, final int offset, final long[] values, final int count) {
     if (target == null) {
       throw new IllegalArgumentException("target");
     }
@@ -185,34 +193,33 @@ public final class NumberRegionCompact {
     if (count < 0 || count > values.length) {
       throw new IllegalArgumentException("count=" + count + " values.length=" + values.length);
     }
-    if (offset < 0 || offset + MIN_HEADER_BYTES > target.byteSize()) {
-      throw new IllegalArgumentException(
-          "offset=" + offset + " byteSize=" + target.byteSize());
+    if (offset < 0 || (long) offset + MIN_HEADER_BYTES > target.length) {
+      throw new IllegalArgumentException("offset=" + offset + " length=" + target.length);
     }
 
     final int bitWidth = computeBitWidth(values, count);
     // For raw 64-bit storage (bitWidth == 64) we don't apply a FOR base —
     // values are stored verbatim and readback skips the +base step. The
     // header's minValue field is forced to 0 so decoders don't double-add.
-    final long minValue = (count == 0 || bitWidth == 64) ? 0L : findMin(values, count);
+    final long minValue = (count == 0 || bitWidth == 64)
+        ? 0L
+        : findMin(values, count);
     final long bodyBytes = bodyBytes(count, bitWidth);
 
-    long pos = offset;
-    target.set(ValueLayout.JAVA_BYTE, pos, VERSION_V1);
-    pos++;
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) bitWidth);
-    pos++;
+    int pos = offset;
+    target[pos++] = VERSION_V1;
+    target[pos++] = (byte) bitWidth;
     pos += writeVarintUnsigned(target, pos, count);
-    target.set(LE.LONG, pos, minValue);
-    pos += 8L;
-    final long bodyStart = pos;
+    ARRAY_LONG_LE.set(target, pos, minValue);
+    pos += 8;
+    final int bodyStart = pos;
     if (bodyBytes > 0L) {
-      if (pos + bodyBytes > target.byteSize()) {
+      if (pos + bodyBytes > target.length) {
         throw new IllegalArgumentException(
             "target too small: need " + (pos + bodyBytes - offset) + " bytes at offset " + offset);
       }
       bitPack(target, bodyStart, values, count, minValue, bitWidth);
-      pos += bodyBytes;
+      pos += (int) bodyBytes;
     }
     return pos - offset;
   }
@@ -220,8 +227,8 @@ public final class NumberRegionCompact {
   // ─────────────────────────────────────────────────────────────── decoding
 
   /**
-   * Parsed header describing a compact payload. Reusable across calls to
-   * minimise allocation pressure on scan paths.
+   * Parsed header describing a compact payload. Reusable across calls to minimise allocation pressure
+   * on scan paths.
    */
   public static final class Header {
     public byte version;
@@ -288,9 +295,9 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Random-access read of the value at {@code index}. Right-shift + mask
-   * (no virtual calls, no object allocation). Caller supplies a {@code Header}
-   * previously populated by {@link #readHeader(MemorySegment, long, Header)}.
+   * Random-access read of the value at {@code index}. Right-shift + mask (no virtual calls, no object
+   * allocation). Caller supplies a {@code Header} previously populated by
+   * {@link #readHeader(MemorySegment, long, Header)}.
    *
    * @param src source segment
    * @param header parsed header
@@ -311,9 +318,9 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Convenience: parses the header each call — slower than the 2-arg
-   * overload if you read repeatedly from the same payload. Allocates one
-   * {@link Header}, which is only acceptable outside inner scan loops.
+   * Convenience: parses the header each call — slower than the 2-arg overload if you read repeatedly
+   * from the same payload. Allocates one {@link Header}, which is only acceptable outside inner scan
+   * loops.
    */
   public static long readCompact(final MemorySegment src, final long headerOffset, final int index) {
     final Header h = new Header();
@@ -322,8 +329,8 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Bulk decode into a caller-supplied buffer. Writes exactly
-   * {@code header.count} values starting at {@code out[0]}.
+   * Bulk decode into a caller-supplied buffer. Writes exactly {@code header.count} values starting at
+   * {@code out[0]}.
    *
    * @param src source segment
    * @param header parsed header
@@ -367,23 +374,23 @@ public final class NumberRegionCompact {
   // ─────────────────────────────────────────────────────── bit-pack / unpack
 
   /**
-   * Bit-pack {@code count} values starting at {@code baseOff}. Uses a fast
-   * 8-byte buffered path for widths ≤ 56 (where any single value plus up to
-   * 7 stray bits from a previous value still fits in a {@code long}); widths
-   * 57..64 use a direct per-value bit-level write that tolerates straddles
+   * Bit-pack {@code count} values starting at {@code baseOff}. Uses a fast 8-byte buffered path for
+   * widths ≤ 56 (where any single value plus up to 7 stray bits from a previous value still fits in a
+   * {@code long}); widths 57..64 use a direct per-value bit-level write that tolerates straddles
    * across 64-bit words.
    *
-   * <p>When {@code bitWidth == 64} the values are stored raw and {@code base}
-   * is assumed to be zero (set by the caller so reads don't double-add).
+   * <p>
+   * When {@code bitWidth == 64} the values are stored raw and {@code base} is assumed to be zero (set
+   * by the caller so reads don't double-add).
    */
-  private static void bitPack(final MemorySegment target, final long baseOff, final long[] values,
-      final int count, final long base, final int bitWidth) {
+  private static void bitPack(final byte[] target, final int baseOff, final long[] values, final int count,
+      final long base, final int bitWidth) {
     if (bitWidth == 64) {
       // Raw 64-bit path: base is 0 (spread overflow => caller forced min=0).
-      long off = baseOff;
+      int off = baseOff;
       for (int i = 0; i < count; i++) {
-        target.set(LE.LONG, off, values[i]);
-        off += 8L;
+        ARRAY_LONG_LE.set(target, off, values[i]);
+        off += 8;
       }
       return;
     }
@@ -392,86 +399,101 @@ public final class NumberRegionCompact {
       final long mask = (1L << bitWidth) - 1L;
       long buf = 0L;
       int bitsInBuf = 0;
-      long writePos = baseOff;
+      int writePos = baseOff;
       for (int i = 0; i < count; i++) {
         final long v = (values[i] - base) & mask;
         buf |= v << bitsInBuf;
         bitsInBuf += bitWidth;
         while (bitsInBuf >= 8) {
-          target.set(ValueLayout.JAVA_BYTE, writePos, (byte) buf);
-          writePos++;
+          target[writePos++] = (byte) buf;
           buf >>>= 8;
           bitsInBuf -= 8;
         }
       }
       if (bitsInBuf > 0) {
-        target.set(ValueLayout.JAVA_BYTE, writePos, (byte) buf);
+        target[writePos] = (byte) buf;
       }
       return;
     }
     // Slow path: widths 57..63. Buffered accumulator would overflow, so we
     // place each value by read-modify-writing the containing 64-bit word(s).
     // We MUST clear any stale bits in the target region so the write is
-    // deterministic even when the target segment holds leftover data from a
+    // deterministic even when the target array holds leftover data from a
     // previous use; we do this by masking OUT the destination bit range
     // before OR'ing in the new value.
     final long mask = (1L << bitWidth) - 1L;
     for (int i = 0; i < count; i++) {
       final long v = (values[i] - base) & mask;
       final long bitOff = (long) i * (long) bitWidth;
-      final long byteOff = baseOff + (bitOff >>> 3);
+      final int byteOff = baseOff + (int) (bitOff >>> 3);
       final int bitInByte = (int) (bitOff & 7L);
       final long loWord = readUpToLongLE(target, byteOff);
       final int bitsFromLo = Math.min(bitWidth, 64 - bitInByte);
-      final long loMask = bitsFromLo == 64 ? ~0L : (((1L << bitsFromLo) - 1L) << bitInByte);
+      final long loMask = bitsFromLo == 64
+          ? ~0L
+          : (((1L << bitsFromLo) - 1L) << bitInByte);
       final long loShifted = (v & ((1L << bitsFromLo) - 1L)) << bitInByte;
       final long loCombined = (loWord & ~loMask) | loShifted;
       writeBitPackWord(target, byteOff, loCombined);
       if (bitsFromLo < bitWidth) {
         final int remaining = bitWidth - bitsFromLo;
         final long hiMask = (1L << remaining) - 1L;
-        final long hiWord = readUpToLongLE(target, byteOff + 8L);
+        final long hiWord = readUpToLongLE(target, byteOff + 8);
         final long hiValBits = (v >>> bitsFromLo) & hiMask;
         final long hiCombined = (hiWord & ~hiMask) | hiValBits;
-        writeBitPackWordPartial(target, byteOff + 8L, hiCombined, (remaining + 7) >>> 3);
+        writeBitPackWordPartial(target, byteOff + 8, hiCombined, (remaining + 7) >>> 3);
       }
     }
   }
 
   /**
-   * Write up to 8 bytes LE; a full 8-byte unaligned store if possible, else
-   * byte-by-byte up to the segment end.
+   * Write up to 8 bytes LE; a full 8-byte unaligned store if possible, else byte-by-byte up to the
+   * array end.
    */
-  private static void writeBitPackWord(final MemorySegment target, final long off, final long word) {
-    final long size = target.byteSize();
-    if (off + 8L <= size) {
-      target.set(LE.LONG, off, word);
+  private static void writeBitPackWord(final byte[] target, final int off, final long word) {
+    final int size = target.length;
+    if (off + 8 <= size) {
+      ARRAY_LONG_LE.set(target, off, word);
       return;
     }
-    final long remaining = Math.max(0L, size - off);
-    for (long k = 0L; k < remaining; k++) {
-      target.set(ValueLayout.JAVA_BYTE, off + k, (byte) (word >>> (k << 3)));
+    final int remaining = Math.max(0, size - off);
+    for (int k = 0; k < remaining; k++) {
+      target[off + k] = (byte) (word >>> (k << 3));
     }
   }
 
-  /** Write up to {@code bytes} bytes of {@code word}, clamped to segment end. */
-  private static void writeBitPackWordPartial(final MemorySegment target, final long off,
-      final long word, final int bytes) {
-    final long size = target.byteSize();
-    final long limit = Math.min((long) bytes, Math.max(0L, size - off));
-    for (long k = 0L; k < limit; k++) {
-      target.set(ValueLayout.JAVA_BYTE, off + k, (byte) (word >>> (k << 3)));
+  /** Write up to {@code bytes} bytes of {@code word}, clamped to the array end. */
+  private static void writeBitPackWordPartial(final byte[] target, final int off, final long word, final int bytes) {
+    final int size = target.length;
+    final int limit = Math.min(bytes, Math.max(0, size - off));
+    for (int k = 0; k < limit; k++) {
+      target[off + k] = (byte) (word >>> (k << 3));
     }
+  }
+
+  /** Array twin of {@link #readUpToLongLE(MemorySegment, long)}, for the read-modify-write packer. */
+  private static long readUpToLongLE(final byte[] src, final int off) {
+    final int size = src.length;
+    if (off + 8 <= size) {
+      return (long) ARRAY_LONG_LE.get(src, off);
+    }
+    if (off >= size) {
+      return 0L;
+    }
+    long v = 0L;
+    final int remaining = size - off;
+    for (int k = 0; k < remaining; k++) {
+      v |= ((long) (src[off + k] & 0xFF)) << (k << 3);
+    }
+    return v;
   }
 
   /**
-   * Unsigned bit-unpack. Handles widths 1..64. For widths ≤ 56 a single
-   * unaligned 64-bit load suffices. Widths 57..64 may straddle two 64-bit
-   * words (the top {@code bitWidth - (64 - bitInByte)} bits live in the
-   * next word).
+   * Unsigned bit-unpack. Handles widths 1..64. For widths ≤ 56 a single unaligned 64-bit load
+   * suffices. Widths 57..64 may straddle two 64-bit words (the top
+   * {@code bitWidth - (64 - bitInByte)} bits live in the next word).
    */
-  private static long bitUnpack(final MemorySegment src, final long baseOff, final int bitWidth,
-      final int index) {
+  private static long bitUnpack(final MemorySegment src, final long baseOff, final int bitWidth, final int index) {
     if (bitWidth == 64) {
       return src.get(LE.LONG, baseOff + ((long) index << 3));
     }
@@ -491,10 +513,9 @@ public final class NumberRegionCompact {
   }
 
   /**
-   * Read up to 8 little-endian bytes as a {@code long} even if fewer bytes
-   * remain. Bytes past the segment end are treated as zero. Safe because
-   * the caller always masks the result to {@code bitWidth} and the valid
-   * bits for the last value lie inside the segment.
+   * Read up to 8 little-endian bytes as a {@code long} even if fewer bytes remain. Bytes past the
+   * segment end are treated as zero. Safe because the caller always masks the result to
+   * {@code bitWidth} and the valid bits for the last value lie inside the segment.
    */
   private static long readUpToLongLE(final MemorySegment src, final long off) {
     final long size = src.byteSize();
@@ -515,26 +536,24 @@ public final class NumberRegionCompact {
   // ───────────────────────────────────────────────────────────────── varint
 
   /**
-   * Writes an unsigned long as a variable-width integer (LEB-128) at
-   * {@code offset} and returns the byte count written.
+   * Writes an unsigned long as a variable-width integer (LEB-128) at {@code offset} and returns the
+   * byte count written.
    */
-  private static int writeVarintUnsigned(final MemorySegment target, final long offset,
-      final long value) {
+  private static int writeVarintUnsigned(final byte[] target, final int offset, final long value) {
     long v = value;
-    long pos = offset;
+    int pos = offset;
     while ((v & ~0x7FL) != 0L) {
-      target.set(ValueLayout.JAVA_BYTE, pos, (byte) ((v & 0x7FL) | 0x80L));
-      pos++;
+      target[pos++] = (byte) ((v & 0x7FL) | 0x80L);
       v >>>= 7;
     }
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) v);
-    return (int) (pos - offset + 1L);
+    target[pos] = (byte) v;
+    return pos - offset + 1;
   }
 
   /**
-   * Zero-alloc varint read: returns {@code (byteCount << 32) | (value & 0xFFFFFFFF)}.
-   * Only supports unsigned values ≤ {@link Integer#MAX_VALUE}, enough for our
-   * {@code count} field (we already reject larger counts).
+   * Zero-alloc varint read: returns {@code (byteCount << 32) | (value & 0xFFFFFFFF)}. Only supports
+   * unsigned values ≤ {@link Integer#MAX_VALUE}, enough for our {@code count} field (we already
+   * reject larger counts).
    */
   private static long readVarintUnsignedPacked(final MemorySegment src, final long offset) {
     long pos = offset;

@@ -23,6 +23,9 @@ proleptic Gregorian date and, for timestamps, a time from `00:00:00` through `23
 Other string shapes, including fractions and numeric timezone offsets, fail the build.
 The epoch lane does not store the suffix, so `Z` cells carry the existing unrepresentable flag:
 text-sensitive projection queries fall back to the original record and preserve its spelling.
+Joined timestamp consumers can use the epoch lane when UTC provenance is proved; their supported
+comparisons and fallbacks are specified in
+[Valid-time key slices](VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 `-Dsirix.projection.temporalKinds=false` builds and serves it as an ordinary string column.
 
 For the internals, see [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md),
@@ -126,6 +129,9 @@ let $doc := jn:doc('mydb', 'sales.jn')
 return count(for $r in $doc[] let $d := $r.dept group by $d return $d)
 ```
 
+For queries over temporal sources, grouped computed lets and column-side joins, see
+[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md) for supported shapes and fallbacks.
+
 ## Lifecycle, versioning, and maintenance
 
 The index is written into the session's transaction — `sdb:commit($doc)` persists it, like
@@ -168,6 +174,8 @@ it eagerly while the projection's worst-case resident size fits
 budget and a quarter of the heap); above that the same kernels read through bounded 128-leaf
 windows instead, and a column fill that would exceed the budget declines: the query re-enters the
 windowed whole-leaf route where one exists, and otherwise falls back to the record path.
+Index-routed and computed requests follow the stricter budget rules in
+[Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md#serving-a-grouped-aggregate-under-a-row-mask).
 Declining is a routing decision, not a corruption signal — the index stays valid and keeps
 serving everything else.
 
@@ -184,6 +192,13 @@ removes the definition from the catalogue and leaves its immutable historical tr
 revisions committed before it keep being served; projection tree ids are never reused while their
 physical reference exists, so a later same-shape creation gets a new, empty tree and cannot mistake
 unmaintained pre-drop columns for current data.
+
+Both projection DROP signatures are updating functions and require MODIFY permission over REST
+before evaluation. To persist a drop in one query, use
+`sdb:commit(jn:drop-projection-index($doc, $idx-no))`, or omit the id to drop all projections.
+The commit expression retains the DROP's updating classification, including when a message or
+custom timestamp is supplied. A dropped projection also removes its dependent temporal aggregate
+declarations from the new revision's catalogue; historical revisions retain both indexes.
 
 ## REST serving
 

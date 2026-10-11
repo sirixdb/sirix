@@ -12,6 +12,10 @@ return $a
 The equivalent `exists(...)`, `some ... satisfies ...`, and their `not(...)` forms use the
 same path. This is an optimizer rule, not a special case for a collection, field name, or benchmark.
 
+Eligible grouped queries over indexed temporal sources can instead use the
+[column-side membership route](INDEX_ROUTED_ROW_SOURCE.md#the-other-sh1-shapes);
+the cursor operator below remains their fallback.
+
 ## Plan and invariants
 
 Before the rewrite, Brackit recognizes the inner equality as a hash join, but that join lives

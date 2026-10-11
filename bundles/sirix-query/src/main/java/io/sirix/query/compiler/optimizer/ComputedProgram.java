@@ -4,21 +4,21 @@ import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.compiler.XQ;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Shared postfix-program builder for COMPUTED expressions over covered numeric fields
- * (gap item 2): {@code +,-,*} trees of direct {@code $r.field} derefs and integer
- * literals. Slots {@code >= 0 && < CONST_BASE} push the operand field with that index;
- * slots {@code >= CONST_BASE} push {@code consts[slot - CONST_BASE]};
- * {@link #OP_ADD}/{@link #OP_SUB}/{@link #OP_MUL} pop two, push the result. The serving
- * kernels evaluate with {@code Math.*Exact} and DECLINE on overflow (the interpreter
- * promotes to exact decimal). Opcode values mirror
- * {@code ProjectionIndexByteScan.COMPUTED_OP_*} — sirix-core cannot depend on this
- * module, so the pairing is by documented contract.
+ * Shared postfix-program builder for COMPUTED expressions over covered numeric fields (gap item 2):
+ * {@code +,-,*} trees of direct {@code $r.field} derefs and integer literals. Slots
+ * {@code >= 0 && < CONST_BASE} push the operand field with that index; slots {@code >= CONST_BASE}
+ * push {@code consts[slot - CONST_BASE]}; {@link #OP_ADD}/{@link #OP_SUB}/{@link #OP_MUL} pop two,
+ * push the result. The serving kernels evaluate with {@code Math.*Exact} and DECLINE on overflow
+ * (the interpreter promotes to exact decimal). Opcode values mirror
+ * {@code ProjectionIndexByteScan.COMPUTED_OP_*} — sirix-core cannot depend on this module, so the
+ * pairing is by documented contract.
  */
 public final class ComputedProgram {
 
@@ -35,15 +35,13 @@ public final class ComputedProgram {
   public record Program(int[] code, long[] consts) {
   }
 
-  private ComputedProgram() {
-  }
+  private ComputedProgram() {}
 
   /**
-   * Compile {@code expr} into a postfix program, interning operand fields into the
-   * caller-owned {@code fields} list (shared across a record's entries so the kernel
-   * loads each column once); code and constants are per program. {@code null} =
-   * unservable shape (unsupported operator, non-literal operand, foreign variable, size
-   * caps) — interned fields are rolled back.
+   * Compile {@code expr} into a postfix program, interning operand fields into the caller-owned
+   * {@code fields} list (shared across a record's entries so the kernel loads each column once); code
+   * and constants are per program. {@code null} = unservable shape (unsupported operator, non-literal
+   * operand, foreign variable, size caps) — interned fields are rolled back.
    */
   public static Program build(final AST expr, final QNm loopVar, final List<String> fields) {
     final int fieldsMark = fields.size();
@@ -56,7 +54,9 @@ public final class ComputedProgram {
     // A well-formed binary postfix program: running depth never dips below 1 and ends at 1.
     int depth = 0;
     for (final int c : code) {
-      depth += c >= 0 ? 1 : -1;
+      depth += c >= 0
+          ? 1
+          : -1;
       if (depth < 1) {
         trim(fields, fieldsMark);
         return null;
@@ -83,8 +83,8 @@ public final class ComputedProgram {
     }
   }
 
-  private static boolean emit(final AST expr, final QNm loopVar, final List<String> fields,
-      final List<Long> consts, final List<Integer> code) {
+  private static boolean emit(final AST expr, final QNm loopVar, final List<String> fields, final List<Long> consts,
+      final List<Integer> code) {
     if (expr == null || code.size() >= MAX_CODE) {
       return false;
     }
@@ -155,7 +155,7 @@ public final class ComputedProgram {
   }
 
   /** {@code $loopVar.field} direct deref → field local name, else {@code null}. */
-  static String loopVarDerefField(final AST expr, final QNm loopVar) {
+  static @Nullable String loopVarDerefField(final AST expr, final QNm loopVar) {
     if (expr == null || expr.getType() != XQ.DerefExpr || expr.getChildCount() < 2) {
       return null;
     }
@@ -163,10 +163,26 @@ public final class ComputedProgram {
     if (base.getType() != XQ.VariableRef || !loopVar.equals(base.getValue())) {
       return null;
     }
-    final Object name = expr.getChild(expr.getChildCount() - 1).getValue();
-    if (name instanceof QNm qnm) {
-      return qnm.getLocalName();
+    return derefStepName(expr);
+  }
+
+  static @Nullable String derefStepName(final AST expr) {
+    final AST selector = expr.getChild(expr.getChildCount() - 1);
+    if (selector.getType() != XQ.QNm && selector.getType() != XQ.Str) {
+      return null;
     }
-    return name instanceof String s ? s : null;
+    final Object name = selector.getValue();
+    final String local;
+    if (name instanceof QNm qnm) {
+      local = qnm.getLocalName();
+    } else if (name instanceof String s) {
+      local = s;
+    } else {
+      return null;
+    }
+    return local == null || local.indexOf('/') >= 0
+        || local.startsWith(GroupAggregateDetectionStage.COMPUTED_FIELD_PREFIX)
+            ? null
+            : local;
   }
 }

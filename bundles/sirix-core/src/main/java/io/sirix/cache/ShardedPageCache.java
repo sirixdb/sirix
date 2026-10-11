@@ -3,6 +3,7 @@ package io.sirix.cache;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -619,7 +620,8 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
-  static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {
+  static @Nullable Throwable retainCleanupFailure(final @Nullable Throwable primary,
+      final @Nullable Throwable secondary) {
     if (secondary == null) {
       return primary;
     }
@@ -631,7 +633,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   }
 
   @SuppressWarnings("unchecked")
-  static <T extends Throwable> void rethrowCleanupFailure(final Throwable failure) throws T {
+  static <T extends Throwable> void rethrowCleanupFailure(final @Nullable Throwable failure) throws T {
     if (failure != null) {
       throw (T) failure;
     }

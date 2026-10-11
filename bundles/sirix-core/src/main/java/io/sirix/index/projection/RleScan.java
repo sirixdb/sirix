@@ -198,6 +198,7 @@ public final class RleScan {
       // RLE runs carry numeric values only; a string op reaching this kernel is a routing defect.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op in the RLE run kernel: " + op);
+      case KEY_IN -> throw new IllegalStateException("record-key set in the RLE run kernel");
     };
   }
 }

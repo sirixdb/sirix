@@ -504,8 +504,7 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
         """, "0");
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
-          let $dropped := jn:drop-projection-index($doc, 0)
-          return {"revision": sdb:commit($doc)}
+          return sdb:commit(jn:drop-projection-index($doc, 0))
         """);
     // Catalogue no longer lists the definition; queries stay correct via
     // the generic pipeline.
@@ -557,8 +556,7 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
     final byte[] retiredTreeMetadata = readProjectionMetadata(0);
     query("""
           let $doc := jn:doc('json-path1','sales.jn')
-          let $dropped := jn:drop-projection-index($doc)
-          return {"revision": sdb:commit($doc)}
+          return sdb:commit(jn:drop-projection-index($doc))
         """);
     Assertions.assertArrayEquals(retiredTreeMetadata, readProjectionMetadata(0),
         "drop must not mutate the historical tree");

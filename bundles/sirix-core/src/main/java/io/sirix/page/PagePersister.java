@@ -71,6 +71,25 @@ public final class PagePersister {
                    .deserializePage(resourceConfiguration, source, type, decompressionResult);
   }
 
+  /** Select from an already integrity-checked frame; no native leaf or side-map allocation. */
+  public HOTProjectionRead deserializeHOTProjectionEntry(final ResourceConfiguration configuration,
+      final BytesIn<?> source, final SerializationType type, final byte[] key, final long sideReferenceKey,
+      final boolean retainImage) {
+    final PageKind kind = PageKind.getKind(source.readByte());
+    if (kind == PageKind.HOT_LEAF_PAGE) {
+      final HOTProjectionImage image = retainImage
+          ? HOTProjectionImage.copyIfFits(source)
+          : null;
+      return new HOTProjectionRead(image == null
+          ? PageKind.deserializeHOTProjectionEntry(source, key, sideReferenceKey)
+          : image.select(key, sideReferenceKey), null, image);
+    }
+    if (kind == PageKind.HOT_INDIRECT_PAGE) {
+      return new HOTProjectionRead(null, (HOTIndirectPage) kind.deserializePage(configuration, source, type), null);
+    }
+    throw new IllegalStateException("Projection route is neither a HOT leaf nor an indirect page");
+  }
+
   /** Decode an independently owned, compact HOT image for the raw-fragment cache. */
   public Page deserializeHOTLeafFragment(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type) {

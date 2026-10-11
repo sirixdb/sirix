@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.SplittableRandom;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +23,68 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("ZeroRunByteCodec")
 final class ZeroRunByteCodecTest {
+
+  @Test
+  void heapDecoderMatchesEncodedInputAndSegmentDecoderAcrossRunBoundaries() {
+    final SplittableRandom random = new SplittableRandom(0xF17E57);
+    for (final int length : new int[] {0, 1, 2, 127, 128, 129, 255, 256, 8193}) {
+      for (int pattern = 0; pattern < 4; pattern++) {
+        final byte[] expected = new byte[length];
+        for (int i = 0; i < length; i++) {
+          expected[i] = switch (pattern) {
+            case 0 -> 0;
+            case 1 -> (byte) random.nextInt(1, 256);
+            case 2 -> (byte) (i % 7 == 0
+                ? 1
+                : 0);
+            default -> (byte) (random.nextInt(3) == 0
+                ? random.nextInt(256)
+                : 0);
+          };
+        }
+        final byte[] encoded = new byte[7 + ZeroRunByteCodec.maxEncodedSize(length)];
+        final int encodedLength = ZeroRunByteCodec.encode(expected, 0, length, encoded, 7);
+        final byte[] output = new byte[length + 13];
+        final byte[] segmentOutput = new byte[output.length];
+        Arrays.fill(output, (byte) 0x5a);
+        Arrays.fill(segmentOutput, (byte) 0x5a);
+        assertEquals(length, ZeroRunByteCodec.decode(encoded, 7, encodedLength, output, 5));
+        assertEquals(length,
+            ZeroRunByteCodec.decode(encoded, 7, encodedLength, MemorySegment.ofArray(segmentOutput), 5L));
+        assertArrayEquals(segmentOutput, output);
+        assertArrayEquals(expected, Arrays.copyOfRange(output, 5, 5 + length));
+        for (int i = 0; i < 5; i++) {
+          assertEquals((byte) 0x5a, output[i]);
+        }
+        for (int i = 5 + length; i < output.length; i++) {
+          assertEquals((byte) 0x5a, output[i]);
+        }
+      }
+    }
+  }
+
+  @Test
+  void heapDecoderRejectsTruncationAndNeverConsumesTheScratchTail() {
+    final byte[] output = new byte[32];
+    final byte[] valid = {(byte) 0xff, 6, 1, 7, 8, (byte) 0x82};
+    for (int length = 0; length < valid.length; length++) {
+      final int truncatedLength = length;
+      assertThrows(IllegalStateException.class, () -> ZeroRunByteCodec.decode(valid, 0, truncatedLength, output, 0));
+    }
+    assertEquals(6, ZeroRunByteCodec.decode(valid, 0, valid.length, output, 0));
+    assertArrayEquals(new byte[] {7, 8, 0, 0, 0, 0}, Arrays.copyOf(output, 6));
+    for (final byte[] malformed : new byte[][] {{(byte) 0xff, 2, 3, 1, 2, 3, 4}, // literal exceeds decoded extent
+        {(byte) 0xff, 1, (byte) 0x80}, // zero run exceeds decoded extent
+        {(byte) 0xff, 2, (byte) 0xff, 1}, // long run shorter than two
+        {(byte) 0xff, 2, (byte) 0xff, (byte) 0x80}, // truncated long-run varint
+        {(byte) 0xff, 0, 0}, // trailing frame bytes
+        {(byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, 0x7f}}) {
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(malformed, 0, malformed.length, output, 0));
+    }
+    assertThrows(IndexOutOfBoundsException.class, () -> ZeroRunByteCodec.decode(valid, 0, valid.length, output, 30));
+    assertThrows(IndexOutOfBoundsException.class, () -> ZeroRunByteCodec.decode(valid, -1, valid.length, output, 0));
+  }
 
   @Test
   @DisplayName("empty input encodes to frame header only, decodes to empty")

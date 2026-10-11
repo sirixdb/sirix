@@ -1089,6 +1089,7 @@ public final class ProjectionColumnSegmentFoldScan {
           // stringLitBytes, which every string op does. Kept loud, not silent.
           case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
             throw new IllegalStateException("string op in the fold-scan kernel: " + p.op);
+          case KEY_IN -> throw new IllegalStateException("record-key set in the fold-scan kernel");
         };
         if (match) {
           out |= 1L << bit;

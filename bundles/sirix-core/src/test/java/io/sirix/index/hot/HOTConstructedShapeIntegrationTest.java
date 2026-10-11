@@ -315,7 +315,7 @@ final class HOTConstructedShapeIntegrationTest {
         }
       }
       return register(HOTBulkBuilder.assembleIndirect(bits, partials, children, height, engine.getRevisionNumber(),
-          this::nextPageKey));
+          IndexType.PROJECTION, this::nextPageKey));
     }
 
     private void install(final PageReference assembled) {

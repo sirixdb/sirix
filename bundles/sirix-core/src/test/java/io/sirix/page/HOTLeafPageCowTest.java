@@ -103,11 +103,13 @@ final class HOTLeafPageCowTest {
     }
   }
 
-  @Test
+  @ParameterizedTest
+  @EnumSource(value = IndexType.class,
+      names = {"PATH", "CAS", "NAME", "VALIDTIME", "PROJECTION", "TEMPORAL_AGGREGATE", "CHANGE_LOG"})
   @DisplayName("versioning retires its local copy and preserves fragment cleanup failures")
-  void versioningRetiresLocalCopyAndPreservesCleanupFailure() {
+  void versioningRetiresLocalCopyAndPreservesCleanupFailure(final IndexType indexType) {
     final FrameSlotAllocator frameAllocator = assertInstanceOf(FrameSlotAllocator.class, allocator);
-    final HOTLeafPage source = newPopulatedLeaf(IndexType.PATH, 1);
+    final HOTLeafPage source = newPopulatedLeaf(indexType, 1);
     final HOTLeafPage failingFragment = mock(HOTLeafPage.class);
     final StorageEngineReader reader = mock(StorageEngineReader.class);
     final List<PageFragmentKey> originalFragments = List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L));
@@ -118,6 +120,7 @@ final class HOTLeafPageCowTest {
 
     when(reader.loadHOTLeafFragments(reference)).thenReturn(fragments);
     when(reader.getRevisionNumber()).thenReturn(2);
+    when(failingFragment.getIndexType()).thenReturn(indexType);
     when(failingFragment.getEntryCount()).thenThrow(carryFailure);
     doThrow(releaseFailure).when(reader).releaseHOTLeafFragments(fragments, source);
 

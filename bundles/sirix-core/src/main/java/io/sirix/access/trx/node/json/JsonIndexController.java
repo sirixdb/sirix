@@ -12,6 +12,8 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexBuilder;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
+import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.json.JsonCASIndexImpl;
 import io.sirix.index.interval.IntervalDomain;
@@ -70,6 +72,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   private final Cache<ValidTimeCohort, Boolean> validTimeCohorts = Caffeine.newBuilder().maximumSize(256).build();
 
+  /** Whether this immutable array cohort already has an exactness proof, without reading postings. */
+  public boolean isKnownExactValidTimeArray(final StorageEngineReader reader, final IndexDef definition,
+      final long arrayKey, final int length) {
+    requireNonNull(reader);
+    requireNonNull(definition);
+    if (reader instanceof StorageEngineWriter || reader.hasTrxIntentLog()) {
+      return false;
+    }
+    return Boolean.TRUE.equals(validTimeCohorts.getIfPresent(new ValidTimeCohort(reader.getDatabaseId(),
+        reader.getResourceId(), reader.getRevisionNumber(), arrayKey, length, definition)));
+  }
+
   public boolean isExactValidTimeArray(final StorageEngineReader reader, final IndexDef definition, final long arrayKey,
       final int length) {
     requireNonNull(reader);
@@ -113,7 +127,27 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // single index page. Unsupported lifecycle mixes therefore fail atomically at the API boundary.
     validateNewIndexDefinitions(indexDefs, nodeWriteTrx);
     validateProjectionDefinitions(indexDefs, nodeWriteTrx);
-
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isTemporalAggregateIndex()) {
+        final IndexDef projection = requireNonNull(
+            getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
+            "Create the covering projection before its temporal aggregate index");
+        TemporalAggregateIndexes.validate(indexDef, projection,
+            nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig());
+        ProjectionIndexMetadata.requireReady(nodeWriteTrx.getStorageEngineWriter(), projection.getID());
+      }
+    }
+    if (indexDefs.stream().anyMatch(IndexDef::isTemporalAggregateIndex)) {
+      // Publish existing projection deltas before registering the new dependent definition.
+      // Its initial build must see the transaction's current rows, not the last maintenance epoch.
+      applyPendingIndexMaintenance();
+      for (final IndexDef indexDef : indexDefs) {
+        if (indexDef.isTemporalAggregateIndex()) {
+          ProjectionIndexMetadata.requireReady(nodeWriteTrx.getStorageEngineWriter(),
+              indexDef.getTemporalAggregateSpec().projectionId());
+        }
+      }
+    }
     // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
     // shared document traversal.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
@@ -125,6 +159,13 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     for (final IndexDef indexDef : indexDefs) {
       if (indexDef.isProjectionIndex()) {
         createProjectionIndex(indexDef, nodeWriteTrx);
+      }
+    }
+
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isTemporalAggregateIndex()) {
+        TemporalAggregateIndexes.build(nodeWriteTrx.getStorageEngineWriter(), indexDef,
+            getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION));
       }
     }
 
@@ -345,6 +386,13 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   @Override
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isTemporalAggregateIndex()) {
+        final IndexDef source = requireNonNull(
+            getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
+            "Temporal aggregate index has no covering projection");
+        TemporalAggregateIndexes.validate(indexDef, source,
+            nodeWriteTrx.getResourceSession().getResourceConfig().getValidTimeConfig());
+      }
       if (indexDef.hasUnsupportedValidTimeFormat()) {
         throw new UnsupportedOperationException("Unsupported VALIDTIME format for index " + indexDef.getID());
       }

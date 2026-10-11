@@ -412,8 +412,10 @@ final class ColumnKernelFuzzTest {
         }
 
         final long size = NumberRegionDelta.maxEncodedSize(values, n);
+        final byte[] encoded = new byte[(int) size];
+        NumberRegionDelta.writeDelta(encoded, 0, values, n);
         final MemorySegment target = Arena.ofAuto().allocate(size + 64, 8).asSlice(0, size);
-        NumberRegionDelta.writeDelta(target, 0L, values, n);
+        MemorySegment.copy(encoded, 0, target, ValueLayout.JAVA_BYTE, 0L, encoded.length);
         final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
         NumberRegionDelta.readHeader(target, 0L, h);
 

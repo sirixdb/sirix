@@ -43,6 +43,7 @@ import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
@@ -80,6 +81,8 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -94,6 +97,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.io.IOException;
@@ -131,6 +135,7 @@ import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
@@ -237,7 +242,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * becomes phantom-reachable. Used as the post-Java-9 replacement for the deprecated
    * {@code finalize()} override.
    */
-  private static final java.lang.ref.Cleaner LEAK_CLEANER = java.lang.ref.Cleaner.create();
+  private static final Cleaner LEAK_CLEANER = Cleaner.create();
 
   /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
@@ -248,15 +253,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int trxId;
     final int writerIdentity;
     final int logIdentity;
-    final java.util.concurrent.atomic.AtomicReference<TransactionIntentLog> logRef;
-    final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    final AtomicReference<TransactionIntentLog> logRef;
+    final AtomicBoolean closed = new AtomicBoolean(false);
 
     LeakDetectorState(final int trxId, final int writerIdentity, final int logIdentity,
         final TransactionIntentLog log) {
       this.trxId = trxId;
       this.writerIdentity = writerIdentity;
       this.logIdentity = logIdentity;
-      this.logRef = new java.util.concurrent.atomic.AtomicReference<>(log);
+      this.logRef = new AtomicReference<>(log);
     }
 
     @Override
@@ -1072,6 +1077,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     LEAK_CLEANER.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
     bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+    storageEngineReader.bindTransactionView(this);
   }
 
   @Override
@@ -1156,6 +1162,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> newRevisionRootPage.getNamePageReference();
       case PROJECTION -> newRevisionRootPage.getProjectionIndexPageReference();
       case VALIDTIME -> newRevisionRootPage.getValidTimeIndexPageReference();
+      case TEMPORAL_AGGREGATE -> newRevisionRootPage.getTemporalAggregateIndexPageReference();
+      case CHANGE_LOG -> newRevisionRootPage.getChangeLogIndexPageReference();
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1167,6 +1175,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> storageEngineReader.getNamePage(newRevisionRootPage);
       case PROJECTION -> storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
       case VALIDTIME -> storageEngineReader.getValidTimeIndexPage(newRevisionRootPage);
+      case TEMPORAL_AGGREGATE -> storageEngineReader.getTemporalAggregateIndexPage(newRevisionRootPage);
+      case CHANGE_LOG -> storageEngineReader.getChangeLogIndexPage(newRevisionRootPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1178,6 +1188,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> NamePage.copyForWrite((NamePage) historicalPage);
       case PROJECTION -> new ProjectionIndexPage((ProjectionIndexPage) historicalPage);
       case VALIDTIME -> new ValidTimeIndexPage((ValidTimeIndexPage) historicalPage);
+      case TEMPORAL_AGGREGATE -> new TemporalAggregateIndexPage((TemporalAggregateIndexPage) historicalPage);
+      case CHANGE_LOG -> new ChangeLogIndexPage((ChangeLogIndexPage) historicalPage);
       default -> throw new IllegalArgumentException("Not a secondary HOT index type: " + indexType);
     };
   }
@@ -1189,6 +1201,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> page instanceof NamePage;
       case PROJECTION -> page instanceof ProjectionIndexPage;
       case VALIDTIME -> page instanceof ValidTimeIndexPage;
+      case TEMPORAL_AGGREGATE -> page instanceof TemporalAggregateIndexPage;
+      case CHANGE_LOG -> page instanceof ChangeLogIndexPage;
       default -> false;
     };
     if (!matches) {
@@ -1758,6 +1772,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return revisionRoot == newRevisionRootPage
         ? prepareSecondaryIndexPage(IndexType.VALIDTIME)
         : storageEngineReader.getValidTimeIndexPage(revisionRoot);
+  }
+
+  @Override
+  public TemporalAggregateIndexPage getTemporalAggregateIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE)
+        : storageEngineReader.getTemporalAggregateIndexPage(revisionRoot);
+  }
+
+  @Override
+  public ChangeLogIndexPage getChangeLogIndexPage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? prepareSecondaryIndexPage(IndexType.CHANGE_LOG)
+        : storageEngineReader.getChangeLogIndexPage(revisionRoot);
   }
 
   @Override
@@ -3764,6 +3796,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getProjectionIndexPageReference());
     reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getTemporalAggregateIndexPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getChangeLogIndexPageReference());
   }
 
   /**
@@ -4000,14 +4034,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // revision was never committed and the orphaned file (named for an uncommitted, higher revision)
       // is never consulted.
       //
-      // Intermediate auto-commits may skip unchanged indexes only when based on the latest revision.
-      // Reverts publish their represented catalogue even when empty, so later opens cannot inherit
-      // the newer catalogue. Final/explicit commits always attempt serialization.
-      if (!isIntermediateCommit || indexController.getIndexes().isDirty()
-          || representRevision < newRevisionRootPage.getRevision() - 1) {
-        serializeIndexDefinitions(revision);
-        indexController.getIndexes().clearDirty();
-      }
+      // Only a changed catalogue is serialized (see serializeIndexDefinitions): the file of the
+      // newest revision at or below a revision describes it, so a commit that did not change the
+      // definitions or numeric CAS coverage neither writes a file nor pays its fsync. Reverts publish
+      // their represented catalogue even when empty, so later opens cannot inherit the newer catalogue.
+      serializeIndexDefinitions(revision);
 
       final long t3 = timing
           ? System.nanoTime()
@@ -4080,19 +4111,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void serializeIndexDefinitions(int revision) {
     final var indexCatalog = indexController.getIndexes();
-    // Persist definitions, a dirty empty catalogue, or the catalogue of a reverted revision. An
-    // empty snapshot after dropping the last index or reverting is essential: the load-side
-    // (AbstractResourceSession#initializeIndexController) falls back to the most recent {N}.xml at or
-    // below the requested revision, so without an EMPTY catalogue file at the drop revision a reopen
-    // would resurrect the pre-drop catalogue from an older revision's file. An empty {revision}.xml
-    // ("<indexes/>") makes the drop of the last index stick across the commit, while older revisions
-    // keep their own non-empty files (time-travel preserved).
-    if (!indexCatalog.getIndexDefs().isEmpty() || indexCatalog.isDirty()
-        || representRevision < newRevisionRootPage.getRevision() - 1) {
-      final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
-          ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
-
-      try (final OutputStream out = newOutputStream(indexes, CREATE)) {
+    final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
+    // The catalogue of a revision is the newest {N}.xml at or below it
+    // (AbstractResourceSession#initializeIndexController), so a commit whose definitions are the ones
+    // of that file has nothing to write: the file of an earlier revision already describes it, and
+    // the file creation, the XML materialization and the metadata fsync are skipped. A commit
+    // serializes when
+    // - the net definitions or numeric CAS coverage differ from the persisted baseline (an index was
+    // created or dropped; an empty snapshot after dropping the last index is essential, or a reopen
+    // would resurrect the pre-drop catalogue from the older file: "<indexes/>" makes the drop stick,
+    // while older revisions keep their own files, so time travel is preserved);
+    // - it represents a reverted revision: its catalogue must be re-published at this revision even
+    // when empty, so a later open cannot inherit the newer catalogue it reverted away from;
+    // - the definitions were never persisted (a catalogue created before any file existed);
+    // - a file for this revision already exists: a commit of this revision number that was started
+    // and not acknowledged (crash before the beacon) may have left its own, different catalogue
+    // under this name, and a reader of the committed revision would find that file first.
+    final boolean reverted = representRevision < newRevisionRootPage.getRevision() - 1;
+    final boolean neverPersisted =
+        indexCatalog.catalogueRevision() == Indexes.NO_CATALOGUE_FILE && !indexCatalog.isEmpty();
+    if (reverted || neverPersisted || indexCatalog.differsFromPersisted() || Files.exists(indexes)) {
+      try (final OutputStream out = newOutputStream(indexes, CREATE, TRUNCATE_EXISTING)) {
         indexController.serialize(out);
       } catch (final IOException e) {
         throw new SirixIOException("Index definitions couldn't be serialized!", e);
@@ -4111,6 +4151,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // The session answers the next writer's catalogue lookup from this report instead of listing
       // the directory, so it has to learn of the file here, where it is created.
+      indexCatalog.markPersisted(revision);
       storageEngineReader.resourceSession.recordSerializedIndexCatalogueRevision(revision);
     }
   }
@@ -5357,6 +5398,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             ? null
             : vtPage.getIndexReference(indexNumber);
       }
+      case TEMPORAL_AGGREGATE -> {
+        final var vtPage = getTemporalAggregateIndexPage(actualRootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
+      case CHANGE_LOG -> {
+        final var vtPage = getChangeLogIndexPage(actualRootPage);
+        yield vtPage == null
+            ? null
+            : vtPage.getIndexReference(indexNumber);
+      }
       default -> null;
     };
 
@@ -5452,6 +5505,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public StorageEngineReader getStorageEngineReader() {
     return storageEngineReader;
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    storageEngineReader.assertNotClosed();
+    return this;
   }
 
   @Override
@@ -5988,6 +6047,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
+    storageEngineReader.resourceSession.invalidateIndexCataloguesAfter(revision);
     storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached

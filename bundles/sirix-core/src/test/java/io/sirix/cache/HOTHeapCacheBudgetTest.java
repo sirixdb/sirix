@@ -79,8 +79,8 @@ final class HOTHeapCacheBudgetTest {
                 + manager.getHOTMiniPageCacheMaxWeightBytes());
         assertEquals(HOT_BUDGET,
             manager.getHOTLeafPageCacheMaxWeightBytes() + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes()
-                + manager.getHOTMiniPageCacheMaxWeightBytes(),
-            "the off-heap HOT allowance is split between complete leaves, native fragments and slots");
+                + manager.getHOTMiniPageCacheMaxWeightBytes() + manager.getProjectionBlobCache().getMaxWeightBytes(),
+            "the off-heap HOT allowance is split between complete leaves, native fragments, slots and verified blobs");
       }
     });
   }
@@ -188,8 +188,9 @@ final class HOTHeapCacheBudgetTest {
       }
       final BufferManagerImpl manager = (BufferManagerImpl) buffers;
       // Re-derive the pre-change formula from the allowance the manager was actually built with.
-      final long hotBudget = manager.getHOTLeafPageCacheMaxWeightBytes()
-          + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes() + manager.getHOTMiniPageCacheMaxWeightBytes();
+      final long hotBudget =
+          manager.getHOTLeafPageCacheMaxWeightBytes() + manager.getNativeHOTLeafFragmentCacheMaxWeightBytes()
+              + manager.getHOTMiniPageCacheMaxWeightBytes() + manager.getProjectionBlobCache().getMaxWeightBytes();
       final long preChangeShare = Math.min(hotBudget / 2, Math.max(hotBudget / 4, 32L * HOTLeafPage.DEFAULT_SIZE));
       assertEquals(preChangeShare, manager.getNativeHOTLeafFragmentCacheMaxWeightBytes(),
           "a native-only backend must keep exactly the pre-change off-heap fragment share");
@@ -219,7 +220,7 @@ final class HOTHeapCacheBudgetTest {
     final PageReference key = new PageReference().setKey(7).setDatabaseId(1).setResourceId(2);
     try {
       cache.put(key, sparseDeltaFragment(0));
-      final long charged = cache.heapImages().getCurrentWeightBytes();
+      final long charged = cache.compactImages().getCurrentWeightBytes();
       assertTrue(charged >= MEASURED_FOOTPRINT_BYTES, "the charge understates the measured retained footprint of "
           + MEASURED_FOOTPRINT_BYTES + " bytes: " + charged);
     } finally {

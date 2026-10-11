@@ -64,6 +64,6 @@ final class ValidTimeDenseChunkTest {
         expected.addLong(65536 + key);
       }
     }
-    assertArrayEquals(expected.toArray(), evidence.keys());
+    assertArrayEquals(expected.toArray(), evidence.members());
   }
 }

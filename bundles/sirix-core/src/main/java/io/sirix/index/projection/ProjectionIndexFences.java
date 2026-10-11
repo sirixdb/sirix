@@ -455,6 +455,11 @@ public final class ProjectionIndexFences {
     return new Accessor(storage, rowGroupCount);
   }
 
+  static Accessor open(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount) {
+    Objects.requireNonNull(reader);
+    return new Accessor(null, slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot), rowGroupCount);
+  }
+
   record DocumentPosition(int[] predecessors, int[] successors) {
     DocumentPosition {
       if (predecessors.length != SKIP_LEVELS || successors.length != SKIP_LEVELS) {
@@ -464,7 +469,8 @@ public final class ProjectionIndexFences {
   }
 
   public static final class Accessor {
-    private final ProjectionIndexHOTStorage storage;
+    private final @Nullable ProjectionIndexHOTStorage storage;
+    private final BlobReader reader;
     private final int priorPhysicalRowGroupCount;
     private final int priorBaseRowGroupCount;
     private final int priorLiveRowGroupCount;
@@ -491,12 +497,15 @@ public final class ProjectionIndexFences {
     private long bytesWritten;
 
     private Accessor(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
-      if (storage == null) {
-        throw new NullPointerException("storage is required");
-      }
+      this(storage, Objects.requireNonNull(storage)::getBlob, rowGroupCount);
+    }
+
+    private Accessor(final @Nullable ProjectionIndexHOTStorage storage, final BlobReader reader,
+        final int rowGroupCount) {
       checkRowGroupCount(rowGroupCount);
       this.storage = storage;
-      final OrderHeader header = readOrderHeader(storage.getBlob(ORDER_HEADER_SLOT), rowGroupCount);
+      this.reader = reader;
+      final OrderHeader header = readOrderHeader(reader.read(ORDER_HEADER_SLOT), rowGroupCount);
       priorPhysicalRowGroupCount = header.physicalRowGroupCount();
       priorBaseRowGroupCount = header.baseRowGroupCount();
       priorLiveRowGroupCount = rowGroupCount;
@@ -959,6 +968,7 @@ public final class ProjectionIndexFences {
     }
 
     public void flush(final int rowGroupCount) {
+      final ProjectionIndexHOTStorage storage = Objects.requireNonNull(this.storage, "read-only projection fences");
       if (rowGroupCount != liveRowGroupCount) {
         throw new IllegalArgumentException(
             "live rowGroupCount mismatch: " + rowGroupCount + " != " + liveRowGroupCount);
@@ -1248,7 +1258,7 @@ public final class ProjectionIndexFences {
         chunks.put(chunkId, expanded);
         return expanded;
       }
-      final byte[] stored = storage.getBlob(CHUNK_SLOT_BASE + chunkId);
+      final byte[] stored = reader.read(CHUNK_SLOT_BASE + chunkId);
       final int priorEntries = Math.max(0, Math.min(CHUNK_LEAVES, priorPhysicalRowGroupCount - chunkId * CHUNK_LEAVES));
       if (priorEntries > 0 && (stored == null || stored.length != priorEntries * ENTRY_BYTES)) {
         throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);

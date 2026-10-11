@@ -3,10 +3,13 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
+import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.page.HOTLeafEntry;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
@@ -44,6 +47,7 @@ import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 import java.util.function.LongFunction;
 import java.util.function.Predicate;
@@ -104,6 +108,30 @@ import java.util.stream.IntStream;
  * {@code ProjectionPersistForceRebuildTest} (sirix-query).
  */
 public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long> {
+  private static final LongAdder MASKED_TAIL_DEFERRALS = new LongAdder();
+  private static final LongAdder TAIL_BODY_SEGMENTS_READ = new LongAdder();
+
+  public static long maskedTailDeferrals() {
+    return MASKED_TAIL_DEFERRALS.sum();
+  }
+
+  public static long tailBodySegmentsRead() {
+    return TAIL_BODY_SEGMENTS_READ.sum();
+  }
+
+  static void recordMaskedTailDeferral() {
+    if (ProjectionColumnStore.segmentDiagEnabled()) {
+      MASKED_TAIL_DEFERRALS.increment();
+    }
+  }
+
+  private static void recordTailBodyRead(final int columnSegmentId) {
+    if (ProjectionColumnStore.segmentDiagEnabled() && ProjectionIndexColumnSegmentCodec.expectedSegmentKind(
+        columnSegmentId) == ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY) {
+      TAIL_BODY_SEGMENTS_READ.increment();
+    }
+  }
+
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexHOTStorage.class));
 
@@ -1014,6 +1042,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // resolved ref between removal and the owner-slot update.
       boolean sideReferenceRemoved = false;
       try {
+        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey);
         removeSegmentPage(slotKey, BLOB_SEGMENT_ID); // no-op unless the prior segment was referenced
         sideReferenceRemoved = true;
         writeSlotValue(slotKey, value);
@@ -1276,6 +1305,35 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[] segment = RowGroupDescriptor.isTailed(descriptor)
         ? materializeForWrite(rowGroupId, descriptor).segment(columnSegmentId)
         : getColumnSegmentSlot(segmentSlotKey(rowGroupId, columnSegmentId));
+    ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind, entry);
+    return segment;
+  }
+
+  static byte @Nullable [] readVerifiedColumnSegment(final StorageEngineReader reader, final int indexNumber,
+      final ProjectionSlotLayout layout, final long rowGroupId, final byte[] descriptor, final int columnSegmentId,
+      final byte expectedKind) {
+    final int entry = RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId);
+    if (entry < 0) {
+      return null;
+    }
+    final byte[] segment;
+    if (RowGroupDescriptor.isTailed(descriptor)) {
+      if (expectedKind == ProjectionIndexColumnSegmentCodec.SEG_KIND_KEYS) {
+        final ProjectionOpenRowGroupTail.Header header = ProjectionOpenRowGroupTail.Header.decode(
+            readBlob(reader, indexNumber, ProjectionOpenRowGroupTail.headerSlot(rowGroupId)), rowGroupId);
+        final byte[] baseKeys = Objects
+                                       .requireNonNull(
+                                           readVerifiedColumnSegment(reader, indexNumber, layout, rowGroupId,
+                                               header.baseDescriptor(), columnSegmentId, expectedKind),
+                                           "an appended tail requires its base KEYS segment");
+        segment = ProjectionOpenRowGroupTail.materializeKeys(rowGroupId, descriptor, header, baseKeys,
+            readTailRowBlobs(reader, indexNumber, rowGroupId, header));
+      } else {
+        segment = materializeCommitted(reader, indexNumber, layout, rowGroupId, descriptor).segment(columnSegmentId);
+      }
+    } else {
+      segment = readColumnSegmentSlot(reader, indexNumber, layout.segmentSlot(rowGroupId, columnSegmentId));
+    }
     ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment, columnSegmentId, expectedKind, entry);
     return segment;
   }
@@ -2290,9 +2348,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           final ProjectionOpenRowGroupTail.Header header = ProjectionOpenRowGroupTail.Header.decode(
               readBlob(reader, indexNumber, ProjectionOpenRowGroupTail.headerSlot(rowGroupId)), rowGroupId);
           return ProjectionOpenRowGroupTail.materialize(rowGroupId, virtualDescriptor, header,
-              readTailRowBlobs(reader, indexNumber, rowGroupId, header),
-              columnSegmentId -> readColumnSegmentSlot(reader, indexNumber,
-                  layout.segmentSlot(rowGroupId, columnSegmentId)));
+              readTailRowBlobs(reader, indexNumber, rowGroupId, header), columnSegmentId -> {
+                recordTailBodyRead(columnSegmentId);
+                return readColumnSegmentSlot(reader, indexNumber, layout.segmentSlot(rowGroupId, columnSegmentId));
+              });
         });
   }
 
@@ -2356,6 +2415,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       int n = 0;
       for (int i = 0; i < ids.length; i++) {
         if (isRawAssemblySegment(ids[i]) && payloads[i] == null) {
+          recordTailBodyRead(ids[i]);
           offsets[n] = base.columnSegmentOffsets()[i];
           positions[n++] = i;
         }
@@ -2613,6 +2673,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * closed; tombstoning only the owner would strand the side page.
    */
   public void tombstoneBlob(final long slotKey) {
+    tombstoneBlob(slotKey, false, false);
+  }
+
+  private void tombstoneBlob(final long slotKey, final boolean preserveGroupExtrema,
+      final boolean preserveOwnedGroupNodes) {
     final byte[] prior = readSlotValueForWrite(slotKey);
     if (prior == null) {
       return;
@@ -2623,6 +2688,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // so this is a cheap no-op.
       boolean sideReferenceRemoved = false;
       try {
+        sideReferenceRemoved = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema,
+            preserveOwnedGroupNodes);
         removeSegmentPage(slotKey, BLOB_SEGMENT_ID);
         sideReferenceRemoved = true;
         writeSlotValue(slotKey, TOMBSTONE);
@@ -2640,14 +2707,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * One live leaf's directory: a descriptor and segment sources for a segment-lazy handle. Untailed
-   * groups capture sources without side-page fetch or assembly; tailed groups supply detached merged
-   * bytes, resolving base payloads only on a merge-memo miss.
+   * groups capture sources without side-page fetch or assembly; ordinary reads of tailed groups
+   * supply detached merged bytes, resolving base payloads only on a merge-memo miss. Masked reads
+   * defer tailed segments until leaf pruning has established demand.
    * {@code columnSegmentIds}/{@code columnSegmentOffsets} are parallel, ascending-id.
    *
    * <p>
-   * With {@code logicalSlots}, every offset entry is a column-major HOT slot key and the inline
-   * carrier is null. Resolving a demanded column reads the sole owning slot and its optional side
-   * page. A logical key must never be passed to a file-offset reader.
+   * With {@code logicalSlots}, every offset entry is a HOT slot key and the inline carrier is null.
+   * Resolving a demanded column reads the sole owning slot and its optional side page. A logical key
+   * must never be passed to a file-offset reader.
    *
    * <p>
    * With physical offsets, {@code inlineColumnSegmentBytes} is the inline carrier (parallel to
@@ -2657,16 +2725,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * referenced; a {@code null} element means that one segment is referenced and its bytes come from
    * the page at {@code columnSegmentOffsets[i]}. A tailed group's carrier contains every merged
    * segment, including payloads above the storage inline threshold; its offsets are
-   * {@link Constants#NULL_ID_LONG} rather than durable addresses.
+   * {@link Constants#NULL_ID_LONG} rather than durable addresses. A deferred tail instead carries
+   * {@link #DEFERRED_TAIL_SEGMENT} in each inline entry with the same absent offsets. This identity
+   * marker must be resolved after pruning, never decoded as segment bytes; ordinary leaves retain
+   * their physical sources and batch fetching.
    */
   public record RowGroupDirectory(long rowGroupId, byte[] descriptor, int[] columnSegmentIds,
       long[] columnSegmentOffsets, byte @Nullable [] @Nullable [] inlineColumnSegmentBytes, boolean logicalSlots) {
+    static final byte[] DEFERRED_TAIL_SEGMENT = new byte[0];
 
     public RowGroupDirectory(final long rowGroupId, final byte[] descriptor, final int[] columnSegmentIds,
         final long[] columnSegmentOffsets, final byte @Nullable [] @Nullable [] inlineColumnSegmentBytes) {
       this(rowGroupId, descriptor, columnSegmentIds, columnSegmentOffsets, inlineColumnSegmentBytes, false);
     }
 
+    @SuppressWarnings("ReferenceEquality") // Deferred segments are recognized by marker identity.
     public RowGroupDirectory {
       checkRowGroupId(rowGroupId);
       Objects.requireNonNull(descriptor, "descriptor");
@@ -2694,6 +2767,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           }
           continue;
         }
+        if (inline == DEFERRED_TAIL_SEGMENT && RowGroupDescriptor.isTailed(descriptor)
+            && offset == Constants.NULL_ID_LONG) {
+          continue;
+        }
         final boolean hasInline = inline != null;
         final boolean hasOffset = offset >= 0 && offset != Constants.NULL_ID_LONG;
         if (hasInline == hasOffset) {
@@ -2709,7 +2786,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     /**
      * The captured inline bytes at descriptor ENTRY INDEX {@code entryIndex}, or {@code null} if the
-     * segment slot is referenced (or this directory carries no inline segment slots at all).
+     * segment slot is referenced (or this directory carries no inline segment slots at all). A masked
+     * tail returns {@link #DEFERRED_TAIL_SEGMENT}, which the caller resolves after pruning.
      *
      * <p>
      * Indexed by entry, not searched by id: all three parallel arrays here are filled in
@@ -2864,11 +2942,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Fetch distinct logical segment slots from one column-major chain. Results retain request order;
-   * NULL_ID_LONG requests and missing slots yield null. Gaps larger than 64 row-group ids start a new
-   * trie range, so sparse physical order never turns a small window into a full-index walk.
-   * Referenced payloads use the same coalesced batch reader as offset directories. No segment bytes
-   * are cached here, and the caller verifies every result against its revision's descriptor.
+   * Fetch distinct logical segment slots from one committed column-major chain. Results retain
+   * request order; NULL_ID_LONG requests and missing slots yield null. Gaps larger than 64 row-group
+   * ids start a new trie range, so sparse physical order never turns a small window into a full-index
+   * walk. Referenced payloads use the same coalesced batch reader as offset directories. No segment
+   * bytes are cached here, and the caller verifies every result against its revision's descriptor.
    */
   static void readColumnSlotRange(final StorageEngineReader reader, final int indexNumber, final long[] slotKeys,
       final int from, final int to, final byte[][] out) {
@@ -2877,6 +2955,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (reader.hasTrxIntentLog() || readSlotLayout(reader, indexNumber) != ProjectionSlotLayout.COLUMN_MAJOR) {
       throw new IllegalArgumentException("logical slot fetch requires a committed column-major projection");
     }
+    final ProjectionSlotLayout layout = ProjectionSlotLayout.COLUMN_MAJOR;
     final int length = to - from;
     final Long2IntOpenHashMap positions = new Long2IntOpenHashMap(length);
     positions.defaultReturnValue(-1);
@@ -2889,8 +2968,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (key == Constants.NULL_ID_LONG) {
         continue;
       }
-      ProjectionSlotLayout.COLUMN_MAJOR.rowGroupId(key);
-      final int kind = ProjectionSlotLayout.COLUMN_MAJOR.slotKind(key);
+      layout.rowGroupId(key);
+      final int kind = layout.slotKind(key);
       if (kind == 0 || (slotKind >= 0 && slotKind != kind) || positions.put(key, i) != -1) {
         throw new IllegalArgumentException("logical slot requests must be distinct segments of one chain");
       }
@@ -2973,6 +3052,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   /** Read one committed row-group-major directory window with the ordinary slot integrity checks. */
   static RowGroupDirectory[] readDirectoryWindow(final StorageEngineReader reader, final int indexNumber,
       final int[] physicalOrder, final int from, final int to) {
+    return readDirectoryWindow(reader, indexNumber, physicalOrder, from, to, true);
+  }
+
+  static RowGroupDirectory[] readDirectoryWindow(final StorageEngineReader reader, final int indexNumber,
+      final int[] physicalOrder, final int from, final int to, final boolean materializeTails) {
     Objects.requireNonNull(reader, "reader");
     Objects.requireNonNull(physicalOrder, "physicalOrder");
     Objects.checkFromToIndex(from, to, physicalOrder.length);
@@ -3011,7 +3095,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       begin = end;
     }
     walk.finish();
-    materializeTailedDirectories(reader, indexNumber, walk, out);
+    finishTailDirectories(reader, indexNumber, walk, out, materializeTails);
     return out;
   }
 
@@ -3036,6 +3120,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
       final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder) {
+    return readRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, true);
+  }
+
+  private static @Nullable List<RowGroupDirectory> readRowGroupDirectories(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount, final int[] physicalOrder, final boolean materializeTails) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return rowGroupCount == 0
@@ -3049,9 +3138,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (!collectRowGroupDirectorySlots(reader, indexNumber, rootRef, walk)) {
       return null; // an unresolved page — offset-lazy fetching cannot serve it
     }
-    walk.finish();
-    materializeTailedDirectories(reader, indexNumber, walk, out);
-    return Arrays.asList(out);
+    return finishDirectories(reader, indexNumber, walk, out, materializeTails);
   }
 
   /**
@@ -3099,10 +3186,32 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
       final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
       final @Nullable ParallelWalkReaders workerReaders, final boolean allowParallel) {
+    return readRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders, allowParallel,
+        true);
+  }
+
+  static @Nullable List<RowGroupDirectory> readRowGroupDirectoriesWithoutTailMaterialization(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ParallelWalkReaders workerReaders) {
+    return readRowGroupDirectoriesWithoutTailMaterialization(reader, indexNumber, rowGroupCount, physicalOrder,
+        workerReaders, PARALLEL_DIRECTORY_WALK);
+  }
+
+  static @Nullable List<RowGroupDirectory> readRowGroupDirectoriesWithoutTailMaterialization(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ParallelWalkReaders workerReaders, final boolean allowParallel) {
+    return readRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders, allowParallel,
+        false);
+  }
+
+  private static @Nullable List<RowGroupDirectory> readRowGroupDirectories(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ParallelWalkReaders workerReaders, final boolean allowParallel, final boolean materializeTails) {
     if (workerReaders != null && allowParallel && !reader.hasTrxIntentLog()) {
       List<RowGroupDirectory> parallel;
       try {
-        parallel = parallelRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders);
+        parallel = parallelRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders,
+            materializeTails);
       } catch (final IllegalStateException corrupt) {
         throw corrupt; // verified-content corruption — the serial walk would fail identically
       } catch (final RuntimeException infrastructure) {
@@ -3114,7 +3223,43 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         return parallel;
       }
     }
-    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount, physicalOrder);
+    return readRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, materializeTails);
+  }
+
+  private static @Nullable List<RowGroupDirectory> finishDirectories(final StorageEngineReader reader,
+      final int indexNumber, final DirectoryWalk walk, final RowGroupDirectory[] out, final boolean materializeTails) {
+    walk.finish();
+    if (materializeTails || walk.tailedCount() != 0) {
+      finishTailDirectories(reader, indexNumber, walk, out, materializeTails);
+    }
+    return Arrays.asList(out);
+  }
+
+  private static void finishTailDirectories(final StorageEngineReader reader, final int indexNumber,
+      final DirectoryWalk walk, final RowGroupDirectory[] out, final boolean materializeTails) {
+    if (materializeTails) {
+      materializeTailedDirectories(reader, indexNumber, walk, out);
+      return;
+    }
+    if (walk.tailedCount() != 0) {
+      recordMaskedTailDeferral();
+    }
+    for (int leaf = 0; leaf < out.length; leaf++) {
+      final byte[] descriptor = walk.virtualDescriptors[leaf];
+      if (descriptor == null) {
+        continue;
+      }
+      final int count = RowGroupDescriptor.columnSegmentCount(descriptor);
+      final int[] ids = new int[count];
+      final long[] offsets = new long[count];
+      final byte[][] segments = new byte[count][];
+      Arrays.fill(offsets, Constants.NULL_ID_LONG);
+      Arrays.fill(segments, RowGroupDirectory.DEFERRED_TAIL_SEGMENT);
+      for (int entry = 0; entry < count; entry++) {
+        ids[entry] = RowGroupDescriptor.entryColumnSegmentId(descriptor, entry);
+      }
+      out[leaf] = new RowGroupDirectory(out[leaf].rowGroupId(), descriptor, ids, offsets, segments);
+    }
   }
 
   /**
@@ -3185,7 +3330,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static @Nullable List<RowGroupDirectory> parallelRowGroupDirectories(final StorageEngineReader reader,
       final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
-      final ParallelWalkReaders workerReaders) {
+      final ParallelWalkReaders workerReaders, final boolean materializeTails) {
     if (rowGroupCount <= 0) {
       return PARALLEL_WALK_DECLINED;
     }
@@ -3289,9 +3434,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     for (final DirectoryWalkWorker task : tasks) {
       task.buffer.replayInto(walk);
     }
-    walk.finish();
-    materializeTailedDirectories(reader, indexNumber, walk, out);
-    return Arrays.asList(out);
+    return finishDirectories(reader, indexNumber, walk, out, materializeTails);
   }
 
   /**
@@ -4210,8 +4353,31 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     putBlobPayload(slotKey, payload, false);
   }
 
+  /** Interior sorted edits carry an editor-owned proof that the global extrema remain exact. */
+  void putSortedSummary(final long slotKey, final byte[] payload, final @Nullable Update proof) {
+    requireSortedSummarySlot(slotKey);
+    putBlobPayload(slotKey, payload, false, proof != null && proof.preservesExtrema(this), proof != null);
+  }
+
+  void removeSortedSummary(final long slotKey, final @Nullable Update proof) {
+    requireSortedSummarySlot(slotKey);
+    tombstoneBlob(slotKey, proof != null && proof.preservesExtrema(this), proof != null);
+  }
+
+  private static void requireSortedSummarySlot(final long slotKey) {
+    final long leaf = slotKey - ProjectionSortedGroupSummary.SLOT_BASE;
+    if (leaf < 1 || leaf > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("not a sorted summary slot: " + slotKey);
+    }
+  }
+
   /** Tail rows use side pages so carry-forward copies only their small leaf markers. */
   private void putBlobPayload(final long slotKey, final byte[] payload, final boolean forceReferenced) {
+    putBlobPayload(slotKey, payload, forceReferenced, false, false);
+  }
+
+  private void putBlobPayload(final long slotKey, final byte[] payload, final boolean forceReferenced,
+      final boolean preserveGroupExtrema, final boolean preserveOwnedGroupNodes) {
     if (payload == null) {
       throw new IllegalArgumentException("payload must not be null");
     }
@@ -4242,7 +4408,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
     }
     if (inline) {
-      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob);
+      writeInlineBlobPayload(slotKey, payload, hash, priorWasReferencedBlob, verifiedPrior != null,
+          preserveGroupExtrema, preserveOwnedGroupNodes);
     } else {
       final byte[] marker = new byte[BLOB_MARKER_BYTES];
       RowGroupDescriptor.putIntLE(marker, 0, BLOB_MAGIC);
@@ -4251,6 +4418,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       RowGroupDescriptor.putLongLE(marker, 9, hash);
       boolean ownerMarkerWritten = false;
       try {
+        if (verifiedPrior != null) {
+          ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema,
+              preserveOwnedGroupNodes);
+        }
         writeSlotValue(slotKey, marker);
         ownerMarkerWritten = true;
         putSegmentPage(slotKey, BLOB_SEGMENT_ID, payload);
@@ -4264,7 +4435,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private void writeInlineBlobPayload(final long slotKey, final byte[] payload, final long hash,
-      final boolean priorWasReferencedBlob) {
+      final boolean priorWasReferencedBlob, final boolean replacing, final boolean preserveGroupExtrema,
+      final boolean preserveOwnedGroupNodes) {
     final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
     RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
     value[4] = BLOB_VERSION;
@@ -4273,6 +4445,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     System.arraycopy(payload, 0, value, BLOB_MARKER_BYTES, payload.length);
     boolean ownerMarkerWritten = false;
     try {
+      if (replacing) {
+        ownerMarkerWritten = ProjectionSortedLeafBounds.invalidateSummaryProof(this, slotKey, preserveGroupExtrema,
+            preserveOwnedGroupNodes);
+      }
       writeSlotValue(slotKey, value);
       ownerMarkerWritten = true;
       // Referenced → inline migration: drop the now-orphaned page (no-op when there was none).
@@ -4439,6 +4615,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return failure;
   }
 
+  /** A multi-record sorted edit must not publish a partially updated directory or summary. */
+  void failSortedMutation(final Throwable failure) {
+    poisonMutation(failure);
+  }
+
   /** Preserve the authoritative corruption/failure if transaction poisoning itself also fails. */
   private void poisonMutation(final Throwable failure) {
     try {
@@ -4489,7 +4670,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] keyBuf = KEY_BUFFER.get();
       if (!coalesce) {
         for (int i = 0; i < count; i++) {
-          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN);
+          out[i] = readBlob(reader, trieReader, rootRef, keyBuf, slotKeys[i], HOTReadIntent.SCAN, null);
         }
         return out;
       }
@@ -4595,14 +4776,142 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
       final HOTReadIntent intent) {
+    return readBlob(reader, indexNumber, slotKey, intent, null);
+  }
+
+  /** Detached metadata may share the data seek's single admission, never a scan's. */
+  static byte @Nullable [] readBlob(final StorageEngineReader reader, final int indexNumber, final long slotKey,
+      final HOTReadIntent intent, final @Nullable ReadScope scope) {
     Objects.requireNonNull(intent, "intent");
+    final boolean sortedSlot = slotKey >= ProjectionSortedLeafStore.LEAF_SLOT_BASE
+        && slotKey < ProjectionSortedGroupSma.HEADER_SLOT + (1L << 32);
+    final ProjectionBlobCache cache = sortedSlot && !reader.hasTrxIntentLog()
+        ? reader.getBufferManager().getProjectionBlobCache()
+        : ProjectionBlobCache.disabled();
+    // Capture before deriving any routing state: truncation can reuse both revision and offsets.
+    final long generation = cache.generation();
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return null;
     }
-    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      return readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey, intent);
+    final boolean retain = cache.isEnabled() && rootRef.getKey() >= 0 && rootRef.getLogKey() < 0;
+    if (retain && scope != null) {
+      scope.useBlobRetention();
     }
+    final ProjectionBlobCache.Key key = retain
+        ? new ProjectionBlobCache.Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(),
+            rootRef.hasHash()
+                ? rootRef.getHashAsLong()
+                : 0,
+            reader.getRevisionNumber(), slotKey)
+        : null;
+    if (key != null) {
+      final byte[] cached = cache.get(key, reader, scope);
+      if (cached != null) {
+        return cached;
+      }
+    }
+    final byte[] verified;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      // Payload retention replaces point-mini admission for these slots. SCAN still uses the
+      // complete guarded native loader; SELECTIVE never promotes unrelated entries.
+      verified = readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey,
+          retain && intent == HOTReadIntent.POINT
+              ? HOTReadIntent.SELECTIVE
+              : intent,
+          scope);
+    }
+    if (key != null && verified != null) {
+      if (scope != null && scope.limitsBlobAdmissions()) {
+        scope.retainBlob(cache, key, verified, generation, intent == HOTReadIntent.POINT);
+      } else {
+        cache.put(key, verified, generation);
+      }
+    }
+    return verified;
+  }
+
+  /** Read-only sorted access retains the fully validated descriptor, including directory children. */
+  static @Nullable ProjectionSortedReadView readSortedView(final StorageEngineReader reader, final int indexNumber,
+      final long slotKey, final HOTReadIntent intent, final @Nullable ReadScope scope, final boolean directory) {
+    Objects.requireNonNull(reader, "reader");
+    Objects.requireNonNull(intent, "intent");
+    final ProjectionBlobCache cache = reader.hasTrxIntentLog()
+        ? ProjectionBlobCache.disabled()
+        : reader.getBufferManager().getProjectionBlobCache();
+    final long generation = cache.generation();
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return null;
+    }
+    final boolean retain = cache.isEnabled() && rootRef.getKey() >= 0 && rootRef.getLogKey() < 0;
+    if (retain && scope != null) {
+      scope.useBlobRetention();
+    }
+    final ProjectionBlobCache.Key key = retain
+        ? new ProjectionBlobCache.Key(reader.getDatabaseId(), reader.getResourceId(), rootRef.getKey(),
+            rootRef.hasHash()
+                ? rootRef.getHashAsLong()
+                : 0,
+            reader.getRevisionNumber(), slotKey)
+        : null;
+    byte[] verified = null;
+    if (key != null) {
+      final ProjectionSortedReadView cached = cache.getView(key);
+      if (cached != null) {
+        cached.restoreRouting(reader, scope);
+        return cached;
+      }
+      // A prior raw consumer may have retained the bytes without a sorted descriptor.
+      verified = cache.get(key);
+    }
+    if (verified == null) {
+      try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+        verified = readBlob(reader, trieReader, rootRef, KEY_BUFFER.get(), slotKey,
+            retain && intent == HOTReadIntent.POINT
+                ? HOTReadIntent.SELECTIVE
+                : intent,
+            scope);
+      }
+    }
+    if (verified == null) {
+      return null;
+    }
+    final ProjectionSortedReadView view =
+        ProjectionSortedReadView.open(verified, directory, reader, indexNumber, intent, scope);
+    if (key != null) {
+      if (scope == null || !scope.limitsBlobAdmissions()) {
+        cache.putView(key, view, generation);
+      } else {
+        scope.retainView(cache, key, view, generation, intent == HOTReadIntent.POINT);
+      }
+    }
+    return view;
+  }
+
+  /**
+   * A cursor that already copied a blob is now a scan. Retain its complete native leaf through the
+   * ordinary guarded loader without rereading the overflow payload or decoding the logical chunk.
+   */
+  static void promoteBlobLeafForScan(final StorageEngineReader reader, final int indexNumber, final long slotKey) {
+    Objects.requireNonNull(reader, "reader");
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      throw new IllegalStateException("missing projection root while promoting blob slot " + slotKey);
+    }
+    final byte[] keyBuf = KEY_BUFFER.get();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          throw new IllegalStateException("missing projection leaf while promoting blob slot " + slotKey);
+        }
+        if (trieReader.validateCurrentLeaf()) {
+          return;
+        }
+      }
+    }
+    throw HOTTrieReader.stampRetriesExhausted("promoteBlobLeafForScan(slot " + slotKey + ")");
   }
 
   /** The index-metadata record, which every serving decision and every commit resolves. */
@@ -4618,11 +4927,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   private static byte @Nullable [] readBlob(final StorageEngineReader reader, final HOTTrieReader trieReader,
-      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent) {
+      final PageReference rootRef, final byte[] keyBuf, final long slotKey, final HOTReadIntent intent,
+      final @Nullable ReadScope scope) {
     final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);
     final HOTLeafEntry entry =
-        trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, BLOB_SIDE_REFERENCE_NEEDED);
+        trieReader.readProjectionEntry(rootRef, keyBuf, refKey, intent, BLOB_SIDE_REFERENCE_NEEDED, scope);
     if (entry == null || entry.value().length == 0) {
       return null;
     }

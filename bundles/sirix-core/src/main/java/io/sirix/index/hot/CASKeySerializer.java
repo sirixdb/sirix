@@ -50,17 +50,13 @@ import java.util.Objects;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Order-preserving serializer for CAS (Content-and-Structure) index keys.
+ * Serializer for framed CAS (Content-and-Structure) index keys.
  *
  * <p>
- * Serializes {@link CASValue} to bytes such that the byte order matches the natural comparison
- * order defined by {@link CASValue#compareTo(CASValue)}:
+ * Serializes {@link CASValue} with path-class and type ordering before the atomic value. Stored
+ * framing is specified in docs/DISK_FORMAT.md, "CAS and VALIDTIME posting chunks"; ordering
+ * exceptions are specified in docs/HOT_INDEX_SPECIFICATION.md §2.4.
  * </p>
- * <ol>
- * <li>pathNodeKey (8 bytes, sign-flipped for order preservation)</li>
- * <li>type ID (2 bytes)</li>
- * <li>value (N bytes, order-preserving encoding)</li>
- * </ol>
  *
  * <h2>Order Preservation</h2>
  * <ul>
@@ -80,10 +76,8 @@ import static java.util.Objects.requireNonNull;
  */
 public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
 
-  // The xs:boolean, xs:float and out-of-range xs:integer encodings all changed here, so a HOT CAS
-  // index written by an older build holds keys this one will not seek to. Nothing to migrate: all
-  // three were returning wrong answers, so such an index holds no correct data to preserve. Delete
-  // and rebuild any local scratch resource that predates this.
+  // Stored-format replacement policy is owned by docs/DISK_FORMAT.md, "CAS and VALIDTIME posting
+  // chunks". Do not add an unframed-key fallback here.
 
   /**
    * Sign-flip constant for order-preserving encoding of signed longs.
@@ -163,8 +157,46 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // Singleton
   }
 
+  /**
+   * The fixed-width header is followed by an escaped value and a 00 00 terminator. A zero value byte
+   * becomes 00 FF. This preserves unsigned byte order and makes the logical keys prefix-free,
+   * including empty values and trailing NULs, so chunk trailers and delta suffixes cannot alias
+   * another logical key. All atomic families use this framing.
+   */
   @Override
-  public int serialize(CASValue key, byte[] dest, int offset) {
+  public int serialize(final CASValue key, final byte[] dest, final int offset) {
+    requireNonNull(dest, "dest");
+    final byte[] raw = RAW_KEY.get();
+    final int rawLength = serializeUnescaped(key, raw, 0);
+    int valueLength = 0;
+    int rawEnd = HEADER_BYTES;
+    while (rawEnd < rawLength) {
+      final int width = raw[rawEnd] == 0
+          ? 2
+          : 1;
+      if (valueLength + width > MAX_STRING_VALUE_BYTES) {
+        break;
+      }
+      valueLength += width;
+      rawEnd++;
+    }
+    final int length = HEADER_BYTES + valueLength + 2;
+    Objects.checkFromIndexSize(offset, length, dest.length);
+    System.arraycopy(raw, 0, dest, offset, HEADER_BYTES);
+    int out = offset + HEADER_BYTES;
+    for (int i = HEADER_BYTES; i < rawEnd; i++) {
+      final byte value = raw[i];
+      dest[out++] = value;
+      if (value == 0) {
+        dest[out++] = (byte) 0xFF;
+      }
+    }
+    dest[out++] = 0;
+    dest[out] = 0;
+    return length;
+  }
+
+  private int serializeUnescaped(CASValue key, byte[] dest, int offset) {
     requireNonNull(key, "Key cannot be null");
     int start = offset;
 
@@ -203,14 +235,12 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * A CAS key is a 10-byte header plus a value region the encoders bound themselves: 8 bytes for
-   * every numeric family, 1 for a boolean, and at most {@link #MAX_STRING_VALUE_BYTES} for a string,
-   * which {@link #encodeAtomicOrderPreserving} truncates to. So the bound is a constant and no key of
-   * any type can exceed it.
+   * A CAS key has a fixed header and a bounded atomic encoding. Escaping can double the value bytes;
+   * the logical key also includes its two-byte terminator.
    */
   @Override
   public int maxSerializedLength(final CASValue key) {
-    return HEADER_BYTES + MAX_STRING_VALUE_BYTES;
+    return HEADER_BYTES + MAX_STRING_VALUE_BYTES + 2;
   }
 
   /**
@@ -235,7 +265,47 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   @Override
-  public CASValue deserialize(byte[] bytes, int offset, int length) {
+  public CASValue deserialize(final byte[] bytes, final int offset, final int length) {
+    final int prefixLength = logicalKeyLength(bytes, offset, length);
+    if (prefixLength != length) {
+      throw new IllegalArgumentException("trailing bytes after CAS logical key");
+    }
+    final byte[] raw = RAW_KEY.get();
+    System.arraycopy(bytes, offset, raw, 0, HEADER_BYTES);
+    int out = HEADER_BYTES;
+    for (int i = offset + HEADER_BYTES, end = offset + length - 2; i < end; i++) {
+      final byte value = bytes[i];
+      if (out == raw.length) {
+        throw new IllegalArgumentException("CAS value exceeds encoded value limit");
+      }
+      raw[out++] = value;
+      if (value == 0) {
+        i++; // logicalKeyLength validated the FF escape.
+      }
+    }
+    return deserializeUnescaped(raw, 0, out);
+  }
+
+  /** Length of the framed logical key, excluding any following chunk trailer or delta suffix. */
+  @Override
+  public int logicalKeyLength(final byte[] bytes, final int offset, final int length) {
+    Objects.checkFromIndexSize(offset, length, bytes.length);
+    for (int i = offset + HEADER_BYTES, end = offset + length; i + 1 < end; i++) {
+      if (bytes[i] != 0) {
+        continue;
+      }
+      final int next = bytes[++i] & 0xFF;
+      if (next == 0) {
+        return i + 1 - offset;
+      }
+      if (next != 0xFF) {
+        throw new IllegalArgumentException("invalid CAS key escape");
+      }
+    }
+    throw new IllegalArgumentException("CAS logical key has no terminator");
+  }
+
+  private CASValue deserializeUnescaped(byte[] bytes, int offset, int length) {
     // Read path node key (8 bytes)
     long signFlipped = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
         | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
@@ -259,10 +329,16 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   static final int HEADER_BYTES = 10;
 
   /**
-   * Maximum bytes available for string value encoding. Header is 10 bytes (8 for pathNodeKey + 2 for
-   * typeId), buffer is 256 bytes.
+   * Maximum escaped value bytes, independently of the caller's destination capacity.
    */
-  static final int MAX_STRING_VALUE_BYTES = 246;
+  static final int MAX_STRING_VALUE_BYTES =
+      HOTKeySerializer.MAX_KEY_BYTES - HEADER_BYTES - 2 - HOTKeySerializer.CHUNK_IDX_BYTES - PostingDeltas.SUFFIX_BYTES;
+
+  /** Scratch for the bounded atomic encoding, reused across keys on this thread. */
+  private static final ThreadLocal<byte[]> RAW_KEY =
+      ThreadLocal.withInitial(() -> new byte[HEADER_BYTES + MAX_STRING_VALUE_BYTES]);
+
+
 
   /** {@code Long.MIN_VALUE} as a decimal, for the saturating integer parse. */
   private static final BigDecimal LONG_MIN = BigDecimal.valueOf(Long.MIN_VALUE);
@@ -341,7 +417,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * This ensures that byte comparison matches numeric comparison:
    * </p>
    * <ul>
-   * <li>NaN is canonicalized to MAX_VALUE (sorts last)</li>
+   * <li>NaN uses its own sentinel above every real value (sorts last)</li>
    * <li>Positive values: XOR sign bit</li>
    * <li>Negative values: XOR all bits</li>
    * </ul>
@@ -446,8 +522,8 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
 
-  /** Bytes a decimal's exact suffix may use: the value budget minus the 8-byte double prefix. */
-  private static final int MAX_DECIMAL_SUFFIX_BYTES = MAX_STRING_VALUE_BYTES - Long.BYTES;
+  /** Bytes a decimal's exact suffix may use, including its terminator. */
+  private static final int MAX_DECIMAL_SUFFIX_BYTES = MAX_STRING_VALUE_BYTES - 2 * Long.BYTES - 1;
 
   /**
    * Encodes {@code xs:decimal} as an order-preserving double FOLLOWED BY the exact value.
@@ -464,7 +540,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Appending the exact value makes the key INJECTIVE, so equality is decided by the seek alone and
    * {@code narrowsNumeric} can answer {@code false} — the re-check disappears from the hot path and
    * survives only for a decimal too long to fit, which {@link #MAX_DECIMAL_SUFFIX_BYTES} bounds at
-   * ~238 significant digits.
+   * its escaped value budget.
    * </p>
    *
    * <p>
@@ -610,7 +686,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * matches signed numeric order. Unlike {@link #encodeNumericOrderPreserving}, the value is not
    * routed through {@code double}, so integers above 2<sup>53</sup> keep full precision. The encoding
    * is exact for the entire signed 64-bit range; xs:integer magnitudes beyond {@code Long} range are
-   * narrowed by {@link Numeric#longValue()}.
+   * saturated by {@link #saturatingLong(Numeric)}.
    * </p>
    */
   private int encodeIntegerOrderPreserving(Atomic value, byte[] dest, int offset) {
@@ -810,16 +886,18 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     return (policyOf(type) & BYTE_ORDERED) != 0;
   }
 
+  public static boolean isLexicalFamily(final Type type) {
+    return (policyOf(requireNonNull(type, "type")) & LEXICAL) != 0;
+  }
+
   /**
    * Whether a numeric probe survives its encoder unchanged.
    *
    * <p>
-   * The numeric encoders are fixed-width but NOT lossless: {@code encodeIntegerOrderPreserving}
-   * narrows through {@code Numeric#longValue()} and {@code encodeNumericOrderPreserving} funnels
-   * decimals through {@code double}, so values that differ past the encoder's precision share one key
-   * and one merged posting list. The test is a round trip rather than a range check — encode the
-   * value the way the serializer will and ask whether it comes back equal — because that is exactly
-   * the property the seek depends on, and it needs no per-type precision arithmetic.
+   * Saturated integers, capped decimal suffixes, and float narrowing can merge distinct values into
+   * one posting list. Check the probe using its codec's loss rule; a decimal's double prefix alone
+   * does not imply information loss when its normalized exact suffix fits. NaN requires special
+   * equality handling even though its sentinel is distinct from every real value.
    * </p>
    *
    * @param value the probe
@@ -843,11 +921,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return Double.isNaN(d) || (double) (float) d != d;
     }
     if (id == TYPE_DOUBLE) {
-      // For these two the encoder IS the double, so the key round-trips by construction:
+      // The double encoder keeps the double, so the key round-trips by construction:
       // encodeNumericOrderPreserving stores numeric.doubleValue() verbatim, a float widens to double
-      // exactly, and equality on an xs:double/xs:float index is therefore double equality. Only NaN
-      // loses anything, because the encoder canonicalizes it onto Double.MAX_VALUE's key. Infinities
-      // are NOT saturated — encodeNumericOrderPreserving touches only NaN, so they keep their own
+      // exactly, and equality on an xs:double index is therefore double equality. NaN requires
+      // special equality handling. Infinities are NOT saturated, so they keep their own
       // distinct bit patterns and round-trip like any other value.
       //
       // Testing these through the decimal round trip below reported very nearly every value lossy:
@@ -865,36 +942,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // StorageEngineReader and a document read per posting.
       //
       // The one case left is a decimal whose normalized form does not FIT, which collapses onto its
-      // prefix exactly as an over-long string does. Bounded at ~238 significant digits, so the
+      // prefix exactly as an over-long string does. The suffix is bounded, so the
       // allocation here is paid by a query that is genuinely ambiguous rather than by every price
       // lookup.
-      final BigDecimal exact = exactDecimalOrNull(value);
-      if (exact == null) {
-        return true;
-      }
-      // Only a LENGTH is wanted here, so formatting the value to get one was the whole cost of this
-      // check on every decimal equality query — the second full normalization per query, after the
-      // encoder's. plainDecimalLength bounds it from precision and scale without allocating, and the
-      // bound is exact for the unstripped form, so a value comfortably inside the budget (which is
-      // every decimal anyone actually indexes — the limit is ~237 significant digits) settles it in
-      // arithmetic. The formatting survives only where the bound cannot decide, which is where the
-      // key genuinely may not be injective and a re-check was going to be paid for anyway.
-      return plainDecimalLength(exact) > MAX_DECIMAL_SUFFIX_BYTES - 1
-          && normalizedDecimalString(exact).length() > MAX_DECIMAL_SUFFIX_BYTES - 1;
+      return truncates(value, id);
     }
     if (id != TYPE_INTEGER) {
-      // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
-      // unsound rather than merely expensive. It asked "is the PROBE exactly a double", but the
-      // collision that matters is between the probe's key and a STORED value's key, and the probe
-      // cannot see the stored values. A probe of 0.5 IS exactly a double and was reported lossless,
-      // so the re-check was switched off — while a stored 0.5000000000000000001 encodes to that same
-      // double and came back as a hit for `eq 0.5`. Answering true for every decimal is sound, and no
-      // slower in practice: the old test already said true for every non-dyadic literal, which is
-      // essentially every price and measurement anyone indexes.
-      //
-      // This costs the EQUALITY path a re-check and nothing else. The range gates deliberately do not
-      // consult this predicate for the numeric families, because their fallback re-derived its
-      // comparison value from the very same narrowed key — see CASIndex#openHOTIndexWithRangeFilter.
+      // An unknown numeric codec cannot prove that its encoding distinguishes the probe.
       return true;
     }
     // Lossless across the whole signed 64-bit range and SATURATING outside it, so a probe inside the
@@ -945,31 +999,19 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    *
    * <p>
    * <b>Truncation is not the only way a CAS key loses information</b>, and the two are reported
-   * differently. Numeric NARROWING is detected by {@link #narrowsNumeric} and reported here:
-   * {@link #encodeNumericOrderPreserving} routes {@code xs:decimal} through {@code doubleValue()} and
-   * {@link #encodeIntegerOrderPreserving} narrows through {@code longValue()}, so values differing
-   * past the encoder's precision share one key and one posting list. The re-check a {@code true}
-   * answer triggers in {@code CASIndex} is TYPED — it picks a numeric or a byte comparison from the
-   * INDEX's content type rather than from the candidate's node kind — so it closes the narrowing case
-   * as well as the truncation one. Dispatching on the node instead is what made a numeric index over
-   * XML compare {@code "1.50"} against {@code "1.5"} lexically and drop the row.
+   * differently. {@link #narrowsNumeric} detects capped decimal suffixes, saturating integers, and
+   * float narrowing. An uncapped decimal's normalized exact suffix distinguishes values sharing a
+   * double prefix. The re-check a {@code true} answer triggers in {@code CASIndex} is TYPED — it
+   * picks a numeric or a byte comparison from the INDEX's content type rather than from the
+   * candidate's node kind — so it closes the narrowing case as well as the truncation one.
+   * Dispatching on the node instead is what made a numeric index over XML compare {@code "1.50"}
+   * against {@code "1.5"} lexically and drop the row.
    * </p>
    *
    * <p>
-   * RANGE callers must not consult this predicate; they want {@link #truncates}. Numeric narrowing is
-   * monotone, so a bounded cursor still places every stored key correctly against the bound, and the
-   * O(index) fallback a {@code true} answer used to trigger re-derived its comparison value from the
-   * very same narrowed key — the identical answer at vastly higher cost.
-   * </p>
-   *
-   * <p>
-   * <b>The boundary is {@code >=}, not {@code >}</b>, and the difference is a real over-match rather
-   * than a rounding preference. A value measuring EXACTLY {@link #MAX_STRING_VALUE_BYTES} is itself
-   * stored losslessly, but the encoder caps every LONGER value at the same 246 bytes, so a 250-byte
-   * stored value sharing that prefix produces a byte-identical key of identical length — and the
-   * chunk walk filters on the composite length, so nothing downstream separates them either. At
-   * exactly the cap the seek is therefore GUARANTEED to over-match, which is precisely where a
-   * {@code >} test switched the caller's re-check off.
+   * This is an equality-loss test, not a proof that byte bounds preserve numeric order. Range
+   * candidate selection and residual comparisons are specified in docs/HOT_INDEX_SPECIFICATION.md
+   * §4.4.3, including equal-double bucket expansion for every ordered decimal bound.
    * </p>
    *
    * @param value the atomic being probed for, may be {@code null}
@@ -1038,21 +1080,18 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * Whether serializing {@code value} under {@code type} TRUNCATES it — the lexical half of
-   * {@link #losesInformation}, reported on its own because the two halves need opposite remedies.
+   * Whether serializing {@code value} under {@code type} can share a capped lexical value or decimal
+   * suffix with another value. A value exactly at the cap also needs a document-value check.
    *
    * <p>
-   * A truncated bound breaks the bounded cursor's ordering, and no re-derivation from the stored key
-   * can repair it, because the bytes the encoder dropped are not in the index either. Numeric
-   * narrowing is different: the encoder is monotone, so the cursor still places every stored key
-   * correctly against the bound, and a caller that reacts to narrowing by abandoning the cursor pays
-   * an O(index) scan to reach exactly the same answer. Range callers therefore consult THIS, not
-   * {@link #losesInformation}.
+   * A capped bound needs an inclusive candidate cursor even for an exclusive comparison: values on
+   * either side can share its key. Document values settle that comparison. Numeric narrowing is
+   * separate and does not use this truncation predicate.
    * </p>
    *
    * @param value the bound being serialized, may be {@code null}
    * @param type the index's declared content type
-   * @return {@code true} when the encoder caps {@code value} at {@link #MAX_STRING_VALUE_BYTES}
+   * @return {@code true} when a capped key may also represent another value
    */
   public static boolean truncates(final @Nullable Atomic value, final Type type) {
     if (value == null) {
@@ -1062,6 +1101,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   private static boolean truncates(final Atomic value, final short id) {
+    if (id == TYPE_DECIMAL) {
+      final BigDecimal exact = exactDecimalOrNull(value);
+      // Ordinary decimals settle this without formatting or allocating. Normalize only a value
+      // whose precision and scale cannot prove that its suffix fits.
+      return exact == null || (plainDecimalLength(exact) >= MAX_DECIMAL_SUFFIX_BYTES - 1
+          && normalizedDecimalString(exact).length() >= MAX_DECIMAL_SUFFIX_BYTES - 1);
+    }
     if ((POLICY[id] & LEXICAL) == 0) {
       return false;
     }
@@ -1072,24 +1118,54 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // and no char exceeds three UTF-8 bytes (a surrogate PAIR is four bytes across two chars, i.e.
     // two per char), so a char count under a third of the cap settles the other direction.
     final int chars = str.length();
-    if (chars >= MAX_STRING_VALUE_BYTES) {
+    if (chars >= MAX_STRING_VALUE_BYTES - 1) {
       return true;
     }
-    // ORDER-DEPENDENT, and the dependence is the point: the test above caps `chars` below 246, so
-    // the product below cannot overflow. Removing it — on the reasoning that utf8Length subsumes it
+    // ORDER-DEPENDENT, and the dependence is the point: the test above bounds `chars`, so
+    // the product below cannot overflow. Removing it — on the reasoning that escapedUtf8Length subsumes
+    // it
     // — would let `chars * 3` go negative for a string past ~715M chars, and a negative product
     // satisfies `< MAX_STRING_VALUE_BYTES`, reporting a gigabyte-long value as losslessly
     // representable and switching the caller's re-check off for exactly the value that needs it.
-    // STRICT `<`, matching the `>=` boundary: 82 three-byte chars measure exactly 246, which
-    // collides, so the short-circuit must not claim it is safe.
-    if (chars * 3 < MAX_STRING_VALUE_BYTES) {
+    if (chars * 3 < MAX_STRING_VALUE_BYTES - 1) {
       return false;
     }
-    return utf8Length(str) >= MAX_STRING_VALUE_BYTES;
+    return escapedUtf8Length(str) >= MAX_STRING_VALUE_BYTES - 1;
   }
 
   /**
-   * UTF-8 length of {@code str}, counted without encoding it.
+   * Whether a framed decimal key filled its exact suffix budget. Inspect the stored bytes because
+   * decoding and normalizing a capped suffix ending in zeroes can hide the truncation.
+   *
+   * @param bytes the framed logical CAS key
+   * @param offset the key's offset
+   * @param length the key's length
+   * @return whether the postings require document-value comparisons
+   */
+  public static boolean hasCappedDecimalSuffix(final byte[] bytes, final int offset, final int length) {
+    Objects.checkFromIndexSize(offset, length, bytes.length);
+    if (length < HEADER_BYTES + Long.BYTES + MAX_DECIMAL_SUFFIX_BYTES + 2 || bytes[offset + Long.BYTES] != 0
+        || bytes[offset + Long.BYTES + 1] != TYPE_DECIMAL) {
+      return false;
+    }
+    int valueBytes = 0;
+    for (int i = offset + HEADER_BYTES, end = offset + length; i + 1 < end; i++) {
+      if (bytes[i] == 0) {
+        final int next = bytes[++i] & 0xFF;
+        if (next == 0) {
+          return valueBytes >= Long.BYTES + MAX_DECIMAL_SUFFIX_BYTES;
+        }
+        if (next != 0xFF) {
+          throw new IllegalArgumentException("invalid CAS key escape");
+        }
+      }
+      valueBytes++;
+    }
+    throw new IllegalArgumentException("CAS logical key has no terminator");
+  }
+
+  /**
+   * Escaped UTF-8 length of {@code str}, counted without encoding it.
    *
    * <p>
    * An UNPAIRED surrogate is counted as three bytes while {@code String.getBytes(UTF_8)} — what the
@@ -1100,14 +1176,16 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * </p>
    *
    * @param str the string to measure
-   * @return its length in UTF-8 bytes, never below what the serializer writes
+   * @return its length in escaped UTF-8 bytes, never below what the serializer writes
    */
-  private static int utf8Length(final String str) {
+  private static int escapedUtf8Length(final String str) {
     int length = 0;
     for (int i = 0, n = str.length(); i < n; i++) {
       final char c = str.charAt(i);
       if (c < 0x80) {
-        length += 1;
+        length += c == 0
+            ? 2
+            : 1;
       } else if (c < 0x800) {
         length += 2;
       } else if (Character.isHighSurrogate(c) && i + 1 < n && Character.isLowSurrogate(str.charAt(i + 1))) {
@@ -1238,4 +1316,3 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     }
   }
 }
-

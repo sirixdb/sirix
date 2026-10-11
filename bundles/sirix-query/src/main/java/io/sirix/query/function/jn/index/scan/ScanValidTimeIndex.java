@@ -64,6 +64,8 @@ public final class ScanValidTimeIndex extends AbstractFunction {
   public static final QNm SCAN_VALID_TIME_INDEX =
       new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "scan-valid-time-index");
 
+  public static final String DEFERRED_RANGE = "VALID_TIME_DEFERRED_RANGE";
+
   public static final String DEFERRED_POINT = "VALID_TIME_DEFERRED_POINT";
 
   private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();

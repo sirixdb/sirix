@@ -1,6 +1,7 @@
 package io.sirix.node;
 
 import java.math.BigInteger;
+import java.util.Objects;
 
 /**
  * Custom BytesIn interface for reading data from various sources. This interface replaces the
@@ -97,10 +98,10 @@ public interface BytesIn<T> {
   void read(byte[] bytes, int offset, int length);
 
   /**
-   * Bulk-read {@code len} little-endian {@code int}s into {@code dst[off..off+len)}.
-   * Default scalar loop exists so non-segment-backed sources still work; memory-segment
-   * sources override with a single memcpy, which collapses per-field VarHandle
-   * dispatch into one native copy (20× faster on hot deserialize paths).
+   * Bulk-read {@code len} little-endian {@code int}s into {@code dst[off..off+len)}. Default scalar
+   * loop exists so non-segment-backed sources still work; memory-segment sources override with a
+   * single memcpy, which collapses per-field VarHandle dispatch into one native copy (20× faster on
+   * hot deserialize paths).
    *
    * @param dst destination int[] (must be pre-sized by caller)
    * @param off starting index in {@code dst}
@@ -109,6 +110,24 @@ public interface BytesIn<T> {
   default void readInts(int[] dst, int off, int len) {
     for (int i = 0; i < len; i++) {
       dst[off + i] = readInt();
+    }
+  }
+
+  /**
+   * Bulk-read {@code len} little-endian {@code long}s into {@code dst[off..off+len)}. Default scalar
+   * loop exists so non-segment-backed sources still work; memory-segment sources override with a
+   * single native copy. Decoders that would otherwise call {@link #readLong()} in a loop use this so
+   * their loop runs over a primitive array only, with no interface dispatch (and no receiver-type
+   * guard) inside the loop.
+   *
+   * @param dst destination long[] (must be pre-sized by caller)
+   * @param off starting index in {@code dst}
+   * @param len number of longs to read
+   */
+  default void readLongs(long[] dst, int off, int len) {
+    Objects.checkFromIndexSize(off, len, dst.length);
+    for (int i = 0; i < len; i++) {
+      dst[off + i] = readLong();
     }
   }
 

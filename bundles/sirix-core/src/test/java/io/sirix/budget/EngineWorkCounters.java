@@ -7,8 +7,15 @@ import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.PageCache;
 import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.io.filechannel.FileChannelWriter;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.interval.ValidTimeReadCache;
+import io.sirix.index.aggregate.TemporalAggregateStorage;
+import io.sirix.index.projection.ProjectionColumnScan;
+import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
@@ -32,6 +39,21 @@ public final class EngineWorkCounters {
   private EngineWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
+      "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,
+      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_GROUP_HEADS_DECODED = WorkCounter.gated("temporal.groupHeadsDecoded",
+      "one dictionary head decoded after admission", TemporalAggregateStorage::groupHeadsDecoded,
+      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_PART_CHUNKS_READ = WorkCounter.gated("temporal.partChunksRead",
+      "one aggregate part chunk requested", TemporalAggregateStorage::partChunksRead, "-Dsirix.hot.mergeDiag=true",
+      TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final List<WorkCounter> TEMPORAL_READS =
+      List.of(TEMPORAL_GROUP_HEADS_VISITED, TEMPORAL_GROUP_HEADS_DECODED, TEMPORAL_PART_CHUNKS_READ);
 
   public static final WorkCounter VALID_TIME_INTERVAL_REFS = WorkCounter.gated("validTime.intervalRefs",
       "one record reference emitted by an interval store scan", HotOrderedStore::intervalRefsEmitted,
@@ -61,6 +83,50 @@ public final class EngineWorkCounters {
   public static final WorkCounter INDEX_ROOT_LOADS =
       WorkCounter.gated("index.rootLoads", "one index root page loaded on a metadata cache miss",
           PageCache::indexRootLoads, "-Dsirix.validTime.scanDiag=true", HotOrderedStore::scanDiagnosticsEnabled);
+  // ===== Projection leaf pruning ===========================================
+
+  public static final WorkCounter PROJECTION_MASKED_TAIL_DEFERRALS = WorkCounter.gated("projection.maskedTailDeferrals",
+      "one open-tail directory batch deferred until masked payload fetching",
+      ProjectionIndexHOTStorage::maskedTailDeferrals, "-Dsirix.projection.segmentDiag=true",
+      ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_TAIL_BODY_READS = WorkCounter.gated("projection.tailBodyReads",
+      "one base BODY segment read directly for a committed open-tail merge",
+      ProjectionIndexHOTStorage::tailBodySegmentsRead, "-Dsirix.projection.segmentDiag=true",
+      ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_BODY_SEGMENTS = WorkCounter.gated("projection.bodySegments",
+      "one projection BODY segment requested", ProjectionColumnStore::bodySegmentsFetched,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_KEY_SET_ADVANCES = WorkCounter.alwaysOn("projection.keySetAdvances",
+      "one sorted source key advanced during row-mask construction", ProjectionRecordKeySet::keySetAdvances);
+
+  public static final WorkCounter PROJECTION_LOOKUP_DESCRIPTORS = WorkCounter.gated("projection.lookupDescriptors",
+      "one descriptor read by persisted row-mask lookup", ProjectionRecordKeySet::lookupDescriptorsRead,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_LOOKUP_KEYS = WorkCounter.gated("projection.lookupKeys",
+      "one KEYS segment read by persisted row-mask lookup", ProjectionRecordKeySet::lookupKeySegmentsRead,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_DENSE_ROWS = WorkCounter.gated("projection.denseRows",
+      "one row visited by dense row-mask construction", ProjectionRecordKeySet::denseRowsVisited,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  public static final WorkCounter PROJECTION_KEY_SEGMENTS = WorkCounter.gated("projection.keySegments",
+      "one projection KEYS segment requested", ProjectionColumnStore::keySegmentsFetched,
+      "-Dsirix.projection.segmentDiag=true", ProjectionColumnStore::segmentDiagEnabled);
+
+  /**
+   * Leaves a projection scan dropped from its keep mask before any column segment was fetched —
+   * descriptor zones, string fingerprints, and the index-routed row source's record-key ranges. A
+   * masked scan over N leaves of which K hold an admitted key must read K leaves: this is the figure
+   * that says the other N − K were never fetched.
+   */
+  public static final WorkCounter PROJECTION_LEAVES_PRUNED = WorkCounter.alwaysOn("projection.leavesPruned",
+      "one projection leaf dropped by a scan's keep mask before its segments were fetched",
+      ProjectionColumnScan::leavesPrunedCount);
 
   // ===== HOT leaf pages =====================================================
 
@@ -96,7 +162,26 @@ public final class EngineWorkCounters {
       WorkCounter.gated("hot.sideReferenceReads", "one overflow-reference map probe", HOTLeafPage::sideReferenceReads,
           "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
 
+  /** Append-only posting changes, excluding operations folded directly into the base. */
+  public static final WorkCounter POSTING_DELTA_WRITES =
+      WorkCounter.gated("hot.postingDeltaWrites", "one single-posting delta slot written",
+          HOTIndexWriter::postingDeltaWrites, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /** A bounded set of changes materialized into one base posting chunk. */
+  public static final WorkCounter POSTING_DELTA_FOLDS =
+      WorkCounter.gated("hot.postingDeltaFolds", "one posting chunk folded in memory and replaced",
+          HOTIndexWriter::postingDeltaFolds, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  public static final List<WorkCounter> HOT_POSTINGS = List.of(POSTING_DELTA_WRITES, POSTING_DELTA_FOLDS);
+
   // ===== Batched page reads (FILE_CHANNEL) ==================================
+
+  /**
+   * Forces of data files: a durable commit's write-ahead barrier and its beacon flush, and nothing
+   * else on the commit path (a writer closed after its commit has nothing left to force).
+   */
+  public static final WorkCounter DATA_FILE_FORCES = WorkCounter.alwaysOn("io.dataFileForces",
+      "one force (fdatasync or fsync) of a resource's data file", FileChannelWriter::dataFileForces);
 
   /** Coalesced runs: near-adjacent pages of one batch read with two positional reads in total. */
   public static final WorkCounter READ_RUNS = WorkCounter.alwaysOn("read.coalescedRuns",
@@ -163,12 +248,20 @@ public final class EngineWorkCounters {
 
   /**
    * Listings of a resource's {@code indexes/} directory. The directory holds one catalogue file per
-   * commit that had definitions, so a writer that resolves its catalogue by listing it does work
-   * proportional to the number of revisions, on every commit.
+   * catalogue change, and a session that resolves a catalogue by listing it reads every one of them;
+   * a writer that did so on every commit did work proportional to the number of catalogue files.
    */
   public static final WorkCounter INDEX_CATALOGUE_LISTINGS =
       WorkCounter.alwaysOn("catalogue.directoryListings", "one listing of a resource's index-catalogue directory",
           AbstractResourceSession::indexCatalogueDirectoryListings);
+
+  /**
+   * Catalogue files written ({@code indexes/<revision>.xml}). Each one is a file creation, an XML
+   * materialization and a metadata fsync on the commit path, so a commit that did not change its
+   * definitions must write none.
+   */
+  public static final WorkCounter INDEX_CATALOGUE_FILES_WRITTEN = WorkCounter.alwaysOn("catalogue.filesWritten",
+      "one index-catalogue file written by a commit", AbstractResourceSession::indexCatalogueFilesWritten);
 
   // ===== Identity replay and source diff bookkeeping =======================
 

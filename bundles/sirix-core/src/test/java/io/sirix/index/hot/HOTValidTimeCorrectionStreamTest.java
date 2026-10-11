@@ -13,16 +13,20 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
+import io.sirix.settings.VersioningType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.interval.IntervalDomain;
 import io.sirix.index.interval.RelationalIntervalTree;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.ByteBuffer;
@@ -38,8 +42,11 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -76,10 +83,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * Runs in about 7 to 8 seconds on a development machine, so it belongs in the default lane; a suite
- * that grows past 60 seconds belongs behind {@code @Tag("heavy")}, which the advisory
- * cross-platform CI lanes exclude ({@code bundles/sirix-core/build.gradle}).
- * </p>
+ * The inline and captured delta geometry cases retain the full workload needed by their structural
+ * reach assertions. The other delta geometries use 8,192 records while retaining all twenty-five
+ * publications, including the fixed record's nested replacements and retractions. Every geometry
+ * runs under all four versionings with exact live, historical and cold revision checks and must
+ * exercise folds.
  */
 final class HOTValidTimeCorrectionStreamTest {
 
@@ -87,6 +95,7 @@ final class HOTValidTimeCorrectionStreamTest {
   private static final int INDEX_NUMBER = 0;
 
   private static final int RECORDS = 100_000;
+  private static final int DELTA_RECORDS = 8_192;
 
   /** The first publication and the twenty-four of corrections the load consisted of. */
   private static final int PUBLICATIONS = 25;
@@ -113,45 +122,108 @@ final class HOTValidTimeCorrectionStreamTest {
     final long foldsDeclinedBefore = HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get();
     final long joinSplitsBefore = AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get();
     final long nodeSplitsDeclinedBefore = AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get();
-    final CorrectionStream stream = new CorrectionStream();
+    replayAndVerify(VersioningType.SLIDING_SNAPSHOT, false, RECORDS, PostingDeltas.HOT_CHUNK_BYTES,
+        PostingDeltas.FOLD_BOUND);
 
+    // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
+    // reaches it.
+    assertTrue(HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get() > foldsDeclinedBefore,
+        "the stream must reach a fold whose upper half would not land beside its slot");
+    assertTrue(AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get() > joinSplitsBefore,
+        "the stream must reach a complete-frontier join that has to split a side");
+    assertTrue(AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get() > nodeSplitsDeclinedBefore,
+        "the stream must reach the decomposition of a full node one of whose halves would break the trie "
+            + "condition against its own child; without one it no longer covers that split");
+  }
+
+
+  @Tag("heavy")
+  @ParameterizedTest(name = "{0}: hot bytes {1}, fold bound {2}")
+  @MethodSource("deltaGeometries")
+  void correctionStreamAcrossDeltaGeometries(final VersioningType versioningType, final int hotChunkBytes,
+      final int foldBound) {
+    final boolean capturedGeometry = hotChunkBytes == 256 && foldBound == 64;
+    final long foldsBefore = HOTIndexWriter.postingDeltaFolds();
+    final long delegatedBefore = AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get();
+    final long deltasBefore = HOTIndexWriter.postingDeltaWrites();
+    replayAndVerify(versioningType, true, capturedGeometry
+        ? RECORDS
+        : DELTA_RECORDS, hotChunkBytes, foldBound);
+    assertTrue(HOTIndexWriter.postingDeltaFolds() > foldsBefore, "the stream must exercise folds at this geometry");
+    if (capturedGeometry) {
+      // This case also carries the reach assertions of the formerly duplicated delta replay.
+      assertTrue(HOTIndexWriter.postingDeltaWrites() > deltasBefore, "the stream must write deltas");
+      assertTrue(AbstractHOTIndexWriter.BRANCH_SPINE_ORDER_DELEGATED.get() > delegatedBefore,
+          "the stream must reach the branch spine-order delegation");
+    }
+  }
+
+  static Stream<Arguments> deltaGeometries() {
+    return Arrays.stream(VersioningType.values())
+                 .flatMap(type -> Stream.of(Arguments.of(type, 256, 2), Arguments.of(type, 256, 16),
+                     Arguments.of(type, 256, 64), Arguments.of(type, 512, 2), Arguments.of(type, 512, 16),
+                     Arguments.of(type, 512, 64)));
+  }
+
+  private void replayAndVerify(final VersioningType versioningType, final boolean deltas, final int records,
+      final int hotChunkBytes, final int foldBound) {
+    final CorrectionStream stream = new CorrectionStream(records);
+    final List<Map<ValidTimeKey, long[]>> snapshots = new ArrayList<>(PUBLICATIONS);
     final Path databasePath = temporaryDirectory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build()));
-      try (JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
-        for (int publication = 0; publication < PUBLICATIONS; publication++) {
-          try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            stream.publish(publication, into(HOTIndexWriter.create(wtx.getStorageEngineWriter(),
-                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER)));
-            wtx.commit();
-          }
-        }
-      }
-
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                              .versioningApproach(versioningType)
+                                                              .maxNumberOfRevisionsToRestore(3)
+                                                              .storeDiffs(false)
+                                                              .build()));
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
-          JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER).assertOk();
-        final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
-            ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
-        for (final Map.Entry<ValidTimeKey, LongArrayList> expected : stream.expectedPostings().entrySet()) {
-          final NodeReferences postings = reader.get(expected.getKey(), SearchMode.EQUAL);
-          assertNotNull(postings, "postings of " + expected.getKey());
-          final long[] nodeKeys = expected.getValue().toLongArray();
-          Arrays.sort(nodeKeys);
-          assertArrayEquals(nodeKeys, postings.toSortedArray(), "postings of " + expected.getKey());
+          JsonNodeTrx wtx = session.beginNodeTrx()) {
+        for (int publication = 0; publication < PUBLICATIONS; publication++) {
+          // KEEP_OPEN commit already creates the next page transaction; only the HOT writer is new.
+          stream.publish(publication, into(HOTIndexWriter.create(wtx.getStorageEngineWriter(),
+              ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound), deltas));
+          wtx.commit();
+          final Map<ValidTimeKey, long[]> snapshot = new HashMap<>();
+          for (final Map.Entry<ValidTimeKey, LongArrayList> entry : stream.expectedPostings().entrySet()) {
+            final long[] keys = entry.getValue().toLongArray();
+            Arrays.sort(keys);
+            snapshot.put(entry.getKey(), keys);
+          }
+          snapshots.add(snapshot);
+          assertRevision(session, publication + 1, snapshot);
+        }
+        for (int i = 0; i < snapshots.size(); i++) {
+          assertRevision(session, i + 1, snapshots.get(i));
         }
       }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      for (int i = 0; i < snapshots.size(); i++) {
+        assertRevision(session, i + 1, snapshots.get(i));
+      }
+    }
+  }
 
-      // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
-      // reaches it.
-      assertTrue(HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get() > foldsDeclinedBefore,
-          "the stream must reach a fold whose upper half would not land beside its slot");
-      assertTrue(AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get() > joinSplitsBefore,
-          "the stream must reach a complete-frontier join that has to split a side");
-      assertTrue(AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get() > nodeSplitsDeclinedBefore,
-          "the stream must reach the decomposition of a full node one of whose halves would break the trie "
-              + "condition against its own child; without one it no longer covers that split");
+  private static void assertRevision(final JsonResourceSession session, final int revision,
+      final Map<ValidTimeKey, long[]> expected) {
+    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER).assertOk();
+      final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
+          ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
+      int groups = 0;
+      final var entries = reader.iterator();
+      while (entries.hasNext()) {
+        final var entry = entries.next();
+        final long[] keys = expected.get(entry.getKey());
+        assertNotNull(keys, "unexpected logical group at revision " + revision);
+        assertArrayEquals(keys, entry.getValue().toSortedArray());
+        assertArrayEquals(keys, requireNonNull(reader.get(entry.getKey(), SearchMode.EQUAL)).toSortedArray());
+        groups++;
+      }
+      assertEquals(expected.size(), groups, "logical groups at revision " + revision);
     }
   }
 
@@ -162,16 +234,23 @@ final class HOTValidTimeCorrectionStreamTest {
     void remove(ValidTimeKey key, long nodeKey);
   }
 
-  private static Registrations into(final HOTIndexWriter<ValidTimeKey> writer) {
+  private static Registrations into(final HOTIndexWriter<ValidTimeKey> writer, final boolean deltas) {
     return new Registrations() {
       @Override
       public void add(final ValidTimeKey key, final long nodeKey) {
-        writer.indexNodeKey(key, nodeKey);
+        if (deltas) {
+          writer.indexNodeKey(key, nodeKey);
+        } else {
+          InlinePostingFixture.insert(writer, key, nodeKey);
+        }
       }
 
       @Override
       public void remove(final ValidTimeKey key, final long nodeKey) {
-        assertTrue(writer.remove(key, nodeKey), "the posting to remove must be registered: " + key + " / " + nodeKey);
+        assertTrue(deltas
+            ? writer.remove(key, nodeKey)
+            : InlinePostingFixture.remove(writer, key, nodeKey),
+            "the posting to remove must be registered: " + key + " / " + nodeKey);
       }
     };
   }
@@ -211,11 +290,15 @@ final class HOTValidTimeCorrectionStreamTest {
     private static final byte[] SEED = "20260920|contracts|".getBytes(StandardCharsets.UTF_8);
 
     private final MessageDigest digest;
-    @SuppressWarnings("unchecked")
-    private final List<Segment>[] segments = new List[RECORDS + 1];
-    private long nextNodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * RECORDS;
+    private final int records;
+    private final List<Segment>[] segments;
+    private long nextNodeKey;
 
-    CorrectionStream() {
+    @SuppressWarnings("unchecked")
+    CorrectionStream(final int records) {
+      this.records = records;
+      segments = new List[records + 1];
+      nextNodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * records;
       try {
         digest = MessageDigest.getInstance("SHA-256");
       } catch (final NoSuchAlgorithmException e) {
@@ -225,7 +308,7 @@ final class HOTValidTimeCorrectionStreamTest {
 
     void publish(final int publication, final Registrations sink) {
       if (publication == 0) {
-        for (int record = 1; record <= RECORDS; record++) {
+        for (int record = 1; record <= records; record++) {
           final Segment whole = new Segment(0, HORIZON_DAYS, payload(0, record));
           whole.nodeKey = FIRST_RECORD_KEY + RECORD_KEY_STRIDE * (record - 1);
           segments[record] = new ArrayList<>(List.of(whole));
@@ -340,7 +423,7 @@ final class HOTValidTimeCorrectionStreamTest {
     /** What the index has to hold once every publication is in: each interval's nodes, per store. */
     private Map<ValidTimeKey, LongArrayList> expectedPostings() {
       final Map<ValidTimeKey, LongArrayList> postings = new HashMap<>(1 << 16);
-      for (int record = 1; record <= RECORDS; record++) {
+      for (int record = 1; record <= records; record++) {
         for (final Segment segment : segments[record]) {
           postings.computeIfAbsent(key(ValidTimeKey.STORE_LOWER, segment), ignored -> new LongArrayList())
                   .add(segment.nodeKey);
@@ -353,9 +436,9 @@ final class HOTValidTimeCorrectionStreamTest {
 
     /** The twentieth of the records a publication corrects: those with the smallest pick, in order. */
     private int[] corrected(final int publication) {
-      final int count = (RECORDS + 19) / 20;
-      final long[][] picks = new long[RECORDS - 1][2];
-      for (int record = 2; record <= RECORDS; record++) {
+      final int count = (records + 19) / 20;
+      final long[][] picks = new long[records - 1][2];
+      for (int record = 2; record <= records; record++) {
         picks[record - 2][0] = hashBits(publication, record, "pick");
         picks[record - 2][1] = record;
       }

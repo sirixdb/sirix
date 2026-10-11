@@ -126,7 +126,8 @@ final class StraddleCanonicityProbe {
         closeLeaves(built.rootPage());
         continue;
       }
-      final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(root, 1, allocator::getAndIncrement);
+      final HOTIncrementalInsert.BiNode split =
+          HOTIncrementalInsert.splitIndirect(root, 1, IndexType.CAS, allocator::getAndIncrement);
       final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
           ? split.left()
           : split.right();
@@ -152,7 +153,7 @@ final class StraddleCanonicityProbe {
         final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
             IndexType.CAS, allocator::getAndIncrement);
         final HOTIndirectPage integrated =
-            HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1, allocator::getAndIncrement);
+            HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1, IndexType.CAS, allocator::getAndIncrement);
         final PageReference integratedRef = new PageReference();
         integratedRef.setPage(integrated);
 
@@ -258,7 +259,7 @@ final class StraddleCanonicityProbe {
         continue;
       }
       final HOTIncrementalInsert.BiNode split =
-          HOTIncrementalInsert.splitIndirect(height1Node, 1, allocator::getAndIncrement);
+          HOTIncrementalInsert.splitIndirect(height1Node, 1, IndexType.CAS, allocator::getAndIncrement);
       final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
           ? split.left()
           : split.right();
@@ -280,7 +281,7 @@ final class StraddleCanonicityProbe {
         final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
             IndexType.CAS, allocator::getAndIncrement);
         final HOTIndirectPage folded =
-            HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1, allocator::getAndIncrement);
+            HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1, IndexType.CAS, allocator::getAndIncrement);
         node = folded;
         assertTrue(node.getHeight() == heightBefore,
             "seed=" + seed + " slot=" + slot + ": addEntry fold inflated height " + heightBefore + " -> "

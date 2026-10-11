@@ -26,7 +26,7 @@ final class HOTIncrementalHeightResolutionTest {
 
     try {
       assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.splitIndirect(node, 2, new AtomicLong(10)::getAndIncrement));
+          () -> HOTIncrementalInsert.splitIndirect(node, 2, IndexType.PATH, new AtomicLong(10)::getAndIncrement));
     } finally {
       rightLeaf.close();
     }
@@ -44,8 +44,8 @@ final class HOTIncrementalHeightResolutionTest {
             new PageReference[] {swizzle(first), swizzle(second), unresolvedTallThird, swizzle(fourth)}, 3);
 
     try {
-      assertThrows(IllegalStateException.class,
-          () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2, new AtomicLong(30)::getAndIncrement));
+      assertThrows(IllegalStateException.class, () -> HOTIncrementalInsert.compressChildRange(node, 0, 4, 2,
+          IndexType.PATH, new AtomicLong(30)::getAndIncrement));
     } finally {
       first.close();
       second.close();

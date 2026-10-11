@@ -2,7 +2,6 @@ package io.sirix.node;
 
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.SirixLZ77Codec;
-import io.sirix.page.SirixLZ77NativeDecoder;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -216,11 +215,8 @@ final class ValueDictionaryValueBlockCodec {
   private static final ThreadLocal<MemorySegment> NATIVE_LANDING =
       ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
 
-  /** Below this the detour's extra copy costs more than the faster decoder saves. */
-  private static final int NATIVE_DECODE_MIN_BYTES = 1 << 10;
-
   /**
-   * Decodes one frame into {@code target}, through a native landing area when that is faster.
+   * Decodes one frame into {@code target} through a native landing area.
    *
    * <p>
    * <b>The landing area never escapes this method.</b> It is a reused per-thread buffer, so handing a
@@ -234,9 +230,10 @@ final class ValueDictionaryValueBlockCodec {
    */
   private static int decodeInto(final byte[] compressed, final int compressedLength, final byte[] target,
       final int targetLength) {
-    if (targetLength < NATIVE_DECODE_MIN_BYTES || !SirixLZ77NativeDecoder.isAvailable()) {
-      return SirixLZ77Codec.decode(compressed, 0, compressedLength, MemorySegment.ofArray(target), 0L);
-    }
+    // Every frame lands natively, whatever its size and whether or not the native decoder is
+    // available: a heap segment over the target array would put a heap receiver on the segment
+    // access path every native page shares (see PageLayout#getBitmapWord(byte[], int)), and the
+    // copy out of the landing area is cheaper than that for any frame.
     MemorySegment landing = NATIVE_LANDING.get();
     // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant — the dispatch tests
     // `outputOff + uncompressed + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()`, and the two

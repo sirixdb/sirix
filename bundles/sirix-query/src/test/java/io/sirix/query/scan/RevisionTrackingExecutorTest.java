@@ -1,5 +1,7 @@
 package io.sirix.query.scan;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -19,13 +21,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import io.brackit.query.BrackitQueryContext;
+import io.brackit.query.Query;
 import io.brackit.query.QueryContext;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.query.SirixCompileChain;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +50,26 @@ final class RevisionTrackingExecutorTest {
 
   private static final String DB = "revision-tracking-db";
   private static final String RES = "records.jn";
+
+  @Test
+  void unannotatedPipelinesDoNotResolveRevisionExecutors() {
+    final var lifecycle = new SirixVectorizedExecutor.ExecutionLifecycle();
+    final RevisionTrackingExecutor executor = new RevisionTrackingExecutor(() -> {
+      throw new AssertionError("an unannotated pipeline cannot use a revision executor");
+    }, lifecycle);
+    SequentialPipelineStrategy.setThreadVectorizedExecutor(executor);
+    try (final SirixCompileChain chain = SirixCompileChain.create()) {
+      final StringWriter output = new StringWriter();
+      try (final PrintWriter writer = new PrintWriter(output)) {
+        new Query(chain, "for $n in 1 to 3 return $n * 2").serialize(new BrackitQueryContext(), writer);
+      }
+      assertEquals("2 4 6", output.toString());
+      assertNull(executor.lastResolved());
+    } finally {
+      SequentialPipelineStrategy.clearThreadVectorizedExecutor();
+      lifecycle.closeAndAwait();
+    }
+  }
 
   /**
    * The delegation trap: a method added to {@link VectorizedExecutor} later would be inherited here

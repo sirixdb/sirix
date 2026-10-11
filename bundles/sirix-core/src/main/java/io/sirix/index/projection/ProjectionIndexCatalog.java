@@ -129,7 +129,7 @@ public final class ProjectionIndexCatalog {
 
   private static final Probe UNUSABLE = new Probe(-1, 0, ProjectionSlotLayout.ROW_GROUP_MAJOR);
 
-  private record DataKey(String resourceKey, int indexDefId, int buildRevision) {
+  private record DataKey(String resourceKey, int indexDefId, int buildRevision, boolean maskedRows) {
   }
 
   /** Negative decode entry: probed and not decodable at this build revision. */
@@ -228,7 +228,7 @@ public final class ProjectionIndexCatalog {
           continue;
         }
         final DescriptorStats stats =
-            DESCRIPTOR_STATS.get(new DataKey(resourceKey, candidate.def.getID(), probe.buildRevision),
+            DESCRIPTOR_STATS.get(new DataKey(resourceKey, candidate.def.getID(), probe.buildRevision, false),
                 key -> readDescriptorStats(session, revision, candidate.def));
         if (stats == null || stats.totalRows() < 0) {
           continue;
@@ -329,8 +329,14 @@ public final class ProjectionIndexCatalog {
    *        {@code $doc.b[]}); {@code null} or empty fails closed
    * @return a usable handle, or {@code null}
    */
-  public static ProjectionIndexRegistry.Handle lookupCovering(final ResourceSession<?, ?> session,
+  public static ProjectionIndexRegistry.@Nullable Handle lookupCovering(final ResourceSession<?, ?> session,
       final String resourceKey, final int revision, final String[] sourcePath, final String[] requiredFields) {
+    return lookupCovering(session, resourceKey, revision, sourcePath, requiredFields, false);
+  }
+
+  public static ProjectionIndexRegistry.@Nullable Handle lookupCovering(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final String[] sourcePath, final String[] requiredFields,
+      final boolean maskedRows) {
     final DefEntry[] entries = defEntries(session, resourceKey, revision);
     if (entries.length == 0) {
       return null;
@@ -344,7 +350,7 @@ public final class ProjectionIndexCatalog {
       System.err.println("[cat] " + candidates.length + " candidate(s) after filtering");
     }
     for (final DefEntry candidate : candidates) {
-      final ProjectionIndexRegistry.Handle handle = load(session, resourceKey, revision, candidate.def);
+      final ProjectionIndexRegistry.Handle handle = load(session, resourceKey, revision, candidate.def, maskedRows);
       if (handle != null) {
         SERVED.increment();
         return handle;
@@ -627,14 +633,19 @@ public final class ProjectionIndexCatalog {
    * Fail-soft: unusable stores yield {@code null} and query callers fall back. Creation refuses to
    * overwrite the populated tree; replacement requires drop + commit + a fresh tree id.
    */
-  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final int revision,
+  public static ProjectionIndexRegistry.@Nullable Handle load(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
     return load(session, session.getResourceConfig().getResource().toString(), revision, def);
   }
 
   /** {@link #load(ResourceSession, int, IndexDef)} with a precomputed resource key. */
-  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final String resourceKey,
-      final int revision, final IndexDef def) {
+  public static ProjectionIndexRegistry.@Nullable Handle load(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final IndexDef def) {
+    return load(session, resourceKey, revision, def, false);
+  }
+
+  private static ProjectionIndexRegistry.@Nullable Handle load(final ResourceSession<?, ?> session,
+      final String resourceKey, final int revision, final IndexDef def, final boolean maskedRows) {
     try {
       final Probe probe =
           PROBES.get(new ProbeKey(resourceKey, def.getID(), revision), key -> probeMetadata(session, revision, def));
@@ -646,9 +657,9 @@ public final class ProjectionIndexCatalog {
       final boolean bounded =
           DIRECTORY_WINDOWS && probe.rowGroupCount >= 1024 && probe.slotLayout == ProjectionSlotLayout.ROW_GROUP_MAJOR;
       final ProjectionIndexRegistry.Handle handle = bounded
-          ? decodeRowGroups(session, revision, def)
-          : DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
-              key -> decodeRowGroups(session, revision, def));
+          ? decodeRowGroups(session, revision, def, maskedRows)
+          : DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision, maskedRows),
+              key -> decodeRowGroups(session, revision, def, maskedRows));
       if (handle == NOT_USABLE) {
         if (DIAG) {
           System.err.println("[cat] load: decodeRowGroups -> NOT_USABLE (def #" + def.getID() + ", buildRevision "
@@ -725,19 +736,21 @@ public final class ProjectionIndexCatalog {
   }
 
   /**
-   * Full decode of the projection's persisted leaves. Only reached after a successful metadata probe;
-   * corruption discovered here (truncated leaf list, codec failures) is logged and cached as unusable
-   * for this build.
+   * Load the projection after a successful metadata probe, preferring a column-lazy handle. A masked
+   * request declines if that handle is unavailable, before eager decoding can fetch excluded leaves.
+   * Corruption discovered here is logged and cached as unusable for this build.
    */
-  private static ProjectionIndexRegistry.Handle decodeRowGroups(final ResourceSession<?, ?> session, final int revision,
-      final IndexDef def) {
+  private static ProjectionIndexRegistry.@Nullable Handle decodeRowGroups(final ResourceSession<?, ?> session,
+      final int revision, final IndexDef def, final boolean maskedRows) {
     try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionIndexRegistry.Handle lazy =
-          tryBuildColumnLazyHandle(session, revision, def, rtx.getStorageEngineReader());
+          tryBuildColumnLazyHandle(session, revision, def, rtx.getStorageEngineReader(), maskedRows);
       if (lazy != null) {
         return lazy;
       }
-      return decodeRowGroups(rtx.getStorageEngineReader(), def);
+      return maskedRows
+          ? NOT_USABLE
+          : decodeRowGroups(rtx.getStorageEngineReader(), def);
     }
   }
 
@@ -745,12 +758,12 @@ public final class ProjectionIndexCatalog {
    * P5b stage 2: build a COLUMN-LAZY handle from one descriptor walk. Open-tail resolution follows
    * the contract of {@link ProjectionIndexHOTStorage.RowGroupDirectory}. Column kernels consume only
    * their columns' BODY segments (one fresh read transaction per column fill); whole-leaf consumers
-   * materialize through the same assembling read the eager path uses. Returns {@code null} to fall
-   * back to eager decoding (unresolved refs, corrupt walk — the eager path re-surfaces the corruption
-   * through the established fail-soft flow), or {@link #NOT_USABLE} for stale/truncated.
+   * materialize through the same assembling read the eager path uses. Returns {@code null} when the
+   * column-lazy handle is unavailable: ordinary requests fall back to eager decoding; masked requests
+   * decline. Returns {@link #NOT_USABLE} for stale/truncated.
    */
   private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(final ResourceSession<?, ?> session,
-      final int revision, final IndexDef def, final StorageEngineReader reader) {
+      final int revision, final IndexDef def, final StorageEngineReader reader, final boolean maskedRows) {
     final ProjectionIndexMetadata metadata;
     final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories;
     final int[] physicalOrder;
@@ -785,16 +798,20 @@ public final class ProjectionIndexCatalog {
             final int to = Math.min(from + ProjectionDirectoryWindows.WINDOW_SIZE, physicalOrder.length);
             try (NodeReadOnlyTrx windowRtx = session.beginNodeReadOnlyTrx(revision)) {
               return ProjectionIndexHOTStorage.readDirectoryWindow(windowRtx.getStorageEngineReader(), def.getID(),
-                  physicalOrder, from, to);
+                  physicalOrder, from, to, !maskedRows);
             }
           });
         } else {
-          directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
-              metadata.rowGroupCount(), physicalOrder, worker -> {
-                try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
-                  worker.accept(laneRtx.getStorageEngineReader());
-                }
-              });
+          final ProjectionIndexHOTStorage.ParallelWalkReaders readers = worker -> {
+            try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+              worker.accept(laneRtx.getStorageEngineReader());
+            }
+          };
+          directories = maskedRows
+              ? ProjectionIndexHOTStorage.readRowGroupDirectoriesWithoutTailMaterialization(reader, def.getID(),
+                  metadata.rowGroupCount(), physicalOrder, readers)
+              : ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
+                  metadata.rowGroupCount(), physicalOrder, readers);
         }
       }
     } catch (final IllegalStateException corrupt) {
@@ -1020,6 +1037,20 @@ public final class ProjectionIndexCatalog {
       final int revision) {
     return new ProjectionColumnStore.ColumnSegmentFetcher() {
       @Override
+      public ProjectionRecordKeySet.Masks recordKeyMasks(final int indexNumber, final long[] sortedKeys) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final StorageEngineReader reader = fetchRtx.getStorageEngineReader();
+          final ProjectionIndexMetadata metadata =
+              ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readMetadataBlob(reader, indexNumber));
+          if (metadata == null || metadata.isStale()) {
+            throw new IllegalStateException("projection record lookup requires live metadata");
+          }
+          return ProjectionRecordKeySet.map(sortedKeys,
+              new ProjectionPersistedRecordLookup(reader, indexNumber, metadata));
+        }
+      }
+
+      @Override
       public byte[] @Nullable [] fetchNumericProofs(final int indexNumber, final int column, final long[] slots) {
         try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
           final StorageEngineReader reader = fetchRtx.getStorageEngineReader();
@@ -1035,6 +1066,18 @@ public final class ProjectionIndexCatalog {
             System.arraycopy(part, 0, chunks, from, part.length);
           }
           return chunks;
+        }
+      }
+
+      @Override
+      public byte[] fetchTailSegment(final int indexNumber, final long rowGroupId, final byte[] descriptor,
+          final int segmentId) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          return Objects.requireNonNull(
+              ProjectionIndexHOTStorage.readVerifiedColumnSegment(fetchRtx.getStorageEngineReader(), indexNumber,
+                  ProjectionSlotLayout.ROW_GROUP_MAJOR, rowGroupId, descriptor, segmentId,
+                  ProjectionIndexColumnSegmentCodec.expectedSegmentKind(segmentId)),
+              "declared projection tail segment is missing");
         }
       }
 
@@ -1593,6 +1636,7 @@ public final class ProjectionIndexCatalog {
 
   /** Drop all cached decodes — for test isolation. */
   public static void clearCache() {
+    ProjectionOpenRowGroupTail.clearCacheForTesting();
     DEFS.invalidateAll();
     PROBES.invalidateAll();
     DATA.invalidateAll();

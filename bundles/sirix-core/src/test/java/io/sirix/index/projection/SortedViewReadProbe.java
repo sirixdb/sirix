@@ -20,8 +20,9 @@ import java.util.function.IntConsumer;
  * leaf. Only if that declines does it seek the range again and walk the <em>data leaves</em>
  * themselves. No served-route counter separates "declined after one walk" from "declined after
  * two": both leave {@code sortedGroupBys} unchanged. The engine exposes the two reads through
- * observers instead, and a data-leaf read of zero is exactly "the full-key walk never started".
- * Directory nodes and leaf bounds bypass both observers.
+ * observers instead, and a data-leaf read of zero is exactly "the full-key walk never started". The
+ * hierarchical group tree reports its header and nodes through the summary observer; directory
+ * nodes and leaf bounds bypass both observers.
  *
  * <p>
  * The observers fire on whichever thread fetches, including the summary lanes' workers, so the
@@ -34,7 +35,7 @@ public final class SortedViewReadProbe implements WorkProbe {
   private final LongAdder dataLeafReads = new LongAdder();
 
   private final WorkCounter summaryReadCounter = WorkCounter.alwaysOn("sortedView.summaryReads",
-      "one group summary fetched by a query: a leaf of the range visited by the summaries walk", summaryReads::sum);
+      "one group summary or group-tree node fetched by a query", summaryReads::sum);
 
   private final WorkCounter dataLeafReadCounter = WorkCounter.alwaysOn("sortedView.dataLeafReads",
       "one sorted data leaf fetched by a query: a leaf visited by the full-key walk", dataLeafReads::sum);

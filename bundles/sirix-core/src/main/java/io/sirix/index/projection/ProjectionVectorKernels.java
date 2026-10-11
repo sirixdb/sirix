@@ -131,6 +131,9 @@ final class ProjectionVectorKernels {
       // A string op here is a routing defect — an all-zero mask would silently drop every row.
       case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
         throw new IllegalStateException("string op in the numeric compare kernel: " + op);
+      // Membership in a key set is not a lane-wise compare; the slice kernel answers it before any
+      // word reaches here.
+      case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare kernel");
     };
   }
 

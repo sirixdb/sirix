@@ -14,6 +14,7 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.Evidence;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import org.jspecify.annotations.Nullable;
 
@@ -46,6 +47,16 @@ final class ValidTimeKeySequence extends AbstractSequence {
     exactPoint = new IntervalDomain().isExact(instant);
   }
 
+  /** Already proved exact range matches; no timestamp fields need verification. */
+  static ValidTimeKeySequence exactKeys(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
+      final int indexId, final long[] keys) {
+    final ValidTimeKeySequence sequence =
+        new ValidTimeKeySequence(document, instant, config, false, false, null, indexId);
+    sequence.candidates = keys;
+    sequence.evidence = new Evidence(keys, new Roaring64Bitmap());
+    return sequence;
+  }
+
   ValidTimeKeySequence withResidual(final ValidTimeResidual comparison) {
     final ValidTimeKeySequence verified = new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd,
         Objects.requireNonNull(comparison), indexId);
@@ -57,7 +68,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private long[] candidates() {
     if (candidates == null) {
       evidence = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId);
-      candidates = evidence.keys();
+      candidates = evidence.members();
     }
     return candidates;
   }
@@ -96,10 +107,14 @@ final class ValidTimeKeySequence extends AbstractSequence {
     }
   }
 
+  int revision() {
+    return document.getTrx().getRevisionNumber();
+  }
+
   long[] matchingKeys() {
     final long[] keys = candidates();
-    if (exactPoint && residual == null && evidence != null && evidence.unverified().isEmpty()) {
-      return keys;
+    if (allMatchesProven(keys)) {
+      return keys.clone();
     }
     final long[] matches = new long[keys.length];
     int count = 0;
@@ -113,6 +128,11 @@ final class ValidTimeKeySequence extends AbstractSequence {
         : Arrays.copyOf(matches, count);
   }
 
+  private boolean allMatchesProven(final long[] keys) {
+    return residual == null && exactPoint
+        && (keys.length == 0 || (evidence != null && evidence.unverified().isEmpty()));
+  }
+
   @Override
   public boolean isRepeatable() {
     return true;
@@ -124,7 +144,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
       return null;
     }
     final long[] keys = candidates();
-    if (evidence != null && evidence.unverified().isEmpty()) {
+    if (allMatchesProven(keys)) {
       return new Int64(keys.length);
     }
     // Only key-exact matches can supply cardinality without constructing or verifying objects.
@@ -138,8 +158,12 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   @Override
   public IntNumeric size() {
+    final long[] keys = candidates();
+    if (allMatchesProven(keys)) {
+      return new Int64(keys.length);
+    }
     long count = 0;
-    for (final long key : candidates()) {
+    for (final long key : keys) {
       if (matches(key)) {
         count++;
       }

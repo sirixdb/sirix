@@ -67,6 +67,66 @@ final class RelationalIntervalTreeTest {
     assertEquals(1, lower.scans + upper.scans, "enumeration must be one ordered-store scan");
   }
 
+  @Test
+  void everyRangeAndTieMatchesIndependentPredicatesWithinTheProbeBudget() {
+    final int height = 4;
+    final int max = (1 << height) - 1;
+    final MemoryStore lower = new MemoryStore();
+    final MemoryStore upper = new MemoryStore();
+    final RelationalIntervalTree tree = new RelationalIntervalTree(height, lower, upper);
+    for (int lo = 1; lo <= max; lo++) {
+      for (int hi = lo; hi <= max; hi++) {
+        tree.insert(lo * 64L + hi, lo, hi);
+      }
+    }
+    for (int start = 0; start <= max + 1; start++) {
+      for (int end = start; end <= max + 1; end++) {
+        final LongArrayList actual = new LongArrayList();
+        final LongOpenHashSet expected = new LongOpenHashSet();
+        for (int lo = 1; lo <= max; lo++) {
+          for (int hi = lo; hi <= max; hi++) {
+            if (lo <= end && start <= hi) {
+              expected.add(lo * 64L + hi);
+            }
+          }
+        }
+        lower.scans = upper.scans = 0;
+        tree.intersect(start, end, actual::add);
+        assertEquals(expected, new LongOpenHashSet(actual));
+        assertEquals(expected.size(), actual.size(), "each registration is emitted once");
+        assertTrue(lower.scans + upper.scans <= 2 * height + 1);
+        for (int strict = 0; strict < 4; strict++) {
+          final LongOpenHashSet matches = new LongOpenHashSet(actual);
+          if ((strict & 1) != 0) {
+            tree.startingAt(end, matches::remove);
+          }
+          if ((strict & 2) != 0) {
+            tree.endingAt(start, matches::remove);
+          }
+          expected.clear();
+          expectedRange(max, start, end, strict, expected);
+          assertEquals(expected, matches, "strictness " + strict + " window " + start + "," + end);
+        }
+      }
+    }
+  }
+
+  private static void expectedRange(final int max, final int start, final int end, final int strict,
+      final LongOpenHashSet expected) {
+    for (int lo = 1; lo <= max; lo++) {
+      for (int hi = lo; hi <= max; hi++) {
+        if (((strict & 1) != 0
+            ? lo < end
+            : lo <= end)
+            && ((strict & 2) != 0
+                ? start < hi
+                : start <= hi)) {
+          expected.add(lo * 64L + hi);
+        }
+      }
+    }
+  }
+
   private static final class MemoryStore implements OrderedStore {
     private final TreeMap<Long, TreeMap<Long, LongOpenHashSet>> forks = new TreeMap<>();
     private int scans;
@@ -89,6 +149,16 @@ final class RelationalIntervalTreeTest {
       final var endpoints = forks.get(fork);
       if (endpoints != null && lo <= hi) {
         for (final var refs : endpoints.subMap(lo, true, hi, true).values()) {
+          refs.forEach(out);
+        }
+      }
+    }
+
+    @Override
+    public void scanForks(final long lo, final long hi, final LongConsumer out) {
+      scans++;
+      for (final var endpoints : forks.subMap(lo, true, hi, true).values()) {
+        for (final var refs : endpoints.values()) {
           refs.forEach(out);
         }
       }

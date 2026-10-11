@@ -130,7 +130,7 @@ final class BetaIsDiscBitRoutingProbe {
         final HOTIndirectPage foldedNode;
         try {
           foldedNode = HOTIncrementalInsert.addChildAtCombination(bc.node, comboPartial, swizzle(comboLeaf),
-              bc.node.getHeight(), 1, allocator::getAndIncrement);
+              bc.node.getHeight(), 1, IndexType.CAS, allocator::getAndIncrement);
         } catch (IllegalArgumentException dup) {
           // comboPartial already a child partial — addChildAtCombination rejects it.
           comboLeaf.close();
@@ -257,7 +257,7 @@ final class BetaIsDiscBitRoutingProbe {
 
         // ---- the decomposition: splitIndirect(node) at node.MSB ----
         final HOTIncrementalInsert.BiNode split =
-            HOTIncrementalInsert.splitIndirect(bc.node, 1, allocator::getAndIncrement);
+            HOTIncrementalInsert.splitIndirect(bc.node, 1, IndexType.CAS, allocator::getAndIncrement);
         // K routes into one half by node.MSB.
         final int nodeMsb = bc.node.getMostSignificantBitIndex();
         final boolean kMsbBit = HOTBulkBuilder.bitAt(k, nodeMsb);
@@ -293,13 +293,13 @@ final class BetaIsDiscBitRoutingProbe {
           if (betaCol >= 0) {
             betaSurvivesInHalf++;
             foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, swizzle(comboLeaf),
-                half.getHeight(), 1, allocator::getAndIncrement);
+                half.getHeight(), 1, IndexType.CAS, allocator::getAndIncrement);
           } else {
             betaLostInHalf++;
             // beta is new to the half — fold it as a fresh disc bit via addEntryWithInsertInfo.
             foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue, halfInfo.firstAffected(),
                 halfInfo.affectedCount(), halfInfo.subtreePrefix(), swizzle(comboLeaf), half.getHeight(), 1,
-                allocator::getAndIncrement);
+                IndexType.CAS, allocator::getAndIncrement);
           }
         } catch (IllegalArgumentException | IllegalStateException ex) {
           comboLeaf.close();
@@ -548,7 +548,8 @@ final class BetaIsDiscBitRoutingProbe {
     if (node.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
       return node;
     }
-    final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, 1, allocator::getAndIncrement);
+    final HOTIncrementalInsert.BiNode split =
+        HOTIncrementalInsert.splitIndirect(node, 1, IndexType.CAS, allocator::getAndIncrement);
     return HOTIndirectPage.createBiNode(allocator.getAndIncrement(), 1, split.discriminativeBitIndex(), split.left(),
         split.right(), split.height());
   }

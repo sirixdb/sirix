@@ -28,7 +28,10 @@ import java.nio.charset.StandardCharsets;
  * <p>
  * The epoch lane stores no timezone spelling. A {@code Z} input is parsed losslessly on the
  * timeline, but extractors flag that cell unrepresentable for text reconstruction. Existing query
- * admission then falls back to the original record, preserving the suffix without a format change.
+ * lexical admission then falls back to the original record, preserving the suffix. Consumers of the
+ * epoch lane must separately prove
+ * {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_PURE_UTC_TIMESTAMP} provenance before bypassing
+ * that lexical flag.
  *
  * <h2>Formatting is allocation-free</h2> Every {@code format*} method writes ASCII into a
  * caller-owned {@code byte[]}; {@link #scratch()} hands out a per-thread buffer big enough for the
@@ -61,6 +64,15 @@ public final class ProjectionTemporalCodec {
    * of magnitude away from {@link Long#MIN_VALUE}.
    */
   public static final long NOT_CANONICAL = Long.MIN_VALUE;
+
+  /**
+   * Query-safe provenance for an already parsed timestamp: explicit UTC, years 0001..9999. Year zero
+   * is codec-representable but stays on the original cast because query calendars can reject it. This
+   * predicate allocates nothing on extraction's hot path.
+   */
+  static boolean isUtcTimestampSource(final long epochSeconds, final int textLength) {
+    return textLength == TIMESTAMP_TEXT_LENGTH + 1 && epochSeconds >= -62_135_596_800L;
+  }
 
   public static final int SECONDS_PER_MINUTE = 60;
   public static final int SECONDS_PER_HOUR = 3600;

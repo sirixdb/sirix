@@ -57,13 +57,14 @@ import io.sirix.index.IndexType;
 import io.sirix.index.name.Names;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
 
 /**
  * The name page holds all names and their keys for a revision. Furthermore, it has references to
  * name indexes.
  */
-public final class NamePage extends AbstractForwardingPage {
+public final class NamePage extends AbstractForwardingPage implements IndexRootPage {
 
   /**
    * Offset of reference to attributes index-tree.

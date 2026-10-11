@@ -1,9 +1,14 @@
 package io.sirix.access.trx.page;
 
+import io.sirix.page.TemporalAggregateIndexPage;
+import io.sirix.page.ChangeLogIndexPage;
+
 import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineReader.RecordPageGuard;
 import io.sirix.api.HOTReadIntent;
+import io.sirix.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
@@ -16,9 +21,11 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.ProjectionIndexPage;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.HOTLeafEntry;
+import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -53,6 +60,16 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public boolean hasTrxIntentLog() {
     return delegate().hasTrxIntentLog();
+  }
+
+  @Override
+  public StorageEngineReader getTransactionView() {
+    return delegate().getTransactionView();
+  }
+
+  @Override
+  public RecordPageGuard preserveRecordPageGuard() {
+    return delegate().preserveRecordPageGuard();
   }
 
   @Override
@@ -217,8 +234,18 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public io.sirix.page.ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
+  public ValidTimeIndexPage getValidTimeIndexPage(final RevisionRootPage revisionRoot) {
     return delegate().getValidTimeIndexPage(revisionRoot);
+  }
+
+  @Override
+  public TemporalAggregateIndexPage getTemporalAggregateIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getTemporalAggregateIndexPage(revisionRoot);
+  }
+
+  @Override
+  public ChangeLogIndexPage getChangeLogIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getChangeLogIndexPage(revisionRoot);
   }
 
   @Override
@@ -246,6 +273,12 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
       final long sideReferenceKey, final HOTReadIntent intent) {
     return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent);
+  }
+
+  @Override
+  public @Nullable HOTLeafEntry readHOTProjectionEntry(final PageReference reference, final byte[] key,
+      final long sideReferenceKey, final HOTReadIntent intent, final @Nullable ReadScope scope) {
+    return delegate().readHOTProjectionEntry(reference, key, sideReferenceKey, intent, scope);
   }
 
   @Override

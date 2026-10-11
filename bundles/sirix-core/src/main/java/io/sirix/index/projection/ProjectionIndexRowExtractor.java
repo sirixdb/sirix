@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogSlab.Row;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
@@ -13,11 +15,13 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import org.jspecify.annotations.Nullable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -114,6 +118,8 @@ public final class ProjectionIndexRowExtractor {
    * typing: Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
    * arithmetic as {@code Flt} — neither matches a served {@code Dbl}).
    */
+  // For TIMESTAMP the same provenance channel means not a canonical UTC (Z-suffixed) source.
+  // Null, duplicate and zone-less cells fail closed; epochs retain their original text fallback.
   private final boolean[] rowNonDoubleSource;
 
   /**
@@ -188,8 +194,16 @@ public final class ProjectionIndexRowExtractor {
       // the LongIterator avoids boxing a Long per PCR.
       final LongSet fieldPcrs = pathSummary.getPCRsForPath(fieldPaths.get(i));
       for (final LongIterator it = fieldPcrs.iterator(); it.hasNext();) {
-        pcrKeys.add(it.nextLong());
+        final long pcr = it.nextLong();
+        pcrKeys.add(pcr);
         pcrCols.add(i);
+        if (columnKinds[i] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP) {
+          final long arrayPcr = pathSummary.findChild(pcr, PathSummaryWriter.ARRAY_PATH_QNM, NodeKind.ARRAY);
+          if (arrayPcr >= 0 && !fieldPcrs.contains(arrayPcr)) {
+            pcrKeys.add(arrayPcr);
+            pcrCols.add(i);
+          }
+        }
       }
     }
     this.fieldPcrKeys = pcrKeys.toLongArray();
@@ -235,9 +249,7 @@ public final class ProjectionIndexRowExtractor {
         rowNonIntegral[column] = true;
         numericColumnSawNonIntegral[column] = true;
       }
-      if (batch.flagNonDoubleSource(column, row)) {
-        rowNonDoubleSource[column] = true;
-      }
+      rowNonDoubleSource[column] = batch.flagNonDoubleSource(column, row);
       switch (columnKinds[column]) {
         // The temporal kinds join the long lane here, not the string one: the batch already parsed
         // the document's canonical text into an epoch when the worker fed the cell, so nothing is
@@ -401,6 +413,54 @@ public final class ProjectionIndexRowExtractor {
     return out;
   }
 
+  /**
+   * Snapshot the current extraction without navigating or decoding the persisted projection again.
+   */
+  Row captureChangeRow(final boolean object, final @Nullable Row previous, final long @Nullable [] selected) {
+    final Row row = new Row(object, columnKinds.length);
+    if (previous != null && selected != null) {
+      System.arraycopy(previous.flags, 0, row.flags, 0, columnKinds.length);
+      System.arraycopy(previous.numbers, 0, row.numbers, 0, columnKinds.length);
+      System.arraycopy(previous.text, 0, row.text, 0, columnKinds.length);
+    }
+    for (int column = 0; column < columnKinds.length; column++) {
+      if (selected != null && (selected[column >>> 6] & (1L << column)) == 0) {
+        continue;
+      }
+      row.flags[column] = (byte) ((rowPresent[column]
+          ? ChangeLogSlab.PRESENT
+          : 0)
+          | (rowUnrepresentable[column]
+              ? ChangeLogSlab.UNREPRESENTABLE
+              : 0)
+          | (rowNonIntegral[column]
+              ? ChangeLogSlab.NON_INTEGRAL
+              : 0)
+          | (rowNonDoubleSource[column]
+              ? ChangeLogSlab.NON_DOUBLE
+              : 0));
+      row.text[column] = null;
+      row.numbers[column] = rowLongs[column];
+      if (!rowPresent[column] || rowUnrepresentable[column]) {
+        continue;
+      }
+      switch (columnKinds[column]) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT ->
+          row.text[column] = new String(rowStringUtf8[column], 0, rowStringUtf8Lengths[column], StandardCharsets.UTF_8);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> row.text[column] = rowStringSetLen[column] == 0
+            ? EMPTY_SET
+            : Arrays.copyOf(rowStringSets[column], rowStringSetLen[column]);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> row.numbers[column] = rowBools[column]
+            ? 1
+            : 0;
+        default -> {
+        }
+      }
+    }
+    return row;
+  }
+
   private static final byte[] EMPTY_UTF8 = new byte[0];
   private static final String[] EMPTY_SET = new String[0];
 
@@ -519,7 +579,7 @@ public final class ProjectionIndexRowExtractor {
       rowPresent[i] = false;
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
-      rowNonDoubleSource[i] = false;
+      rowNonDoubleSource[i] = columnKinds[i] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
       rowStringSetLen[i] = 0;
     }
   }
@@ -574,6 +634,7 @@ public final class ProjectionIndexRowExtractor {
               // but UNREPRESENTABLE.
               rowPresent[col] = true;
               rowUnrepresentable[col] = true;
+              rowNonDoubleSource[col] |= columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
             }
           }
           // Descend regardless — declared NESTED fields live below this node.
@@ -652,6 +713,7 @@ public final class ProjectionIndexRowExtractor {
       // or last value would be a wrong answer. Poison the cell and force value consumers to the
       // generic XML pipeline.
       rowUnrepresentable[column] = true;
+      rowNonDoubleSource[column] |= columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
       return;
     }
     if (!rtx.moveToFirstChild()) {
@@ -682,11 +744,13 @@ public final class ProjectionIndexRowExtractor {
     }
     if (rowPresent[column]) {
       rowUnrepresentable[column] = true;
+      rowNonDoubleSource[column] |= columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
       return;
     }
     rowPresent[column] = true;
     if (value == null) {
       rowUnrepresentable[column] = true;
+      rowNonDoubleSource[column] |= columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
       return;
     }
     try {
@@ -731,6 +795,8 @@ public final class ProjectionIndexRowExtractor {
           throw ProjectionTemporalCodec.notCanonical(columnKind, column, value);
         }
         rowLongs[column] = epoch;
+        rowNonDoubleSource[column] = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+            && !ProjectionTemporalCodec.isUtcTimestampSource(epoch, value.length());
         rowUnrepresentable[column] =
             columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && value.length() == 20;
       } else {
@@ -1024,6 +1090,8 @@ public final class ProjectionIndexRowExtractor {
       throw ProjectionTemporalCodec.notCanonical(columnKind, col, utf8, 0, length);
     }
     rowLongs[col] = epoch;
+    rowNonDoubleSource[col] = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+        && !ProjectionTemporalCodec.isUtcTimestampSource(epoch, length);
     rowUnrepresentable[col] = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP && length == 20;
     // The cell lives in the long lane from here on; leaving the borrowed slice visible would let a
     // string-shaped consumer read a value this column does not store.
@@ -1044,6 +1112,7 @@ public final class ProjectionIndexRowExtractor {
       // an indexed predicate return a wrong answer. Mirror XML's repeated-scalar discipline and
       // poison the cell so value consumers fall back to the generic pipeline.
       rowUnrepresentable[col] = true;
+      rowNonDoubleSource[col] |= columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP;
       return;
     }
     rowPresent[col] = true;

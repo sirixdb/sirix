@@ -42,6 +42,7 @@ import io.sirix.index.hot.ByteLaneSearch;
 import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.index.hot.PostingDeltas;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
@@ -123,8 +124,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Page-envelope flag bit: this leaf serializes a trailing overflow-page-reference section (the side
    * map of {@link OverflowPage} references keyed by {@link #overflowPageRefKey(long, int)} — a
-   * generic leaf-page facility; the projection index is its current user, see
-   * docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3).
+   * generic leaf-page facility used by projection segments and referenced posting chunks).
    */
   public static final byte FLAG_OVERFLOW_PAGE_REFS = 0x01;
 
@@ -134,10 +134,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * THE side-map key convention, in one place so the writer and the decoder
    * ({@link #moveOverflowPageRefsAfterSplit}) cannot drift: a side-map entry's key is
-   * {@code (ownerSlotKey << 16) | subId}, where {@code ownerSlotKey} is the long whose
-   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Validates both halves —
-   * a truncated owner key would collide two distinct owners and mis-route refs after splits
-   * (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
+   * {@code (ownerSlotKey << 16) | subId}. For projection entries, {@code ownerSlotKey}'s
+   * {@code PathKeySerializer} encoding is the owning slot's stored key bytes. Posting entries use
+   * {@link PostingDeltas#referenceKey} and route by {@link #findReferencedPostingOwner} instead.
+   * Validates both halves — a truncated owner key would collide two distinct owners and mis-route
+   * refs after splits (sign-extended {@code >> 16} recovery), so it fails loudly here instead.
    *
    * <p>
    * The sub-id occupies 16 bits (was 8): the projection index encodes a column's segment id here, and
@@ -161,7 +162,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     return (ownerSlotKey << 16) | subId;
   }
 
-  /** Inverse of {@link #overflowPageRefKey}: the owning slot's long key. */
+  /**
+   * Inverse of {@link #overflowPageRefKey}; a posting reference's high field is a hash, not a slot.
+   */
   public static long overflowPageRefOwnerSlot(final long refKey) {
     return refKey >> 16;
   }
@@ -201,7 +204,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final LongAdder SUFFIX_PROBE_READS = new LongAdder();
   private static final LongAdder SIDE_REFERENCE_READS = new LongAdder();
 
-  /** Native suffix lanes inspected, excluding the fixed slot-length header. */
+  /**
+   * Suffix lanes inspected by segment-backed binary search, including compact images: one lane per
+   * word or residual-byte load, excluding fixed slot-length headers. Successful PEXT candidate checks
+   * do not contribute; a PEXT miss can fall back to counted binary search.
+   */
   public static long suffixProbeReads() {
     return SUFFIX_PROBE_READS.sum();
   }
@@ -314,7 +321,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private volatile boolean hot = false;
 
   // ===== Page references for overflow entries =====
-  private final SideReferenceMap pageReferences;
+  /**
+   * Assigned at construction and replaced at most once, by {@link #readSideReferences(long[], int)}
+   * on an unpublished decoded image, with a map already sized for its trailer. After publication the
+   * reference never changes and every access runs under the side-reference lifecycle.
+   */
+  private SideReferenceMap pageReferences;
 
   private static final int SIDE_REFERENCES_ACTIVE = 0;
   private static final int SIDE_REFERENCES_RETIRED = 1;
@@ -377,6 +389,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     SideReferenceMap(final int expected) {
       super(expected);
+    }
+
+    void fixupIds(final long databaseId, final long resourceId) {
+      final Object[] values = value;
+      for (int slot = 0; slot <= n; slot++) {
+        final PageReference reference = (PageReference) values[slot];
+        if (reference != null) {
+          reference.setDatabaseId(databaseId).setResourceId(resourceId);
+        }
+      }
     }
 
     boolean allDurableAndUnclaimed() {
@@ -444,6 +466,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         }
       }
       return output;
+    }
+
+    /** Number of table slots excluding the null-key slot, i.e. fastutil's {@code n}. */
+    int tableCapacity() {
+      return n;
     }
 
     /** Sever retained page references and release the expanded hash-table arrays after teardown. */
@@ -929,48 +956,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       return pextSearch(key, keyLen);
     }
 
-    // A compact raw image owns an exact byte[]; do not pay an FFM session/bounds check for
-    // every suffix byte in every older fragment. A moved/writable or sliced segment keeps the
-    // ordinary path, so these reads cannot observe an obsolete backing array after mutation.
-    final byte[] compact = compactSlotBytes();
-    return compact == null
-        ? binarySearchSuffix(key, keyLen)
-        : binarySearchCompactSuffix(key, keyLen, compact);
-  }
-
-  private byte @Nullable [] compactSlotBytes() {
-    if (binarySearchOnly && !slotMemory.isNative()) {
-      final Object base = slotMemory.heapBase().orElse(null);
-      if (base instanceof byte[] bytes && bytes.length == slotMemory.byteSize()) {
-        return bytes;
-      }
-    }
-    return null;
-  }
-
-  private int binarySearchCompactSuffix(final byte[] key, final int keyLen, final byte[] slots) {
-    final int[] offsets = slotOffsets;
-    int low = 0;
-    int high = entryCount;
-    while (low < high) {
-      final int middle = (low + high) >>> 1;
-      final int offset = offsets[middle];
-      final int suffixLength = (slots[offset] & 0xff) | (slots[offset + 1] & 0xff) << 8;
-      final int start = offset + Short.BYTES;
-      final int comparison = Arrays.compareUnsigned(slots, start, start + suffixLength, key, commonPrefixLen, keyLen);
-      if (comparison < 0) {
-        low = middle + 1;
-      } else if (comparison > 0) {
-        high = middle;
-      } else {
-        return middle;
-      }
-    }
-    return -(low + 1);
+    return binarySearchSuffix(key, keyLen);
   }
 
   /**
-   * Fill one missing projection entry during read reconstruction. The private result's routing index
+   * Fill one missing opaque-slot entry during read reconstruction. The private result's routing index
    * would be invalidated by every inserted entry; binary search avoids repeatedly building it, and
    * the known insertion point avoids a second search. Prefix adjustment, packed bytes, insertion
    * order and dirty-bit shifts are exactly the ordinary insertion path's operations. An existing
@@ -978,12 +968,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public boolean fillProjectionEntry(final HOTLeafPage older, final int row) {
     Objects.requireNonNull(older);
-    if (indexType != IndexType.PROJECTION || older.indexType != IndexType.PROJECTION) {
+    if (!indexType.hasOpaqueValues() || older.indexType != indexType) {
       throw new IllegalArgumentException("projection fragments required");
     }
+    return fillMissingFragmentEntry(older, row);
+  }
+
+  /**
+   * Fill a missing CAS or VALIDTIME fragment slot byte-for-byte, including posting delta tombstones
+   * and referenced-chunk markers. A newer slot always wins. Reconstruction must not merge postings
+   * for the same physical key or repeat its search when inserting an absent key.
+   */
+  public boolean fillPostingEntry(final HOTLeafPage older, final int row) {
+    Objects.requireNonNull(older);
+    if ((indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) || older.indexType != indexType) {
+      throw new IllegalArgumentException("matching CAS or VALIDTIME fragments required");
+    }
+    return fillMissingFragmentEntry(older, row);
+  }
+
+  private boolean fillMissingFragmentEntry(final HOTLeafPage older, final int row) {
     final byte[] key = older.getKey(row);
     if (key == null) {
-      throw new IllegalStateException("Cannot read projection fragment key " + row);
+      throw new IllegalStateException("Cannot read HOT fragment key " + row);
     }
     final int position = findEntry(key, key.length, false);
     if (position >= 0) {
@@ -1612,6 +1619,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final int keyLen = commonPrefixLen + suffixLen;
     Objects.checkFromIndexSize(pos, Integer.BYTES, keyLen);
     final long suffixStart = offset + 2;
+    if (pos >= commonPrefixLen) {
+      return SegmentAccess.getIntBE(slotMemory, suffixStart + pos - commonPrefixLen);
+    }
     int v = 0;
     for (int i = pos; i < pos + Integer.BYTES; i++) {
       final int b = i < commonPrefixLen
@@ -1774,7 +1784,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * <p>
    * Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
    * instead of conflating it with an absent/unreadable value. Callers that rebuild or migrate leaf
-   * entries must use this method when zero-length projection tombstones are part of the value domain.
+   * entries must use this method when zero-length opaque-slot tombstones are part of the value
+   * domain.
    *
    * @param index entry index in this leaf
    * @return a newly allocated byte array containing the complete stored value
@@ -1783,22 +1794,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] copyStoredValue(final int index) {
     Objects.checkIndex(index, entryCount);
-    final byte[] compact = compactSlotBytes();
-    if (compact != null) {
-      final int offset = slotOffsets[index];
-      if (offset >= 0 && offset <= compact.length - Short.BYTES) {
-        final int suffixLength = (compact[offset] & 0xff) | (compact[offset + 1] & 0xff) << 8;
-        final int lengthOffset = offset + Short.BYTES + suffixLength;
-        if (lengthOffset <= compact.length - Short.BYTES) {
-          final int length = (compact[lengthOffset] & 0xff) | (compact[lengthOffset + 1] & 0xff) << 8;
-          final int start = lengthOffset + Short.BYTES;
-          if (length <= compact.length - start) {
-            return Arrays.copyOfRange(compact, start, start + length);
-          }
-        }
-      }
-      throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
-    }
     final long ref = valueRef(index);
     final int length = refLength(ref);
     if (length < 0) {
@@ -2857,16 +2852,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   private static final byte[] TOMBSTONE_VALUE = {(byte) 0xFE};
 
-  /** Projection values are opaque; their tombstone is the physically present zero-length value. */
-  private static final byte[] PROJECTION_TOMBSTONE_VALUE = new byte[0];
+  /**
+   * Opaque-slot values use a physical zero-length tombstone; the tombstone is the physically present
+   * zero-length value.
+   */
+  private static final byte[] OPAQUE_TOMBSTONE_VALUE = new byte[0];
 
   /**
    * Classify one physically stored value according to this leaf's index type.
    *
    * <p>
    * Uses the packed value reference directly, so the check allocates nothing and never conflates a
-   * valid zero-length projection tombstone with an unreadable slot. An unreadable value is structural
-   * corruption and fails before a delete or compaction mutates the page.
+   * valid zero-length opaque-slot tombstone with an unreadable slot. An unreadable value is
+   * structural corruption and fails before a delete or compaction mutates the page.
    * </p>
    */
   private boolean isStoredTombstone(final int index) {
@@ -2876,7 +2874,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (valueLength < 0) {
       throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
     }
-    return indexType == IndexType.PROJECTION
+    return indexType.hasOpaqueValues()
         ? valueLength == 0
         : NodeReferencesSerializer.isTombstone(this, valueRef);
   }
@@ -2885,8 +2883,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Delete an entry by key (tombstone-based).
    *
    * <p>
-   * Replaces the value with the index type's tombstone (zero length for PROJECTION, {@code 0xFE} for
-   * posting indexes) rather than physically removing the entry. This is essential for versioning
+   * Replaces the value with the index type's tombstone (zero length for opaque slots, {@code 0xFE}
+   * for posting indexes) rather than physically removing the entry. This is essential for versioning
    * correctness: INCREMENTAL and DIFFERENTIAL modes reconstruct pages by merging fragments from
    * newest to oldest. If an entry were physically removed, the older fragment's copy would be
    * resurrected during reconstruction.
@@ -2927,8 +2925,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Write tombstone value instead of physically removing the entry.
     // The key remains in the page so versioning reconstruction sees it and
     // does not resurrect the entry from older fragments.
-    return updateValue(index, indexType == IndexType.PROJECTION
-        ? PROJECTION_TOMBSTONE_VALUE
+    return updateValue(index, indexType.hasOpaqueValues()
+        ? OPAQUE_TOMBSTONE_VALUE
         : TOMBSTONE_VALUE);
   }
 
@@ -3066,8 +3064,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Insert {@code value} under {@code key}, or REPLACE the existing value if the key is already
-   * present. Used by the split machinery for index types whose values are opaque byte payloads
-   * (PROJECTION chunks) rather than mergeable NodeReferences bitmaps.
+   * present. Used by the split machinery for index types whose values are opaque byte payloads rather
+   * than mergeable NodeReferences bitmaps; {@link IndexType#hasOpaqueValues()} owns that policy.
    *
    * <p>
    * Same space behavior as {@link #put}/{@link #updateValue}: prefix establishment and shrinkage are
@@ -3113,6 +3111,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       // identical to the slow path below.
       final long existingRef = valueRef(index);
       if (existingRef != NO_VALUE_REF) {
+        if (NodeReferencesSerializer.isReferenced(this, existingRef)) {
+          throw new IllegalStateException("Referenced posting chunks must be merged through their side pages");
+        }
         if (NodeReferencesSerializer.isTombstone(this, existingRef)) {
           NodeReferencesSerializer.requireValidChunkPayload(value, 0, valueLen);
           final byte[] valueSlice = valueLen == value.length
@@ -3401,14 +3402,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Route overflow-page-reference side-map entries to {@code target} after a split moved slots there.
-   * A side-map key encodes its owning slot as {@code (slotLong << 16) | subId}, where the owning
-   * slot's stored key bytes are {@code PathKeySerializer.serialize(slotLong)} (the owning slot's
-   * stored-key encoding — see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3 for the projection
-   * index, this facility's current user). A reference must live on the page that holds its owning
-   * slot, or readers navigating to the post-split leaf would find the slot but not its overflow page.
-   * Routing by owner-slot residency (not by key-range comparison) stays correct for the disc-bit
-   * split variants, whose partition is not contiguous in key order. Called by every split variant
-   * after entry transfer.
+   * Projection owners are located by their stored slot key; posting owners are located by
+   * {@link #findReferencedPostingOwner}, since a posting side-map key carries a hash. A reference
+   * must live on the page that holds its owning slot, or readers navigating to the post-split leaf
+   * would find the slot but not its overflow page. Routing by owner-slot residency (not by key-range
+   * comparison) stays correct for the disc-bit split variants, whose partition is not contiguous in
+   * key order. Called by every split variant after entry transfer.
    */
   private void moveOverflowPageRefsAfterSplit(final HOTLeafPage target) {
     beginSideReferenceRead();
@@ -3422,7 +3421,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         final var entry = iterator.next();
         final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
         PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
-        if (target.findEntry(ownerKey) >= 0) {
+        if (target.findEntry(ownerKey) >= 0 || target.findReferencedPostingOwner(entry.getLongKey()) >= 0) {
           target.setPageReference(entry.getLongKey(), entry.getValue());
           iterator.remove();
         }
@@ -3613,7 +3612,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     //
     // Value semantics depend on the index type: CAS/PATH/NAME values are
     // NodeReferences bitmaps and an existing key must be MERGED (bitmap OR).
-    // PROJECTION values are opaque chunk payloads — "insert" of an existing key
+    // Opaque-slot values are arbitrary payloads — "insert" of an existing key
     // is a REPLACE; feeding chunk bytes through the NodeReferences merge would
     // deserialize random payload bytes as roaring bitmaps and corrupt the slot.
     final boolean newKeyToRight = DiscriminativeBitComputer.isBitSet(keySlice, msdb);
@@ -3621,7 +3620,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         ? target
         : this;
     final boolean insertOk;
-    if (indexType == IndexType.PROJECTION) {
+    if (indexType.hasOpaqueValues()) {
       insertOk = half.putOrReplace(keySlice, valueSlice);
     } else {
       insertOk = half.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
@@ -4695,6 +4694,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     return slotMemory;
   }
 
+  /**
+   * Whether this leaf is an immutable compact read image: exactly its packed slot bytes on GC-owned
+   * native memory, no allocator frame, no routing index, never mutated in place (writers copy it).
+   * The fragment cache keeps such images in the half allocator pressure cannot reclaim, with the
+   * heap-resident ones: every decoded HOT leaf image is native now, so that the segment accessors
+   * shared by all pages only ever see native receivers (see
+   * {@link PageLayout#getBitmapWord(byte[], int)}).
+   */
+  public boolean isCompactImage() {
+    return binarySearchOnly;
+  }
+
   @Override
   public int getUsedSlotsSize() {
     return usedSlotMemorySize;
@@ -4806,6 +4817,68 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
   }
 
+  /**
+   * Install an unpublished leaf's decoded side trailer: {@code count} (compositeKey, diskOffset)
+   * pairs stored interleaved in {@code pairs[0..2*count)}, under one lifecycle hold.
+   *
+   * <p>
+   * The map is created already sized for {@code count} (fastutil sizes its tables in the
+   * constructor), so no rehash of an empty table is ever inlined here, and the loop touches only
+   * primitive arrays and final classes: there is no interface call inside it whose receiver-type
+   * guard a JIT could hoist above the loop. Both shapes previously deoptimized the compiled decoder
+   * in the middle of cold lookups. The install is atomic: a rejected pair leaves the leaf unchanged.
+   * </p>
+   */
+  void readSideReferences(final long[] pairs, final int count) {
+    Objects.requireNonNull(pairs);
+    if (count < 0) {
+      throw new IllegalArgumentException("Negative HOT-leaf side-reference count");
+    }
+    if ((long) count * 2 > pairs.length) {
+      throw new IndexOutOfBoundsException("Truncated HOT-leaf side-reference trailer");
+    }
+    beginSideReferenceRead();
+    try {
+      if (!pageReferences.isEmpty()) {
+        throw new IllegalStateException("Side-reference decoding requires an empty unpublished leaf");
+      }
+      if (count == 0) {
+        return;
+      }
+      final SideReferenceMap decoded = new SideReferenceMap(count);
+      for (int index = 0, pair = 0; index < count; index++, pair += 2) {
+        final long offset = pairs[pair + 1];
+        if (offset < 0) {
+          throw new IllegalStateException("Invalid HOT-leaf side-reference offset");
+        }
+        decoded.put(pairs[pair], new PageReference().setKey(offset));
+      }
+      pageReferences = decoded;
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Package-private probe for decoder tests: the side map's current table slot count. */
+  int sideReferenceTableCapacity() {
+    beginSideReferenceRead();
+    try {
+      return pageReferences.tableCapacity();
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Apply the owning resource identity without a temporary values view, array or list. */
+  void fixupSideReferenceIds(final long databaseId, final long resourceId) {
+    beginSideReferenceRead();
+    try {
+      pageReferences.fixupIds(databaseId, resourceId);
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
   @Override
   public PageReference getPageReference(long key) {
     if (READ_WORK_DIAG) {
@@ -4830,6 +4903,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     } finally {
       endSideReferenceRead();
     }
+  }
+
+  /**
+   * The slot whose value is a referenced posting-chunk marker carrying {@code refKey}, or {@code -1}.
+   * A posting index's composite keys are not 8-byte path keys, so a referenced chunk's side reference
+   * is routed to the leaf that holds the marker, not by {@link #overflowPageRefOwnerSlot}'s
+   * derivation. A bounded scan of this leaf's slot headers locates the owner during structural moves
+   * and detects local side-map collisions when a folded payload is referenced.
+   */
+  public int findReferencedPostingOwner(final long refKey) {
+    if (indexType != IndexType.CAS && indexType != IndexType.VALIDTIME) {
+      return -1;
+    }
+    for (int index = 0; index < entryCount; index++) {
+      final long ref = valueRef(index);
+      if (NodeReferencesSerializer.isReferenced(this, ref) && refLongBEAt(ref, 1) == refKey) {
+        return index;
+      }
+    }
+    return -1;
   }
 
   /** Number of side-map references on this page. */

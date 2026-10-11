@@ -16,6 +16,9 @@ import io.sirix.index.projection.ProjectionSortedGroupScan.Order;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import io.sirix.settings.VersioningType;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
@@ -135,14 +138,6 @@ final class ProjectionSortedMissingAggregateTest {
         assertEquals(0, clean.leaves(), "a range whose leaves all have summaries needs no data leaf");
       }
 
-      // Every shape answers what it answered before the count existed, min-only route included.
-      final List<@Nullable List<Group>> counted = everyRoute(reader);
-      downgradeHeader(session);
-      try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-        final StorageEngineReader uncounted = trx.getStorageEngineReader();
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(uncounted));
-        assertEquals(counted, everyRoute(uncounted), "the count may only save reads, never change an answer");
-      }
     });
   }
 
@@ -191,27 +186,18 @@ final class ProjectionSortedMissingAggregateTest {
     return summaryless;
   }
 
-  @Test
-  void aViewWrittenBeforeTheCountStillAnswersExactly() {
-    final List<Row> rows = fixture(false);
-    withView(rows, "uncounted-still-exact", (session, reader) -> {
-      final List<@Nullable List<Group>> counted = new ArrayList<>();
-      for (final String kind : new String[] {CLEAN_PREFIX, DIRTY_PREFIX, "k2"}) {
-        counted.addAll(everyRoute(reader, kind));
-      }
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void obsoleteDirectoryHeaderIsRejectedByReadersAndEditors(final VersioningType versioning) {
+    withView(fixture(false), "obsolete-header", versioning, (session, reader) -> {
       downgradeHeader(session);
       try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
-        final StorageEngineReader uncounted = trx.getStorageEngineReader();
-        final ProjectionSortedDirectory.Accessor directory = ProjectionSortedDirectory.open(uncounted, 0);
-        assertNotNull(directory);
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, directory.missingAggregateRows());
-        final List<@Nullable List<Group>> walked = new ArrayList<>();
-        for (final String kind : new String[] {CLEAN_PREFIX, DIRTY_PREFIX, "k2"}) {
-          walked.addAll(everyRoute(uncounted, kind));
-        }
-        assertEquals(counted, walked, "a view with every value present answers the same, counted or not");
-        assertEquals(expected(rows, CLEAN_PREFIX, 4, Order.MIN_ASC, false),
-            topK(uncounted, CLEAN_PREFIX, Order.MIN_ASC, false));
+        assertThrows(IllegalStateException.class,
+            () -> ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0));
+      }
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        assertThrows(IllegalStateException.class, () -> new ProjectionSortedDirectory.Editor(
+            new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));
       }
     });
   }
@@ -352,28 +338,6 @@ final class ProjectionSortedMissingAggregateTest {
   }
 
   @Test
-  void anUncountedViewNeverInventsACountFromOneMaintenancePass() {
-    final Path databasePath = temporaryDirectory.resolve("uncounted-maintenance");
-    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
-    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
-      try (JsonResourceSession session = database.beginResourceSession("resource")) {
-        try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          build(writer, fixture(true));
-          writer.commit();
-        }
-        downgradeHeader(session);
-        // One pass sees only its own edits, never the rows the rest of the view already holds, so
-        // an uncounted view stays uncounted until it is rebuilt or its summaries are backfilled.
-        edit(session, editor -> editor.insert(key(new Row("k2", "g4", null, 9_201)), new byte[0]));
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(session));
-        edit(session, editor -> editor.remove(key(new Row("k2", "g4", null, 9_201))));
-        assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(session));
-      }
-    }
-  }
-
-  @Test
   void aSpilledBuildCountsTheRowsWithoutAnAggregateValue() {
     final List<Row> rows = new ArrayList<>();
     long missing = 0;
@@ -418,7 +382,7 @@ final class ProjectionSortedMissingAggregateTest {
   }
 
   @Test
-  void backfillingLeafSummariesEstablishesTheCountOfAnUncountedView() {
+  void rebuildingLeafSummariesPreservesTheExactCount() {
     for (final boolean withAbsentValues : new boolean[] {true, false}) {
       final List<Row> rows = fixture(withAbsentValues);
       final Path databasePath = temporaryDirectory.resolve("backfill-" + withAbsentValues);
@@ -430,8 +394,7 @@ final class ProjectionSortedMissingAggregateTest {
             build(writer, rows);
             writer.commit();
           }
-          downgradeHeader(session);
-          assertEquals(ProjectionSortedDirectory.MISSING_AGGREGATE_ROWS_UNKNOWN, missingAggregateRowsOf(session));
+          assertEquals(rowsWithoutAValue(rows), missingAggregateRowsOf(session));
           try (JsonNodeTrx writer = session.beginNodeTrx()) {
             ProjectionSortedGroupScan.buildLeafSummaries(writer.getStorageEngineWriter(), 0);
             writer.commit();
@@ -673,10 +636,16 @@ final class ProjectionSortedMissingAggregateTest {
    * Build the view, commit it, then hand a read-only reader of that revision to {@code assertions}.
    */
   private void withView(final List<Row> rows, final String name, final ViewAssertions assertions) {
+    withView(rows, name, VersioningType.SLIDING_SNAPSHOT, assertions);
+  }
+
+  private void withView(final List<Row> rows, final String name, final VersioningType versioning,
+      final ViewAssertions assertions) {
     final Path databasePath = temporaryDirectory.resolve(name);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").build()));
+      assertTrue(
+          database.createResource(ResourceConfiguration.newBuilder("resource").versioningApproach(versioning).build()));
       try (JsonResourceSession session = database.beginResourceSession("resource")) {
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           build(writer, rows);

@@ -4,7 +4,9 @@
 package io.sirix.query.scan;
 
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.index.projection.ProjectionResidencyScope;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -16,6 +18,8 @@ import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,6 +40,8 @@ import java.util.concurrent.locks.LockSupport;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,6 +50,89 @@ final class SirixVectorizedExecutorLifecycleTest {
   private static JsonResourceSession unusedSessionStub() {
     return (JsonResourceSession) Proxy.newProxyInstance(JsonResourceSession.class.getClassLoader(),
         new Class<?>[] {JsonResourceSession.class}, (proxy, method, args) -> null);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void residencyScopesFollowTheEnabledPolicy(final boolean enabled) {
+    final boolean previous = ProjectionColumnStore.setResidencyHeadroomForTesting(enabled);
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1);
+    final long before = ProjectionResidencyScope.openedCount();
+    try {
+      executor.enterExecution();
+      try {
+        assertEquals(enabled
+            ? 1L
+            : 0L, ProjectionResidencyScope.openedCount() - before);
+        assertEquals(enabled, ProjectionResidencyScope.anyOpen());
+        executor.parallel(1, lane -> assertEquals(enabled, ProjectionResidencyScope.anyOpen()));
+        assertEquals(enabled
+            ? 1L
+            : 0L, ProjectionResidencyScope.openedCount() - before, "nested work shares the outermost scope");
+      } finally {
+        executor.leaveExecution();
+      }
+      assertFalse(ProjectionResidencyScope.anyOpen(), "the outermost exit closes its scope");
+    } finally {
+      executor.close();
+      ProjectionColumnStore.setResidencyHeadroomForTesting(previous);
+    }
+  }
+
+  @Test
+  void singleChunkRunsOnTheCallingThread() {
+    final Thread caller = Thread.currentThread();
+    final AtomicReference<Thread> chunkThread = new AtomicReference<>();
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 4);
+    try {
+      executor.parallel(1, lane -> {
+        assertEquals(0, lane);
+        chunkThread.set(Thread.currentThread());
+      });
+      assertSame(caller, chunkThread.get(), "one chunk must not start a worker and a separate cursor lane");
+    } finally {
+      executor.close();
+    }
+  }
+
+  @Test
+  void smallGroupMergeVisitsEveryPartitionOnTheCallingThread() {
+    final Thread caller = Thread.currentThread();
+    final Thread[] partitionThreads = new Thread[32];
+    final int[] visits = new int[32];
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 4);
+    try {
+      executor.mergePartitions(32, 4, part -> {
+        partitionThreads[part] = Thread.currentThread();
+        visits[part]++;
+      });
+      for (int part = 0; part < visits.length; part++) {
+        assertEquals(1, visits[part]);
+        assertSame(caller, partitionThreads[part]);
+      }
+    } finally {
+      executor.close();
+    }
+  }
+
+  @Test
+  void largerGroupMergeKeepsWorkerDispatch() {
+    final Thread caller = Thread.currentThread();
+    final Thread[] partitionThreads = new Thread[32];
+    final int[] visits = new int[32];
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 4);
+    try {
+      executor.mergePartitions(32, 33, part -> {
+        partitionThreads[part] = Thread.currentThread();
+        visits[part]++;
+      });
+      for (int part = 0; part < visits.length; part++) {
+        assertEquals(1, visits[part]);
+        assertNotSame(caller, partitionThreads[part]);
+      }
+    } finally {
+      executor.close();
+    }
   }
 
   @Test
@@ -562,9 +651,11 @@ final class SirixVectorizedExecutorLifecycleTest {
     final AtomicBoolean interruptRestored = new AtomicBoolean();
     final Thread caller = new Thread(() -> {
       try {
-        executor.parallel(1, lane -> {
-          workerStarted.countDown();
-          assertTrue(releaseWorker.await(5, TimeUnit.SECONDS));
+        executor.parallel(2, lane -> {
+          if (lane == 0) {
+            workerStarted.countDown();
+            assertTrue(releaseWorker.await(5, TimeUnit.SECONDS));
+          }
         });
       } catch (final Throwable throwable) {
         failure.set(throwable);

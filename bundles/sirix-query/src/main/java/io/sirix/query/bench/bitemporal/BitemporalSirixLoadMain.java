@@ -213,6 +213,10 @@ public final class BitemporalSirixLoadMain {
       state.arrayNodeKey = wtx.getNodeKey();
       ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, BitemporalSchema.DATABASE);
       createBusinessKeyIndex(session, wtx, state.name);
+      // The projection the grouped queries read their columns from, built from the same E0 records
+      // and maintained by every later publication's commit.
+      BitemporalProjections.declare(session, wtx, state.name);
+      BitemporalTemporalAggregates.declare(session, wtx, state.name);
       if (!wtx.moveTo(state.arrayNodeKey) || !wtx.moveToFirstChild()) {
         throw new IllegalStateException("cannot traverse inserted " + state.name + " array");
       }
@@ -226,7 +230,10 @@ public final class BitemporalSirixLoadMain {
           throw new IllegalStateException("short " + state.name + " array at id " + segment.id);
         }
       }
+      final long commitStart = System.nanoTime();
       wtx.commit("SH1 E0", BitemporalSchema.systemTime(0));
+      System.out.printf("SIRIX_COMMIT epoch=0 resource=%s events=%d apply_ms=0.0 commit_ms=%.1f%n", state.name,
+          events.size(), (System.nanoTime() - commitStart) / 1e6);
       assertRevision(wtx, 0, state.name);
     }
   }
@@ -245,10 +252,15 @@ public final class BitemporalSirixLoadMain {
       final List<Event> events, final int epoch) {
     try (JsonResourceSession session = database.beginResourceSession(state.name);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final long applyStart = System.nanoTime();
       for (final Event event : events) {
         state.apply(wtx, event);
       }
+      final long commitStart = System.nanoTime();
       wtx.commit("SH1 E" + epoch, BitemporalSchema.systemTime(epoch));
+      final long commitEnd = System.nanoTime();
+      System.out.printf("SIRIX_COMMIT epoch=%d resource=%s events=%d apply_ms=%.1f commit_ms=%.1f%n", epoch, state.name,
+          events.size(), (commitStart - applyStart) / 1e6, (commitEnd - commitStart) / 1e6);
       assertRevision(wtx, epoch, state.name);
     }
   }

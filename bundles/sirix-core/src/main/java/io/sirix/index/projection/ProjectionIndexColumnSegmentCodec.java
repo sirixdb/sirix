@@ -838,7 +838,7 @@ public final class ProjectionIndexColumnSegmentCodec {
       if (page.columnNumericNonIntegral(c)) {
         flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_NON_INTEGRAL;
       }
-      if (page.columnPureDoubleSource(c)) {
+      if (page.columnPureDoubleSource(c) || page.columnPureUtcTimestamp(c)) {
         flags |= ProjectionIndexRowGroupPage.COLUMN_FLAG_PURE_DOUBLE_SOURCE;
       }
 

@@ -81,8 +81,10 @@ import org.jspecify.annotations.Nullable;
  * additionally raise the column's unrepresentable flag. Value slots of absent rows hold defaults
  * ({@code 0} / {@code false} / {@code ""}); consumers MUST consult the presence bitmap before
  * trusting a value, and MUST decline columns whose unrepresentable flag is set (a present row's
- * stored default is not the real value). The tail is a mandatory part of the format —
- * {@link #deserialize} rejects payloads without it as corrupt.
+ * stored default is not the real value), except for timestamp epoch consumers proving
+ * {@link #COLUMN_FLAG_PURE_UTC_TIMESTAMP}. Lexical consumers still decline those timestamps. The
+ * tail is a mandatory part of the format — {@link #deserialize} rejects payloads without it as
+ * corrupt.
  *
  * <h2>Scan hot-path contract</h2>
  *
@@ -386,18 +388,25 @@ public final class ProjectionIndexRowGroupPage {
   public static final byte COLUMN_FLAG_NON_INTEGRAL = 0x02;
 
   /**
-   * Column flag bit (NUMERIC_DOUBLE columns only, docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §11-8):
-   * every PRESENT, representable cell of the column on this leaf was extracted from a {@code Double}
-   * source. A POSITIVE assertion — the bit's absence (old bytes, provenance-free fabrication paths,
-   * any non-Double source) fails closed to count-only serving. Under this bit the interpreted
-   * fallback provably aggregates the column in double space and types the result {@code xs:double},
-   * so sum/avg/min/max serving can be made digit-and-type-identical. Integer/Long/Big* sources clear
-   * the bit even when the double conversion is exact (the fallback would surface {@code Dec}), and
-   * {@code Float} sources clear it too (the fallback wraps them as {@code xs:float} and accumulates
-   * in FLOAT arithmetic, surfacing {@code Flt}) — the bar is result-type parity, not
-   * representability.
+   * NUMERIC_DOUBLE interpretation of the kind-specific provenance bit: every PRESENT, representable
+   * cell of the column on this leaf was extracted from a {@code Double} source. A POSITIVE assertion
+   * — the bit's absence (old bytes, provenance-free fabrication paths, any non-Double source) fails
+   * closed to count-only serving. Under this bit the interpreted fallback provably aggregates the
+   * column in double space and types the result {@code xs:double}, so sum/avg/min/max serving can be
+   * made digit-and-type-identical. Integer/Long/Big* sources clear the bit even when the double
+   * conversion is exact (the fallback would surface {@code Dec}), and {@code Float} sources clear it
+   * too (the fallback wraps them as {@code xs:float} and accumulates in FLOAT arithmetic, surfacing
+   * {@code Flt}) — the bar is result-type parity, not representability.
    */
   public static final byte COLUMN_FLAG_PURE_DOUBLE_SOURCE = 0x04;
+
+  /**
+   * For TIMESTAMP columns the provenance bit asserts that every present cell is a canonical
+   * Z-suffixed UTC timestamp. Its epoch lane is safe for dateTime comparisons even though the lexical
+   * unrepresentable bit preserves the original Z spelling for text consumers. Kind-specific reuse
+   * keeps the persisted flag layout unchanged; missing provenance declines.
+   */
+  public static final byte COLUMN_FLAG_PURE_UTC_TIMESTAMP = 0x04;
 
   static final int MAX_ORDER_LABEL_BYTES = 1 << 18;
 
@@ -538,7 +547,8 @@ public final class ProjectionIndexRowGroupPage {
   /**
    * Per-column flag: a PRESENT row carried a value the column kind cannot represent (JSON null,
    * nested object/array, or a kind mismatch such as a string in a NUMERIC_LONG column). Value-exact
-   * consumers must decline the column — the stored default is not the real value.
+   * consumers must decline the column — the stored default is not the real value. Timestamp epoch
+   * consumers may bypass the lexical flag only under {@link #COLUMN_FLAG_PURE_UTC_TIMESTAMP}.
    */
   private final boolean[] columnUnrepresentable;
 
@@ -550,12 +560,11 @@ public final class ProjectionIndexRowGroupPage {
   private final boolean[] columnNonIntegral;
 
   /**
-   * Per-column sticky inverse of {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE}: a NUMERIC_DOUBLE cell on
-   * THIS leaf was appended from a non-{@code Double} source — or from a caller that supplied no
-   * source provenance at all (fail closed). Meaningless for other kinds (never set, never
-   * serialized).
+   * Per-column sticky inverse of the kind-specific provenance bit: a present NUMERIC_DOUBLE cell
+   * lacked {@code Double} source typing, or a TIMESTAMP cell lacked canonical UTC provenance.
+   * Provenance-free callers fail closed. Meaningless for other kinds (never serialized).
    */
-  private final boolean[] columnSawNonDoubleSource;
+  private final boolean[] columnSawImpureSource;
 
   /**
    * Initialise an empty page for the declared column shape. The actual per-column primitive arrays
@@ -582,7 +591,7 @@ public final class ProjectionIndexRowGroupPage {
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
-    this.columnSawNonDoubleSource = new boolean[columnCount];
+    this.columnSawImpureSource = new boolean[columnCount];
     this.columnMin = new long[columnCount];
     this.columnMax = new long[columnCount];
     for (int c = 0; c < columnCount; c++) {
@@ -651,6 +660,11 @@ public final class ProjectionIndexRowGroupPage {
       throw new IndexOutOfBoundsException("projection row out of range: " + row);
     }
     return Arrays.copyOfRange(orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1]);
+  }
+
+  /** The label bytes one appended row adds to {@link #orderLabelBytes()}. */
+  static int orderLabelAppendBytes(final byte[] label) {
+    return Math.max(label.length, Integer.BYTES);
   }
 
   boolean canAppendOrderLabel(final byte[] label) {
@@ -895,7 +909,12 @@ public final class ProjectionIndexRowGroupPage {
    * kind.
    */
   public boolean columnPureDoubleSource(final int column) {
-    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawNonDoubleSource[column];
+    return columnKinds[column] == COLUMN_KIND_NUMERIC_DOUBLE && !columnSawImpureSource[column];
+  }
+
+  /** True only when present timestamp cells have explicit canonical UTC provenance. */
+  public boolean columnPureUtcTimestamp(final int column) {
+    return columnKinds[column] == COLUMN_KIND_TIMESTAMP && !columnSawImpureSource[column];
   }
 
   /**
@@ -974,10 +993,10 @@ public final class ProjectionIndexRowGroupPage {
       final byte flags = columnFlags[c];
       page.columnUnrepresentable[c] = (flags & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
-      // Inverse-sticky: bytes without the purity bit (old stores, non-double kinds)
+      // Inverse-sticky: double/timestamp bytes without the purity bit
       // reconstruct as impure and STAY impure through any re-encode cycle.
-      page.columnSawNonDoubleSource[c] =
-          kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] = (kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || kinds[c] == COLUMN_KIND_TIMESTAMP)
+          && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
   }
@@ -1234,7 +1253,7 @@ public final class ProjectionIndexRowGroupPage {
       stringSetLen[c] = 0;
       columnUnrepresentable[c] = false;
       columnNonIntegral[c] = false;
-      columnSawNonDoubleSource[c] = false;
+      columnSawImpureSource[c] = false;
       columnMin[c] = Long.MAX_VALUE;
       columnMax[c] = Long.MIN_VALUE;
     }
@@ -1296,14 +1315,13 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * Variant additionally carrying double-source provenance: {@code nonDoubleSource[c]} marks that
-   * this row's NUMERIC_DOUBLE cell {@code c} was converted from a source other than {@code Double}.
-   * Passing {@code null} (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column
-   * touched by a present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion only
-   * the extractor may make. Missing cells do not affect purity. An unrepresentable cell still carries
-   * source provenance when extraction established it; retaining that negative evidence keeps the
-   * persisted flag truthful even if a future serving gate reasons about provenance independently of
-   * the unrepresentable flag.
+   * Variant additionally carrying kind-specific source provenance: {@code nonDoubleSource[c]} marks a
+   * NUMERIC_DOUBLE source other than {@code Double}, or a TIMESTAMP source lacking canonical UTC
+   * provenance. Passing {@code null} poisons purity for either kind touched by a present cell; only
+   * the extractor may make a positive provenance assertion. Missing cells do not affect purity. An
+   * unrepresentable cell still carries source provenance when extraction established it; retaining
+   * that negative evidence keeps the persisted flag truthful even if a future serving gate reasons
+   * about provenance independently of the unrepresentable flag.
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final boolean[] present, final boolean[] unrepresentable,
@@ -1318,7 +1336,7 @@ public final class ProjectionIndexRowGroupPage {
    * @param stringSetValues per column, the row's set elements; {@code null} for none
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String[] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final String[] stringValues, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, null, null, stringSetValues, present,
         unrepresentable, nonIntegral, nonDoubleSource, false);
@@ -1338,7 +1356,7 @@ public final class ProjectionIndexRowGroupPage {
    * duplicates, null skipping and empty-set representation are therefore unchanged.
    */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final String[][] stringSetValues, final boolean[] present,
+      final byte[][] stringUtf8Values, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues, present,
         unrepresentable, nonIntegral, nonDoubleSource);
@@ -1349,18 +1367,18 @@ public final class ProjectionIndexRowGroupPage {
    * array means every scalar's full byte array is live (the compatibility form above).
    */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, stringUtf8Lengths,
         stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, false);
   }
 
   /** Extractor append carrying the row's persisted sparse-order classification. */
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     if (rowCount == MAX_ROWS) {
       return false;
     }
@@ -1374,9 +1392,10 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final byte[] orderLabel) {
     if (!canAppendOrderLabel(orderLabel)) {
       return false;
     }
@@ -1396,9 +1415,10 @@ public final class ProjectionIndexRowGroupPage {
    * merged page — and its encoding — is identical on both sides.
    */
   boolean appendTailRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
+      final byte[] orderLabel) {
     if (longValues == null || boolValues == null || stringUtf8Values == null || present == null
         || unrepresentable == null || nonIntegral == null || nonDoubleSource == null) {
       throw new IllegalArgumentException("tail rows carry every per-column lane");
@@ -1553,8 +1573,8 @@ public final class ProjectionIndexRowGroupPage {
     }
     columnUnrepresentable[0] |= unrepresentable;
     columnNonIntegral[0] |= nonIntegral;
-    if (present && kind == COLUMN_KIND_NUMERIC_DOUBLE && nonDoubleSource) {
-      columnSawNonDoubleSource[0] = true;
+    if (present && (kind == COLUMN_KIND_NUMERIC_DOUBLE || kind == COLUMN_KIND_TIMESTAMP) && nonDoubleSource) {
+      columnSawImpureSource[0] = true;
     }
 
     switch (kind) {
@@ -1607,9 +1627,9 @@ public final class ProjectionIndexRowGroupPage {
    * mutation.
    */
   private void validateExtractedUtf8Row(final long[] longValues, final boolean[] boolValues,
-      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
-      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
-      final boolean[] nonDoubleSource) {
+      final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
     }
@@ -1654,8 +1674,8 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, stringUtf8Values, stringUtf8Lengths,
         stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException, false);
@@ -1668,8 +1688,8 @@ public final class ProjectionIndexRowGroupPage {
    * readers that have no dictionary writer.
    */
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
-      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final String @Nullable [] stringValues, final byte[][] stringUtf8Values, final int @Nullable [] stringUtf8Lengths,
+      final String @Nullable [][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
       final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException,
       final boolean globalIdsResolved) {
     if (rowCount == MAX_ROWS)
@@ -1707,9 +1727,9 @@ public final class ProjectionIndexRowGroupPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
-      if (isPresent && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+      if (isPresent && (columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || columnKinds[c] == COLUMN_KIND_TIMESTAMP)
           && (nonDoubleSource == null || nonDoubleSource[c])) {
-        columnSawNonDoubleSource[c] = true;
+        columnSawImpureSource[c] = true;
       }
       switch (columnKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE -> {
@@ -1791,7 +1811,7 @@ public final class ProjectionIndexRowGroupPage {
    * Validate the legacy String entry point completely before the page or a global dictionary mutates.
    */
   private void validateLegacyRow(final long[] longValues, final boolean[] boolValues,
-      final String @Nullable [] stringValues, final String[][] stringSetValues, final boolean[] present,
+      final String @Nullable [] stringValues, final String @Nullable [][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (longValues == null || longValues.length < columnCount) {
       throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
@@ -2351,7 +2371,7 @@ public final class ProjectionIndexRowGroupPage {
       columnMax[c] = dictId;
   }
 
-  private static int extractedUtf8Length(final int column, final byte[] value, final int[] lengths) {
+  private static int extractedUtf8Length(final int column, final byte[] value, final int @Nullable [] lengths) {
     if (value == null) {
       throw new IllegalStateException("extractor supplied null UTF-8 bytes for clean scalar string column " + column);
     }
@@ -2509,8 +2529,9 @@ public final class ProjectionIndexRowGroupPage {
     for (int c = 0; c < columnCount; c++) {
       page.columnUnrepresentable[c] = (payload[tailStart + c] & COLUMN_FLAG_UNREPRESENTABLE) != 0;
       page.columnNonIntegral[c] = (payload[tailStart + c] & COLUMN_FLAG_NON_INTEGRAL) != 0;
-      page.columnSawNonDoubleSource[c] = page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
-          && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
+      page.columnSawImpureSource[c] =
+          (page.columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE || page.columnKinds[c] == COLUMN_KIND_TIMESTAMP)
+              && (payload[tailStart + c] & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
@@ -2668,7 +2689,7 @@ public final class ProjectionIndexRowGroupPage {
     if (columnNonIntegral[c]) {
       flags |= COLUMN_FLAG_NON_INTEGRAL;
     }
-    if (columnPureDoubleSource(c)) {
+    if (columnPureDoubleSource(c) || columnPureUtcTimestamp(c)) {
       flags |= COLUMN_FLAG_PURE_DOUBLE_SOURCE;
     }
     return flags;

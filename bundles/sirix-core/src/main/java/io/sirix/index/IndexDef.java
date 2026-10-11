@@ -1,6 +1,8 @@
 package io.sirix.index;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.index.aggregate.TemporalAggregateSpec;
+import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import io.brackit.query.atomic.Una;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.LongAdder;
 
 import static java.util.Objects.requireNonNull;
 
@@ -85,6 +88,18 @@ public final class IndexDef implements Materializable {
   private static final QNm PROJECTION_SORT_KEY_TAG = new QNm("keyColumn");
   private static final QNm PROJECTION_SORT_COLUMN_ATTRIBUTE = new QNm("column");
 
+  private static final QNm AGGREGATE_TAG = new QNm("temporalAggregate");
+  private static final QNm AGGREGATE_PROJECTION = new QNm("projection");
+  private static final QNm AGGREGATE_GROUP = new QNm("group");
+  private static final QNm AGGREGATE_LANE = new QNm("lane");
+  private static final QNm AGGREGATE_LEFT = new QNm("left");
+  private static final QNm AGGREGATE_OPERATIONS = new QNm("operations");
+  private static final QNm AGGREGATE_RIGHT = new QNm("right");
+  private volatile @Nullable TemporalAggregateSpec temporalAggregateSpec;
+
+  // Private snapshot: catalogue reads/copies must not initialize an unused aggregate index.
+  private @Nullable Node<?> temporalAggregateDeclaration;
+
   public static final QNm INDEX_TAG = new QNm("index");
 
   private DbType dbType;
@@ -95,7 +110,7 @@ public final class IndexDef implements Materializable {
   private boolean unique = false;
 
   // for CAS indexes
-  private Type contentType;
+  private @Nullable Type contentType;
   private volatile boolean numericValuesOnly = true;
   private volatile boolean completeNumericCoverage = true;
   private boolean numericCoverageDirty;
@@ -157,7 +172,7 @@ public final class IndexDef implements Materializable {
   private int dimension;
 
   // Store as string to avoid circular dep — "L2", "COSINE", "INNER_PRODUCT"
-  private String distanceType;
+  private @Nullable String distanceType;
 
   private int hnswM = 16;
 
@@ -322,6 +337,40 @@ public final class IndexDef implements Materializable {
     this.dbType = dbType;
   }
 
+  IndexDef(final Path<QNm> rootPath, final TemporalAggregateSpec spec, final int indexDefNo) {
+    if (indexDefNo < 0) {
+      throw new IllegalArgumentException("Negative aggregate index id");
+    }
+    type = IndexType.TEMPORAL_AGGREGATE;
+    dbType = DbType.JSON;
+    paths.add(requireNonNull(rootPath));
+    temporalAggregateSpec = requireNonNull(spec);
+    id = indexDefNo;
+  }
+
+  public boolean isTemporalAggregateIndex() {
+    return type == IndexType.TEMPORAL_AGGREGATE;
+  }
+
+  /**
+   * Decode and validate aggregate semantics on first use. Persisted declarations are privately
+   * snapshotted at catalogue load so unrelated indexes need neither aggregate classes nor lanes.
+   */
+  public TemporalAggregateSpec getTemporalAggregateSpec() {
+    TemporalAggregateSpec spec = temporalAggregateSpec;
+    if (spec == null) {
+      synchronized (this) {
+        spec = temporalAggregateSpec;
+        if (spec == null) {
+          spec = AggregateDeclaration.decode(
+              requireNonNull(temporalAggregateDeclaration, "No temporal aggregate declaration"));
+          temporalAggregateSpec = spec;
+        }
+      }
+    }
+    return spec;
+  }
+
   @Override
   public Node<?> materialize() throws DocumentException {
     final FragmentHelper tmp = new FragmentHelper();
@@ -379,6 +428,26 @@ public final class IndexDef implements Materializable {
       for (final int column : projectionSortedSpec.keyColumns()) {
         tmp.openElement(PROJECTION_SORT_KEY_TAG);
         tmp.attribute(PROJECTION_SORT_COLUMN_ATTRIBUTE, new Una(Integer.toString(column)));
+        tmp.closeElement();
+      }
+      tmp.closeElement();
+    }
+
+    if (temporalAggregateDeclaration != null) {
+      copyAggregateDeclaration(tmp, temporalAggregateDeclaration);
+    } else if (temporalAggregateSpec != null) {
+      tmp.openElement(AGGREGATE_TAG);
+      tmp.attribute(AGGREGATE_PROJECTION, new Una(Integer.toString(temporalAggregateSpec.projectionId())));
+      for (final int column : temporalAggregateSpec.groupColumns()) {
+        tmp.openElement(AGGREGATE_GROUP);
+        tmp.attribute(AGGREGATE_LEFT, new Una(Integer.toString(column)));
+        tmp.closeElement();
+      }
+      for (final Lane lane : temporalAggregateSpec.lanes()) {
+        tmp.openElement(AGGREGATE_LANE);
+        tmp.attribute(AGGREGATE_LEFT, new Una(Integer.toString(lane.left())));
+        tmp.attribute(AGGREGATE_RIGHT, new Una(Integer.toString(lane.right())));
+        tmp.attribute(AGGREGATE_OPERATIONS, new Una(Integer.toString(lane.operations())));
         tmp.closeElement();
       }
       tmp.closeElement();
@@ -609,6 +678,14 @@ public final class IndexDef implements Materializable {
               projectionFieldTypes.add(fieldType);
             }
           }
+        } else if (childName.equals(AGGREGATE_TAG)) {
+          if (temporalAggregateDeclaration != null || temporalAggregateSpec != null
+              || type != IndexType.TEMPORAL_AGGREGATE) {
+            throw new DocumentException("Invalid or duplicate temporal aggregate declaration");
+          }
+          final FragmentHelper snapshot = new FragmentHelper();
+          copyAggregateDeclaration(snapshot, child);
+          temporalAggregateDeclaration = snapshot.getRoot();
         } else if (childName.equals(PROJECTION_SORT_TAG)) {
           if (projectionSortedSpec != null) {
             throw new DocumentException("Duplicate sorted projection declaration");
@@ -633,6 +710,10 @@ public final class IndexDef implements Materializable {
         // }
       }
     }
+    if (type == IndexType.TEMPORAL_AGGREGATE
+        && ((temporalAggregateSpec == null && temporalAggregateDeclaration == null) || paths.size() != 1)) {
+      throw new DocumentException("Incomplete temporal aggregate declaration");
+    }
     if (projectionSortedSpec != null) {
       if (type != IndexType.PROJECTION) {
         throw new DocumentException("Sorted view belongs only to a projection index");
@@ -642,6 +723,65 @@ public final class IndexDef implements Materializable {
       } catch (final IllegalArgumentException invalid) {
         throw new DocumentException(invalid, "Invalid sorted projection declaration: %s", invalid.getMessage());
       }
+    }
+  }
+
+  /** Copy persisted cells without constructing aggregate operands or a subtree parser. */
+  private static void copyAggregateDeclaration(final FragmentHelper target, final Node<?> source) {
+    target.openElement(AGGREGATE_TAG);
+    target.attribute(AGGREGATE_PROJECTION, requireNonNull(source.getAttribute(AGGREGATE_PROJECTION)).getValue());
+    try (Stream<? extends Node<?>> entries = source.getChildren()) {
+      Node<?> entry;
+      while ((entry = entries.next()) != null) {
+        final QNm name = entry.getName();
+        if (!name.equals(AGGREGATE_GROUP) && !name.equals(AGGREGATE_LANE)) {
+          throw new DocumentException("Unknown temporal aggregate entry");
+        }
+        target.openElement(name);
+        target.attribute(AGGREGATE_LEFT, requireNonNull(entry.getAttribute(AGGREGATE_LEFT)).getValue());
+        if (name.equals(AGGREGATE_LANE)) {
+          target.attribute(AGGREGATE_RIGHT, requireNonNull(entry.getAttribute(AGGREGATE_RIGHT)).getValue());
+          target.attribute(AGGREGATE_OPERATIONS, requireNonNull(entry.getAttribute(AGGREGATE_OPERATIONS)).getValue());
+        }
+        target.closeElement();
+      }
+    }
+    target.closeElement();
+  }
+
+  /** Number of aggregate declarations decoded on demand, for catalogue work budgets. */
+  public static long temporalAggregateDecodeCount() {
+    return AggregateDeclaration.DECODES.sum();
+  }
+
+  /** Load aggregate classes only for a query/maintenance operation that needs their semantics. */
+  private static final class AggregateDeclaration {
+    private static final LongAdder DECODES = new LongAdder();
+
+    private static TemporalAggregateSpec decode(final Node<?> declaration) {
+      final int projection =
+          Integer.parseInt(requireNonNull(declaration.getAttribute(AGGREGATE_PROJECTION)).getValue().stringValue());
+      final List<Integer> groups = new ArrayList<>();
+      final List<Lane> lanes = new ArrayList<>();
+      try (Stream<? extends Node<?>> entries = declaration.getChildren()) {
+        Node<?> entry;
+        while ((entry = entries.next()) != null) {
+          final int left =
+              Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_LEFT)).getValue().stringValue());
+          if (entry.getName().equals(AGGREGATE_GROUP)) {
+            groups.add(left);
+          } else if (entry.getName().equals(AGGREGATE_LANE)) {
+            lanes.add(new Lane(left,
+                Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_RIGHT)).getValue().stringValue()),
+                Integer.parseInt(requireNonNull(entry.getAttribute(AGGREGATE_OPERATIONS)).getValue().stringValue())));
+          } else {
+            throw new DocumentException("Unknown temporal aggregate entry");
+          }
+        }
+      }
+      final TemporalAggregateSpec spec = new TemporalAggregateSpec(projection, groups, lanes);
+      DECODES.increment();
+      return spec;
     }
   }
 
@@ -716,7 +856,7 @@ public final class IndexDef implements Materializable {
     return dimension;
   }
 
-  public String getDistanceType() {
+  public @Nullable String getDistanceType() {
     return distanceType;
   }
 
@@ -767,7 +907,7 @@ public final class IndexDef implements Materializable {
     }
   }
 
-  public Type getContentType() {
+  public @Nullable Type getContentType() {
     return contentType;
   }
 
@@ -807,6 +947,7 @@ public final class IndexDef implements Materializable {
         && included.equals(other.included) && excluded.equals(other.excluded)
         && samePersistedPaths(projectionFields, other.projectionFields)
         && projectionFieldTypes.equals(other.projectionFieldTypes)
+        && (!isTemporalAggregateIndex() || getTemporalAggregateSpec().equals(other.getTemporalAggregateSpec()))
         && Objects.equals(projectionSortedSpec, other.projectionSortedSpec) && dimension == other.dimension
         && Objects.equals(distanceType, other.distanceType) && hnswM == other.hnswM
         && hnswEfConstruction == other.hnswEfConstruction && hnswEfSearch == other.hnswEfSearch;

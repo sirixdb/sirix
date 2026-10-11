@@ -31,6 +31,7 @@ package io.sirix.io;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
+import io.sirix.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -85,6 +86,18 @@ public interface Reader extends AutoCloseable {
    * @throws SirixIOException if something bad happens during read
    */
   Page read(PageReference key, ResourceConfiguration resourceConfiguration);
+
+  /**
+   * Select one projection slot from a self-contained committed image without materializing a native
+   * leaf. Implementations verify the full frame and return owned value/reference data. Null means
+   * unsupported; a nonnull result with no entry is an authoritative miss. Shared-page backends keep
+   * their ordinary guarded route. No borrowed input may outlive this call.
+   */
+  default @Nullable HOTProjectionRead readHOTProjectionEntry(final PageReference reference,
+      final ResourceConfiguration configuration, final byte[] key, final long sideReferenceKey,
+      final boolean retainImage) {
+    return null;
+  }
 
   /**
    * Read one committed HOT fragment. Backends may omit writable capacity and routing metadata; the

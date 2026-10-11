@@ -176,6 +176,12 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 
+  @Override
+  protected void invalidateIndexControllers(final int firstRevision) {
+    rtxIndexControllers.keySet().removeIf(revision -> revision >= firstRevision);
+    wtxIndexControllers.keySet().removeIf(revision -> revision >= firstRevision);
+  }
+
   private JsonIndexController createIndexController(int revision) {
     final var controller = new JsonIndexController();
     initializeIndexController(revision, controller);

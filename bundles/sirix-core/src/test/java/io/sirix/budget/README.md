@@ -69,6 +69,7 @@ failure table and tells the reader where the work went.
 
 | Test | Path | Fails when |
 |---|---|---|
+| `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar, computed primitive and mixed record output | execution-scoped rows or grouped records stop batching writer calls, or an unsupported suffix allocates and flushes per item; output parity and unbatched/per-item positive controls prevent vacuous bounds |
 | `sirix-query` `ProjectionQueryWorkBudgetTest` | count-only group-by | it is no longer answered from the value-count summary the build maintained (three build paths), or the summary answers wrongly |
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
 | | grouped top-K, clean range | the sorted view stops serving it, or reads data leaves, or reads more summaries than the range has leaves |
@@ -78,23 +79,33 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ProviderPurityWorkBudgetTest` | shared provider admission in guarded row predicates | each row reclassifies unrelated registered collections; registry classification work must remain zero during query evaluation, with 0 or 1,000 unrelated collections |
 | `sirix-query` `CASLookupWorkBudgetTest` | runtime-revision CAS point lookups | the FLWOR source scans instead of taking 50 bounded point lookups, or repeats revision-by-instant resolution for identical publication timestamps (two resolutions become 50); both mutations retain the same numeric answer |
 | `sirix-query` `CASMultiMatchWorkBudgetTest` | CAS row-source fallback in FLWOR and array filters | candidate navigation exceeds its bound before declining an unordered result or postings from an unrelated duplicate array, including with Dewey IDs enabled |
-| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
+| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings; warmed exact half-open primitive-key requests repeat the closed probe (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
 | `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks; one match in each of 1,000 chunks retains dense candidate bitmaps or scans unoccupied words |
 | `sirix-core` `NodeReferencesReadAllocationBudgetTest` | packed chunk reads | reading a small sorted posting builds a bitmap tree instead of its owned run; also verifies decoded ownership, bitmap promotion and corruption rejection |
+| `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, or reads a leaf that holds no admitted key (the row source stops pruning); the generic reference over the same decorated cursor is the positive control (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
+| `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion, across all versioning types | dictionary admission visits more than current rows plus one, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
+| `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
+| `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
+| `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
+| `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work or cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
 | `sirix-core` `JsonStructuralHashingWorkBudgetTest` | cold boundary moves in both directions and exclusive array/object renames, 16/4096 unchanged descendants, all versioning types | hashing captures or prepares unchanged descendants, writes their document pages or grows scratch state; untouched records and canonical hashes must survive the mutation and cold reopening |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
+| `sirix-core` `PostingDeltaWorkBudgetTest` | hot VALIDTIME posting updates | delta writes and folds depart from one bounded sequence, or duplicate operations write slots; exact counters and postings are checked across all four versioning types |
+| `sirix-core` `HOTPostingFragmentMergeWorkBudgetTest` | CAS/VALIDTIME reconstruction with 500 older delta slots, all four versioning types | filling absent physical keys repeats their search; stored bytes and newer tombstones must survive unchanged |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
 | `sirix-core` `JsonValidTimeIdentityWorkBudgetTest` | valid-time identity import beside 16/4096 unrelated direct fields, all four versioning types | nested/scalar edits, non-bound insertion/removal or existing non-bound field moves in either direction rescan unchanged bounds; cold interval hits, exactness and membership remain correct, with a real bound update proving the scan counter is live |
 | `sirix-core` `ProjectionIdentityImportWorkBudgetTest` | indexed identity import: append/prepend, removal and both directions of same-parent empty-neighbor moves beside 16/4096 retained rows, all four versioning types; moves also cover both Dewey modes and mixed insert/delete/move epochs | boundary changes queue retained row edits, allocate row labels or walk the unchanged row subtree; cold payloads, sorted memberships, labels and key/numeric segment offsets must stay stable; later population of the moved neighbor, indexed reorder and reparenting provide positive controls |
 | | independently varied 16/4096 unlabelled siblings and 16/4096 indexed rows, both directions and Dewey modes | classification walks an unchanged sibling run or probes its order slots; changed boundaries must bound record and slot work without retained-row edits |
 | `sirix-core` `JsonDiffBookkeepingWorkBudgetTest` | R8 pending inserts reordered by subtree moves | keyed updates become scans of the growing pending map; diagnostics count entry visits through map views as well as keyed operations |
-| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory, which holds about one catalogue file per revision, to find its writer's definitions; the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot |
+| `sirix-core` `CommitReinstantiationWorkBudgetTest` | durable commit and close of the committed writer | a commit forces the data file more than its write-ahead barrier and beacon flush, or closing the committed writer forces it again |
+| `sirix-core` `ProjectionTailAppendWorkBudgetTest` | appending rows to a projection's open row group (600 persisted rows, 4 appended) | the tail append re-extracts the persisted rows of the leaf from the document (11,848 record visits with the prefix proof, 204 without); the row group is read back with every row |
+| `sirix-core` `IndexCatalogueResolutionWorkBudgetTest` | index-catalogue lookup and serialization of a writer (every commit re-instantiates one) | a commit lists the `indexes/` directory to find its writer's definitions, or an ordinary commit with net-unchanged definitions and numeric CAS coverage writes a catalogue file (a file creation, an XML materialization and a metadata fsync); the fixtures also read every revision's definitions back, because a session that answers from memory can answer wrongly where the listing cannot; persistence and cache rules are owned by [Index Catalogues](../../../../../../../../docs/ARCHITECTURE.md#index-catalogues) |
 | `sirix-core` `WriterListenerRetentionBudgetTest` | writer retirement across commits | revision-cached index listeners retain superseded writers: 130 listeners at 64 commits on the baseline versus two at 64 and 256 commits, then zero after close (measurement: `docs/WRITER_HEAP_RETENTION.md`) |
 | `sirix-query` `NativeImageDowncallConfigTest` | native-image configuration | see below |
 
@@ -177,13 +188,18 @@ maintains, so a budget quotes the same numbers an investigation would:
 - `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
-  listings, native HOT suffix lanes, overflow-reference map probes, and valid-time interval and
-  posting references emitted by ordered-store scans, posting lookups and compressed posting chunks read.
+  listings and files written, data-file forces, native HOT suffix lanes, overflow-reference map probes,
+  and valid-time interval and posting references emitted by ordered-store scans, posting lookups
+  and compressed posting chunks read.
   The valid-time figures guard empty and selective positive stabs that used to expand whole-array
   membership and verification postings. Only what a budget captures is
   listed: a catalog entry nothing reads is one more thing
   to keep true, and a *gated* one nothing asserts is worse than dead, because capturing it aborts
   the test wherever its gate is off.
+- `EngineWorkCounters.PROJECTION_LEAVES_PRUNED`: projection leaves a scan dropped from its keep mask
+  before any column segment was fetched — descriptor zones, string fingerprints and the index-routed
+  row source's exact leaf membership (`ProjectionColumnScan.leavesPrunedCount`, always on). A route may
+  price its mask more than once; the budget states the passes it counts.
 - `EngineWorkCounters.REPLAY`: cursor/storage record visits (nested delegations count), path-summary cursor
   steps including writer reinitialization, created document identities, detached staged document records,
   memoized ancestry hops, attempted presentation sidecar reads, authoritative indirect/leaf resolutions,
@@ -241,7 +257,8 @@ maintains, so a budget quotes the same numbers an investigation would:
   reads zero when the route stops going through it, so give its bound a floor, or a second capture
   on the same seam that must read non-zero. Today these include
   `JsonDiffArrayPositionWorkBudgetTest`'s `JsonResourceSession` wrapper,
-  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`, and
+  `BloomOpenChunkFetchWorkBudgetTest`'s `CountingFetcher`,
+  `ColumnarSerializationWorkBudgetTest`'s output writer, and
   `ValidTimeSliceWorkBudgetTest`'s decorated real JSON cursor. The counting fetcher decorates the
   segment fetcher the prune already takes as an argument and carries its floor on the referenced
   payloads it requested. The valid-time cursor intercepts both transaction-time and revision-based
@@ -254,6 +271,10 @@ satisfies every upper bound. For HOT work that is `sirix.hot.mergeDiag`, provide
 `bundles/sirix-core/build.gradle` and `bundles/sirix-query/build.gradle`. Those test blocks also provide
 `sirix.validTime.scanDiag`; `ValidTimeSliceWorkBudgetTest` requires zero interval/posting references
 for empty answers and counts both kinds on nonempty answers through the same gated seam.
+`EngineWorkCounters.TEMPORAL_READS` shares `sirix.hot.mergeDiag`: dictionary heads visited in the
+bounded cardinality pass, heads decoded after admission, and aggregate part chunks requested.
+The historical populated dictionary supplies the nonzero control for every counter; oversized
+current dictionaries must decode no heads and request no parts.
 Identity replay additionally
 uses `sirix.replay.workDiag`, enabled by the core test fork.
 The query test block also provides `sirix.json.registryDiag`; its classification getter fails
@@ -334,3 +355,48 @@ regressed, not that the bound is wrong.
 - A change that makes a path cheaper should **tighten** its bound. A bound left loose after an
   improvement stops guarding it.
 - Deleting a budget needs the same justification as widening it.
+
+`IntervalRangeJoinWorkBudgetTest` guards selective range masks, paired timestamp overlap residuals
+and distinct joined grouping after cold reopen on all four versioning types. It compares with the
+interpreter, requires one joined column serve, bounds interval references and column BODY reads,
+and requires unrelated leaves to be pruned. Every versioning type captured two interval references,
+ten operand BODY reads and four pruned leaves. Its fixture declares typed UTC timestamps; dictionary
+kernel fixtures explicitly declare string bounds through `StringBoundProjection`, independently
+of the SH1 kit's column types. Mutation evidence: disabling joined serving preserved every answer
+but failed all four cases on `served.joinGroup = 0` (required 1). Existing budget bounds are unchanged.
+
+`RecordKeySetPredicateTest.denseSourceMapsOnceAcrossAThousandLeaves` bounds sorted-key advances
+for a million-row source. `IndexRoutedGroupWorkBudgetTest` counts actual BODY segment requests
+as well as pruning, with zero column fills for an empty source.
+Its sparse cold/warm cases select one row from at least 32 leaves on all four versioning types,
+bound persisted lookup descriptors and KEYS segments to one, and require zero dense row visits.
+Four repeated requests also exclude whole-projection promotion. Cold-reopened open-tail cases
+cover row-group-major tails on all versioning types across grouping, correlation, both join sides,
+and both membership sides. Tail resolution follows the
+[maintenance contract](../../../../../../../../docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
+`PROJECTION_MASKED_TAIL_DEFERRALS` counts
+source-level deferrals, while `PROJECTION_TAIL_BODY_READS` observes direct base BODY reads
+that bypass column-chain fills, with an authorized whole-tail read as the positive control.
+`ProjectionOpenRowGroupTailTest.coldAllRowsMaskKeepsOrdinaryBodyReadsBatchedWithAnOpenTail`
+compares cold historical revisions before and after a partial-tail append on all four versioning
+types. It executes an all-row masked grouping and requires one batch containing every ordinary
+numeric BODY, with zero individual reads of those BODY pages; fixture-derived group counts are
+the independent oracle.
+Both use the `sirix.projection.segmentDiag` gate. Correlated dense global-string
+grouping reads only the selected leaf's key and operand bodies; over-budget dictionary-distinct
+and windowed retries decline before whole-leaf fallback. Computed-lane cases prefill cost and
+group columns and require a single residency decision before fetching qty when either qty or
+the derived buffers exceed the remaining budget, with a fitting request as the positive control.
+`PROJECTION_LOOKUP_DESCRIPTORS`, `PROJECTION_LOOKUP_KEYS`, `PROJECTION_KEY_SEGMENTS` and
+`PROJECTION_DENSE_ROWS` use the test fork's `sirix.projection.segmentDiag` gate. The first two
+count the persisted lookup's existing locality figures; the third counts kept-leaf KEYS requests;
+the fourth counts actual rows visited by the dense mapper. Dense and persisted mappings are
+compared after a reordered insertion, including physical-slot membership and every row bit.
+Mutation evidence: forcing the full-chain mapper failed all four sparse cases with 33 KEYS
+requests and 32,001 dense row visits, against one request and zero visits on the locator route.
+
+The dense repetition case in `IntervalRangeJoinWorkBudgetTest` uses 5,000 rows per side. It requires
+zero BODY requests, dense rows visited and sorted-key advances on a fresh compiled repetition.
+Disabling numeric-mask reuse preserved the exact answer and the BODY bound (the column store also
+caches decoded slices), but revisited 10,000 dense rows and killed all four versioning cases. This
+mask-work mutation is recorded separately from the selective joined-route mutation above.

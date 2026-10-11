@@ -61,7 +61,7 @@ final class ValidTimeRunStabTest {
       candidates.removeExactStarts(65536, first, false);
       candidates.removeExactStarts(0, first, false);
       final var evidence = candidates.evidence();
-      assertArrayEquals(new long[] {63, 64, 1000, 65536 + 64, 65536 + 1000}, evidence.keys());
+      assertArrayEquals(new long[] {63, 64, 1000, 65536 + 64, 65536 + 1000}, evidence.members());
       assertArrayEquals(new long[] {64, 1000, 65536 + 64, 65536 + 1000}, evidence.unverified().toArray());
     }
   }
@@ -101,7 +101,7 @@ final class ValidTimeRunStabTest {
         unverified[chunk * 2 + 1] = base | 63;
       }
       final var evidence = candidates.evidence();
-      assertArrayEquals(expected, evidence.keys());
+      assertArrayEquals(expected, evidence.members());
       assertArrayEquals(unverified, evidence.unverified().toArray());
     }
   }
@@ -139,7 +139,7 @@ final class ValidTimeRunStabTest {
         }
       }
       final var evidence = candidates.evidence();
-      assertArrayEquals(expected, evidence.keys());
+      assertArrayEquals(expected, evidence.members());
       assertArrayEquals(new long[] {0, 4096, 8191, 65536, 69632, 73727}, evidence.unverified().toArray());
     }
   }
@@ -153,14 +153,14 @@ final class ValidTimeRunStabTest {
     removed.accept(0, references, false);
     removed.accept(0, references, false);
     removed.removeExactStarts(0, references, false);
-    assertArrayEquals(new long[0], removed.evidence().keys());
+    assertArrayEquals(new long[0], removed.evidence().members());
     final var rejected = new ChunkCandidates(base -> membership, base -> empty);
     rejected.accept(0, references, true);
     rejected.removeExactStarts(0, references, false);
-    assertArrayEquals(new long[0], rejected.evidence().keys());
+    assertArrayEquals(new long[0], rejected.evidence().members());
     final var nonMember = new ChunkCandidates(base -> empty, base -> empty);
     nonMember.accept(0, references, false);
-    assertArrayEquals(new long[0], nonMember.evidence().keys());
+    assertArrayEquals(new long[0], nonMember.evidence().members());
   }
 
   @ParameterizedTest

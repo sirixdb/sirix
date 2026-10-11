@@ -56,8 +56,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * which also equals {@code jn:valid-at};</li>
  * <li>each matching query's OPTIMIZED AST actually contains {@code scan-valid-time-index} (the
  * rewrite fired);</li>
- * <li>NEGATIVE cases (one bound only, {@code $x}-dependent point, mismatched points, no VALIDTIME
- * index, non-valid-time fields) do NOT rewrite yet still return the correct result.</li>
+ * <li>independent range bounds rewrite and retain exact answers, including inverted bounds that
+ * require the original comparison fallback;</li>
+ * <li>NEGATIVE cases (one bound only, {@code $x}-dependent point, no VALIDTIME index,
+ * non-valid-time fields) do NOT rewrite yet still return the correct result.</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -202,12 +204,19 @@ public final class ValidTimeIndexOptimizerRewriteTest {
                 + "and xs:dateTime($x.validTo) <= xs:dateTime($x.validTo) return $x",
             allIds());
 
-        // (N3) the two comparisons use DIFFERENT points.
+        // Independent bounds form a range route. Inverted bounds can still match a wide stored
+        // interval, so they must keep the original comparisons rather than return an empty set.
         final Instant tOther = UNIVERSAL.plus(10, ChronoUnit.DAYS);
-        assertNoRewriteButCorrect(store, chain, ctx,
-            "for $x in jn:doc('" + DB + "','" + RES + "')[] where xs:dateTime($x.validFrom) <= " + lit0
-                + " and xs:dateTime('" + tOther + "') <= xs:dateTime($x.validTo) return $x",
-            recordsMatching(t0, tOther));
+        for (final Instant upper : new Instant[] {t0, tOther}) {
+          for (final Instant lower : new Instant[] {t0, tOther}) {
+            final String range =
+                "for $x in jn:doc('" + DB + "','" + RES + "')[] where xs:dateTime($x.validFrom) <= xs:dateTime('"
+                    + upper + "') and xs:dateTime('" + lower + "') <= xs:dateTime($x.validTo) return $x";
+            assertTrue(optimizedContainsScanFunction(store, range), "independent bounds must rewrite: " + range);
+            assertEquals(recordsMatching(upper, lower), idsFromObjectQuery(chain, ctx, range), range);
+          }
+        }
+        assertFalse(recordsMatching(t0, tOther).isEmpty(), "inverted bounds have genuine wide-interval matches");
 
         // (N4) paths that are NOT the valid-time fields (id-based predicate of the same shape).
         assertNoRewriteButCorrect(store, chain, ctx,

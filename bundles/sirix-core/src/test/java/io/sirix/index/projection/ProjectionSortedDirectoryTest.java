@@ -104,7 +104,6 @@ final class ProjectionSortedDirectoryTest {
           ProjectionSortedDirectory.open(reader.getStorageEngineReader(), 0);
       assertNotNull(directory);
       final long pointsAfterOpen = VersioningType.pointLeafReads();
-      assertEquals(151, directory.findLeafId(key(300)), "the cold descent must route where a warm one does");
       final ProjectionSortedDirectory.Accessor.Cursor seeked = directory.seek(key(300));
       assertTrue(seeked.isValid(), "the cold seek must position on a row");
       assertEquals(151, seeked.leafId());
@@ -120,6 +119,8 @@ final class ProjectionSortedDirectoryTest {
         assertTrue(pointsAfterSeek > pointsAfterOpen,
             "the cold seek never reached requested-slot resolution under " + versioning);
       }
+
+      assertEquals(151, directory.findLeafId(key(300)), "the cold descent must route where a warm one does");
 
       // Scan reuse is retained: the in-order walk stays on SCAN and reads every leaf in order.
       final ProjectionSortedDirectory.Accessor.Cursor scan = directory.first();

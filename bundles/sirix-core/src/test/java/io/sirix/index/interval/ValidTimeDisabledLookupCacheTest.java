@@ -3,7 +3,6 @@ package io.sirix.index.interval;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIndexReader;
@@ -68,17 +67,13 @@ final class ValidTimeDisabledLookupCacheTest {
         }
         final int discardedRevision = session.getMostRecentRevisionNumber();
         final PostingMask[] discardedMasks;
-        final HOTTrieReader discardedTrie;
         final PageReference discardedRoot;
         try (var transaction = session.beginNodeReadOnlyTrx(discardedRevision)) {
           final StorageEngineReader storage = transaction.getStorageEngineReader();
           discardedMasks = masks(storage);
           assertMasks(discardedMasks, 2, true);
           final var reader = HOTIndexReader.create(storage, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, 0);
-          try (var lease = ValidTimeReadCache.borrow(reader)) {
-            discardedTrie = lease.trie();
-            discardedRoot = Objects.requireNonNull(lease.root());
-          }
+          discardedRoot = Objects.requireNonNull(reader.getRootReference());
         }
         try (var writer = session.createStorageEngineWriter()) {
           writer.truncateTo(survivingRevision);
@@ -104,10 +99,7 @@ final class ValidTimeDisabledLookupCacheTest {
               assertNotSame(discardedMasks[mask], fresh[mask]);
             }
             final var reader = HOTIndexReader.create(storage, ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, 0);
-            try (var lease = ValidTimeReadCache.borrow(reader)) {
-              assertNotSame(discardedTrie, lease.trie());
-              assertNotSame(discardedRoot, lease.root());
-            }
+            assertNotSame(discardedRoot, reader.getRootReference(), "a truncated revision must read a fresh root");
             final HotOrderedStore lower = new HotOrderedStore(ValidTimeKey.STORE_LOWER, null, reader);
             final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(storage, 0);
             assertArrayEquals(new long[] {4}, Objects.requireNonNull(lower.chunk(16, 10, 0)).toSortedArray());

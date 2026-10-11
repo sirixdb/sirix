@@ -36,6 +36,10 @@ and that hints offered for the new revision never supply an old-revision deletio
 
 The caches are local to one serialization and become unreachable when it returns (the production
 test observer is absent). A long-lived transaction cannot accumulate caches from past commits.
+Each committed revision's cache lazily opens at most one path-summary reader when path resolution
+needs it, reuses it for that revision's tuples, and closes it when serialization returns. Readers are
+never shared between revisions or serialization calls; a frozen writer's summary is borrowed as
+described above. `pathSummaryReadersAreReusedOnlyWithinTheirRevisionAndSerialization` guards this lifetime.
 Hints are borrowed read-only for one call and are never retained or modified here; the writing
 transaction owns their lifetime.
 
@@ -60,7 +64,7 @@ a default `Long2IntOpenHashMap`'s backing arrays in its constructor (396 payload
 default `LongArrayList` defers its own. A serialization that resolves no array position therefore
 allocates no cache backing storage - both the `buildPathSummary(false)` case, where `getNodePath`
 returns before any cache is touched, and any document whose emitted paths carry no array step.
-A revision whose cache is never asked for an ordinal costs nothing on the default commit path.
+A revision whose cache is never asked for an ordinal retains no ordinal-map backing storage.
 
 `JsonDiffArrayPositionWorkBudgetTest` is part of the ordinary `io.sirix.budget.*` lane in
 [`VERIFICATION.md`](VERIFICATION.md). It covers forward, reverse, and shuffled tuple order, a

@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.GlobalValueDictionary.ReadView;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
@@ -4409,7 +4411,7 @@ public final class ProjectionIndexByteScan {
     return fnv1a64(utf8, 0, utf8.length);
   }
 
-  static void validateStringLengthModes(final byte[] modes, final int aggregateCount) {
+  static void validateStringLengthModes(final byte @Nullable [] modes, final int aggregateCount) {
     if (modes == null) {
       return;
     }
@@ -5744,6 +5746,27 @@ public final class ProjectionIndexByteScan {
   private static void evalPredicateLeafMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate p,
       final int rowCount, final ScanScratch s) {
     final int kindsOff = 24;
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The index-routed row source over the leaf's inline record keys (header, then kinds, then
+      // long[rowCount] keys). Every row carries a key, so the caller skips the presence AND.
+      final int keysOff = kindsOff + getIntLE(payload, 4);
+      if (p.keyMasks != null && rowCount > 0) {
+        final long[] membership = p.keyMasks.byFirstKey().get(getLongLE(payload, keysOff));
+        final int stride = (rowCount + 63) >>> 6;
+        if (membership == null) {
+          Arrays.fill(s.colMask, 0, stride, 0L);
+          return;
+        }
+        if (membership.length != stride) {
+          throw new IllegalStateException("record-key mask does not cover the projection leaf");
+        }
+        System.arraycopy(membership, 0, s.colMask, 0, stride);
+      } else {
+        evalRecordKeysInBytes(payload, keysOff, rowCount,
+            requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"), s.colMask);
+      }
+      return;
+    }
     final byte kind = payload[kindsOff + p.column];
     switch (kind) {
       // A temporal predicate arrives already expressed in the column's own units: the executor maps
@@ -5822,14 +5845,7 @@ public final class ProjectionIndexByteScan {
         Arrays.fill(colMask, 0, stride, 0L);
         evalPredicateLeafMask(payload, p, rowCount, s);
         final long[] dst = stack[top++];
-        if (tailStart >= 0) {
-          final int presOff = presenceWordsOff(payload, tailStart, p.column);
-          for (int i = 0; i < stride; i++) {
-            dst[i] = colMask[i] & getLongLE(payload, presOff + i * 8);
-          }
-        } else {
-          System.arraycopy(colMask, 0, dst, 0, stride);
-        }
+        copyTreeLeafMask(payload, p, tailStart, stride, colMask, dst);
       } else if (op == ProjectionIndexScan.PredicateTree.OP_AND) {
         final long[] b = stack[--top];
         final long[] a = stack[top - 1];
@@ -5924,6 +5940,9 @@ public final class ProjectionIndexByteScan {
     // materialising variant). Zone maps fold in only PRESENT,
     // representable values, so an all-missing leaf prunes outright.
     for (final var p : predicates) {
+      if (p.isRecordKeySet()) {
+        continue; // the payload header carries no key range; the row walk below is exact
+      }
       final byte kind = payload[kindsOff + p.column];
       if (!ProjectionIndexRowGroupPage.isNumericKind(kind) && !ProjectionIndexRowGroupPage.isTemporalKind(kind))
         continue;
@@ -5945,7 +5964,7 @@ public final class ProjectionIndexByteScan {
       // `stride` are never read.
       Arrays.fill(colMask, 0, stride, 0L);
       evalPredicateLeafMask(payload, p, rowCount, s);
-      if (tailStart >= 0) {
+      if (tailStart >= 0 && !p.isRecordKeySet()) {
         // Missing field ⇒ predicate is false — AND with the column's presence.
         final int presOff = presenceWordsOff(payload, tailStart, p.column);
         for (int i = 0; i < stride; i++) {
@@ -5981,6 +6000,12 @@ public final class ProjectionIndexByteScan {
 
   /** Package-private: the SINGLE zone-skip authority, shared with the column kernels. */
   static boolean zoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The virtual KEYS slice's zone is the leaf's exact key range: skip the leaf when no key of the
+      // set falls inside it.
+      return !ProjectionRecordKeySet.anyIn(requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"),
+          min, max);
+    }
     // A STRING predicate can never be zone-skipped, whatever its op. A string column's zone map
     // holds min/max DICTIONARY IDS — which say nothing about the values' order or content — while
     // the numeric arms below test p.longLit, which a string predicate does not set.
@@ -5997,42 +6022,9 @@ public final class ProjectionIndexByteScan {
       return false; // a cell range says nothing about a per-value verdict
     }
     if (p.segmentLiteralCells != null) {
-      // A segment-scoped column's zone holds packed (segment, id) CELLS. A leaf never straddles a
-      // segment, so min names the leaf's segment exactly, and the literal it must be compared
-      // against is that segment's own cell -- not p.longLit, which such a predicate never sets.
-      if (min > max) {
-        return false; // no present value: the caller's own emptiness rule decides
-      }
-      final long target = p.literalForLeaf(min);
-      if (target == ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT) {
-        // The value is provably not in this segment's dictionary: nothing here can equal it.
-        return p.op == ProjectionIndexScan.Op.EQ;
-      }
-      return p.op == ProjectionIndexScan.Op.EQ
-          ? target < min || target > max
-          : min == max && min == target;
+      return segmentZoneSkip(p, min, max);
     }
-    return switch (p.op) {
-      case GT -> max <= p.longLit;
-      case LT -> min >= p.longLit;
-      case GE -> max < p.longLit;
-      case LE -> min > p.longLit;
-      case EQ -> p.longLit < min || p.longLit > max;
-      // A leaf can only be skipped for NE when EVERY value equals the literal, i.e. the zone
-      // collapses onto it. Common enough to be worth the test: a column that is constant 0 across a
-      // row group skips entirely for `!= 0`.
-      case NE -> min == max && min == p.longLit;
-      // BETWEEN zone-skip: OR of the two single-bound zone-skip conditions.
-      // Strictly no more pessimistic than two independent predicates — see
-      // iter07-range-fusion-analysis.md for the semantics derivation.
-      case BETWEEN_GT_LT -> max <= p.longLit || min >= p.highLit;
-      case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
-      case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
-      case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
-      // NEVER skip on string ops: a STRING_DICT column's zone map holds min/max DICT IDS, which
-      // say nothing about the values' order or content — pruning here drops matching leaves.
-      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
-    };
+    return numericZoneSkip(p, min, max);
   }
 
   /**
@@ -6087,6 +6079,40 @@ public final class ProjectionIndexByteScan {
     for (int k = 0; k < rowCount; k++) {
       final long id = getLongLE(payload, baseOff + k * 8);
       if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+        out[k >>> 6] |= 1L << (k & 63);
+      }
+    }
+  }
+
+  /**
+   * Row sweep for the index-routed row source over the leaf's INLINE record keys
+   * ({@code long[rowCount]} at {@code keysOff}): row {@code k} matches iff its key is in the sorted
+   * set. The same merge walk the slice kernel runs ({@link ProjectionRecordKeySet#andMembership}),
+   * over keys read straight from the payload into the caller's zeroed {@code out}.
+   */
+  private static void evalRecordKeysInBytes(final byte[] payload, final int keysOff, final int rowCount,
+      final long[] sortedKeys, final long[] out) {
+    final int setSize = sortedKeys.length;
+    if (setSize == 0) {
+      return;
+    }
+    int cursor = rowCount == 0
+        ? 0
+        : ProjectionRecordKeySet.lowerBound(sortedKeys, getLongLE(payload, keysOff));
+    long previous = Long.MIN_VALUE;
+    for (int k = 0; k < rowCount; k++) {
+      final long key = getLongLE(payload, keysOff + k * 8);
+      final boolean member;
+      if (key >= previous) {
+        while (cursor < setSize && sortedKeys[cursor] < key) {
+          cursor++;
+        }
+        member = cursor < setSize && sortedKeys[cursor] == key;
+        previous = key;
+      } else {
+        member = Arrays.binarySearch(sortedKeys, 0, cursor, key) >= 0;
+      }
+      if (member) {
         out[k >>> 6] |= 1L << (k & 63);
       }
     }
@@ -6337,4 +6363,67 @@ public final class ProjectionIndexByteScan {
     proven[word] |= bit;
     return true;
   }
+
+  private static void copyTreeLeafMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate p,
+      final int tailStart, final int stride, final long[] colMask, final long[] dst) {
+    if (tailStart >= 0 && !p.isRecordKeySet()) {
+      final int presOff = presenceWordsOff(payload, tailStart, p.column);
+      for (int i = 0; i < stride; i++) {
+        dst[i] = colMask[i] & getLongLE(payload, presOff + i * 8);
+      }
+    } else {
+      System.arraycopy(colMask, 0, dst, 0, stride);
+    }
+  }
+
+  private static boolean segmentZoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    // A segment-scoped column's zone holds packed (segment, id) CELLS. A leaf never straddles a
+    // segment, so min names the leaf's segment exactly, and the literal it must be compared
+    // against is that segment's own cell -- not p.longLit, which such a predicate never sets.
+    if (min > max) {
+      return false; // no present value: the caller's own emptiness rule decides
+    }
+    final long target = p.literalForLeaf(min);
+    if (target == ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT) {
+      // The value is provably not in this segment's dictionary: nothing here can equal it.
+      return p.op == ProjectionIndexScan.Op.EQ;
+    }
+    return p.op == ProjectionIndexScan.Op.EQ
+        ? target < min || target > max
+        : min == max && min == target;
+  }
+
+  private static boolean numericZoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    return switch (p.op) {
+      case GT -> max <= p.longLit;
+      case LT -> min >= p.longLit;
+      case GE -> max < p.longLit;
+      case LE -> min > p.longLit;
+      case EQ -> p.longLit < min || p.longLit > max;
+      // A leaf can only be skipped for NE when EVERY value equals the literal, i.e. the zone
+      // collapses onto it. Common enough to be worth the test: a column that is constant 0 across a
+      // row group skips entirely for `!= 0`.
+      case NE -> min == max && min == p.longLit;
+      case BETWEEN_GT_LT, BETWEEN_GT_LE, BETWEEN_GE_LT, BETWEEN_GE_LE -> rangeZoneSkip(p, min, max);
+      // NEVER skip on string ops: a STRING_DICT column's zone map holds min/max DICT IDS, which
+      // say nothing about the values' order or content — pruning here drops matching leaves.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
+      // Decided above from the key set against the exact key range.
+      case KEY_IN -> throw new IllegalStateException("record-key set reached the numeric zone switch");
+    };
+  }
+
+  private static boolean rangeZoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    return switch (p.op) {
+      // BETWEEN zone-skip: OR of the two single-bound zone-skip conditions.
+      // Strictly no more pessimistic than two independent predicates — see
+      // iter07-range-fusion-analysis.md for the semantics derivation.
+      case BETWEEN_GT_LT -> max <= p.longLit || min >= p.highLit;
+      case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
+      case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
+      case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
+      default -> throw new IllegalStateException("non-range predicate reached the range zone switch");
+    };
+  }
+
 }

@@ -2,7 +2,7 @@ package io.sirix.query.bench;
 
 import io.brackit.query.Query;
 import io.brackit.query.util.io.IOUtils;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
@@ -19,25 +19,27 @@ import java.nio.file.Path;
 /**
  * End-to-end write-path smoke for GraalVM native-image builds.
  *
- * <p>Exercises the full lifecycle that historically failed in a native image because
- * {@link io.sirix.io.memorymapped.MMStorage} maps each generation into an
- * {@code Arena.ofShared()} (closing such an arena requires
- * {@code -H:+SharedArenaSupport} at image build time):
+ * <p>
+ * Exercises the full lifecycle that historically failed in a native image because
+ * {@link io.sirix.io.memorymapped.MMStorage} maps each generation into an {@code Arena.ofShared()}
+ * (closing such an arena requires {@code -H:+SharedArenaSupport} at image build time):
  *
  * <ol>
- *   <li>create a database + resource and shred a small JSON document (commit, revision 1),</li>
- *   <li>close everything, reopen from disk, read the document back via a query,</li>
- *   <li>append a subtree in a node transaction and commit (revision 2 — grows the data
- *       file, forcing an mmap <em>remap</em>: new arena generation, old generation closed),</li>
- *   <li>reopen again and verify both the new revision and time-travel to revision 1.</li>
+ * <li>create a database + resource and shred a small JSON document (commit, revision 1),</li>
+ * <li>close everything, reopen from disk, read the document back via a query,</li>
+ * <li>append a subtree in a node transaction and commit (revision 2 — grows the data file, forcing
+ * an mmap <em>remap</em>: new arena generation, old generation closed),</li>
+ * <li>reopen again and verify both the new revision and time-travel to revision 1.</li>
  * </ol>
  *
- * <p>Intentionally uses the {@link BasicJsonDBStore} defaults, which select
- * {@link StorageType#MEMORY_MAPPED} on 64-bit Linux — the configuration whose reader path
- * crashes in a native image without shared-arena support.
+ * <p>
+ * Intentionally uses the {@link BasicJsonDBStore} defaults, which select
+ * {@link StorageType#MEMORY_MAPPED} on 64-bit Linux — the configuration whose reader path crashes
+ * in a native image without shared-arena support.
  *
- * <p>Usage: {@code NativeWriteSmokeMain [dbDir]} (defaults to a fresh temp directory).
- * Exits 0 and prints {@code NATIVE WRITE SMOKE: OK} on success, exits 1 on any failure.
+ * <p>
+ * Usage: {@code NativeWriteSmokeMain [dbDir]} (defaults to a fresh temp directory). Exits 0 and
+ * prints {@code NATIVE WRITE SMOKE: OK} on success, exits 1 on any failure.
  */
 public final class NativeWriteSmokeMain {
 
@@ -46,8 +48,7 @@ public final class NativeWriteSmokeMain {
   private static final String REV1_JSON = "[{\"i\":1,\"name\":\"a\"},{\"i\":2,\"name\":\"b\"}]";
   private static final String REV2_ELEMENT = "{\"i\":3,\"name\":\"c\"}";
 
-  private NativeWriteSmokeMain() {
-  }
+  private NativeWriteSmokeMain() {}
 
   public static void main(final String[] args) throws Exception {
     final long start = System.nanoTime();
@@ -64,7 +65,9 @@ public final class NativeWriteSmokeMain {
   }
 
   private static void run(final String[] args) throws Exception {
-    final Path dbDir = args.length > 0 ? Path.of(args[0]) : Files.createTempDirectory("sirix-write-smoke");
+    final Path dbDir = args.length > 0
+        ? Path.of(args[0])
+        : Files.createTempDirectory("sirix-write-smoke");
     Files.createDirectories(dbDir);
 
     // Keep the off-heap budget small — this is a smoke, not a benchmark.
@@ -74,8 +77,8 @@ public final class NativeWriteSmokeMain {
 
     // ---- Phase A: create + shred + commit (revision 1), then read back in-process. ----
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       store.create(DB, RESOURCE, REV1_JSON);
       System.out.println("PASS create+shred+commit (revision 1)");
 
@@ -95,9 +98,8 @@ public final class NativeWriteSmokeMain {
         final StorageType storageType = session.getResourceConfig().storageType;
         System.out.println("# storageType = " + storageType);
         if (System.getProperty("storageType") == null && storageType != StorageType.MEMORY_MAPPED) {
-          throw new IllegalStateException(
-              "expected MEMORY_MAPPED storage on this platform but got " + storageType
-                  + " — the smoke would not exercise the shared-arena mmap path");
+          throw new IllegalStateException("expected MEMORY_MAPPED storage on this platform but got " + storageType
+              + " — the smoke would not exercise the shared-arena mmap path");
         }
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
@@ -117,8 +119,8 @@ public final class NativeWriteSmokeMain {
 
     // ---- Phase C: reopen once more; verify revision 2 and time-travel to revision 1. ----
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       expect("3", query(chain, ctx, "count(jn:doc('" + DB + "','" + RESOURCE + "')[])"), "rev2 count (reopened)");
       final String rev2 = query(chain, ctx, "jn:doc('" + DB + "','" + RESOURCE + "')");
       expectContains(rev2, "\"i\":3", "rev2 content (reopened)");
@@ -130,7 +132,7 @@ public final class NativeWriteSmokeMain {
   private static String query(final SirixCompileChain chain, final SirixQueryContext ctx, final String queryStr) {
     final var sequence = new Query(chain, queryStr).evaluate(ctx);
     final var buf = IOUtils.createBuffer();
-    try (final var serializer = new StringSerializer(buf)) {
+    try (final var serializer = new SirixStringSerializer(buf)) {
       serializer.serialize(sequence);
     }
     return buf.toString();

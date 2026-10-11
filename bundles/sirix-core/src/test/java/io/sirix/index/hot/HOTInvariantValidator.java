@@ -18,13 +18,18 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.interfaces.Page;
+import it.unimi.dsi.fastutil.bytes.ByteArrays;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Test-only validator that walks an entire HOT trie and asserts the structural invariants from
@@ -84,6 +89,10 @@ public final class HOTInvariantValidator {
 
   private final StorageEngineReader reader;
   private final int maxHeight;
+
+  /** A validation pass is read-only; resolve each reference through the TIL once per pass. */
+  private final IdentityHashMap<PageReference, Page> resolvedPages = new IdentityHashMap<>();
+  private final IdentityHashMap<HOTLeafPage, byte[][]> decodedKeys = new IdentityHashMap<>();
 
   /** Collected violations (empty == validation passed). */
   private final List<Violation> violations = new ArrayList<>();
@@ -189,12 +198,11 @@ public final class HOTInvariantValidator {
     // integrity check — distinguishes "stale routing" (one key in one leaf, PEXT goes to a
     // different leaf, but only one canonical home) from "key duplication" (the SAME key body
     // present in two leaves, which would imply data divergence under updates).
-    final Set<String> seen = new HashSet<>(v.storedKeys.size() * 2);
+    final Set<byte[]> seen = new ObjectOpenCustomHashSet<>(v.storedKeys.size(), ByteArrays.HASH_STRATEGY);
     for (final byte[] k : v.storedKeys) {
-      final String h = bytesHex(k);
-      if (!seen.add(h)) {
+      if (!seen.add(k)) {
         v.addViolation("I1-cross-leaf-uniqueness",
-            "stored key " + h + " appears in more than one leaf — structural duplication", null);
+            "stored key " + bytesHex(k) + " appears in more than one leaf — structural duplication", null);
       }
     }
     // I6: every stored key must PEXT-route from rootRef back to its containing leaf.
@@ -368,13 +376,14 @@ public final class HOTInvariantValidator {
   }
 
   /** Leaf entries are lex-sorted (I2, checked separately), so the ends are the extremes. */
-  private static byte[] @Nullable [] leafKeyRange(final HOTLeafPage leaf) {
+  private byte[] @Nullable [] leafKeyRange(final HOTLeafPage leaf) {
     final int entryCount = leaf.getEntryCount();
     if (entryCount == 0) {
       return null;
     }
-    final byte[] first = leaf.getKey(0);
-    final byte[] last = leaf.getKey(entryCount - 1);
+    final byte[][] keys = leafKeys(leaf);
+    final byte[] first = keys[0];
+    final byte[] last = keys[entryCount - 1];
     return first == null || last == null
         ? null
         : new byte[][] {first, last};
@@ -440,13 +449,14 @@ public final class HOTInvariantValidator {
     }
 
     byte[] previousKey = null;
-    final Set<String> keysInThisLeaf = new HashSet<>();
+    final Set<byte[]> keysInThisLeaf = new ObjectOpenCustomHashSet<>(entryCount, ByteArrays.HASH_STRATEGY);
+    final byte[][] keys = leafKeys(leaf);
     for (int i = 0; i < entryCount; i++) {
-      final byte[] key = leaf.getKey(i);
+      final byte[] key = keys[i];
       // I1 — leaf-key-uniqueness.
-      final String hex = bytesHex(key);
-      if (!keysInThisLeaf.add(hex)) {
-        addViolation("I1-leaf-key-uniqueness", "duplicate key " + hex + " within leaf " + leaf.getPageKey(), null);
+      if (!keysInThisLeaf.add(key)) {
+        addViolation("I1-leaf-key-uniqueness", "duplicate key " + bytesHex(key) + " within leaf " + leaf.getPageKey(),
+            null);
       }
 
       // I2 — leaf-lex-sorted.
@@ -454,7 +464,7 @@ public final class HOTInvariantValidator {
         final int cmp = Arrays.compareUnsigned(previousKey, key);
         if (cmp >= 0) {
           addViolation("I2-leaf-lex-sorted", "leaf " + leaf.getPageKey() + " entries[" + (i - 1) + ".." + i
-              + "] not strictly increasing: " + bytesHex(previousKey) + " vs " + hex, null);
+              + "] not strictly increasing: " + bytesHex(previousKey) + " vs " + bytesHex(key), null);
         }
       }
       previousKey = key;
@@ -472,14 +482,8 @@ public final class HOTInvariantValidator {
       if (leaf.getIndexType() == IndexType.PROJECTION && valueLength == 0) {
         continue;
       }
-      if (leaf.getIndexType() != IndexType.PROJECTION) {
-        final byte[] value = new byte[valueLength];
-        if (valueLength > 0) {
-          leaf.copyRefInto(valueRef, 0, value, 0, valueLength);
-        }
-        if (NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
-          continue;
-        }
+      if (leaf.getIndexType() != IndexType.PROJECTION && NodeReferencesSerializer.isTombstone(leaf, valueRef)) {
+        continue;
       }
       storedKeys.add(key);
     }
@@ -744,8 +748,9 @@ public final class HOTInvariantValidator {
         final byte[][] failingKey = {null};
         walkLeavesUntilFalse(cref, leaf -> {
           final int ec = leaf.getEntryCount();
+          final byte[][] keys = leafKeys(leaf);
           for (int k = 0; k < ec; k++) {
-            final byte[] keyK = leaf.getKey(k);
+            final byte[] keyK = keys[k];
             if (keyK == null || keyK.length == 0)
               continue;
             final int denseK = computeDensePartialKey(indirect, keyK);
@@ -774,7 +779,7 @@ public final class HOTInvariantValidator {
    * Walk every leaf reachable from {@code ref} and apply {@code visitor}. Stops early if
    * {@code visitor.test(leaf)} returns {@code false}. Used by I5-strict.
    */
-  private void walkLeavesUntilFalse(PageReference ref, java.util.function.Predicate<HOTLeafPage> visitor) {
+  private void walkLeavesUntilFalse(PageReference ref, Predicate<HOTLeafPage> visitor) {
     if (ref == null)
       return;
     final Page page = loadPage(ref);
@@ -1142,8 +1147,9 @@ public final class HOTInvariantValidator {
     final boolean[] seen1 = {false};
     walkLeavesUntilFalse(ref, leaf -> {
       final int ec = leaf.getEntryCount();
+      final byte[][] keys = leafKeys(leaf);
       for (int k = 0; k < ec; k++) {
-        final byte[] key = leaf.getKey(k);
+        final byte[] key = keys[k];
         if (key == null || key.length == 0)
           continue;
         if (isBitSetAbsolute(key, absBit))
@@ -1179,16 +1185,26 @@ public final class HOTInvariantValidator {
 
   // ===== helpers =====
 
+  private byte[][] leafKeys(final HOTLeafPage leaf) {
+    return decodedKeys.computeIfAbsent(leaf, HOTLeafPage::getAllKeys);
+  }
+
   private @Nullable Page loadPage(PageReference ref) {
+    final Page resolved = resolvedPages.get(ref);
+    if (resolved != null && !resolved.isClosed()) {
+      return resolved;
+    }
     // Always prefer TIL-aware resolution via reader.loadHOTPage — this ensures we see
     // the latest version of pages updated mid-transaction (e.g., after leaf splits,
     // intermediate indirect pages in TIL supersede stale ref.getPage() values).
     final Page tilPage = reader.loadHOTPage(ref);
     if (tilPage != null && !tilPage.isClosed()) {
+      resolvedPages.put(ref, tilPage);
       return tilPage;
     }
     final Page inMemory = ref.getPage();
     if (inMemory != null && !inMemory.isClosed()) {
+      resolvedPages.put(ref, inMemory);
       return inMemory;
     }
     return null;
@@ -1252,7 +1268,7 @@ public final class HOTInvariantValidator {
       if (page instanceof HOTLeafPage leaf) {
         if (leaf.getEntryCount() == 0)
           return "empty";
-        final String hex = bytesHex(leaf.getKey(leaf.getEntryCount() - 1));
+        final String hex = bytesHex(leafKeys(leaf)[leaf.getEntryCount() - 1]);
         return hex.substring(0, Math.min(48, hex.length()));
       }
       if (!(page instanceof HOTIndirectPage indirect))
@@ -1276,7 +1292,7 @@ public final class HOTInvariantValidator {
       if (page instanceof HOTLeafPage leaf) {
         if (leaf.getEntryCount() == 0)
           return null;
-        return leaf.getFirstKey();
+        return leafKeys(leaf)[0];
       }
       if (!(page instanceof HOTIndirectPage indirect))
         return null;
@@ -1298,7 +1314,7 @@ public final class HOTInvariantValidator {
   private static String bytesHex(byte[] b) {
     if (b == null)
       return "null";
-    return java.util.HexFormat.of().formatHex(b);
+    return HexFormat.of().formatHex(b);
   }
 
 

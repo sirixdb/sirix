@@ -3,17 +3,19 @@
  */
 package io.sirix.query.function.jn.index;
 
+import com.google.gson.JsonPrimitive;
 import io.sirix.query.AbstractJsonTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.StringJoiner;
 
 /**
- * Pins that a CAS equality query stays exact for values the key encoding cannot represent.
+ * Pins that CAS queries stay exact for values the key encoding cannot represent.
  *
  * <p>
- * {@code CASKeySerializer} truncates a string value at {@code MAX_STRING_VALUE_BYTES} (246), so two
+ * {@code CASKeySerializer} caps the escaped string value at {@code MAX_STRING_VALUE_BYTES}, so two
  * values sharing that prefix serialize to ONE key and share one posting list. The HOT equality
  * branch in {@code CASIndex#openHOTIndexWithFilter} used to return that list as-is, handing the
  * query both values' nodes for a probe that matches only one of them.
@@ -46,7 +48,7 @@ import java.io.IOException;
 public final class CASKeyTruncationTest extends AbstractJsonTest {
 
   /**
-   * Exactly {@code CASKeySerializer.MAX_STRING_VALUE_BYTES}, so the two values differ only past it.
+   * Exceeds the escaped value cap, so the two values differ only past it.
    */
   private static final String SHARED_PREFIX = "A".repeat(246);
 
@@ -88,5 +90,31 @@ public final class CASKeyTruncationTest extends AbstractJsonTest {
     // The control: truncation only bites past the bound, so an ordinary value must still be exact.
     // Without this, a regression that broke equality outright would leave the two tests above green.
     test(STORE, CREATE_SINGLE_PATH, countOfTitle("short"), "1");
+  }
+
+  @Test
+  @DisplayName("exclusive CAS range bounds re-check short values sharing a capped escaped prefix")
+  void escapedPrefixRangeReturnsExactlyTheInteriorValues() throws IOException {
+    final String prefix = "\0".repeat(130);
+    final StringBuilder json = new StringBuilder("[");
+    final StringJoiner expected = new StringJoiner(",");
+    for (int row = 0; row < 600; row++) {
+      final String suffix = Integer.toString(1000 + row).substring(1);
+      if (row != 0) {
+        json.append(',');
+      }
+      json.append("{\"title\":").append(new JsonPrimitive(prefix + suffix)).append('}');
+      if (row > 0 && row < 599) {
+        expected.add(suffix);
+      }
+    }
+    json.append(",{\"title\":\"z\"}]");
+    final String store = "jn:store('json-path1','mydoc.jn','" + json + "')";
+    final String range = "let $doc := jn:doc('json-path1','mydoc.jn') "
+        + "let $hits := jn:scan-cas-index-range($doc,jn:find-cas-index($doc,'xs:string','/[]/title'),"
+        + "$doc[0].title,$doc[599].title,false(),false(),'/[]/title') "
+        + "let $suffixes := for $value in $hits order by $value return fn:substring(fn:string($value),131) "
+        + "return fn:string-join($suffixes,',') eq '" + expected + "'";
+    test(store, CREATE_SINGLE_PATH, range, "true");
   }
 }

@@ -108,11 +108,12 @@ final class CompositePredicateSliceReuseTest {
               "the filtered group key must not trigger a second, full-column fill");
           assertFalse(columns.columnFilled(handle.columnOf("time_us")),
               "the filtered aggregate operand must reuse the predicate slices");
-          assertTrue(columns.columnFilled(handle.columnOf("kind")),
-              "a key outside the predicate still needs a full-column fill");
+          assertFalse(columns.columnFilled(handle.columnOf("kind")),
+              "a key outside the predicate must also respect the pruned leaves");
           assertEquals(expectedAll, evaluate(vectorized, context, all),
               "a later unfiltered query must see the leaves the first query pruned");
           assertTrue(columns.columnFilled(handle.columnOf("cat")));
+          assertTrue(columns.columnFilled(handle.columnOf("kind")));
           assertTrue(columns.columnFilled(handle.columnOf("time_us")));
         } finally {
           SequentialPipelineStrategy.setVectorizedExecutor(null);

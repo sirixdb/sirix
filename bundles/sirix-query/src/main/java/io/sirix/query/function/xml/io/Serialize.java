@@ -34,7 +34,7 @@ import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.io.IOUtils;
-import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.sdb.SDBFun;
 import io.sirix.query.function.xml.XMLFun;
@@ -87,7 +87,7 @@ public final class Serialize extends AbstractFunction {
         throw new QueryException(SDBFun.ERR_FILE_NOT_FOUND, e);
       }
     }
-    new StringSerializer(buf).setFormat(format).serialize(sequence);
+    new SirixStringSerializer(buf).setFormat(format).serialize(sequence);
     return new Str(buf.toString());
   }
 }

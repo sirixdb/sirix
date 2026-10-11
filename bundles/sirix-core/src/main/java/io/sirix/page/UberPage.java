@@ -141,10 +141,10 @@ public final class UberPage implements Page {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("forwarding page", super.toString())
-                      .add("revisionCount", revisionCount)
-                      .add("isBootstrap", isBootstrap)
-                      .toString();
+                         .add("forwarding page", super.toString())
+                         .add("revisionCount", revisionCount)
+                         .add("isBootstrap", isBootstrap)
+                         .toString();
   }
 
   /**
@@ -183,8 +183,8 @@ public final class UberPage implements Page {
   public int[] getPageCountExp(final IndexType indexType) {
     return switch (indexType) {
       case PATH_SUMMARY -> Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID,
-          PATH, CAS, NAME, VECTOR, PROJECTION, VALIDTIME ->
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH, CAS, NAME, VECTOR, PROJECTION,
+          VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
         Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
       case REVISIONS -> Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
       // $CASES-OMITTED$

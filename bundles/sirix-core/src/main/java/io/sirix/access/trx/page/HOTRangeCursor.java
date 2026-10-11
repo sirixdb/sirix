@@ -30,6 +30,7 @@ package io.sirix.access.trx.page;
 
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.page.OverflowPage;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
@@ -99,6 +100,15 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0, bytes, 0, bytes.length);
       return bytes;
     }
+  }
+
+  /** Resolve a posting payload through this reader's revision and transaction intent log. */
+  public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
+    return reader.readSideOverflowPage(reference);
+  }
+
+  public boolean verifyChecksumsOnRead() {
+    return reader.verifyChecksumsOnRead();
   }
 
   private final HOTTrieReader reader;

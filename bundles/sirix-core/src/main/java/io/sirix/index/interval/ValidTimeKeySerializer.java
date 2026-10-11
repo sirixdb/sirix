@@ -61,6 +61,11 @@ public final class ValidTimeKeySerializer implements HOTKeySerializer<ValidTimeK
   }
 
   @Override
+  public int logicalKeyLength(final byte[] key, final int offset, final int length) {
+    return KEY_BYTES;
+  }
+
+  @Override
   public ValidTimeKey deserialize(final byte[] bytes, final int offset, final int length) {
     final byte store = bytes[offset];
     final long fork = getSignFlippedLong(bytes, offset + 1);
@@ -81,7 +86,8 @@ public final class ValidTimeKeySerializer implements HOTKeySerializer<ValidTimeK
     return offset + 8;
   }
 
-  private static long getSignFlippedLong(final byte[] bytes, final int offset) {
+  /** Decode one sign-flipped big-endian long of a serialized key; shared with the chunk cursor. */
+  static long getSignFlippedLong(final byte[] bytes, final int offset) {
     final long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
         | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
         | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)

@@ -10,6 +10,7 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
+import io.sirix.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
@@ -22,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
@@ -237,6 +239,16 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
+   * The bytes on GC-owned native memory; see
+   * {@link #deserialize(ResourceConfiguration, byte[], PageReference, boolean)}.
+   */
+  private static MemorySegment nativeCopyOf(final byte[] bytes) {
+    final MemorySegment segment = Arena.ofAuto().allocate(bytes.length);
+    MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, 0L, bytes.length);
+    return segment;
+  }
+
+  /**
    * Deserialize a page, optionally leaving a record page's records unexpanded until read.
    *
    * @param lazyRecordPage request the lazy variant; see {@link Reader#readRecordPageLazily}. Ignored
@@ -244,10 +256,13 @@ public abstract class AbstractReader implements Reader {
    */
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference,
       boolean lazyRecordPage) throws IOException {
-    // Use MemorySegment path if supported (zero-copy decompression)
+    // A byte-array page (the uber-page beacon at open, tests) is copied onto GC-owned native memory
+    // rather than wrapped as a heap segment: the page decoders downstream share one segment access
+    // path whose receiver-type profile is process-wide, and a heap receiver seen there, however
+    // rarely, is enough for the JIT to keep a heap branch in the record decoder's native loops (see
+    // PageLayout#getBitmapWord(byte[], int)). None of this is on a hot path.
     if (byteHandler.supportsMemorySegments()) {
-      MemorySegment segment = MemorySegment.ofArray(page);
-      return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
+      return deserializeFromSegment(resourceConfiguration, nativeCopyOf(page), reference, lazyRecordPage);
     }
 
     // Fallback to stream-based approach for non-MemorySegment ByteHandlers
@@ -256,8 +271,7 @@ public abstract class AbstractReader implements Reader {
       decompressedBytes = inputStream.readAllBytes();
     }
 
-    // Zero-copy wrap: MemorySegment backed directly by the byte array
-    final var source = Bytes.wrapForRead(decompressedBytes);
+    final var source = Bytes.wrapForRead(nativeCopyOf(decompressedBytes));
     final var deserializedPage = lazyRecordPage
         ? pagePersister.deserializePageLazily(resourceConfiguration, source, type, null)
         : pagePersister.deserializePage(resourceConfiguration, source, type);
@@ -354,6 +368,28 @@ public abstract class AbstractReader implements Reader {
       // The close() method checks ownershipTransferred internally
       decompressionResult.close();
     }
+  }
+
+  /** Select a slot inside the same verified/decompressed frame used by ordinary page reads. */
+  protected HOTProjectionRead deserializeHOTProjectionEntry(final ResourceConfiguration configuration,
+      final MemorySegment compressedPage, final byte[] key, final long sideReferenceKey, final boolean retainImage)
+      throws IOException {
+    final HOTProjectionRead result;
+    if (byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()) {
+      result = pagePersister.deserializeHOTProjectionEntry(configuration, new MemorySegmentBytesIn(compressedPage),
+          type, key, sideReferenceKey, retainImage);
+    } else {
+      try (final var decoded = byteHandler.decompressScoped(compressedPage)) {
+        result = pagePersister.deserializeHOTProjectionEntry(configuration, new MemorySegmentBytesIn(decoded.segment()),
+            type, key, sideReferenceKey, retainImage);
+      }
+    }
+    if (result.indirect() != null) {
+      fixupPageReferenceIds(result.indirect(), configuration.getDatabaseId(), configuration.getID());
+    } else if (result.entry() != null && result.entry().sideReference() != null) {
+      result.entry().sideReference().setDatabaseId(configuration.getDatabaseId()).setResourceId(configuration.getID());
+    }
+    return result;
   }
 
   /** Fragment decoder never retains the borrowed input or transfers its decompression owner. */

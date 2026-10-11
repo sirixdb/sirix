@@ -62,7 +62,7 @@ final class CASKeySerializerEdgeCaseTest {
    * helper honest about what the index actually stores.
    */
   private static byte[] key(final Atomic value, final Type type) {
-    final byte[] buffer = new byte[256];
+    final byte[] buffer = new byte[512];
     final int length = CASKeySerializer.INSTANCE.serialize(new CASValue(value, type, PCR), buffer, 0);
     return Arrays.copyOf(buffer, length);
   }
@@ -371,24 +371,57 @@ final class CASKeySerializerEdgeCaseTest {
     @Test
     @DisplayName("the boundary is at the cap, not past it")
     void theBoundaryIsInclusive() {
-      // >= and not >, and the difference is a real over-match rather than a rounding preference. A
-      // value measuring EXACTLY the cap is stored losslessly, but every LONGER value is capped to the
-      // same 246 bytes — so a 250-byte value sharing the prefix produces a byte-identical key of
-      // identical length, and nothing downstream separates them. At exactly the cap the seek is
-      // therefore guaranteed to over-match, which is precisely where a `>` test switched the caller's
-      // re-check off.
-      assertFalse(CASKeySerializer.truncates(new Str("A".repeat(245)), Type.STR), "one below the cap is safe");
-      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(246)), Type.STR), "exactly at the cap collides");
-      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(247)), Type.STR));
+      final int cap = CASKeySerializer.MAX_STRING_VALUE_BYTES;
+      assertFalse(CASKeySerializer.truncates(new Str("A".repeat(cap - 2)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap - 1)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("A".repeat(cap + 1)), Type.STR));
     }
 
     @Test
     @DisplayName("the cap is measured in UTF-8 bytes, not characters")
     void multiByteCharactersCountTheirBytes() {
-      // 82 three-byte characters measure exactly 246 bytes, so this collides while its character
-      // count (82) is nowhere near the cap. Measuring characters would report it safe.
-      assertTrue(CASKeySerializer.truncates(new Str("中".repeat(82)), Type.STR));
-      assertFalse(CASKeySerializer.truncates(new Str("中".repeat(81)), Type.STR));
+      assertTrue(CASKeySerializer.truncates(new Str("中".repeat(79)), Type.STR));
+      assertFalse(CASKeySerializer.truncates(new Str("中".repeat(78)), Type.STR));
+    }
+
+    @Test
+    void escapedBytesAndIncompleteEscapeRoomRequireValueRechecks() {
+      for (final Type type : new Type[] {Type.STR, Type.AURI}) {
+        assertFalse(CASKeySerializer.losesInformation(new Str("\0".repeat(117)), type));
+        assertTrue(CASKeySerializer.losesInformation(new Str("\0".repeat(118)), type));
+        final String prefix = "\0".repeat(117) + 'a';
+        assertTrue(CASKeySerializer.losesInformation(new Str(prefix), type));
+        assertArrayEquals(key(new Str(prefix), type), key(new Str(prefix + '\0'), type));
+      }
+    }
+
+    @Test
+    void cappedDecimalSuffixesRemainDecodableAndRequestRechecks() {
+      for (final String sign : new String[] {"", "-"}) {
+        final Dec value = new Dec(sign + "0." + "1".repeat(300));
+        final byte[] bytes = key(value, Type.DEC);
+        assertTrue(bytes.length + 2 * Integer.BYTES <= 1 << Byte.SIZE);
+        final CASValue decoded = CASKeySerializer.INSTANCE.deserialize(bytes, 0, bytes.length);
+        assertTrue(CASKeySerializer.losesInformation(value, Type.DEC));
+        assertTrue(CASKeySerializer.truncates(value, Type.DEC));
+        assertTrue(CASKeySerializer.hasCappedDecimalSuffix(bytes, 0, bytes.length));
+        assertTrue(CASKeySerializer.losesInformation(decoded.getAtomicValue(), Type.DEC));
+        assertArrayEquals(bytes, key(decoded.getAtomicValue(), Type.DEC));
+      }
+    }
+
+    @Test
+    void storedDecimalCapSurvivesTrailingZeroNormalization() {
+      for (final String sign : new String[] {"", "-"}) {
+        final Dec value = new Dec(sign + "0.1" + "0".repeat(220) + "1");
+        final byte[] bytes = key(value, Type.DEC);
+        final CASValue decoded = CASKeySerializer.INSTANCE.deserialize(bytes, 0, bytes.length);
+        assertTrue(CASKeySerializer.hasCappedDecimalSuffix(bytes, 0, bytes.length));
+        assertFalse(CASKeySerializer.truncates(decoded.getAtomicValue(), Type.DEC));
+        final byte[] shortKey = key(new Dec(sign + "0.1"), Type.DEC);
+        assertFalse(CASKeySerializer.hasCappedDecimalSuffix(shortKey, 0, shortKey.length));
+      }
     }
 
     @Test
@@ -402,16 +435,12 @@ final class CASKeySerializerEdgeCaseTest {
     }
 
     @Test
-    @DisplayName("a numeric bound never reports truncation, however lossy it is")
-    void numericBoundsDoNotTruncate() {
-      // The split that keeps range queries on the bounded cursor. Numeric narrowing is monotone, so
-      // the cursor still places every stored key correctly against the bound; only truncation breaks
-      // the ordering. A range caller consulting losesInformation instead paid an O(index) scan to
-      // reach the identical answer.
+    @DisplayName("ordinary numeric bounds retain their bounded cursor path")
+    void ordinaryNumericBoundsDoNotTruncate() {
+      // Numeric narrowing and a capped decimal suffix are separate. Ordinary decimals keep their
+      // exact suffix and therefore do not need a document-value residual.
       assertFalse(CASKeySerializer.truncates(new Dec(new BigDecimal("19.99")), Type.DEC));
-      // Lossless for equality too, now that the key carries the exact value. The two predicates stay
-      // separate because they still diverge on the LEXICAL family, where a bound past the cap
-      // truncates, and there both predicates answer true.
+      // The suffix also makes ordinary decimal equality exact.
       assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC),
           "an ordinary decimal bound is exact in the key");
     }
@@ -515,11 +544,11 @@ final class CASKeySerializerEdgeCaseTest {
   }
 
   @Test
-  @DisplayName("the empty string encodes to a bare header and sorts below every non-empty value")
-  void theEmptyStringIsABareHeader() {
+  @DisplayName("the empty string encodes to a terminated header and sorts below every non-empty value")
+  void theEmptyStringHasATerminator() {
     final byte[] empty = key(new Str(""), Type.STR);
     final byte[] nonEmpty = key(new Str("a"), Type.STR);
-    assertTrue(empty.length == HEADER_BYTES, "no value bytes at all");
+    assertTrue(empty.length == HEADER_BYTES + 2, "empty value followed by the terminator");
     assertTrue(Arrays.compareUnsigned(empty, nonEmpty) < 0, "and it sorts first, which is correct");
   }
 }

@@ -69,7 +69,7 @@ public final class PageUtils {
   static void createKeyedTrie(final DatabaseType databaseType, final PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     switch (indexType) {
-      case PATH, CAS, PROJECTION, VALIDTIME ->
+      case PATH, CAS, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG ->
         throw new IllegalArgumentException(indexType + " secondary indexes use HOT storage");
       default -> {
       }
@@ -114,7 +114,7 @@ public final class PageUtils {
   static void createHOTTree(PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     switch (indexType) {
-      case PATH, CAS, NAME, PROJECTION, VALIDTIME -> {
+      case PATH, CAS, NAME, PROJECTION, VALIDTIME, TEMPORAL_AGGREGATE, CHANGE_LOG -> {
       }
       default -> throw new IllegalArgumentException(indexType + " does not use HOT secondary-index storage");
     }
@@ -149,7 +149,7 @@ public final class PageUtils {
     // Arrays.asList wrapper allocation + iterator object that the generic
     // getReferences() path pays per call. Profile showed fixupPageReferenceIds
     // at ~1% of the cold-scan worker time; the List alloc was most of it.
-    if (page instanceof io.sirix.page.delegates.FullReferencesPage frp) {
+    if (page instanceof FullReferencesPage frp) {
       for (int i = 0, n = frp.getReferencesCount(); i < n; i++) {
         final PageReference ref = frp.referenceAt(i);
         if (ref != null) {
@@ -164,6 +164,11 @@ public final class PageUtils {
     // generic path below built a full UnsupportedOperationException stack trace per side-overflow
     // read (6.3% of idx39's windowed-scan CPU). The skip is the contract stated cheaply.
     if (page instanceof OverflowPage) {
+      return;
+    }
+
+    if (page instanceof HOTLeafPage leaf) {
+      leaf.fixupSideReferenceIds(databaseId, resourceId);
       return;
     }
 

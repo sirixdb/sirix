@@ -78,11 +78,11 @@ final class HOTExistingBitFoldPlacementTest {
       final HOTIncrementalInsert.BiNode biNode = halves;
       assertThrows(IllegalArgumentException.class,
           () -> HOTIncrementalInsert.mergeBiNodeAtExistingDiscBit(fixture.parent, biNode, STRADDLING_SLOT, 2,
-              allocator::getAndIncrement),
+              IndexType.VALIDTIME, allocator::getAndIncrement),
           "a fold that is not pre-checked must refuse too instead of returning a disordered node");
       assertThrows(IllegalArgumentException.class,
           () -> HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(fixture.parent, STRADDLING_SLOT,
-              biNode.left(), 0b010, biNode.right(), 2, allocator::getAndIncrement),
+              biNode.left(), 0b010, biNode.right(), 2, IndexType.VALIDTIME, allocator::getAndIncrement),
           "the full-node variant inserts at the same position and must refuse likewise");
     } finally {
       closeAll(fixture.parent, pageOf(halves, true), pageOf(halves, false));
@@ -106,7 +106,7 @@ final class HOTExistingBitFoldPlacementTest {
       assertEquals(declinedBefore, HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get());
 
       folded = HOTIncrementalInsert.mergeBiNodeAtExistingDiscBit(fixture.parent, halves, STRADDLING_SLOT, 2,
-          allocator::getAndIncrement);
+          IndexType.VALIDTIME, allocator::getAndIncrement);
 
       assertEquals(4, folded.getNumChildren());
       assertSame(halves.left(), folded.getChildReference(0));
@@ -129,7 +129,7 @@ final class HOTExistingBitFoldPlacementTest {
           allocator::getAndIncrement);
 
       nodeSplit = HOTIncrementalInsert.splitIndirectWithSlotReplaceAndInsertion(fixture.parent, STRADDLING_SLOT,
-          halves.left(), 0b010, halves.right(), 2, allocator::getAndIncrement);
+          halves.left(), 0b010, halves.right(), 2, IndexType.VALIDTIME, allocator::getAndIncrement);
 
       assertEquals(0, nodeSplit.discriminativeBitIndex(), "the node splits at its own most significant bit");
       final HOTIndirectPage lower = (HOTIndirectPage) nodeSplit.left().getPage();
@@ -187,8 +187,8 @@ final class HOTExistingBitFoldPlacementTest {
       final int[] partials = withSibling
           ? new int[] {0b000, 0b001, 0b100, 0b110}
           : new int[] {0b000, 0b100, 0b110};
-      final HOTIndirectPage parent =
-          HOTBulkBuilder.assembleIndirect(new int[] {0, 2, 3}, partials, references, 1, 1, allocator::getAndIncrement);
+      final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 2, 3}, partials, references, 1, 1,
+          IndexType.VALIDTIME, allocator::getAndIncrement);
       assertOrderedAndRouted(parent);
       return new Fixture(parent, straddling);
     } catch (final RuntimeException | Error failure) {

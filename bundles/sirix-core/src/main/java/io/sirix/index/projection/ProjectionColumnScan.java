@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static java.util.Objects.requireNonNull;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
@@ -158,6 +160,16 @@ public final class ProjectionColumnScan {
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
     checkPredicates(store, predicates);
     return resolvePredicateColumns(store, predicates, fetcher);
+  }
+
+  public static ColumnSlice[][] resolvePredicateColumnsShared(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep) {
+    checkPredicates(store, predicates);
+    final ColumnSlice[][] columns = new ColumnSlice[predicates.length][];
+    for (int i = 0; i < predicates.length; i++) {
+      columns[i] = store.columnMaskedView(predicates[i].column, fetcher, keep);
+    }
+    return columns;
   }
 
   /**
@@ -885,7 +897,9 @@ public final class ProjectionColumnScan {
       resident &= store.columnFilled(sortColumns[kk]);
     }
     for (final ColumnPredicate p : predicates) {
-      resident &= store.columnFilled(p.column);
+      resident &= p.isRecordKeySet()
+          ? store.recordKeysFilled()
+          : store.columnFilled(p.column);
     }
     if (!resident) {
       ProjectionColumnStore.noteWindowedLeafAccess();
@@ -1897,6 +1911,11 @@ public final class ProjectionColumnScan {
       throw new IllegalArgumentException("predicates must not be null");
     }
     for (final ColumnPredicate p : predicates) {
+      if (p.isRecordKeySet()) {
+        // The index-routed row source reads the KEYS lane, which every projection carries; its
+        // literal is the sorted key set, validated at construction.
+        continue;
+      }
       if (!store.columnSliceable(p.column)) {
         throw new IllegalStateException("Predicate column " + p.column + " is not sliceable");
       }
@@ -2115,7 +2134,7 @@ public final class ProjectionColumnScan {
    * Whether {@link #pruneLeaves} would price {@code p} by string fingerprint (Op.EQ on STRING_DICT).
    */
   private static boolean bloomPrunable(final ProjectionColumnStore store, final ColumnPredicate p) {
-    return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
+    return p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ && !p.isRecordKeySet()
         && store.columnKind(p.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   }
 
@@ -2281,7 +2300,9 @@ public final class ProjectionColumnScan {
    */
   private static int pruneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
       final ColumnSegmentFetcher fetcher) {
-    final int n = store.leafCount();
+    if (p.isRecordKeySet()) {
+      return pruneRecordKeyLeaves(store, p, keep, fetcher);
+    }
     final byte kind = store.columnKind(p.column);
     // A segment-scoped EQ/NE arrives resolved to one literal cell per segment; its zone holds packed
     // cells, and zoneSkip compares the leaf's own segment's cell against them. Without this arm the
@@ -2290,33 +2311,7 @@ public final class ProjectionColumnScan {
     final boolean segmentLiteral =
         ProjectionIndexRowGroupPage.isSegmentScopedIdKind(kind) && p.segmentLiteralCells != null;
     if ((zonePrunableKind(kind) || segmentLiteral) && p.stringLitBytes == null) {
-      // The memoized zone mirrors: built once per column from the descriptors, then every predicate
-      // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
-      // descriptor binary search per leaf.
-      final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(p.column);
-      int dropped = 0;
-      int noEvidence = 0;
-      for (int i = 0; i < n; i++) {
-        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
-          continue;
-        }
-        if (!zone.known(i)) {
-          noEvidence++;
-          continue; // no descriptor evidence — keep
-        }
-        final long min = zone.min(i);
-        final long max = zone.max(i);
-        if (min > max || zoneSkip(p, min, max)) {
-          keep[i >>> 6] &= ~(1L << (i & 63));
-          dropped++;
-        }
-      }
-      if (DIAG) {
-        System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
-            + " noEvidence=" + noEvidence);
-      }
-      LEAVES_PRUNED.add(dropped);
-      return dropped;
+      return pruneZoneLeaves(store, p, keep, kind);
     }
     if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
         && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
@@ -2487,6 +2482,27 @@ public final class ProjectionColumnScan {
   private static void evalNumeric(final long[] values, final int rowCount, final ColumnPredicate p,
       final long[] presence, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      // The index-routed row source: `values` is the leaf's record-key lane (every row present), and
+      // a row passes iff its key is in the set. Nothing else about the leaf is consulted.
+      if (p.keyMasks != null && rowCount > 0) {
+        final long[] membership = p.keyMasks.byFirstKey().get(values[0]);
+        if (membership == null) {
+          Arrays.fill(mask, 0, stride, 0L);
+          return;
+        }
+        if (membership.length != stride) {
+          throw new IllegalStateException("record-key mask does not cover the projection leaf");
+        }
+        for (int w = 0; w < stride; w++) {
+          mask[w] &= membership[w];
+        }
+      } else {
+        ProjectionRecordKeySet.andMembership(values, rowCount,
+            requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys"), mask);
+      }
+      return;
+    }
     if (p.globalIdVerdict != null) {
       // Pre-evaluated global verdict: one bit test per present row. Ids outside 1..count — the
       // missing-cell 0 included — never match, the leaf contract's missing ⇒ false.
@@ -2627,6 +2643,8 @@ public final class ProjectionColumnScan {
           // Routing defect — checkPredicates admits string ops onto STRING_DICT slices only.
           case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
             throw new IllegalStateException("string op in the numeric slice kernel: " + p.op);
+          // Handled before the compare loop; reaching the loop with it is a routing defect.
+          case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare loop");
         };
         if (match) {
           out |= 1L << bit;
@@ -3487,6 +3505,62 @@ public final class ProjectionColumnScan {
     } else {
       evalBoolean(slice.boolWords(), stride, p.boolLit, presence, dst);
     }
+  }
+
+  private static int pruneRecordKeyLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
+      final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    final long[] sortedKeys = requireNonNull(p.sortedKeys, "KEY_IN admission requires sorted record keys");
+    final ProjectionRecordKeySet.Masks masks = p.keyMasks == null
+        ? store.recordKeyMasks(sortedKeys, fetcher)
+        : p.keyMasks;
+    int dropped = 0;
+    for (int i = 0; i < n; i++) {
+      if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+        continue;
+      }
+      if (!masks.physicalSlots().contains(store.physicalSlot(i))) {
+        keep[i >>> 6] &= ~(1L << (i & 63));
+        dropped++;
+      }
+    }
+    if (DIAG) {
+      System.err.println("[prune] record-key set of " + sortedKeys.length + " keys: dropped=" + dropped + " of " + n);
+    }
+    LEAVES_PRUNED.add(dropped);
+    return dropped;
+  }
+
+  private static int pruneZoneLeaves(final ProjectionColumnStore store, final ColumnPredicate p, final long[] keep,
+      final byte kind) {
+    final int n = store.leafCount();
+    // The memoized zone mirrors: built once per column from the descriptors, then every predicate
+    // on the column (this query's and the next's) reads leaf-indexed arrays instead of paying a
+    // descriptor binary search per leaf.
+    final ProjectionColumnStore.ZoneIndex zone = store.zoneIndex(p.column);
+    int dropped = 0;
+    int noEvidence = 0;
+    for (int i = 0; i < n; i++) {
+      if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+        continue;
+      }
+      if (!zone.known(i)) {
+        noEvidence++;
+        continue; // no descriptor evidence — keep
+      }
+      final long min = zone.min(i);
+      final long max = zone.max(i);
+      if (min > max || zoneSkip(p, min, max)) {
+        keep[i >>> 6] &= ~(1L << (i & 63));
+        dropped++;
+      }
+    }
+    if (DIAG) {
+      System.err.println("[prune] col=" + p.column + " kind=" + kind + " op=" + p.op + " zone: dropped=" + dropped
+          + " noEvidence=" + noEvidence);
+    }
+    LEAVES_PRUNED.add(dropped);
+    return dropped;
   }
 
 }

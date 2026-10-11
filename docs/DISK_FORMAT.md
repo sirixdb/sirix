@@ -9,9 +9,9 @@ change to any pinned structure fails CI. From here, ANY change to the bytes in t
 a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
 byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to the golden constants
-and a migration note here. Nothing has been bumped under that rule yet: SirixDB has no released
-consumers, so structures still evolve IN PLACE and the golden pins alone make each change
-deliberate (see §2, "PathStats trailer").
+and a format note here. SirixDB has no released consumers; format changes may reject earlier
+structures without a reader bridge or migration. The golden pins make changes to pinned
+structures deliberate (see §2, "PathStats trailer").
 
 ## 1. Files
 
@@ -143,8 +143,9 @@ unambiguously means "legacy".)
 
 ### Endianness
 
-The format is **fully little-endian pinned** (checklist item 1 — done). Every multi-byte scalar
-that reaches disk goes through an explicitly LE-ordered accessor:
+Page and record scalar IO is **little-endian pinned** (checklist item 1 — done). Raw payloads
+with deliberately big-endian fields use the explicit encodings listed below; neither depends on
+host byte order:
 
 - Superblock, beacon XXH3 trailers, revision records, beacon/page-record length prefixes:
   pinned LE (`ByteOrder.LITTLE_ENDIAN` buffers / `MMFileReader.LAYOUT_INT`).
@@ -154,7 +155,9 @@ that reaches disk goes through an explicitly LE-ordered accessor:
 - Deliberate big-endian defined byte sequences: `compactDir` uses explicit byte composition on
   stream reads and a byte-swapped LE-short access on `MemorySegment`; in-blob column length
   prefixes use explicit shifts. HOT discriminative keys use BE loads for lexicographic
-  `compareUnsigned`. These are defined wire byte sequences, not host-order dependent.
+  `compareUnsigned`. Temporal aggregate slot payloads, part headers and summary scalars, and
+  change-log headers and fixed-width slab fields also use explicit big-endian encoding.
+  These are defined wire byte sequences, not host-order dependent.
 - The superblock's endianness check remains as a fail-fast guard for headers written by
   pre-pin dev builds on BE hosts (none exist in practice).
 - The legacy big-endian FILE backend is removed; `StorageType.FILE` fails fast.
@@ -177,15 +180,14 @@ than trusting it to stay complete, since a kind may add a flag without touching 
 | KVLP (1) | `0x01` | `ChunkedBodyConfig.FLAG_CHUNKED_BODY` | body is chunk-framed (one META frame plus heap chunks split at entry boundaries, each independently compressed and checksummed) instead of one monolithic codec frame; writer off by default, both bodies readable |
 | KVLP (1) | `0x02` | `FLAG_OVERFLOW_SLOT_SIDECAR` | the page carries a cold overflow-slot sidecar. Set from the data, not a switch: written whenever `getSideSlotCount() != 0` |
 | OVERFLOW (9) | `0x01` | `FLAG_OVERFLOW_PAYLOAD_COMPRESSED` | the compressed body described below — **the default** since the payload-compression flip |
-| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries the segment/blob side map described below |
+| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries an overflow-page side map |
 
 Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
 build that predates a flag bit reads a resource written without it, but a resource written WITH it
 cannot be read by that build — the reader refuses the unknown bit loudly rather than misparsing.
-Kind ids: 1 KVLP, 2 NAME,
-3 UBER, 4 INDIRECT, 5 REVISION_ROOT, 6 PATH_SUMMARY, 8 CAS, 9 OVERFLOW, 10 PATH, 11 DEWEYID,
-12 HOT_LEAF, 13 HOT_INDIRECT, 15 VECTOR, 16 PROJECTION, 17 VALID_TIME
-(7 and 14 retired/reserved; readers reject both ids).
+The stable kind-id registry is defined by
+[`PageKind`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) and pinned by
+`GoldenFormatTest.pageKindIdsArePinned`; retired ids 7 and 14 are rejected.
 
 **Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
 `BinaryEncodingVersion` bump — every node/page (de)serializer receives the
@@ -198,12 +200,52 @@ fail-fast lookups, never ordinals.
 
 - **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
-- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage**: reference-container delegate
+  The delegate's reference count and offsets are defined by
+  [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
+  The aggregate and change-log references extend the unreleased V0 layout in place; earlier
+  databases must be recreated rather than opened through a compatibility reader.
+- **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage / ChangeLogIndexPage**: reference-container delegate
   followed by one sparse HOT allocator map `[i32 count][count × (i32 indexId, i64 maxHotPageKey)]`.
   Entries are emitted in ascending `indexId` order. These secondary-index containers have one
   representation only: their references root HOT trees; no keyed-trie node-key or indirect-level
   counters are persisted. This unreleased layout deliberately replaces the earlier three-map V0
   draft in place; there are no persisted databases requiring a compatibility branch.
+- **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
+  reference offset 11. All fixed-width slot and part payload scalars are big-endian.
+  Prefix 0 holds format 4, the part-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to `(live rows i64, checkpoint tier i32, part count i32)`
+  followed by `(part id i64, tier u8)` pairs. The first part is the checkpoint; each lower tier holds
+  fewer than sixteen deltas. There are at most six delta tiers and 91 parts, within one inline slot. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
+  endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
+  deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
+  deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane
+  instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See
+  [TEMPORAL_AGGREGATE_INDEX.md](TEMPORAL_AGGREGATE_INDEX.md) for declaration, maintenance and admission semantics.
+- **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
+  reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
+  `(format i32=1, first revision i32, column count i32, exceptional row count i64)`.
+  Prefix 1 `(record key i64, chunk i32)` holds sparse row-local provenance: object/unsupported
+  kind byte, then one flag byte per column (without presence), in chunks of at most 2,048 bytes.
+  Chunk -1 holds the total length as i32; a zero-length directory removes an exception.
+  Prefix 2 `(revision i32, chunk i32)` holds change slabs in chunks of at most 2,048 bytes; chunk
+  -1 is the `(total byte length i32, chunk count i32)` directory. All roots are revision owned.
+  A slab begins with `SCLG` magic, format 1, projection id, revision, base revision and entry count
+  (all i32), followed by a u16 column count, normalized u8 cell kinds and a slab-local UTF-8
+  dictionary (i32 count, unsigned-varint byte lengths). Entries are sorted by record key and hold
+  unsigned-varint key deltas, big-endian u64 changed-column bitmap words, then old and new rows.
+  Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
+  unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
+  varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count
+  and ids. Present timestamp cells also retain their epoch-second lane when the unrepresentable
+  flag is set; that flag can describe lexical reconstruction rather than an unusable epoch.
+  Kinds 1..7 are long, string, boolean, double transform bits, string set, timestamp, date.
+  The log records projected cells, including unsupported flags, rather than duplicating arbitrary
+  document subtrees. `base revision` records the represented revision after a revert, rather than
+  assuming the immediately preceding published revision. Repeated maintenance barriers replace
+  the current slab with the coalesced first-old/final-new cells. No-op revisions have empty slabs.
+  Slabs are written only while a declared aggregate consumes the projection; the first-revision
+  header does not imply gap-free coverage. Redeclaration rebuilds sparse provenance, retaining
+  earlier slabs and historical roots. `ChangeLogSlabTest` pins format 1 with a golden byte fixture.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
@@ -270,10 +312,56 @@ remaining size lives in string *values*: per-block string dictionaries / wider F
 the highest-value future encoding (Umbra "Data Blocks" model), and it slots into the existing
 PAX-region + `structuralFlags` extension points without a format break.
 
+### CAS and VALIDTIME posting chunks
+
+A logical posting list is split into chunks of 65,536 node keys. A base slot uses
+`logicalPrefix || chunkIndex_BE4`; its ordinary `NodeReferences` payload holds the low 16 bits.
+The chunk index is unsigned, preserving node keys throughout `[0, 2^48)`.
+
+CAS prefixes have a fixed 10-byte header (sign-flipped path class, type id), followed by the
+atomic value's existing order-preserving encoding with `00` escaped as `00 FF`, then `00 00`.
+The value is capped at **236 escaped bytes**, ending before an escape that cannot fit in full.
+This leaves room for the header, terminator, four-byte chunk index and four-byte delta suffix
+within a 256-byte stored key: MultiMask byte positions range from 0 to 255. Over-long values
+share a key and require a document-value re-check. Decimal exact suffixes reserve room for a
+fully escaped eight-byte double prefix and their own terminator; their bound is
+`CASKeySerializer.MAX_DECIMAL_SUFFIX_BYTES`. Capped suffixes also share a key. Candidate
+re-checking is specified in [HOT index specification §4.4.3](HOT_INDEX_SPECIFICATION.md#443-index-level-ranges).
+Framing keeps logical keys prefix-free without changing the atomic ordering or the direct path-class read.
+VALIDTIME prefixes remain fixed at 17 bytes.
+
+For chunks below index `0x80000000`, a base payload of at least 256 bytes activates append-only
+changes. Each delta is `baseKey || suffix_BE4`, where
+`suffix = 0x80000000 | (sequence << 1) | removal`. Its payload contains exactly one low-16 posting
+bit. It sorts after its base and before the next chunk. The 16th effective change folds the prior 15
+deltas plus that operation in memory, replaces the base once, and tombstones the old delta
+slots. Subsequent changes reuse sequence slots. Duplicate additions and absent removals write
+nothing. Higher chunk indices retain direct updates; they cannot be confused with suffixes because
+readers identify the logical key boundary, not the high bit of a chunk index.
+
+A folded payload of at least 256 bytes lives in an `OverflowPage`. Its leaf slot stores the
+21-byte marker `[FD][referenceKey_BE8][payloadLength_BE4][payloadHash_BE8]`; the payload length must be
+in `[1, 65535]`. The payload hash uses the same XXH3-64 function as projection side-page descriptors.
+The side-map key is a 47-bit FNV-1a hash of the composite key, mixed with `hash ^= hash >>> 29`,
+shifted left 16 bits with sub-id 1.
+A same-leaf hash collision leaves a newly folded payload inline. Frontier rebuilds that bring
+colliding owners together rename a marker to a free side-map key before attaching its payload.
+Readers resolve the side page through their revision and validate its length against the marker.
+When `verifyChecksumsOnRead` is enabled, every reader and writer verifies the payload hash before
+decoding, including after a cold reopen.
+Splits and frontier rebuilds route references by the actual composite owner key; consolidation
+skips leaves carrying side pages. A fold that becomes cold or empty removes the old side reference.
+
+Every revision reads its own base and live deltas in sequence order. Folds replace immutable side
+pages and do not alter historical postings. This is the only CAS key encoding and posting layout;
+there are no old-format readers, migrations, or compatibility switches.
+
 ## 3. Integrity
 
-- Every page's XXH3-64 (of the compressed payload) is stored in its **parent's** PageReference →
-  Merkle-style chain. Verified on read when `verifyChecksumsOnRead` (default true).
+- Ordinary parent `PageReference`s store the page's XXH3-64 of the compressed payload, verified on
+  read when `verifyChecksumsOnRead` (default true). HOT child, fragment, and side-map references
+  persist offsets without hashes; their integrity limits are specified in
+  [HOT index specification §3.6](HOT_INDEX_SPECIFICATION.md#36-hot-format-and-integrity).
 - The roots are covered too: both files' superblocks carry a CRC, both uber beacon
   slots carry an XXH3 trailer, and every revision record embeds an XXH3 of its offset+timestamp
   (+ the RevisionRootPage hash when present — 24-byte coverage; see §1).
@@ -565,7 +653,8 @@ Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),
   freed that space.
 Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
   KEYS:  i64 first; i64 last; [rows>0] u8 mode(0=delta-FOR asc,1=abs-FOR); i64 base; u8 width; packed
-  BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles);
+  BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles;
+                     bit2 kind-specific source provenance);
          [rows>0] i64 min; i64 max; presence marker (0 all-present / 1 all-missing / 2 words);
          NUMERIC (long or double-transform): i64 base; u8 width (65..255 reserved escapes); packed
          BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
@@ -587,6 +676,13 @@ manifest disables manifest-backed pruning for its column. An unusable sealed blo
 span eligible, and an unusable tail keeps its one row group eligible. Entirely empty blocks and
 tails need not occupy slots. See [Bloom maintenance](SEGMENT_PROJECTION_INDEXES.md#64-bloom-chunks)
 for folding and recovery ownership.
+
+The BODY provenance flag `0x04`, also mirrored in the descriptor and PIX1 presence tail, means
+`PURE_DOUBLE_SOURCE` for NUMERIC_DOUBLE and `PURE_UTC_TIMESTAMP` for TIMESTAMP; other kinds reject
+it. Timestamp provenance proves every present cell is a canonical Z-suffixed source in years
+0001–9999. Missing provenance, duplicate fields and structured cells fail closed. Such timestamps
+retain `UNREPRESENTABLE` for lexical consumers, which must preserve the original spelling; consumers
+checking UTC provenance may use the epoch lane independently of that lexical flag.
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
 order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;
@@ -613,6 +709,104 @@ paths and reverse block touched by new values, while IDs, metadata anchors, and 
 remain stable. Probe telemetry counts radix, bucket, reverse-block, and value-entry reads actually
 performed.
 
+### Encoded sorted views
+
+A `projectionSort` definition adds a revisioned sorted view. Its current format is implemented by
+`ProjectionSortedLeaf`, `ProjectionSortedDataBlock`, `ProjectionSortedDirectory`,
+`ProjectionSortedDirectoryNode`, `ProjectionSortedLeafBounds` and `ProjectionSortedGroupSma`.
+
+| Structure | Logical slot |
+|---|---|
+| Data chunk | `2^46 + leafId` |
+| Directory header / nodes | `2^46 + 2^32` / header slot + node id |
+| Group summary | `2^46 + 2^33 + leafId` |
+| Bounds record | `2^46 + 3·2^32 + ((leafId − 1) >> 4)` |
+| Indirect directory separator | `2^46 + 4·2^32 + separatorId` |
+| Group-extrema header / nodes | `2^46 + 5·2^32` / header slot + node id |
+
+Encoded sorted-view chunks target 6144 bytes with an 8192-byte cap and at most 256 rows,
+independent of the 512-byte inline payload limit. Ordinary data chunks, summaries and directory
+nodes above that inline limit are stored as referenced side pages (generic `OverflowPage` blobs);
+payloads at or below it remain inline. An individual oversized tuple can exceed the packing cap,
+up to the leaf codec's 64 KiB limit, and remains a single generic referenced blob. The former
+whole-leaf overflow layout is no longer written or supported as a separate sorted-view layout.
+
+`PSL1` has two current encoding schemes; encoders choose the smaller eligible representation.
+Integers and numeric deltas are little-endian, while key/dictionary bytes keep their ordered encoding.
+Both schemes validate dimensions and strict row order on open and support direct row access and
+binary search without block decompression.
+
+**Prefix rows (scheme 1)** also encode directory and summary entries:
+
+| Offset | Width | Field |
+|---|---|---|
+| 0 | i32 | magic `0x314C5350` (`PSL1`) |
+| 4 | u8 | scheme 1 |
+| 5 | u16 | rows (1..256) |
+| 7 | u16 | prefixBytes |
+| 9 | prefixBytes | common key prefix |
+| 9+p | i32 × (rows+1) | absolute entry offsets; first starts the entry area, last equals blob length |
+| … | per entry | `u16 suffixLen, u16 payloadLen, suffix, payload` |
+
+Every offset and entry length is validated against the exact encoded slice.
+
+**Dictionary/delta columns (scheme 2)** require keys ending in a present long and record id, with
+zero to four covering payload words:
+
+```text
+PSL1:i32, scheme=2:u8, rows:u16, dictionarySize:u16,
+payloadWords:u8, valueWidth:u8, recordWidth:u8,
+valueMin:i64, valueMax:i64, recordMin:u64;
+(width:u8, min:u64)[payloadWords];
+dictionaryOffsets:u16[dictionarySize+1], dictionaryBytes;
+dictionaryIds:u8[rows] only when dictionarySize > 1;
+valueDeltas[rows], recordDeltas[rows], payloadWordDeltas[payloadWords][rows]
+```
+
+Each delta column uses its declared byte width (0..8); width zero denotes a constant column.
+The leading key fields form the ordered dictionary; its entries must be unique, strictly ordered
+and not prefix-overlapping. Opening checks dictionary offsets/IDs, exact encoded length, row order
+and the header's exact value extrema.
+
+**Directory header version 5** is the only supported version; its size is `39 + fieldCount` bytes:
+
+| Offset | Width | Field |
+|---|---|---|
+| 0 | i32 | magic `0x31445350` (`PSD1`) |
+| 4 | u8 | version 5 |
+| 5 | u8 | height (0..32) |
+| 6 | i32 | rootId (0 = empty) |
+| 10 | i32 | nodeCount (node-id high-water mark) |
+| 14 | i32 | dataLeafCount |
+| 18 | i32 | maxLeafId |
+| 22 | i64 | unencodableRows |
+| 30 | i64 | exact missing aggregate rows; −1 for a non-aggregate layout |
+| 38 | u8 | key-layout field count (1..255) |
+| 39 | n | key-layout field shapes |
+
+Parsing checks `rootId == 0 ⇔ dataLeafCount == 0 ⇔ height == 0`, nonnegative dimensions/counts,
+`rootId ≤ nodeCount`, `maxLeafId ≥ dataLeafCount`, a valid key layout and a missing-value count
+consistent with that layout. Direct nodes store each child's first key and an i32 child id. When
+two full fences cannot fit within the encoded-node cap, an indirect node stores one or two bounded
+entries with an `(i32 childId, i32 separatorId)` payload; its ordered fences are read from the
+separator slots. Nodes and separators follow the same inline/reference residence rule as data.
+
+**Bounds version 2** is the only supported version. Each inline 272-byte record covers 16 chunk ids:
+`PSB1:i32` (`0x31425350`), `version=2:u8`, `log2Chunks=4:u8`, two zero bytes, a u64 flags word,
+then sixteen `(i64 min, i64 max)` pairs. Flags 0–15 mark valid extrema; flags 16–31 prove that the
+corresponding chunk contains one group. Other bits must be zero, and a proof requires valid bounds.
+A proven chunk supplies its group key from the directory fence and its extrema from bounds.
+Replacing/removing a summary clears its proof and invalidates the group-extrema tree before
+publication; ordinary maintenance republishes proofs after writing consistent data and summaries.
+
+**Group-extrema tree** metadata uses a 24-byte header: `magic:i32` (`0x414D5347`), `root:i32`,
+`height:i32`, `highWater:i32`, `groups:i64`. Root/height/groups are zero together for an empty tree;
+height is in 0..32, groups is nonnegative and root is within the nonnegative high-water mark.
+Nodes are bounded to the inline payload limit: leaf entries hold an encoded group key and `(i64 min, i64 max)`; interior
+entries hold a first-group fence and an i32 child id.
+Eligibility and edit maintenance are described in
+[Projection read performance](PROJECTION_READ_PERFORMANCE.md#sorted-views).
+
 ### Compatibility
 
 These persisted projection structures were added after the previous release:
@@ -631,28 +825,20 @@ These persisted projection structures were added after the previous release:
   are still written as version 0.
 - **`projectionSort` element** of the projection `IndexDef`: the ordered sort-column list, one
   `keyColumn column="N"` child per key column. Column numbers index the declared projection fields.
-- **Sorted-view slots**, only when `projectionSort` is declared: leaves at `2^46 + leafId`, the
-  directory header at `2^46 + 2^32` followed by its nodes, group summaries at `2^46 + 2^33 + leafId`,
-  and leaf-bounds chunks (16 leaves each, stored inline) from `2^46 + 3·2^32`. The directory header
-  records the key-field layout, the number of rows held under the reserved unencodable key and, at
-  header version 4, the number of rows whose aggregated last key field has no value. That count is
-  written only for a view whose last key field is an ordered long, the only shape that consults it.
-  A version-3 header carries no such count and still parses; the view then reports the count as
-  unknown and keeps its previous behaviour until a rebuild or a leaf-summary backfill publishes a
-  version-4 header.
+- **Encoded sorted views**: the slots, encoding schemes, directory/bounds versions and optional
+  group-extrema metadata are specified [above](#encoded-sorted-views).
 - **Column-major slot layout** (PIXM version 1), created only by a fresh bulk build with
   `-Dsirix.projection.columnMajorSlots=true`: descriptor and segment slots move to
   `2^41 | slotKind << 25 | rowGroupId`.
 
-The additions are backward-readable but not forward-readable. This code reads projection indexes
-written by the previous release: version-0 metadata and set-summary chunks still parse, missing
-flag-summary and numeric-proof slots fall back to the descriptor and BODY paths, a version-3 sorted
-directory header still parses with its missing-aggregate count reported as unknown, and a definition
-without `projectionSort` has no sorted view.
+The nonsorted additions retain their existing readers: version-0 metadata and set-summary chunks
+still parse; missing flag-summary and numeric-proof slots fall back to the descriptor and BODY
+paths, and a definition without `projectionSort` has no sorted view. Sorted views require the encoded chunk layout:
+older directory and bounds versions are rejected, with no migration or compatibility mode.
 
 Projection indexes built by this code cannot be opened by the previous release. It rejects metadata
 that names a value-summary capability on a dictionary string column, version-1 set-summary chunks,
-and version-4 sorted directory headers, as corrupt: queries decline the index and maintenance fails
+and version-5 sorted directory headers, as corrupt: queries decline the index and maintenance fails
 the owning transaction. It also declines PIXM version 1 as unsupported. It ignores the remaining
 slots and the `projectionSort` element, so its maintenance would leave them stale even in an index
 it does not reject. When downgrading, drop the projection index and rebuild it with the previous
