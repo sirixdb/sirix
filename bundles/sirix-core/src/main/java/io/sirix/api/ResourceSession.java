@@ -57,7 +57,7 @@ import java.util.concurrent.TimeUnit;
 public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AutoCloseable {
 
-  /** Optional scratch-reader cache; custom sessions may use uncached readers. */
+  /** Optional immutable companion posting-mask cache; custom sessions may leave masks uncached. */
   default @Nullable ValidTimeReadCache getValidTimeReadCache() {
     return null;
   }

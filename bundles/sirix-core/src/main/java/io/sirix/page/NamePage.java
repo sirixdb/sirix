@@ -488,6 +488,11 @@ public final class NamePage extends AbstractForwardingPage implements IndexRootP
     return namesForRead(nodeKind, storageEngineReader).getRawName(key);
   }
 
+  /**
+   * Shared committed metadata must not retain reconstructed dictionaries past NamesCache eviction.
+   * Only writer-owned pages memoize them here; read transactions hold their own short-lived memos.
+   * The retention contract is exercised by NamePageDictionaryRetentionTest.
+   */
   private Names namesForRead(final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     final Names names = switch (nodeKind) {
       case ELEMENT -> elements;

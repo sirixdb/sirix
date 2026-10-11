@@ -676,7 +676,8 @@ branch closes the reader. `NodeStorageEngineReader.close()` is guarded by
 `ShardedPageCache` (the buffer pool for {@code KeyValueLeafPage}) and
 `PageCache` (for metadata pages) use {@code PageReference} as their map key.
 Multiple `PageReference` instances can compare equal under
-{@code .equals(...)} — equality is value-based on the disk locator — but
+{@code .equals(...)} — equality is value-based on the disk locator and the
+runtime-only cache-revision discriminator — but
 each instance has its own {@code page} field. A parent {@code IndirectPage}
 in the metadata cache holds its own `PageReference` array; that's a
 distinct instance from whatever instance the record cache uses as its key.
@@ -687,9 +688,32 @@ Let $C$ be a cache map of type {@code Map<PageReference, Page>}, and write
 $(\pi, p) \in C$ when {@code C.get(π) == p}. Let $\pi.\mathit{page}$ denote
 the swizzled field on $\pi$.
 
+### Revision-scoped index metadata
+
+Committed index-root pages enter `PageCache` only under detached keys produced by
+`PageReference.revisionCacheKey(revision)`. The discriminator participates in equality and hashing
+without changing the persistent locator or serialized reference. Thus the same physical root read
+at different revisions cannot share a metadata instance. `RevisionRootPage` remains excluded from
+`PageCache`; its dedicated cache owns revision-root reuse. `put`, `putIfAbsent`, `putAll` and the
+compute load path enforce the same index-root admission policy.
+
+`NodeStorageEngineReader.getIndexRootPage` uses these keys for committed name, path-summary, path,
+CAS, DeweyID, vector, projection and valid-time metadata. Intent-log-backed reads, references with no
+persistent key and readers without a registered database identity bypass this route. The page reader
+and writer continue to use the original reference. After loading, only that original reference is
+swizzled; a detached key is not the transaction's page owner. Evicting its cache entry therefore does
+not clear an active transaction's original reference. The cache-key back-reference invariant below
+applies to ordinary keys, not these detached metadata keys.
+
+[`IndexRootPageCacheTest`](../bundles/sirix-core/src/test/java/io/sirix/cache/IndexRootPageCacheTest.java)
+checks revision/database/resource isolation and admission routes. Dictionary retention inside shared
+name metadata is governed by
+[`NamePage.namesForRead`](../bundles/sirix-core/src/main/java/io/sirix/page/NamePage.java) and checked by
+[`NamePageDictionaryRetentionTest`](../bundles/sirix-core/src/test/java/io/sirix/cache/NamePageDictionaryRetentionTest.java).
+
 ### Inv 10.1 (cache-key back-reference)
 
-For every entry $(\pi, p) \in C$ that was inserted via the load path
+For every entry $(\pi, p) \in C$ with an ordinary key that was inserted via the load path
 {@code map.compute(k, loader)} or {@code put(k, p)}:
 
 $$\pi.\mathit{page} = p$$

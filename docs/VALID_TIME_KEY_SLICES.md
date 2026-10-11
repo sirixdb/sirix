@@ -79,37 +79,43 @@ there is no migration API or automatic upgrade path. Create a fresh current-form
 this representation. Writer rebinding resolves the represented revision's catalogue before listener
 creation; reverting to an incompatible catalogue is rejected.
 
-Every record carrying postings is registered in the interval tree, so a stab is the only candidate
-source. Every duplicate-bound record is registered over
-the whole domain and marked inexact, so the original field lookup and cast determine its answer
-wherever a query could match it. Verification postings therefore flag refs the tree already yields
-and are rescued for a strict endpoint at an exactly representable point only when the closed stab
-also returns them: there a rounded endpoint such as `.000500Z` shares the point's millisecond, so
-the half-open stab can skip the record and the strict-start tie removal can drop it, while a clamped start bound
-can be dropped at the domain origin. The closed stab needs no union — the domain map is monotonic,
-so it already returns a superset. Closed and strict stabs outside every interval read no candidate
-object at all. Membership filters nested objects entirely from index postings. Retained built-in
-temporal residuals run for every candidate after the original temporal predicate and only as each
-candidate is demanded. Iteration and positional access can stop before a later malformed cast; counting evaluates all candidates that
+Every record carrying postings is registered in the interval tree, so one chunk-wise stab is the only
+candidate source. Every duplicate-bound record is registered over the whole domain and marked inexact,
+so the original field lookup and cast determine its answer wherever a query could match it. At an exact
+query instant, a strict-end traversal delivers endpoint-equal chunks flagged for verification-only
+intersection. A rounded endpoint such as `.000500Z` shares the point's millisecond; verification
+postings rescue it without a second closed stab. Strict-start tie removal likewise preserves flagged
+records, including clamped starts at the domain origin. Non-exact query instants use one closed
+traversal, whose candidates are verified against their original fields. Closed and strict stabs outside
+every interval read no candidate object at all. Membership filters nested objects entirely from index
+postings. Retained built-in temporal residuals run for every candidate after the original temporal
+predicate and only as each candidate is demanded. Iteration and positional access can stop before a
+later malformed cast; counting evaluates all candidates that
 need verification. Exact candidates require no field reads when no residual remains. A retained
 temporal residual always filters exact candidates as well, and disables key-only known cardinality. Folded bitemporal
 comparisons use the key-only sequence when the comparison matches the indexed bounds and all
 selected candidates are exact; otherwise they retain the built-in comparison and reuse the selected
 keys and evidence. Caller-supplied arbitrary predicates are not supported. Among source-valid records, a strict integer tie
-must not suppress an original cast error. Candidate membership and verification use the existing compressed HOT
-posting chunks and `NodeReferences.contains`, once per candidate chunk. Only matching candidate keys
-are retained; unrelated posting references are never enumerated or copied into query collections.
+must not suppress an original cast error. Point candidates intersect compressed HOT chunks with
+immutable membership masks word-wise before expansion; verification-only chunks additionally
+intersect the verification mask. Matching keys are accumulated as runs by chunk base, unioned in
+occupied words and emitted once in ascending order, without a hash set or final key sort. Sparse
+chunks retain runs; dense chunks use bitmaps. The threshold and work bounds are owned by the
+[work-budget counter reference](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
+Only matching candidate keys are retained; unrelated companion posting references are never
+enumerated or copied into query collections. Exact range slices retain their sorted-key membership
+checks against compressed chunks.
 
-Direct and folded sequences probe the closed candidate set before reading posting evidence. An
-empty closed stab emits no interval or posting references and performs no posting lookups. Nonempty
-strict slices reuse the closed set for rounded/clamped rescue. Plain-FLWOR coverage uses posting
-cardinalities and compressed bitmap intersection without expanding references. Document-order
-admission stops at the first live guard chunk; exceptional-bound admission stops at the first
+Direct and folded point sequences read companion evidence only for chunks returned by the single
+traversal. An empty stab emits no interval or posting references and performs no posting lookups.
+Plain-FLWOR coverage uses posting cardinalities and compressed bitmap intersection without expanding
+references. Document-order admission stops at the first live guard chunk; exceptional-bound admission
+stops at the first
 intersection with the array's membership. Exceptional intervals in other cohorts do not prevent
 key-only counts over exact array members. The read index controller retains up to 256 cohort admission
 results, scoped to database, resource, immutable revision, definition identity, array key and length.
 Half-open primitive-key requests at an exactly representable point reuse a successful cached proof
-to issue only the half-open stab, skipping the closed probe and endpoint verification. Membership
+to issue the half-open chunk stab without reading end-equal chunks or verification masks. Membership
 postings still exclude matching records from other arrays. Without a cached proof, requests retain
 ordinary candidate verification; a nonempty matching result can establish the cohort proof for
 later requests, while an empty result does not initiate cohort admission reads.
@@ -123,6 +129,14 @@ window. Direct scans and primitive-key requests also decline positional and obje
 views: whole-storage-array postings cannot prove those views' membership. Key requests collect and
 sort exact fallback matches, retaining the strict end mode. Repeated immutable queries reuse successful or declined admission without decoding whole membership
 and verification postings; point conversion and endpoint selection remain per evaluation.
+
+Companion masks are cached per resource session for immutable reads, keyed by revision, index, store,
+fork, endpoint, chunk base and HOT lookup-cache generation. The bounded cache retains no transaction
+or candidate set and is cleared on session close; writers and sessions with the HOT lookup cache
+disabled bypass it. Trie cursors remain bound to each transaction; the rationale is in
+[`ValidTimeReadCache`](../bundles/sirix-core/src/main/java/io/sirix/index/interval/ValidTimeReadCache.java).
+Index-root metadata reuse follows the
+[revision-scoped page-cache contract](formal-verification.md#revision-scoped-index-metadata).
 
 ## Verification plan
 
@@ -172,9 +186,9 @@ reads; exists and first demand construct one object, with work bounded by the th
 Opt-in 100,000-row versions exercise both placements in the dedicated Test phase. Multi-chunk plain
 FLWOR budgets put expired inexact nested records beside exact outer records with one match, first
 and last. Their first admission proves nonzero validation work; repeated count/exists/first queries
-decode only the two candidate evidence chunks. Packed and bitmap fixtures retain explicit reference
-enumeration and cardinality controls. Separate executable checks cover warmed proofs across resource
-and cohort boundaries, changed points, writer mutations, reordered arrays, dropped/rebuilt definitions,
+visit only the two candidate evidence chunks, using cached masks when available. Packed and bitmap
+fixtures retain explicit reference enumeration and cardinality controls. Separate executable checks
+cover warmed proofs across resource and cohort boundaries, changed points, writer mutations, reordered arrays, dropped/rebuilt definitions,
 reverts and reopened historical revisions. The two 100,000-row cohort variants are also opt-in.
 `ValidTimeMutableSliceTest` reproduces both pending-edit wrong-result directions through real writers,
 read-only cursor wrappers and intent-log reader facades. It checks direct count, exists, positional

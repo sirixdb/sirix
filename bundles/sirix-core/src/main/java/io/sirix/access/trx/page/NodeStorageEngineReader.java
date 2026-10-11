@@ -1659,9 +1659,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    *
    * <p>
    * The dictionary itself has no such problem: {@code NamesCache} is keyed by
-   * {@code (database, resource, REVISION, offset)} and holds an immutable copy, and the revision in
-   * that key is exactly what the reference-keyed page cache lacks. So the dictionary is safe to reach
-   * directly, and the page is only needed to build it — on a miss, or for a writer.
+   * {@code (database, resource, REVISION, offset)} and holds an immutable copy. The dictionary is
+   * safe to reach directly, and the page is only needed to build it — on a miss, or for a writer.
    *
    * <p>
    * Write transactions always take the long way. A writer's uncommitted names live in its
