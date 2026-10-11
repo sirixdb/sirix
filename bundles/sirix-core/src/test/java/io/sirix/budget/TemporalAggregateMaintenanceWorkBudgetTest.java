@@ -80,7 +80,9 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
             JsonNodeTrx.Commit.NO);
         final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
         final List<Path<QNm>> fields = List.of(path("g"), path("amount"), path("lo"), path("hi"), path("ignored"));
-        final Type endpointType = typedTimestamps ? Type.DATI : Type.STR;
+        final Type endpointType = typedTimestamps
+            ? Type.DATI
+            : Type.STR;
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fields,
             List.of(Type.LON, Type.LON, endpointType, endpointType, Type.LON), 0, IndexDef.DbType.JSON);
         controller.createIndexes(Set.of(projection), writer);
@@ -148,11 +150,14 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
               var storage =
                   new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
             final AggregateSummary[] summaries = new AggregateSummary[1];
-            storage.groups(Long.MAX_VALUE,
-                (key, group) -> summaries[0] = new TemporalAggregateParts(aggregate.getTemporalAggregateSpec(),
-                    new TemporalAggregateDomain().height()).point(storage.parts(), group.parts(), typedTimestamps
-                        ? 1000
-                        : 1));
+            storage.groups(Long.MAX_VALUE, (key,
+                group) -> summaries[0] = new TemporalAggregateParts(
+                    aggregate.getTemporalAggregateSpec(), new TemporalAggregateDomain().height())
+                                                                                                 .point(storage.parts(),
+                                                                                                     group.parts(),
+                                                                                                     typedTimestamps
+                                                                                                         ? 1000
+                                                                                                         : 1));
             final AggregateSummary summary = summaries[0];
             assertTrue(storage.nodesRead() <= 3,
                 "Point queries must read compressed summaries, never the contributor population");

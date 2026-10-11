@@ -52,8 +52,7 @@ final class TemporalAggregateBoundPresenceTest {
 
   static Stream<Arguments> representations() {
     return Arrays.stream(VersioningType.values())
-                 .flatMap(versioning -> Stream.of(Type.STR, Type.DATI)
-                                               .map(type -> Arguments.of(versioning, type)));
+                 .flatMap(versioning -> Stream.of(Type.STR, Type.DATI).map(type -> Arguments.of(versioning, type)));
   }
 
   @ParameterizedTest
@@ -64,10 +63,8 @@ final class TemporalAggregateBoundPresenceTest {
     final long[] records = new long[5];
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("instants")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("instants").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
       try (var session = database.beginResourceSession("instants"); var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
             [{"day":1,"ts":"2024-06-15T00:00:00Z"},{"day":2,"ts":"2024-06-30T00:00:00Z"}]
@@ -81,7 +78,8 @@ final class TemporalAggregateBoundPresenceTest {
                                                    .maxNumberOfRevisionsToRestore(3)
                                                    .storeDiffs(false)
                                                    .build());
-      try (JsonResourceSession session = database.beginResourceSession("records"); var writer = session.beginNodeTrx()) {
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          var writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
             [{"g":1,"n":5,"hi":"2025-01-01T00:00:00Z"},
              {"g":1,"n":7,"lo":"2024-01-01T00:00:00Z"},
@@ -98,7 +96,7 @@ final class TemporalAggregateBoundPresenceTest {
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, "bounds");
         final List<Path<QNm>> fields = List.of("g", "n", "lo", "hi")
                                            .stream()
-                                           .map(name -> Path.<QNm>parse("/[]/" + name, PathParser.Type.JSON))
+                                           .map(name -> Path.parse("/[]/" + name, PathParser.Type.JSON))
                                            .toList();
         final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON), fields,
             List.of(Type.LON, Type.LON, type, type), 0, IndexDef.DbType.JSON);
@@ -111,7 +109,8 @@ final class TemporalAggregateBoundPresenceTest {
     assertHistory(1);
     for (int revision = 2; revision <= 6; revision++) {
       try (var database = Databases.openJsonDatabase(databasePath);
-          var session = database.beginResourceSession("records"); var writer = session.beginNodeTrx()) {
+          var session = database.beginResourceSession("records");
+          var writer = session.beginNodeTrx()) {
         switch (revision) {
           case 2 -> {
             number(writer, records[0], 9);
@@ -158,33 +157,48 @@ final class TemporalAggregateBoundPresenceTest {
 
   private void assertHistory(final int published) throws Exception {
     Databases.clearGlobalCaches();
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       for (int revision = 1; revision <= published; revision++) {
         for (final boolean correlated : new boolean[] {false, true}) {
-          final String prefix = correlated ? "for $d in jn:doc('bounds','instants')[] " : "";
-          final String point = correlated ? "xs:dateTime($d.ts)" : "xs:dateTime('2024-06-15T00:00:00Z')";
-          final String source = "jn:open-bitemporal('bounds','records',xs:dateTime('2024-0" + revision
-              + "-20T00:00:00Z')," + point + ")";
-          final String keys = correlated ? "$day,$g" : "$g";
-          final String text = prefix + "for $r in " + source + " let "
-              + (correlated ? "$day := $d.day, " : "") + "$g := $r.g group by " + keys
-              + " let $n := count($r), $sum := sum($r.n) order by " + keys + " return {"
-              + (correlated ? "\"day\":$day," : "") + "\"g\":$g,\"n\":$n,\"sum\":$sum}";
-          final String literal = (correlated ? "for $day in (1,2) return {\"day\":$day," : "{")
-              + "\"g\":1,\"n\":" + COUNTS[revision - 1] + ",\"sum\":" + SUMS[revision - 1] + "}";
+          final String prefix = correlated
+              ? "for $d in jn:doc('bounds','instants')[] "
+              : "";
+          final String point = correlated
+              ? "xs:dateTime($d.ts)"
+              : "xs:dateTime('2024-06-15T00:00:00Z')";
+          final String source =
+              "jn:open-bitemporal('bounds','records',xs:dateTime('2024-0" + revision + "-20T00:00:00Z')," + point + ")";
+          final String keys = correlated
+              ? "$day,$g"
+              : "$g";
+          final String text = prefix + "for $r in " + source + " let " + (correlated
+              ? "$day := $d.day, "
+              : "") + "$g := $r.g group by " + keys + " let $n := count($r), $sum := sum($r.n) order by " + keys
+              + " return {" + (correlated
+                  ? "\"day\":$day,"
+                  : "")
+              + "\"g\":$g,\"n\":$n,\"sum\":$sum}";
+          final String literal = (correlated
+              ? "for $day in (1,2) return {\"day\":$day,"
+              : "{") + "\"g\":1,\"n\":" + COUNTS[revision - 1] + ",\"sum\":" + SUMS[revision - 1] + "}";
           final String expected = run(oracle, context, literal);
           assertEquals(expected, run(oracle, context, text), "independent valid-time oracle, revision " + revision);
           final long before = TemporalAggregateRoute.servedCount();
-          final var result = WorkCapture.of(EngineWorkCounters.TEMPORAL_READS)
-                                        .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS,
-                                            EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
-                                        .call(() -> run(chain, context, text));
-          final int bindings = correlated ? 2 : 1;
+          final var result =
+              WorkCapture.of(EngineWorkCounters.TEMPORAL_READS)
+                         .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
+                         .call(() -> run(chain, context, text));
+          final int bindings = correlated
+              ? 2
+              : 1;
           assertEquals(expected, result.result(), "aggregate revision " + revision);
-          assertEquals(before + bindings, TemporalAggregateRoute.servedCount(), "open-ended bounds must remain servable");
+          assertEquals(before + bindings, TemporalAggregateRoute.servedCount(),
+              "open-ended bounds must remain servable");
           result.work()
                 .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_DECODED, bindings, "one live group per binding")
                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "no masked operand scan")

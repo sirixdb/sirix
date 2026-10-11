@@ -76,11 +76,14 @@ final class BitemporalTemporalAggregateTimestampTest {
             """));
       }
       try (var session = database.beginResourceSession("contracts"); var writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-            [{"id":1,"pid":1,"sid":1,"cost":5,"qty":3,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2024-06-30T00:00:00Z"},
-             {"id":2,"pid":1,"sid":1,"cost":20,"qty":2,"grade":1,"vf":"2024-06-15T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
-             {"id":3,"pid":1,"sid":2,"cost":7,"qty":4,"grade":2,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
-            """), JsonNodeTrx.Commit.NO);
+        writer.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                """
+                    [{"id":1,"pid":1,"sid":1,"cost":5,"qty":3,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2024-06-30T00:00:00Z"},
+                     {"id":2,"pid":1,"sid":1,"cost":20,"qty":2,"grade":1,"vf":"2024-06-15T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+                     {"id":3,"pid":1,"sid":2,"cost":7,"qty":4,"grade":2,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+                    """),
+            JsonNodeTrx.Commit.NO);
         ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, "bt");
         BitemporalProjections.declare(session, writer, "contracts");
         final var metadata = ProjectionIndexMetadata.requireReady(writer.getStorageEngineWriter(), 0);
@@ -93,7 +96,8 @@ final class BitemporalTemporalAggregateTimestampTest {
     assertSh1Queries();
     final long second;
     try (var database = Databases.openJsonDatabase(path);
-        var session = database.beginResourceSession("contracts"); var writer = session.beginNodeTrx()) {
+        var session = database.beginResourceSession("contracts");
+        var writer = session.beginNodeTrx()) {
       writer.moveToDocumentRoot();
       writer.moveToFirstChild();
       writer.moveToFirstChild();
@@ -114,7 +118,8 @@ final class BitemporalTemporalAggregateTimestampTest {
     }
     assertSh1Queries();
     try (var database = Databases.openJsonDatabase(path);
-        var session = database.beginResourceSession("contracts"); var writer = session.beginNodeTrx()) {
+        var session = database.beginResourceSession("contracts");
+        var writer = session.beginNodeTrx()) {
       writer.moveTo(second);
       writer.remove();
       writer.moveToDocumentRoot();
@@ -147,8 +152,8 @@ final class BitemporalTemporalAggregateTimestampTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"vf,2024-01-01T00:00:00", "vt,2025-01-01T00:00:00",
-      "vf,1969-01-01T00:00:00Z", "vt,1969-01-01T00:00:00Z", "both,2024-01-01T00:00:00"})
+  @CsvSource({"vf,2024-01-01T00:00:00", "vt,2025-01-01T00:00:00", "vf,1969-01-01T00:00:00Z", "vt,1969-01-01T00:00:00Z",
+      "both,2024-01-01T00:00:00"})
   void unsafeTypedBoundsDeclineBeforeAndAfterMaintenance(final String column, final String value) throws Exception {
     final Path path = directory.resolve("bt");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
@@ -159,18 +164,25 @@ final class BitemporalTemporalAggregateTimestampTest {
                                                    .storeDiffs(false)
                                                    .build());
       try (var session = database.beginResourceSession("contracts"); var writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-            [{"id":1,"pid":1,"sid":1,"cost":5,"qty":3,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
-             {"id":2,"pid":1,"sid":1,"cost":7,"qty":4,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
-            """), JsonNodeTrx.Commit.NO);
+        writer.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                """
+                    [{"id":1,"pid":1,"sid":1,"cost":5,"qty":3,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+                     {"id":2,"pid":1,"sid":1,"cost":7,"qty":4,"grade":1,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+                    """),
+            JsonNodeTrx.Commit.NO);
         writer.moveToDocumentRoot();
         writer.moveToFirstChild();
         writer.moveToFirstChild();
         final long first = writer.getNodeKey();
         writer.moveToRightSibling();
         final long second = writer.getNodeKey();
-        final List<String> endpoints = column.equals("both") ? List.of("vf", "vt") : List.of(column);
-        final long[] records = column.equals("both") ? new long[] {first, second} : new long[] {first};
+        final List<String> endpoints = column.equals("both")
+            ? List.of("vf", "vt")
+            : List.of(column);
+        final long[] records = column.equals("both")
+            ? new long[] {first, second}
+            : new long[] {first};
         for (final long record : records) {
           for (final String endpoint : endpoints) {
             field(writer, record, endpoint);
@@ -221,7 +233,9 @@ final class BitemporalTemporalAggregateTimestampTest {
         final String expected = run(oracle, context, text);
         final long before = TemporalAggregateRoute.servedCount();
         assertEquals(expected, run(chain, context, text));
-        assertEquals(before + (revision == 3 ? 1 : 0), TemporalAggregateRoute.servedCount());
+        assertEquals(before + (revision == 3
+            ? 1
+            : 0), TemporalAggregateRoute.servedCount());
       }
     }
   }
@@ -236,12 +250,14 @@ final class BitemporalTemporalAggregateTimestampTest {
         final String text = BitemporalQueries.all().get(index - 1).text();
         final String expected = run(oracle, context, text);
         assertFalse(expected.isEmpty());
-        final int bindings = index == 6 || index == 11 ? 3 : 1;
+        final int bindings = index == 6 || index == 11
+            ? 3
+            : 1;
         final long before = TemporalAggregateRoute.servedCount();
-        final var result = WorkCapture.of(EngineWorkCounters.TEMPORAL_READS)
-                                      .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS,
-                                          EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
-                                      .call(() -> run(chain, context, text));
+        final var result =
+            WorkCapture.of(EngineWorkCounters.TEMPORAL_READS)
+                       .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
+                       .call(() -> run(chain, context, text));
         assertEquals(expected, result.result(), "Q" + index);
         assertEquals(before + bindings, TemporalAggregateRoute.servedCount(), "Q" + index);
         result.work()

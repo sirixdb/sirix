@@ -77,8 +77,7 @@ final class ChangeLogSlabTest {
     after.numbers[0] += 86_400;
     after.flags[1] = 0;
     after.numbers[1] = 0;
-    final ChangeLogSlab slab = new ChangeLogSlab(0, 2, 1, kinds,
-        List.of(new Entry(1, new long[] {3}, before, after)));
+    final ChangeLogSlab slab = new ChangeLogSlab(0, 2, 1, kinds, List.of(new Entry(1, new long[] {3}, before, after)));
     final ChangeLogSlab decoded = ChangeLogSlab.decode(slab.encode());
     final Row old = Objects.requireNonNull(decoded.entries().getFirst().before());
     final Row current = Objects.requireNonNull(decoded.entries().getFirst().after());
