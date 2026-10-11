@@ -150,9 +150,8 @@ public final class ProjectionChangeLog implements AutoCloseable {
         if (provenance != null) {
           captured.flags[column] |= provenance[column + 1];
         }
-        if (!captured.present(column)
-            || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
-                && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
+        if (!captured.present(column) || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
+            && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
           continue;
         }
         switch (kinds[column]) {
@@ -195,9 +194,8 @@ public final class ProjectionChangeLog implements AutoCloseable {
         if (provenance != null) {
           captured.flags[column] |= provenance[column + 1];
         }
-        if (!captured.present(column)
-            || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
-                && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
+        if (!captured.present(column) || ((captured.flags[column] & ChangeLogSlab.UNREPRESENTABLE) != 0
+            && kinds[column] != ChangeLogSlab.TIMESTAMP)) {
           continue;
         }
         switch (kinds[column]) {

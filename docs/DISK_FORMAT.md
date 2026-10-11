@@ -236,7 +236,9 @@ fail-fast lookups, never ordinals.
   Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
   unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
   varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count
-  and ids. Kinds 1..7 are long, string, boolean, double transform bits, string set, timestamp, date.
+  and ids. Present timestamp cells also retain their epoch-second lane when the unrepresentable
+  flag is set; that flag can describe lexical reconstruction rather than an unusable epoch.
+  Kinds 1..7 are long, string, boolean, double transform bits, string set, timestamp, date.
   The log records projected cells, including unsupported flags, rather than duplicating arbitrary
   document subtrees. `base revision` records the represented revision after a revert, rather than
   assuming the immediately preceding published revision. Repeated maintenance barriers replace

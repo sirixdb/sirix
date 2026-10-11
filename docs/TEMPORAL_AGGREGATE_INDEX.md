@@ -140,11 +140,15 @@ existing execution path. Ordinary grouped queries must order by every group key;
 existing path preserves first-seen group order. Correlated grouped admission already requires a
 total order over its group keys.
 
-Only exact millisecond instants inside the configured domain are admitted. Unsupported source
-values or non-exact interval endpoints are tracked in the revision's header and conservatively
-decline index serving. Missing values retain aggregate presence counts; missing temporal bounds
-have the valid-time opener's open-ended semantics. The index is never served from a mutable
-transaction. Older queries select the catalogue and HOT root belonging to their own revision.
+Only exact millisecond instants inside the configured domain are admitted. Endpoint columns may
+contain timestamp strings or typed timestamps. Typed endpoints follow the projection's
+[epoch and UTC provenance contract](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
+Unsupported source values or non-exact interval endpoints are tracked in the revision's header and
+conservatively decline index serving. Missing values retain aggregate presence counts. A missing
+lower or upper bound makes that side open-ended; records with neither bound contribute nothing,
+matching the valid-time index. These rules apply to initial builds and change-log maintenance.
+The index is never served from a mutable transaction. Older queries select the catalogue and HOT
+root belonging to their own revision.
 
 Indexed document scans evaluate their source once per binding and share it between aggregate
 admission and masked projection fallback. Missing aggregate declarations, uncovered lanes and

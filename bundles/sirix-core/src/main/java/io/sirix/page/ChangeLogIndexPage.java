@@ -67,8 +67,8 @@ public final class ChangeLogIndexPage extends AbstractForwardingPage implements 
   }
 
   /**
-   * Get the HOT-tree root reference for the given physical tree id. Creates an empty reference slot
-   * if none exists yet.
+   * Get the HOT-tree root reference for the source projection id. Creates an empty reference slot if
+   * none exists yet.
    */
   public PageReference getIndirectPageReference(final int index) {
     return getOrCreateIndexReference(index);
@@ -80,7 +80,7 @@ public final class ChangeLogIndexPage extends AbstractForwardingPage implements 
   }
 
   /**
-   * Initialize a physical change log HOT tree.
+   * Initialize the change-log HOT tree identified by its source projection id.
    */
   public void createChangeLogIndexTree(final StorageEngineReader storageEngineReader, final int index,
       final TransactionIntentLog log) {
