@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,16 +31,15 @@ final class NumberRegionDeltaTest {
     NumberRegion.clearDeltaWriteOverride();
   }
 
-  private static MemorySegment onHeap(final int bytes) {
-    return MemorySegment.ofArray(new byte[bytes]);
-  }
-
-  /** Encode into a fresh segment, decode back, and assert an exact round-trip. */
+  /**
+   * Encode into a fresh array, decode back through a segment view, and assert an exact round-trip.
+   */
   private static void assertRoundTrip(final long[] values, final int count) {
     final long size = NumberRegionDelta.maxEncodedSize(values, count);
-    final MemorySegment seg = onHeap((int) size + 16 /* slack, must not be needed */);
+    final byte[] encoded = new byte[(int) size + 16 /* slack, must not be needed */];
 
-    final long written = NumberRegionDelta.writeDelta(seg, 0L, values, count);
+    final long written = NumberRegionDelta.writeDelta(encoded, 0, values, count);
+    final MemorySegment seg = MemorySegment.ofArray(encoded);
     assertEquals(size, written, "writeDelta must consume exactly maxEncodedSize bytes");
 
     final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
@@ -190,9 +190,11 @@ final class NumberRegionDeltaTest {
           values[i] = rnd.nextLong();
         }
         final long size = NumberRegionDelta.maxEncodedSize(values, n);
-        final MemorySegment seg = arena.allocate(size + 8);
-        final long written = NumberRegionDelta.writeDelta(seg, 0L, values, n);
+        final byte[] encoded = new byte[(int) size + 8];
+        final long written = NumberRegionDelta.writeDelta(encoded, 0, values, n);
         assertEquals(size, written);
+        final MemorySegment seg = arena.allocate(size + 8);
+        MemorySegment.copy(encoded, 0, seg, ValueLayout.JAVA_BYTE, 0L, encoded.length);
 
         final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
         NumberRegionDelta.readHeader(seg, 0L, h);
@@ -211,13 +213,12 @@ final class NumberRegionDeltaTest {
     final long[] values = {10, 20, 31, 43, 56};
     final int off = 7;
     final long size = NumberRegionDelta.maxEncodedSize(values, values.length);
-    final MemorySegment seg = onHeap(off + (int) size + 5);
+    final byte[] encoded = new byte[off + (int) size + 5];
     // Poison the whole buffer; only [off, off+size) should change meaning.
-    for (int i = 0; i < seg.byteSize(); i++) {
-      seg.set(ValueLayout.JAVA_BYTE, i, (byte) 0xAB);
-    }
-    final long written = NumberRegionDelta.writeDelta(seg, off, values, values.length);
+    Arrays.fill(encoded, (byte) 0xAB);
+    final long written = NumberRegionDelta.writeDelta(encoded, off, values, values.length);
     assertEquals(size, written);
+    final MemorySegment seg = MemorySegment.ofArray(encoded);
 
     final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
     NumberRegionDelta.readHeader(seg, off, h);
@@ -233,10 +234,12 @@ final class NumberRegionDeltaTest {
   void headerReuse() {
     final long[] a = {100, 200, 305, 411};
     final long[] b = {-5, -4, -3, -2, -1, 0};
-    final MemorySegment segA = onHeap((int) NumberRegionDelta.maxEncodedSize(a, a.length));
-    final MemorySegment segB = onHeap((int) NumberRegionDelta.maxEncodedSize(b, b.length));
-    NumberRegionDelta.writeDelta(segA, 0L, a, a.length);
-    NumberRegionDelta.writeDelta(segB, 0L, b, b.length);
+    final byte[] encodedA = new byte[(int) NumberRegionDelta.maxEncodedSize(a, a.length)];
+    final byte[] encodedB = new byte[(int) NumberRegionDelta.maxEncodedSize(b, b.length)];
+    NumberRegionDelta.writeDelta(encodedA, 0, a, a.length);
+    NumberRegionDelta.writeDelta(encodedB, 0, b, b.length);
+    final MemorySegment segA = MemorySegment.ofArray(encodedA);
+    final MemorySegment segB = MemorySegment.ofArray(encodedB);
 
     final NumberRegionDelta.Header h = new NumberRegionDelta.Header();
     NumberRegionDelta.readHeader(segA, 0L, h);

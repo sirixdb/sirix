@@ -204,7 +204,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final LongAdder SUFFIX_PROBE_READS = new LongAdder();
   private static final LongAdder SIDE_REFERENCE_READS = new LongAdder();
 
-  /** Native suffix lanes inspected, excluding the fixed slot-length header. */
+  /**
+   * Suffix lanes inspected by segment-backed binary search, including compact images: one lane per
+   * word or residual-byte load, excluding fixed slot-length headers. Successful PEXT candidate checks
+   * do not contribute; a PEXT miss can fall back to counted binary search.
+   */
   public static long suffixProbeReads() {
     return SUFFIX_PROBE_READS.sum();
   }
@@ -952,44 +956,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       return pextSearch(key, keyLen);
     }
 
-    // A compact raw image owns an exact byte[]; do not pay an FFM session/bounds check for
-    // every suffix byte in every older fragment. A moved/writable or sliced segment keeps the
-    // ordinary path, so these reads cannot observe an obsolete backing array after mutation.
-    final byte[] compact = compactSlotBytes();
-    return compact == null
-        ? binarySearchSuffix(key, keyLen)
-        : binarySearchCompactSuffix(key, keyLen, compact);
-  }
-
-  private byte @Nullable [] compactSlotBytes() {
-    if (binarySearchOnly && !slotMemory.isNative()) {
-      final Object base = slotMemory.heapBase().orElse(null);
-      if (base instanceof byte[] bytes && bytes.length == slotMemory.byteSize()) {
-        return bytes;
-      }
-    }
-    return null;
-  }
-
-  private int binarySearchCompactSuffix(final byte[] key, final int keyLen, final byte[] slots) {
-    final int[] offsets = slotOffsets;
-    int low = 0;
-    int high = entryCount;
-    while (low < high) {
-      final int middle = (low + high) >>> 1;
-      final int offset = offsets[middle];
-      final int suffixLength = (slots[offset] & 0xff) | (slots[offset + 1] & 0xff) << 8;
-      final int start = offset + Short.BYTES;
-      final int comparison = Arrays.compareUnsigned(slots, start, start + suffixLength, key, commonPrefixLen, keyLen);
-      if (comparison < 0) {
-        low = middle + 1;
-      } else if (comparison > 0) {
-        high = middle;
-      } else {
-        return middle;
-      }
-    }
-    return -(low + 1);
+    return binarySearchSuffix(key, keyLen);
   }
 
   /**
@@ -1827,22 +1794,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] copyStoredValue(final int index) {
     Objects.checkIndex(index, entryCount);
-    final byte[] compact = compactSlotBytes();
-    if (compact != null) {
-      final int offset = slotOffsets[index];
-      if (offset >= 0 && offset <= compact.length - Short.BYTES) {
-        final int suffixLength = (compact[offset] & 0xff) | (compact[offset + 1] & 0xff) << 8;
-        final int lengthOffset = offset + Short.BYTES + suffixLength;
-        if (lengthOffset <= compact.length - Short.BYTES) {
-          final int length = (compact[lengthOffset] & 0xff) | (compact[lengthOffset + 1] & 0xff) << 8;
-          final int start = lengthOffset + Short.BYTES;
-          if (length <= compact.length - start) {
-            return Arrays.copyOfRange(compact, start, start + length);
-          }
-        }
-      }
-      throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
-    }
     final long ref = valueRef(index);
     final int length = refLength(ref);
     if (length < 0) {
@@ -4741,6 +4692,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   @Override
   public MemorySegment slots() {
     return slotMemory;
+  }
+
+  /**
+   * Whether this leaf is an immutable compact read image: exactly its packed slot bytes on GC-owned
+   * native memory, no allocator frame, no routing index, never mutated in place (writers copy it).
+   * The fragment cache keeps such images in the half allocator pressure cannot reclaim, with the
+   * heap-resident ones: every decoded HOT leaf image is native now, so that the segment accessors
+   * shared by all pages only ever see native receivers (see
+   * {@link PageLayout#getBitmapWord(byte[], int)}).
+   */
+  public boolean isCompactImage() {
+    return binarySearchOnly;
   }
 
   @Override

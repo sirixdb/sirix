@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -96,13 +97,25 @@ public final class SirixLZ77Codec {
    * ordinary array range check the JIT hoists.
    *
    * <p>
-   * Decode keeps its {@link MemorySegment} accesses — it writes into caller-supplied segments that
-   * are not always heap-backed, and it is not on the ingest hot path.
+   * Decode writes through {@link MemorySegment} accesses into the caller's native output, but reads
+   * its compressed input through these array handles as well: wrapping the input array as a heap
+   * segment would put a heap receiver on the segment access path every native page shares (see
+   * {@link PageLayout#getBitmapWord(byte[], int)}).
    */
   private static final VarHandle ARRAY_LE_INT =
       MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle ARRAY_LE_LONG =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
+  /** One unaligned little-endian long of the compressed input (array view, bounds-checked). */
+  private static long readInputLong(final byte[] input, final int at) {
+    return (long) ARRAY_LE_LONG.get(input, at);
+  }
+
+  /** One unsigned little-endian short of the compressed input. */
+  private static int readInputShort(final byte[] input, final int at) {
+    return (input[at] & 0xFF) | ((input[at + 1] & 0xFF) << 8);
+  }
 
   // ══════════════════════════════════════════════════════════════════ constants
 
@@ -182,11 +195,13 @@ public final class SirixLZ77Codec {
   private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH = ThreadLocal.withInitial(EncodeScratch::new);
 
   /**
-   * Per-thread decode scratch. Decode writes the decompressed stream into this byte[] via
-   * {@link Unsafe} 8-byte stride, then the final {@code MemorySegment.copy} delivers to the caller's
-   * output. Starts at 128 KiB and grows as needed.
+   * Per-thread decode scratch for an output without tail slack: the decoder writes the decompressed
+   * stream here with its 8-byte stride, then one {@code MemorySegment.copy} delivers it to the
+   * caller's output. Native (an automatic arena, freed with the thread-local), never a heap segment,
+   * for the reason given at {@link #ARRAY_LE_INT}. Starts at 128 KiB and grows as needed.
    */
-  private static final ThreadLocal<byte[]> DECODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[128 * 1024]);
+  private static final ThreadLocal<MemorySegment> DECODE_SCRATCH =
+      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
 
   /**
    * Enable lazy-matching strategy: after finding a match at position ip, probe position ip+1. If ip+1
@@ -600,15 +615,14 @@ public final class SirixLZ77Codec {
     } else {
       // Rare slow path: caller-provided segment has no tail slack. Use per-thread
       // scratch (oversized for wildCopy overshoot) + single bulk copy at the end.
-      byte[] scratch = DECODE_SCRATCH.get();
-      final int needed = uncompressed + 16;
-      if (scratch.length < needed) {
-        scratch = new byte[Math.max(needed, scratch.length * 2)];
+      MemorySegment scratch = DECODE_SCRATCH.get();
+      final long needed = (long) uncompressed + 16L;
+      if (scratch.byteSize() < needed) {
+        scratch = Arena.ofAuto().allocate(Math.max(needed, scratch.byteSize() * 2L));
         DECODE_SCRATCH.set(scratch);
       }
-      final MemorySegment scratchSeg = MemorySegment.ofArray(scratch);
-      produced = decodeCore(input, inPos, inEnd, scratchSeg, 0L, uncompressed);
-      MemorySegment.copy(scratch, 0, output, ValueLayout.JAVA_BYTE, outputOff, uncompressed);
+      produced = decodeCore(input, inPos, inEnd, scratch, 0L, uncompressed);
+      MemorySegment.copy(scratch, 0L, output, outputOff, uncompressed);
     }
     if (produced != uncompressed) {
       throw new IllegalStateException("SirixLZ77Codec: decoded " + produced + " bytes, expected " + uncompressed);
@@ -638,11 +652,10 @@ public final class SirixLZ77Codec {
     // a byte[] that's been oversized via {@link #maxEncodedSize} so this is
     // common. Array length is inspected via {@code input.length}.
     final boolean inputHasSlack = inEnd + 16 <= input.length;
-    final MemorySegment inputSeg = MemorySegment.ofArray(input);
     if (inputHasSlack) {
-      return decodeCoreFast(input, inputSeg, inputStart, inEnd, dst, dstOffset, uncompressed);
+      return decodeCoreFast(input, inputStart, dst, dstOffset, uncompressed);
     }
-    return decodeCoreSafe(input, inputSeg, inputStart, inEnd, dst, dstOffset, uncompressed);
+    return decodeCoreSafe(input, inputStart, inEnd, dst, dstOffset, uncompressed);
   }
 
   /**
@@ -657,8 +670,8 @@ public final class SirixLZ77Codec {
    * typically 1-2 cycles per iteration. The 64-B slack covers: literal ≤ 15 + matchLen ≤ 19 + 16-byte
    * stride overshoot ≤ 50 B, with headroom.
    */
-  private static int decodeCoreFast(final byte[] input, final MemorySegment inputSeg, final int inputStart,
-      final int inEnd, final MemorySegment dst, final long dstOffset, final int uncompressed) {
+  private static int decodeCoreFast(final byte[] input, final int inputStart, final MemorySegment dst,
+      final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
     // Hot regime: 64 B of tail slack guaranteed.
@@ -685,7 +698,7 @@ public final class SirixLZ77Codec {
           if (outPos + litLen + 16 <= uncompressed) {
             int i = 0;
             do {
-              dst.set(LE_LONG, dstBaseOff + i, inputSeg.get(LE_LONG, inPos + i));
+              dst.set(LE_LONG, dstBaseOff + i, readInputLong(input, inPos + i));
               i += 8;
             } while (i < litLen);
           } else {
@@ -703,7 +716,7 @@ public final class SirixLZ77Codec {
           final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, readInputLong(input, inPos + i));
             i += 8;
           } while (i < litLen);
           inPos += litLen;
@@ -712,9 +725,9 @@ public final class SirixLZ77Codec {
       } else if (litLen > 0) {
         // Common short-literal path: <=14 bytes, always fits in 16-byte slack.
         final long dstBaseOff0 = dstOffset + outPos;
-        dst.set(LE_LONG, dstBaseOff0, inputSeg.get(LE_LONG, inPos));
+        dst.set(LE_LONG, dstBaseOff0, readInputLong(input, inPos));
         if (litLen > 8) {
-          dst.set(LE_LONG, dstBaseOff0 + 8L, inputSeg.get(LE_LONG, inPos + 8L));
+          dst.set(LE_LONG, dstBaseOff0 + 8L, readInputLong(input, inPos + 8));
         }
         inPos += litLen;
         outPos += litLen;
@@ -724,7 +737,7 @@ public final class SirixLZ77Codec {
         break;
 
       // Distance (2 B LE).
-      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
+      final int dist = readInputShort(input, inPos);
       inPos += 2;
 
       if (matchLen == 15) {
@@ -829,7 +842,7 @@ public final class SirixLZ77Codec {
           final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, readInputLong(input, inPos + i));
             i += 8;
           } while (i < litLen);
         } else {
@@ -848,7 +861,7 @@ public final class SirixLZ77Codec {
       if (outPos == uncompressed)
         break;
 
-      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
+      final int dist = readInputShort(input, inPos);
       inPos += 2;
 
       if (matchLen == 15) {
@@ -914,8 +927,8 @@ public final class SirixLZ77Codec {
    * byte[] has &lt; 16 bytes of trailing slack (e.g., small test inputs where the buffer is exactly
    * sized).
    */
-  private static int decodeCoreSafe(final byte[] input, final MemorySegment inputSeg, final int inputStart,
-      final int inEnd, final MemorySegment dst, final long dstOffset, final int uncompressed) {
+  private static int decodeCoreSafe(final byte[] input, final int inputStart, final int inEnd, final MemorySegment dst,
+      final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;
 
@@ -943,7 +956,7 @@ public final class SirixLZ77Codec {
           final long dstBaseOff0 = dstOffset + outPos;
           int i = 0;
           do {
-            dst.set(LE_LONG, dstBaseOff0 + i, inputSeg.get(LE_LONG, inPos + i));
+            dst.set(LE_LONG, dstBaseOff0 + i, readInputLong(input, inPos + i));
             i += 8;
           } while (i < litLen);
         } else {
@@ -968,7 +981,7 @@ public final class SirixLZ77Codec {
       if (inPos + 2 > inEnd) {
         throw new IllegalStateException("SirixLZ77Codec: distance would overrun input");
       }
-      final int dist = inputSeg.get(LE_SHORT, inPos) & 0xFFFF;
+      final int dist = readInputShort(input, inPos);
       inPos += 2;
 
       if (matchLen == 15) {

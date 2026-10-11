@@ -168,16 +168,13 @@ public enum PageKind {
       // certificate says whether bounded column reads may trust that no value lives in overflow.
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
-      out[4] = PageLayout.hasCompleteColumnCoverage(headerBitmapSeg)
+      out[4] = PageLayout.hasCompleteColumnCoverage(headerBitmapBytes)
           ? 1L
           : 0L;
       if (bitmapOut != null) {
         // Skipping this bitmap made every chunk-read fragment claim that it defined no slots and
         // silently disabled the versioned merge.
-        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-          bitmapOut[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
-        }
+        PageLayout.copyBitmapTo(headerBitmapBytes, bitmapOut);
       }
       out[2] = source.readInt(); // populatedCount
       source.readInt(); // onDiskHeapSize
@@ -244,11 +241,8 @@ public enum PageKind {
       // reconstruction, and it costs one 160-byte read we are passing over anyway.
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final long[] slotBitmap = new long[PageLayout.BITMAP_WORDS];
-      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-        slotBitmap[w] = PageLayout.getBitmapWord(headerBitmapSeg, w);
-      }
+      PageLayout.copyBitmapTo(headerBitmapBytes, slotBitmap);
 
       // Fixed prefix of the encoded body. Both body shapes — offset-table dedup and the
       // degenerate templateCount == 0 fallback — end in {compressedLen, codec, blob}, which is
@@ -323,7 +317,7 @@ public enum PageKind {
     }
 
     /** Validate the fixed header before it can index any page-sized scratch array. */
-    private static void validatePopulatedCount(final long pageKey, final MemorySegment headerBitmap,
+    private static void validatePopulatedCount(final long pageKey, final byte[] headerBitmap,
         final int populatedCount) {
       if (populatedCount < 0 || populatedCount > PageLayout.SLOT_COUNT) {
         throw new SirixIOException("page " + pageKey + " declares " + populatedCount
@@ -429,11 +423,12 @@ public enum PageKind {
       final MemorySegmentAllocator memorySegmentAllocator = Allocators.getInstance();
 
       // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
+      // The header stays a byte array (never a heap MemorySegment view): see the note at
+      // PageLayout#getBitmapWord(byte[], int).
       final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
-      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
-      final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
-      validatePopulatedCount(recordPageKey, headerBitmapSeg, populatedCount);
+      final int populatedCount = PageLayout.getPopulatedCount(headerBitmapBytes);
+      validatePopulatedCount(recordPageKey, headerBitmapBytes, populatedCount);
 
       // 2. Read the prefix of uncompressed fixed-size headers:
       // - populatedCount (int) — matches the compactDir array length
@@ -893,7 +888,7 @@ public enum PageKind {
                 if (bmWordIdx >= PageLayout.BITMAP_WORDS) {
                   throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
                 }
-                bmBits = PageLayout.getBitmapWord(headerBitmapSeg, bmWordIdx++);
+                bmBits = PageLayout.getBitmapWord(headerBitmapBytes, bmWordIdx++);
               }
               slotNodeKeys[i] = pageKeyBase + (((bmWordIdx - 1) << 6) | Long.numberOfTrailingZeros(bmBits));
               bmBits &= bmBits - 1;
@@ -1211,21 +1206,21 @@ public enum PageKind {
                 ? pathNodeKeyColumnBytes
                 : null);
             if (valueElisionActive) {
-              valueElidedCount = elisionDeriver.deriveValueMetadata(headerBitmapSeg, populatedCount, compactDir,
+              valueElidedCount = elisionDeriver.deriveValueMetadata(headerBitmapBytes, populatedCount, compactDir,
                   valueElidedSlots, valueElidedTypes, valueElidedWidths, valueElidedAbsIdx);
               decodeState.bindValueElision(true, valueElidedCount, valueElidedSlots, valueElidedWidths, valueOffs,
                   valueWidths);
             }
             if (nameKeyElisionActive) {
-              final int derivedWidths = elisionDeriver.deriveNameKeyWidths(headerBitmapSeg, populatedCount, compactDir,
-                  nameKeyElidedWidthsPacked);
+              final int derivedWidths = elisionDeriver.deriveNameKeyWidths(headerBitmapBytes, populatedCount,
+                  compactDir, nameKeyElidedWidthsPacked);
               if (derivedWidths > nameKeyElidedWidthsPacked.length) {
                 throw new SirixIOException("page " + recordPageKey + " derives " + derivedWidths
                     + " name-key widths into a " + nameKeyElidedWidthsPacked.length + "-entry buffer");
               }
             }
           }
-          inMemHeapSize = decodeState.deriveAll(headerBitmapSeg, populatedCount);
+          inMemHeapSize = decodeState.deriveAll(headerBitmapBytes, populatedCount);
         }
         // 4. Allocate slotted page MemorySegment — size to actual (in-memory) heap content.
         // The allocator rounds up to its next power-of-two size class (4/8/16/32/
@@ -1242,7 +1237,8 @@ public enum PageKind {
         slottedPage = memorySegmentAllocator.allocate(allocSize);
 
         // 5. Copy header + bitmap into page (first 160 bytes)
-        MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+        MemorySegment.copy(headerBitmapBytes, 0, slottedPage, ValueLayout.JAVA_BYTE, 0L,
+            PageLayout.DISK_HEADER_BITMAP_SIZE);
 
         // 6. Zero-fill preservation bitmap region (runtime-only, never on disk).
         // Kept — isSlotPreserved() reads this region by slot index regardless of
@@ -2118,8 +2114,9 @@ public enum PageKind {
           throw new SirixIOException("page " + page.getPageKey() + " sidecar slot " + slot
               + " kind/image mismatch: declared=" + kindId + ", image=" + (scratch[0] & 0xFF));
         }
-        final MemorySegment image = MemorySegment.ofArray(scratch).asSlice(0L, imageLength);
-        final long prepared = page.prepareSideSlot(kindId, image, imageLength);
+        // The scratch stays a byte array on the way into the sidecar; wrapping it as a heap segment
+        // would put a heap receiver on the segment copy path shared with native page memory.
+        final long prepared = page.prepareSideSlot(kindId, scratch, imageLength);
         page.publishSideSlot(slot, prepared);
       }
       final long consumed = source.position() - payloadStart;
@@ -6984,9 +6981,20 @@ public enum PageKind {
         // Own only the packed slot bytes. No allocator frame or PEXT index is needed to answer
         // a point lookup. This is a complete raw image in the existing fragment cache;
         // ranges still reconstruct it and writers take their ordinary full-capacity copy.
-        final byte[] slots = new byte[usedSlotMemorySize];
-        source.read(slots);
-        slotMemory = MemorySegment.ofArray(slots);
+        //
+        // GcOwnedNativeMemory gives this image an independent lifetime: it stays readable while
+        // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
+        // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
+        final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
+        if (source instanceof MemorySegmentBytesIn segmentSource) {
+          MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
+          source.skip(usedSlotMemorySize);
+        } else {
+          final byte[] slots = new byte[usedSlotMemorySize];
+          source.read(slots);
+          MemorySegment.copy(slots, 0, owned, ValueLayout.JAVA_BYTE, 0L, usedSlotMemorySize);
+        }
+        slotMemory = owned;
         stampBase = null;
       } else if (canZeroCopy) {
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
@@ -8565,13 +8573,14 @@ public enum PageKind {
   private static final ThreadLocal<byte[]> OVERFLOW_DECODE_SCRATCH = ThreadLocal.withInitial(() -> new byte[1 << 16]);
 
   /**
-   * Per-thread NATIVE landing area for an LZ77 frame being read back.
+   * Per-thread NATIVE landing area for an overflow payload being read back.
    *
    * <p>
-   * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding. An
-   * {@link OverflowPage} owns an exact-length heap array, so decode into padded thread-local storage
-   * and copy the result into that array. This also applies to small frames: the Java fallback for an
-   * exact-length destination already uses scratch storage and a final copy.
+   * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding, and an
+   * {@link OverflowPage} owns an exact-length heap array, so codecs 2 (byte-run) and 3 (LZ77) decode
+   * into padded native thread-local storage and copy the result into that array. Codec 0 (zero-run)
+   * decodes directly between byte arrays. Neither path wraps the output array as a heap segment; see
+   * PageLayout#getBitmapWord(byte[], int).
    * </p>
    *
    * <p>
@@ -8679,29 +8688,26 @@ public enum PageKind {
 
     final byte[] data = new byte[decodedLength];
     final int produced;
-    if (codec == 3 && decodedLength > 0 && SirixLZ77NativeDecoder.isAvailable()) {
-      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
+    if (codec == 0) {
+      produced = ZeroRunByteCodec.decode(in, 0, storedLength, data, 0);
+    } else {
       // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant: the dispatch tests the OUTPUT against 64
       // bytes of slack and the input against 16. This read INPUT until it was measured, which left
       // the landing 48 bytes short and the native path silently declined — the detour was inert.
+      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
       final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
       if (landing.byteSize() < needed) {
         landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
         OVERFLOW_DECODE_NATIVE.set(landing);
       }
-      produced = SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+      produced = switch (codec) {
+        case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
+        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
+      };
       if (produced == decodedLength) {
         MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
       }
-    } else if (codec == 0) {
-      produced = ZeroRunByteCodec.decode(in, 0, storedLength, data, 0);
-    } else {
-      final MemorySegment out = MemorySegment.ofArray(data);
-      produced = switch (codec) {
-        case 2 -> ByteRunCodec.decode(in, 0, storedLength, out, 0L);
-        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, out, 0L);
-        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
-      };
     }
     if (produced != decodedLength) {
       throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " produced " + produced
@@ -9323,11 +9329,11 @@ public enum PageKind {
      * parallel with the entry loop to map entry index → slot bit. Both elision sections are
      * slot-ascending, so their cursors advance with the same walk.
      *
-     * @param headerBitmapSeg the page's 160-byte header + slot bitmap
+     * @param headerBitmap the page's 160-byte on-disk header + slot bitmap
      * @param populatedCount number of populated entries
      * @return the total in-memory heap size
      */
-    int deriveAll(final MemorySegment headerBitmapSeg, final int populatedCount) {
+    int deriveAll(final byte[] headerBitmap, final int populatedCount) {
       long running = 0L;
       final long maximum = (long) populatedCount * PageConstants.MAX_RECORD_SIZE;
       int bmIdx = 0;
@@ -9336,7 +9342,7 @@ public enum PageKind {
       nameKeyElidedReadCursor = 0;
       for (int i = 0; i < populatedCount; i++) {
         while (bmWord == 0) {
-          bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
+          bmWord = PageLayout.getBitmapWord(headerBitmap, bmIdx++);
           if (bmIdx > PageLayout.BITMAP_WORDS) {
             throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
           }

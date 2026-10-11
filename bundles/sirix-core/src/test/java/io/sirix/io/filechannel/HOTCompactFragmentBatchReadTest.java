@@ -83,7 +83,8 @@ final class HOTCompactFragmentBatchReadTest {
       final byte[] wire = serialize(source);
       raw = assertInstanceOf(HOTLeafPage.class, new PagePersister().deserializeHOTLeafFragment(CONFIG,
           new MemorySegmentBytesIn(MemorySegment.ofArray(wire)), SerializationType.DATA));
-      assertFalse(raw.slots().isNative());
+      assertTrue(raw.isCompactImage());
+      assertTrue(raw.slots().isNative(), "a compact image owns GC-managed native memory, never a heap segment");
       copy = raw.copyForRead();
       assertTrue(copy.slots().isNative());
       assertEquals(completeDump, copy.isCompleteDump());
@@ -119,7 +120,7 @@ final class HOTCompactFragmentBatchReadTest {
       final byte[] wire = serialize(source);
       compact = assertInstanceOf(HOTLeafPage.class, new PagePersister().deserializeHOTLeafFragment(CONFIG,
           new MemorySegmentBytesIn(MemorySegment.ofArray(wire)), SerializationType.DATA));
-      assertFalse(compact.slots().isNative());
+      assertTrue(compact.isCompactImage());
       for (int i = 0; i < 516; i++) {
         final byte[] key = {42, (byte) (i >>> 8), (byte) i};
         final int expected = source.findEntry(key);
@@ -179,7 +180,7 @@ final class HOTCompactFragmentBatchReadTest {
           final HOTLeafPage oldPage = assertInstanceOf(HOTLeafPage.class, scalar[i]);
           final HOTLeafPage newPage = assertInstanceOf(HOTLeafPage.class, compact[i]);
           assertTrue(oldPage.slots().isNative());
-          assertFalse(newPage.slots().isNative(), "batch decode must avoid writable allocator frames");
+          assertTrue(newPage.isCompactImage(), "batch decode must avoid writable allocator frames");
           assertEquals(newPage.getUsedSlotsSize(), newPage.slots().byteSize());
           assertArrayEquals(serialize(oldPage), serialize(ordinary[i]), "ordinary batch versus scalar fragment " + i);
           assertArrayEquals(serialize(oldPage), serialize(newPage), "fragment " + i);
@@ -252,7 +253,7 @@ final class HOTCompactFragmentBatchReadTest {
           // Residency, not just bytes: a compact decode copies its own array and borrows nothing of
           // the span, so input borrowing must not decide it. Only segment support may.
           final HOTLeafPage decoded = assertInstanceOf(HOTLeafPage.class, compact[i]);
-          assertEquals(!segments, decoded.slots().isNative(), "member " + i
+          assertEquals(segments, decoded.isCompactImage(), "member " + i
               + " residency must follow segment support alone (borrow=" + borrow + ", segments=" + segments + ')');
         }
         reads.clear();

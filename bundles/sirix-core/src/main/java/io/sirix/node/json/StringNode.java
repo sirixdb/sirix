@@ -102,7 +102,7 @@ public final class StringNode extends AbstractFlyweightNode
   /** Whether the stored value is FSST compressed */
   private boolean isCompressed;
   /** FSST symbol table for decompression (shared from KeyValueLeafPage) */
-  private byte[] fsstSymbolTable;
+  private byte @Nullable [] fsstSymbolTable;
   /** Decompressed value (lazy allocated on first access if compressed) */
   private byte[] decodedValue;
 
@@ -164,7 +164,7 @@ public final class StringNode extends AbstractFlyweightNode
    */
   public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
       long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID, boolean isCompressed,
-      byte[] fsstSymbolTable) {
+      byte @Nullable [] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -198,7 +198,7 @@ public final class StringNode extends AbstractFlyweightNode
    */
   public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
       long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
-      boolean isCompressed, byte[] fsstSymbolTable) {
+      boolean isCompressed, byte @Nullable [] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -854,7 +854,7 @@ public final class StringNode extends AbstractFlyweightNode
    * 
    * @return the symbol table, or null if not using FSST
    */
-  public byte[] getFsstSymbolTable() {
+  public byte @Nullable [] getFsstSymbolTable() {
     return fsstSymbolTable;
   }
 

@@ -76,7 +76,8 @@ final class HOTCompactFragmentReadTest {
     final ByteHandlerPipeline pipeline = spy(new ByteHandlerPipeline());
     try (FileChannelReader reader = reader(contents, pipeline);
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
-      assertFalse(compact.slots().isNative(), "the raw image must not acquire a writable allocator frame");
+      assertTrue(compact.isCompactImage(), "the raw image must not acquire a writable allocator frame");
+      assertTrue(compact.slots().isNative(), "a compact image owns GC-managed native memory, never a heap segment");
       assertEquals(compact.getUsedSlotsSize(), compact.slots().byteSize());
       assertEquals(count, compact.size());
       assertTrue(compact.isCompleteDump());
@@ -116,7 +117,7 @@ final class HOTCompactFragmentReadTest {
     }
     try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
-      assertFalse(compact.slots().isNative(), "this charge is only interesting for a heap-resident image");
+      assertTrue(compact.isCompactImage(), "this charge is only interesting for a compact image");
       final long packed = compact.slots().byteSize();
       final long perPageHeap = compact.estimatedCanonicalCacheRetainedHeapBytes();
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
@@ -265,7 +266,7 @@ final class HOTCompactFragmentReadTest {
         assertEquals(1, compact.getGuardCount());
         assertEquals(17, compact.size());
         assertEquals(17, offsetDirectoryLength(compact));
-        assertFalse(compact.slots().isNative());
+        assertTrue(compact.isCompactImage());
         assertArrayEquals(wire, serialize(compact));
         try (HOTLeafPage copy = compact.copyForRead()) {
           for (int row = 60; row >= 17; row--) {

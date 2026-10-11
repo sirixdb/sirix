@@ -34,7 +34,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import jdk.incubator.vector.ByteVector;
-import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 import org.jspecify.annotations.Nullable;
@@ -247,7 +246,6 @@ public final class HOTIndirectPage implements Page {
 
   // ===== SIMD gather for MultiMask (vpshufb optimization) =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
-  private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
 
   /**
    * Reads eight key bytes as one big-endian {@code long}, for {@link #getKeyWordAt}. Big-endian is
@@ -696,8 +694,8 @@ public final class HOTIndirectPage implements Page {
    * <li>Load key bytes from [gatherLoadOffset .. gatherLoadOffset+31] into a ByteVector</li>
    * <li>Rearrange using pre-computed gatherShuffle (vpshufb) — gathered bytes now in lanes
    * 0..N-1</li>
-   * <li>Reinterpret as LongVector (4 longs for AVX2) — each long holds 8 gathered bytes</li>
-   * <li>Extract each long lane and apply Long.compress() (PEXT) with the extraction mask</li>
+   * <li>Assemble each 8-lane chunk into a big-endian long (lane extraction, no reinterpret) and apply
+   * Long.compress() (PEXT) with the extraction mask</li>
    * <li>Concatenate PEXT results by bit-shifting</li>
    * </ol>
    * </p>
@@ -729,10 +727,14 @@ public final class HOTIndirectPage implements Page {
     // vpshufb: gather extraction bytes into contiguous lanes — lane i holds extraction byte i.
     final ByteVector gathered = keyVec.rearrange(gatherShuffle);
 
-    // Reinterpret gathered bytes as longs. Java's reinterpretAsLongs is platform-LE on x86, so
-    // gathered lane 0 (extraction byte 0) maps to long-bit 0..7 of the resulting long. We need
-    // BE chunk layout (extraction byte 0 in long-bits 56..63), so byte-swap each long lane.
-    final LongVector gatheredLongs = gathered.reinterpretAsLongs();
+    // Chunk w is gathered lanes [8w, 8w + 8) assembled big-endian: extraction byte 0 lands in bits
+    // 56..63, exactly what reinterpretAsLongs() + Long.reverseBytes() produced. Lane extraction is
+    // intrinsified and its fallback reads the vector's own array; the reinterpret's fallback wraps a
+    // fresh byte[] in a heap MemorySegment and goes through the segment VarHandles, whose receiver
+    // profile is process-wide — every cold descent would teach the JIT that segment accesses can be
+    // heap-backed (see PageLayout#getBitmapWord(byte[], int)). No scratch array and no thread-local:
+    // a ThreadLocal.get per descent is not cheaper than eight lane extractions, and every
+    // thread-local constructed shifts the hash-slot layout of every later one.
 
     // Apply PEXT per chunk; BE concatenate (chunk 0 in HIGH bits of result).
     final int numChunks = extractionMasks.length;
@@ -743,12 +745,23 @@ public final class HOTIndirectPage implements Page {
     int result = 0;
     int shift = totalBits;
     for (int w = 0; w < numChunks; w++) {
-      final long gatheredWord = Long.reverseBytes(gatheredLongs.lane(w));
+      final long gatheredWord = chunkWordBigEndian(gathered, w << 3);
       final int extracted = (int) Long.compress(gatheredWord, extractionMasks[w]);
       shift -= Long.bitCount(extractionMasks[w]);
       result |= extracted << shift;
     }
     return result;
+  }
+
+  /**
+   * Eight gathered lanes from {@code firstLane} as one big-endian word (lane {@code firstLane} on
+   * top).
+   */
+  private static long chunkWordBigEndian(final ByteVector gathered, final int firstLane) {
+    return ((gathered.lane(firstLane) & 0xFFL) << 56) | ((gathered.lane(firstLane + 1) & 0xFFL) << 48)
+        | ((gathered.lane(firstLane + 2) & 0xFFL) << 40) | ((gathered.lane(firstLane + 3) & 0xFFL) << 32)
+        | ((gathered.lane(firstLane + 4) & 0xFFL) << 24) | ((gathered.lane(firstLane + 5) & 0xFFL) << 16)
+        | ((gathered.lane(firstLane + 6) & 0xFFL) << 8) | (gathered.lane(firstLane + 7) & 0xFFL);
   }
 
   /**

@@ -220,7 +220,7 @@ final class HOTHeapCacheBudgetTest {
     final PageReference key = new PageReference().setKey(7).setDatabaseId(1).setResourceId(2);
     try {
       cache.put(key, sparseDeltaFragment(0));
-      final long charged = cache.heapImages().getCurrentWeightBytes();
+      final long charged = cache.compactImages().getCurrentWeightBytes();
       assertTrue(charged >= MEASURED_FOOTPRINT_BYTES, "the charge understates the measured retained footprint of "
           + MEASURED_FOOTPRINT_BYTES + " bytes: " + charged);
     } finally {
