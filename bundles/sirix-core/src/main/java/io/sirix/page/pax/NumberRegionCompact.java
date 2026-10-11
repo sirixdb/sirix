@@ -11,10 +11,10 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
 /**
- * Schema-aware Frame-of-Reference (FOR) + bit-packed codec for {@code long[]} sequences over an
- * off-heap {@link MemorySegment}. Designed as a structural replacement for LZ4 on numeric PAX
- * regions: knowing the payload is a {@code long[]} lets us encode it with ~LZ4 size but near-zero
- * decompress CPU (a right-shift + mask per value).
+ * Schema-aware Frame-of-Reference (FOR) + bit-packed codec for {@code long[]} sequences, encoded
+ * into byte arrays and decoded from a {@link MemorySegment}. Designed as a structural replacement
+ * for LZ4 on numeric PAX regions: knowing the payload is a {@code long[]} lets us encode it with
+ * ~LZ4 size but near-zero decompress CPU (a right-shift + mask per value).
  *
  * <h2>Wire format</h2>
  * 
@@ -28,7 +28,7 @@ import java.nio.ByteOrder;
  *
  * <p>
  * When {@code bitWidth == 0} every value equals {@code minValue} — the body is omitted. When
- * {@code n == 0} the segment contains only the 10-byte minimal header (1+1+1+8 if the 1-byte varint
+ * {@code n == 0} the payload contains only the 11-byte minimal header (1+1+1+8 if the 1-byte varint
  * 0 is used).
  *
  * <h2>Value layout and random access</h2>
@@ -40,11 +40,11 @@ import java.nio.ByteOrder;
  *
  * <h2>Why this beats LZ4 on numeric columns</h2>
  * <ul>
- * <li><b>Size</b>: A narrow range (e.g. 1M salaries, spread ≤ 2^20) packs to 20 bits × N + 10 B
- * header — matches or beats LZ4 on delta-varint of the same data.</li>
+ * <li><b>Size</b>: A narrow range (e.g. 1M salaries, spread ≤ 2^20) packs to 20 bits × N plus the
+ * varint-sized header — matches or beats LZ4 on delta-varint of the same data.</li>
  * <li><b>CPU</b>: Scan = 1 word load + shift + mask per value. LZ4 costs ~16% of cold CPU at 100M
  * scale (see umbra-iter6 memory).</li>
- * <li><b>Composability</b>: Output is a contiguous range in an existing MemorySegment — no extra
+ * <li><b>Composability</b>: Output is a contiguous range in a caller-supplied byte array — no extra
  * allocation, no decompress buffer.</li>
  * </ul>
  *
@@ -52,8 +52,8 @@ import java.nio.ByteOrder;
  * <ul>
  * <li>Zero allocation on both encode and decode hot paths.</li>
  * <li>All shifts + masks; no conditional inside bit-unpack for widths ≤ 56.</li>
- * <li>Accepts both on-heap-backed and native-backed MemorySegments.</li>
- * <li>Operates on {@code long} offsets throughout — no 2 GiB wrap risk.</li>
+ * <li>Decoding accepts both on-heap-backed and native-backed MemorySegments.</li>
+ * <li>Encoding uses {@code int} array offsets; decoding uses {@code long} segment offsets.</li>
  * </ul>
  */
 public final class NumberRegionCompact {
@@ -418,7 +418,7 @@ public final class NumberRegionCompact {
     // Slow path: widths 57..63. Buffered accumulator would overflow, so we
     // place each value by read-modify-writing the containing 64-bit word(s).
     // We MUST clear any stale bits in the target region so the write is
-    // deterministic even when the target segment holds leftover data from a
+    // deterministic even when the target array holds leftover data from a
     // previous use; we do this by masking OUT the destination bit range
     // before OR'ing in the new value.
     final long mask = (1L << bitWidth) - 1L;

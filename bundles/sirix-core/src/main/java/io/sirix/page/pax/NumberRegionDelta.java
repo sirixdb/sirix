@@ -11,10 +11,10 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
 /**
- * Delta-of-delta ("DoubleDelta") codec for {@code long[]} sequences over an off-heap
- * {@link MemorySegment}. Sibling of {@link NumberRegionCompact}: where that codec removes a shared
- * frame-of-reference base and bit-packs the residuals, this one removes both the base <em>and the
- * slope</em>, bit-packing only the change in stride between consecutive values.
+ * Delta-of-delta ("DoubleDelta") codec for {@code long[]} sequences, encoded into byte arrays and
+ * decoded from a {@link MemorySegment}. Sibling of {@link NumberRegionCompact}: where that codec
+ * removes a shared frame-of-reference base and bit-packs the residuals, this one removes both the
+ * base <em>and the slope</em>, bit-packing only the change in stride between consecutive values.
  *
  * <p>
  * The target workload is temporal columns — commit timestamps, valid-time bounds, monotonic
@@ -52,8 +52,8 @@ import java.nio.ByteOrder;
  * <li>Zero allocation on both encode and decode hot paths.</li>
  * <li>All shifts + masks; the only branch in the steady state is the word-straddle check inherited
  * from the bit-packing layer.</li>
- * <li>Accepts both on-heap-backed and native-backed MemorySegments.</li>
- * <li>Operates on {@code long} offsets throughout — no 2 GiB wrap risk.</li>
+ * <li>Decoding accepts both on-heap-backed and native-backed MemorySegments.</li>
+ * <li>Encoding uses {@code int} array offsets; decoding uses {@code long} segment offsets.</li>
  * </ul>
  */
 public final class NumberRegionDelta {

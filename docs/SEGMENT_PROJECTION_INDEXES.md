@@ -1325,9 +1325,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   Java binds it with an unbound constant downcall and `Linker.Option.critical(true)` (heap arrays pinned), extracts the
   library to a content-addressed name under `${java.io.tmpdir}/sirix-native-${user.name}`, and falls back to the Java
   decoder with `-Dsirix.lz77Codec.native.disable=true` or when slack requirements fail (16 input bytes, output
-  capacity + 64) (`core/page/SirixLZ77NativeDecoder.java:66-287`; `core/page/SirixLZ77Codec.java:482-574`). Compressed
-  overflow payloads decode into a thread-local native landing buffer (the former 1 KiB minimum was removed in
-  `2d1700d18`) (`core/page/PageKind.java:8329-8458`).
+  capacity + 64) (`core/page/SirixLZ77NativeDecoder.java:66-287`; `core/page/SirixLZ77Codec.java:482-574`). Overflow
+  payload decode destinations are specified by
+  [`PageKind.OVERFLOW_DECODE_NATIVE`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java).
 - **Native-image registration** (all changed by PR #1214; see
   [NATIVE_IMAGE.md](NATIVE_IMAGE.md)). `.../sirix-core/reachability-metadata.json:4-17` registers the LZ77 downcall
   `jint(void*, jint, void*, jint)` with `critical: {allowHeapAccess: true}`, `:18-26` **the `posix_fadvise`
@@ -2059,9 +2059,8 @@ same reason.
 **Gated HOT work counters.** The fragment-merge, requested-slot and carry-forward counters in `VersioningType`,
 and `HOTLeafPage.suffixProbeReads()` / `sideReferenceReads()`, stay gated behind
 `sirix.hot.mergeDiag`, which the `sirix-core` and `sirix-query` test JVMs switch on.
-`suffixProbeReads()` counts one suffix lane per word or residual-byte load in the segment-backed
-binary-search comparators, excluding slot-length headers. Packed heap comparisons and successful
-PEXT candidate checks do not contribute; a PEXT miss can fall back to counted binary search.
+Suffix-probe counter units and comparator coverage are specified by
+[`HOTLeafPage.suffixProbeReads()`](../bundles/sirix-core/src/main/java/io/sirix/page/HOTLeafPage.java).
 `sideReferenceReads()` counts overflow-reference map probes, including misses.
 These are process-wide running totals, captured as differences just like the always-on counters.
 

@@ -204,7 +204,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final LongAdder SUFFIX_PROBE_READS = new LongAdder();
   private static final LongAdder SIDE_REFERENCE_READS = new LongAdder();
 
-  /** Native suffix lanes inspected, excluding the fixed slot-length header. */
+  /**
+   * Suffix lanes inspected by segment-backed binary search, including compact images: one lane per
+   * word or residual-byte load, excluding fixed slot-length headers. Successful PEXT candidate checks
+   * do not contribute; a PEXT miss can fall back to counted binary search.
+   */
   public static long suffixProbeReads() {
     return SUFFIX_PROBE_READS.sum();
   }

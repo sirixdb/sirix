@@ -653,7 +653,7 @@ public final class SirixLZ77Codec {
     // common. Array length is inspected via {@code input.length}.
     final boolean inputHasSlack = inEnd + 16 <= input.length;
     if (inputHasSlack) {
-      return decodeCoreFast(input, inputStart, inEnd, dst, dstOffset, uncompressed);
+      return decodeCoreFast(input, inputStart, dst, dstOffset, uncompressed);
     }
     return decodeCoreSafe(input, inputStart, inEnd, dst, dstOffset, uncompressed);
   }
@@ -670,7 +670,7 @@ public final class SirixLZ77Codec {
    * typically 1-2 cycles per iteration. The 64-B slack covers: literal ≤ 15 + matchLen ≤ 19 + 16-byte
    * stride overshoot ≤ 50 B, with headroom.
    */
-  private static int decodeCoreFast(final byte[] input, final int inputStart, final int inEnd, final MemorySegment dst,
+  private static int decodeCoreFast(final byte[] input, final int inputStart, final MemorySegment dst,
       final long dstOffset, final int uncompressed) {
     int inPos = inputStart;
     int outPos = 0;

@@ -6915,14 +6915,9 @@ public enum PageKind {
         // a point lookup. This is a complete raw image in the existing fragment cache;
         // ranges still reconstruct it and writers take their ordinary full-capacity copy.
         //
-        // The bytes live on GC-owned native memory (a slice of a shared automatic-arena slab, see
-        // GcOwnedNativeMemory), not in a byte[] wrapped as a heap segment. The lifetime is the same
-        // as the heap array's — the image stays readable for as long as anything references it, so
-        // unguarded readers are as safe as before — but the leaf accessors shared with
-        // allocator-backed images then only ever see native receivers. A heap image made the JDK's
-        // segment access path bimorphic for the whole process, which is what let the JIT hoist a
-        // heap-only guard above the record page decoder's native loops; see
-        // PageLayout#getBitmapWord(byte[], int).
+        // GcOwnedNativeMemory gives this image an independent lifetime: it stays readable while
+        // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
+        // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
         final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
         if (source instanceof MemorySegmentBytesIn segmentSource) {
           MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
@@ -8516,10 +8511,10 @@ public enum PageKind {
    *
    * <p>
    * {@link SirixLZ77Codec#decode} requires output tail slack for native decoding, and an
-   * {@link OverflowPage} owns an exact-length heap array, so every codec decodes into padded
-   * thread-local storage and the result is copied into that array. Native for every codec, not only
-   * the LZ77 fast path: a heap segment over the array as the decode target would put a heap receiver
-   * on the segment access path every native page shares (see PageLayout#getBitmapWord(byte[], int)).
+   * {@link OverflowPage} owns an exact-length heap array, so codecs 2 (byte-run) and 3 (LZ77) decode
+   * into padded native thread-local storage and copy the result into that array. Codec 0 (zero-run)
+   * decodes directly between byte arrays. Neither path wraps the output array as a heap segment; see
+   * PageLayout#getBitmapWord(byte[], int).
    * </p>
    *
    * <p>

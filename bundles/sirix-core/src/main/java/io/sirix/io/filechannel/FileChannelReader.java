@@ -978,9 +978,9 @@ public final class FileChannelReader extends AbstractReader {
       buffer.clear().limit(spanLen);
       readFully(buffer, start, "coalesced page span");
       buffer.flip();
-      // A compact fragment decode copies into its own array and retains nothing of the span, so it
-      // is not what borrowBatchInput governs; gating it there made the batch path hand back native
-      // images for the very offsets the scalar reads decode compact.
+      // A compact fragment decode copies into independently owned native storage and retains nothing
+      // of the span, so borrowBatchInput does not govern it. Gating it there would return allocator
+      // frames for the very offsets scalar reads decode compact.
       final boolean useSegments = byteHandler.supportsMemorySegments() && (compactHOTFragments || borrowBatchInput);
       final MemorySegment span = useSegments
           ? MemorySegment.ofBuffer(buffer)

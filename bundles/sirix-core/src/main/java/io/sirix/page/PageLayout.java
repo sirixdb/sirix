@@ -433,14 +433,11 @@ public final class PageLayout {
   //
   // The deserializer reads the 160-byte on-disk header into a byte array before the page's native
   // memory exists. It stays an array on purpose. Every MemorySegment accessor above is a thin wrapper
-  // over one JDK access path whose receiver-type profile is process-wide; wrapping the header as a
-  // heap
-  // segment makes that profile heap+native, and the JIT then compiles the hottest native-page loops
-  // (the column-region builders) with both receiver classes inlined and a heap-only guard hoisted
-  // above
-  // the loop, which deoptimises on every native page. Byte-array view handles keep the header off
-  // that
-  // path while remaining bounds-checked.
+  // over one JDK access path whose receiver-type profile is process-wide. Record-path segment
+  // accesses must use native memory; heap buffers use byte-array accessors. Wrapping the header as a
+  // heap segment mixes receiver types and can make the JIT compile the column-region builders with
+  // both branches and hoist a heap-only guard above their native loops, causing deoptimization.
+  // Byte-array view handles keep the header off that path while remaining bounds-checked.
 
   /** Little-endian long view over a byte array, for the on-disk header; see the note above. */
   private static final VarHandle HEADER_LONG_LE =

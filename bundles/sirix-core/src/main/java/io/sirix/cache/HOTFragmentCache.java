@@ -14,16 +14,13 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 
 /**
- * The raw HOT fragment cache, split by where its images actually live.
+ * The raw HOT fragment cache, split by allocation ownership.
  *
  * <p>
- * A committed fragment is decoded either into an allocator frame (every backend that does not
- * implement the compact fragment reads, and every byte pipeline without memory-segment support) or
- * into a packed Java-heap {@code byte[]}. One budget cannot bound both honestly: a heap-derived
- * ceiling would shrink a cache of native frames that costs no heap, and an off-heap-derived ceiling
- * would let heap images grow past what the heap can take. So each residency gets its own weighted
- * cache, and a lookup consults both — a durable offset is decoded the same way by every reader of a
- * resource, so in practice a key only ever occupies one of them.
+ * Allocator-frame images can release frames under allocator pressure; compact images own their
+ * native storage independently and need a separate budget and sweeper. Lookups consult both halves.
+ * Backend selection, byte charges and budget controls are documented in
+ * {@code docs/PROJECTION_READ_PERFORMANCE.md}, under Versioned HOT projection slot reads.
  * </p>
  */
 public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage> {
@@ -40,11 +37,9 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
     return nativeImages;
   }
 
-  /** The compact-decode half, bounded by the retained-heap ceiling. */
   /**
-   * The images allocator pressure cannot reclaim: compact decoded point-lookup fragments (GC-owned
-   * packed bytes, see HOTLeafPage#isCompactImage) and any heap-resident image. This half keeps its
-   * own budget and sweeper, as the retained-heap half it used to be.
+   * The images allocator pressure cannot reclaim: {@link HOTLeafPage#isCompactImage() compact images}
+   * and any heap-resident image. See the class documentation for budget ownership.
    */
   public ShardedPageCache<HOTLeafPage> compactImages() {
     return compactImages;

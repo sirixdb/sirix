@@ -2605,7 +2605,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       removeSideSlot(slotNumber);
     }
     if (!references.isEmpty() && !isFusedOverflowDescriptor(slottedPage,
-        PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(slottedPage, slotNumber)), data.byteSize(), nodeKindId)) {
+        PageLayout.heapAbsoluteOffset(PageLayout.getDirHeapOffset(slottedPage, slotNumber)), data.byteSize(),
+        nodeKindId)) {
       references.remove((recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber);
     }
   }
@@ -2856,9 +2857,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     if (nodeKindId == 0) {
       final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
-      final DataRecord legacyRecord =
-          recordPersister.deserialize(new ByteArrayBytesIn(rewritten), nodeKey,
-              source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
+      final DataRecord legacyRecord = recordPersister.deserialize(new ByteArrayBytesIn(rewritten), nodeKey,
+          source.getDeweyIdAsByteArray(slotNumber), resourceConfig);
       if (!(legacyRecord instanceof StringNode stringNode) || stringNode.isCompressed()) {
         throw new IllegalArgumentException("Legacy rewritten slot is not a raw string record: " + slotNumber);
       }

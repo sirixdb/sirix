@@ -13,12 +13,9 @@ import java.util.List;
 /**
  * OverflowPage: opaque immutable bytes hung off a leaf's side map by a bare durable offset key —
  * heap-backed for ordinary pages, or a bounded native-reservoir view while a bulk side page is
- * pending. Byte-array consumers ({@link #getDataBytes()}) get the page's own array with no copy;
- * segment consumers ({@link #getData()}) get a native mirror of it, made once per page, so that
- * record deserialization never runs on a heap segment (a heap receiver there would feed the
- * process-wide receiver profile of the segment accessors every page shares, see
- * {@link PageLayout#getBitmapWord(byte[], int)}). It is the working template for reference-bearing
- * values (#1076). Two producers:
+ * pending. Payload ownership and copying are specified by {@link #getDataBytes()} and
+ * {@link #getData()}. It is the working template for reference-bearing values (#1076). Two
+ * producers:
  *
  * <ul>
  * <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
@@ -153,9 +150,10 @@ public final class OverflowPage implements Page {
    * <p>
    * A heap-backed page mirrors its array onto GC-owned native memory once, on the first call, and
    * answers with that mirror from then on, so no reader ever deserializes from a heap segment and a
-   * cached page pays the copy once. A reservoir view is copied on every call: a view into a reusable
-   * reservoir must not leak to callers; the page serializer uses {@link #writeDataTo}, which keeps
-   * the zero-allocation native-to-native path.
+   * cached page reuses the copy (concurrent first callers may each create an equivalent mirror). See
+   * {@link PageLayout#getBitmapWord(byte[], int)} for the native-receiver invariant. A reservoir view
+   * is copied on every call: a view into a reusable reservoir must not leak to callers; the page
+   * serializer uses {@link #writeDataTo}, which keeps the zero-allocation native-to-native path.
    * </p>
    */
   public MemorySegment getData() {

@@ -3,6 +3,10 @@ package io.sirix.page;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 
+/**
+ * Native storage with one automatic arena per allocation. Independent scopes keep a retained image
+ * from pinning unrelated consumers' bytes, so its cache charge matches the storage it retains.
+ */
 final class GcOwnedNativeMemory {
 
   private GcOwnedNativeMemory() {}
