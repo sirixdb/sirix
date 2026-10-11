@@ -192,16 +192,16 @@ final class ProjectionSortedMissingAggregateTest {
     for (final byte version : new byte[] {3, 4, 5}) {
       withView(fixture(false), "obsolete-header-" + version, versioning, (session, reader) -> {
         downgradeHeader(session, version);
-        final String expectedMessage = "obsolete or unsupported sorted projection directory version " + version
-            + "; rebuild projection index";
+        final String expectedMessage =
+            "obsolete or unsupported sorted projection directory version " + version + "; rebuild projection index";
         try (JsonNodeReadOnlyTrx trx = session.beginNodeReadOnlyTrx()) {
           final IllegalStateException failure = assertThrows(IllegalStateException.class,
               () -> ProjectionSortedDirectory.open(trx.getStorageEngineReader(), 0));
           assertEquals(expectedMessage, failure.getMessage());
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          final IllegalStateException failure = assertThrows(IllegalStateException.class,
-              () -> new ProjectionSortedDirectory.Editor(
+          final IllegalStateException failure =
+              assertThrows(IllegalStateException.class, () -> new ProjectionSortedDirectory.Editor(
                   new ProjectionIndexHOTStorage(writer.getStorageEngineWriter(), 0)));
           assertEquals(expectedMessage, failure.getMessage());
         }

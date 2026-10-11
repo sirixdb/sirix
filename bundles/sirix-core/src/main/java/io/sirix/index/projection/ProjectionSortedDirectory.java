@@ -94,8 +94,7 @@ final class ProjectionSortedDirectory {
         throw new IllegalStateException("obsolete or unsupported sorted projection directory version "
             + (header[4] & 0xFF) + "; rebuild projection index");
       }
-      if (header.length < fixedBytes + 1
-          || header.length != fixedBytes + (header[fixedBytes - 1] & 0xFF)) {
+      if (header.length < fixedBytes + 1 || header.length != fixedBytes + (header[fixedBytes - 1] & 0xFF)) {
         throw new IllegalStateException("invalid sorted projection directory header");
       }
       final int height = header[5] & 0xFF;

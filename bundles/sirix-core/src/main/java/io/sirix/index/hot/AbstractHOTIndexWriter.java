@@ -404,13 +404,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Outcome of a multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1).
    *
    * <p>
-   * {@link #NONE} and {@link #STRANDS} are exact answers from a scan whose source fit the bounded
-   * mutation-traversal budget. {@link #UNDECIDABLE} means the route-feasible source is larger than
-   * one bounded HOT block, so the guard inspected nothing: the caller must discard its unpublished
-   * incremental candidate and place the key through the complete structural frontier, which works on
-   * child references and never scans a subtree. Declining is the fail-safe direction (an uninspected
-   * suffix is never treated as "no match"), so an undecidable guard neither poisons the transaction
-   * nor lets the candidate publish.
+   * {@link StrandVerdict#NONE} and {@link StrandVerdict#STRANDS} are exact answers from endpoint
+   * proofs or a scan whose source fit the bounded mutation-traversal budget.
+   * {@link StrandVerdict#UNDECIDABLE} means the source exceeds that budget, so no exact entry scan
+   * runs: the caller must discard its unpublished incremental candidate and place the key through the
+   * complete structural frontier, which works on child references and never scans a subtree.
+   * Declining is the fail-safe direction (an uninspected suffix is never treated as "no match"), so
+   * an undecidable guard neither poisons the transaction nor lets the candidate publish.
    * </p>
    */
   enum StrandVerdict {
