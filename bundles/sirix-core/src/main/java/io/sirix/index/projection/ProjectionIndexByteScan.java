@@ -2324,32 +2324,7 @@ public final class ProjectionIndexByteScan {
       final int stride = rowCount + 63 >>> 6;
       final long[] scanMask = s.mask;
       if (countOnly) {
-        for (int w = 0; w < stride; w++) {
-          long word = scanMask[w] & validRowsMask(w, stride, rowCount);
-          final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
-          final int rowBase = w << 6;
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final int rowIdx = rowBase + bit;
-            if ((groupPresWord & 1L << bit) == 0L) {
-              if (missingAcc[0] == 0) {
-                missingAcc[1] = leafOrdinalBase | rowIdx;
-              }
-              missingAcc[0]++;
-            } else {
-              final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
-              if (gv == 0L) {
-                out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
-              } else {
-                // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
-                final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
-                final long[] block = out.storageAtAccBase(handle);
-                block[out.offsetAtAccBase(handle)]++;
-              }
-            }
-          }
-        }
+        countNumericGroups(payload, rowCount, groupPresOff, groupValOff, leafOrdinalBase, scanMask, out, missingAcc);
         continue;
       }
       for (int w = 0; w < stride; w++) {
@@ -2460,6 +2435,42 @@ public final class ProjectionIndexByteScan {
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
     conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
         leafIndexBase, -1, null, null, null, null);
+  }
+
+  /**
+   * Keep the count loop in its own compilation unit: switching distinct/string-aggregate shapes can
+   * invalidate the larger scan's OSR code while its normal entry is still being compiled.
+   */
+  private static void countNumericGroups(final byte[] payload, final int rowCount, final int groupPresOff,
+      final int groupValOff, final long leafOrdinalBase, final long[] scanMask, final NumericGroupAggTable out,
+      final long[] missingAcc) {
+    final int stride = rowCount + 63 >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+      final int rowBase = w << 6;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int rowIdx = rowBase + bit;
+        if ((groupPresWord & 1L << bit) == 0L) {
+          if (missingAcc[0] == 0) {
+            missingAcc[1] = leafOrdinalBase | rowIdx;
+          }
+          missingAcc[0]++;
+        } else {
+          final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+          if (gv == 0L) {
+            out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
+          } else {
+            // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
+            final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
+            final long[] block = out.storageAtAccBase(handle);
+            block[out.offsetAtAccBase(handle)]++;
+          }
+        }
+      }
+    }
   }
 
   /**
