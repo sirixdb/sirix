@@ -485,43 +485,42 @@ public final class NamePage extends AbstractForwardingPage implements IndexRootP
    * @return raw name of name key
    */
   public byte[] getRawName(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
-    final byte[] rawName;
-    // $CASES-OMITTED$
-    switch (nodeKind) {
-      case ELEMENT -> {
-        if (elements == null) {
-          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
-        }
-        rawName = elements.getRawName(key);
-      }
-      case NAMESPACE -> {
-        if (namespaces == null) {
-          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
-        }
-        rawName = namespaces.getRawName(key);
-      }
-      case ATTRIBUTE -> {
-        if (attributes == null) {
-          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
-        }
-        rawName = attributes.getRawName(key);
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (processingInstructions == null) {
-          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
-        }
-        rawName = processingInstructions.getRawName(key);
-      }
+    return namesForRead(nodeKind, storageEngineReader).getRawName(key);
+  }
+
+  /**
+   * Shared committed metadata must not retain reconstructed dictionaries past NamesCache eviction.
+   * Only writer-owned pages memoize them here; read transactions hold their own short-lived memos.
+   * The retention contract is exercised by NamePageDictionaryRetentionTest.
+   */
+  private Names namesForRead(final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
+    final Names names = switch (nodeKind) {
+      case ELEMENT -> elements;
+      case NAMESPACE -> namespaces;
+      case ATTRIBUTE -> attributes;
+      case PROCESSING_INSTRUCTION -> processingInstructions;
       case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-          OBJECT_NAMED_NULL -> {
-        if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
-        }
-        rawName = jsonObjectKeys.getRawName(key);
-      }
+          OBJECT_NAMED_NULL ->
+        jsonObjectKeys;
       default -> throw new IllegalStateException("No other node types supported!");
+    };
+    if (names != null) {
+      return names;
     }
-    return rawName;
+    final Names loaded = getNames(storageEngineReader, dictionaryOffset(nodeKind));
+    if (writeCopy || storageEngineReader.hasTrxIntentLog()) {
+      switch (nodeKind) {
+        case ELEMENT -> elements = loaded;
+        case NAMESPACE -> namespaces = loaded;
+        case ATTRIBUTE -> attributes = loaded;
+        case PROCESSING_INSTRUCTION -> processingInstructions = loaded;
+        case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
+            OBJECT_NAMED_NULL ->
+          jsonObjectKeys = loaded;
+        default -> throw new IllegalStateException("No other node types supported!");
+      }
+    }
+    return loaded;
   }
 
   private Names getNames(StorageEngineReader storageEngineReader, int offset) {
@@ -609,40 +608,9 @@ public final class NamePage extends AbstractForwardingPage implements IndexRootP
    */
   public String getName(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     return switch (nodeKind) {
-      case ELEMENT -> {
-        if (elements == null) {
-          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
-        }
-        yield elements.getName(key);
-      }
-      case NAMESPACE -> {
-        if (namespaces == null) {
-          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
-        }
-        yield namespaces.getName(key);
-      }
-      case ATTRIBUTE -> {
-        if (attributes == null) {
-          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
-        }
-        yield attributes.getName(key);
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (processingInstructions == null) {
-          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
-        }
-        yield processingInstructions.getName(key);
-      }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-          OBJECT_NAMED_NULL -> {
-        if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
-        }
-        yield jsonObjectKeys.getName(key);
-      }
       case ARRAY -> "__array__";
       case OBJECT -> "__object__";
-      default -> throw new IllegalStateException("No other node types supported!");
+      default -> namesForRead(nodeKind, storageEngineReader).getName(key);
     };
   }
 
@@ -653,41 +621,9 @@ public final class NamePage extends AbstractForwardingPage implements IndexRootP
    * @return number of nodes with the given name key
    */
   public int getCount(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
-    return switch (nodeKind) {
-      case ELEMENT -> {
-        if (elements == null) {
-          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
-        }
-        yield elements.getCount(key);
-      }
-      case NAMESPACE -> {
-        if (namespaces == null) {
-          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
-        }
-        yield namespaces.getCount(key);
-      }
-      case ATTRIBUTE -> {
-        if (attributes == null) {
-          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
-        }
-        yield attributes.getCount(key);
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (processingInstructions == null) {
-          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
-        }
-        yield processingInstructions.getCount(key);
-      }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-          OBJECT_NAMED_NULL -> {
-        if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
-        }
-        yield jsonObjectKeys.getCount(key);
-      }
-      case ARRAY -> numberOfArrays;
-      default -> throw new IllegalStateException("No other node types supported!");
-    };
+    return nodeKind == NodeKind.ARRAY
+        ? numberOfArrays
+        : namesForRead(nodeKind, storageEngineReader).getCount(key);
   }
 
   /**
@@ -778,47 +714,10 @@ public final class NamePage extends AbstractForwardingPage implements IndexRootP
    * @return the key for the name
    */
   public int keyForName(final String name, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
-    // $CASES-OMITTED$
-    switch (nodeKind) {
-      case ELEMENT -> {
-        if (elements == null) {
-          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
-        }
-        return elements.keyForName(name);
-      }
-      case NAMESPACE -> {
-        if (namespaces == null) {
-          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
-        }
-        return namespaces.keyForName(name);
-      }
-      case ATTRIBUTE -> {
-        if (attributes == null) {
-          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
-        }
-        return attributes.keyForName(name);
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (processingInstructions == null) {
-          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
-        }
-        return processingInstructions.keyForName(name);
-      }
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING,
-          OBJECT_NAMED_NULL -> {
-        if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
-        }
-        return jsonObjectKeys.keyForName(name);
-      }
-      // Mirrors getName: these two kinds have no dictionary at all, their name is synthesized on
-      // read ("__array__" / "__object__"), so the stored key is never resolved through a name
-      // table. Keep handing back the bare hash the callers stored before.
-      case ARRAY, OBJECT -> {
-        return NamePageHash.generateHashForString(name);
-      }
-      default -> throw new IllegalStateException("No other node types supported!");
-    }
+    return switch (nodeKind) {
+      case ARRAY, OBJECT -> NamePageHash.generateHashForString(name);
+      default -> namesForRead(nodeKind, storageEngineReader).keyForName(name);
+    };
   }
 
   /**

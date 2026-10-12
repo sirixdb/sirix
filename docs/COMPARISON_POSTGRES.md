@@ -393,19 +393,11 @@ Taken together, across the session and on one box: an owning-transaction full-do
 
 #### …and the page underneath the dictionary
 
-Fixing the cache left a residue: a name read through a fresh transaction was still 6.05 µs against
-2.62 µs for a value read on the same node. The dictionary was no longer rebuilt, but the page
-holding it was. `NamePage` sits on `PageCache`'s index-root exclusion list — correctly, because
-sharing one index-root instance would let a time-travel read of revision N follow revision N+1's
-root — so every transaction deserialized it afresh on its first name access, found its dictionary
-field null, and re-entered `getNames`. That is also *why* the defect above cost what it did: it was
-reached once per transaction, not once ever.
-
-The dictionary needs no page. `NamesCacheKey` is `(database, resource, revision, offset)` — the
-revision in that key is exactly what the reference-keyed `PageCache` lacks, and what makes the
-dictionary safe to share where the page is not. A reader now consults that cache first and only
-falls back to the page on a miss, or when it is a writer (whose uncommitted names live in its
-transaction-intent log, which `NamePage.getNames` already refuses the shared cache for).
+The dictionary shortcut avoids metadata loading on a warm dictionary hit; its ownership and
+writer fallback are documented in
+[`NodeStorageEngineReader.alreadyBuiltNames`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java).
+Current metadata sharing follows the
+[revision-scoped index-metadata contract](formal-verification.md#revision-scoped-index-metadata).
 
 Which dictionary a kind belongs to is now decided in two places that must agree — the cache key and
 the page's own switches — so the mapping is single-sourced as `NamePage.dictionaryOffset`, and

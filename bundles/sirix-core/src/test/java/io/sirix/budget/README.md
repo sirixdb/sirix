@@ -79,7 +79,8 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ProviderPurityWorkBudgetTest` | shared provider admission in guarded row predicates | each row reclassifies unrelated registered collections; registry classification work must remain zero during query evaluation, with 0 or 1,000 unrelated collections |
 | `sirix-query` `CASLookupWorkBudgetTest` | runtime-revision CAS point lookups | the FLWOR source scans instead of taking 50 bounded point lookups, or repeats revision-by-instant resolution for identical publication timestamps (two resolutions become 50); both mutations retain the same numeric answer |
 | `sirix-query` `CASMultiMatchWorkBudgetTest` | CAS row-source fallback in FLWOR and array filters | candidate navigation exceeds its bound before declining an unordered result or postings from an unrelated duplicate array, including with Dewey IDs enabled |
-| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty closed candidate set enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings; warmed exact half-open primitive-key requests repeat the closed probe (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
+| `sirix-query` `ValidTimeSliceWorkBudgetTest` | direct, folded bitemporal and plain-FLWOR valid-time slices | exact counts construct objects or read timestamp fields; first-item demand materializes more than one object; an empty stab enumerates interval/posting references or reads objects from unrelated inexact intervals; selective first/last matches expand unrelated postings; warmed exact half-open primitive-key requests read end-equal chunks or verification masks (fixture-scale CI, opt-in 100,000-row evidence fixtures) |
+| `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks; one match in each of 1,000 chunks retains dense candidate bitmaps or scans unoccupied words |
 | `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, or reads a leaf that holds no admitted key (the row source stops pruning); the generic reference over the same decorated cursor is the positive control (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
 | `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion, across all versioning types | dictionary admission visits more than current rows plus one, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
 | `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
@@ -188,7 +189,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
   listings and files written, data-file forces, native HOT suffix lanes, overflow-reference map probes,
   and valid-time interval and posting references emitted by ordered-store scans, posting lookups
-  and compressed posting chunks read.
+  and compressed posting chunks read. `VALID_TIME_MASK_HITS` counts immutable companion masks served
+  from the session cache; `VALID_TIME_EVIDENCE_VISITS` sums those hits and decoded posting chunks so
+  warm evidence remains counted. `INDEX_ROOT_LOADS` counts index metadata cache-miss loads. These
+  counters are gated by `sirix.validTime.scanDiag`.
   The valid-time figures guard empty and selective positive stabs that used to expand whole-array
   membership and verification postings. Only what a budget captures is
   listed: a catalog entry nothing reads is one more thing
@@ -225,6 +229,14 @@ maintains, so a budget quotes the same numbers an investigation would:
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
   `docs/SEGMENT_PROJECTION_INDEXES.md`.
+- `QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS`: companion mask words inspected during candidate
+  intersection, run union, strict-start removal and unverified-key checks, gated by `sirix.validTime.scanDiag`.
+  Sparse run fixtures require one occupied word per matching chunk; a full chunk requires 1,024.
+  Chunks stay as sorted runs below 1,024 unique matches (8 KiB / eight-byte keys), and use a bitmap at or above
+  that threshold. `VALID_TIME_CANDIDATE_BITMAPS` counts these allocations; sparse slices require zero.
+  The allocation budget measures the same collector with prepared immutable masks at 16 and 1,000
+  matches, allowing 32 KiB fixed scratch/overhead plus 512 bytes per match. It excludes mask-cache
+  construction and runs where thread allocation accounting is supported, without timing assertions.
 - `BasicJsonDBStore.getCollectionClassificationCount()` (`sirix-query`): provider type checks,
   gated by `sirix.json.registryDiag`. Registration establishes a nonzero floor; guarded query
   evaluation must add none, independent of registry size.

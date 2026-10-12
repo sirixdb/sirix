@@ -305,6 +305,28 @@ test {
     }
 }
 
+def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCacheTest', Test) {
+    group = 'verification'
+    description = 'Checks valid-time revision reuse with the HOT lookup cache disabled in a separate JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.index.interval.ValidTimeDisabledLookupCacheTest'
+    }
+    def standardTest = tasks.named('test', Test).get()
+    jvmArgs = standardTest.jvmArgs
+    minHeapSize = standardTest.minHeapSize
+    maxHeapSize = standardTest.maxHeapSize
+    systemProperties = standardTest.systemProperties
+    systemProperty 'sirix.hotLookupCache.maxEntries', '0'
+}
+
+tasks.named('test', Test).configure {
+    exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
+    dependsOn validTimeDisabledLookupCacheTest
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Native library build — libsirix_lz77.so
 // ═══════════════════════════════════════════════════════════════════════════

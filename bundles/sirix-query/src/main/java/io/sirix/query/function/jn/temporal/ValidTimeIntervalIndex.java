@@ -18,7 +18,9 @@ import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.AbstractJsonDBArray;
 import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.function.DateTimeToInstant;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import io.sirix.index.interval.PostingChunkConsumer;
+import io.sirix.index.interval.PostingMask;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
@@ -26,12 +28,28 @@ import java.time.Instant;
 import java.time.DateTimeException;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
+import org.roaringbitmap.RelativeRangeConsumer;
+import java.util.function.LongFunction;
 
 public final class ValidTimeIntervalIndex {
+  private static final class Diagnostics {
+    private static final boolean SCAN_DIAGNOSTICS = HotOrderedStore.scanDiagnosticsEnabled();
+    private static final LongAdder CANDIDATE_WORDS_VISITED = new LongAdder();
+    private static final LongAdder CANDIDATE_BITMAPS_CREATED = new LongAdder();
+  }
+
+  public static long candidateWordsVisited() {
+    return Diagnostics.CANDIDATE_WORDS_VISITED.sum();
+  }
+
+  public static long candidateBitmapsCreated() {
+    return Diagnostics.CANDIDATE_BITMAPS_CREATED.sum();
+  }
 
   @SuppressWarnings("ArrayRecordComponent")
-  record Evidence(long[] members, LongOpenHashSet unverified) {
+  record Evidence(long[] members, Roaring64Bitmap unverified) {
   }
 
   private ValidTimeIntervalIndex() {}
@@ -167,8 +185,8 @@ public final class ValidTimeIntervalIndex {
     }
     final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, definition.getID(), domain);
     // Exact cohort admission proved timestamp representation; membership still excludes sibling arrays.
-    final long[] matches = readEvidence(document, definition.getID(),
-        collectRangeKeys(document, tree, lowerPoint, upperPoint, strictStart, strictEnd), false).members();
+    final long[] matches = members(document, definition.getID(),
+        collectRangeKeys(document, tree, lowerPoint, upperPoint, strictStart, strictEnd));
     ValidTimeRangeCache.put(document.getResourceSession(), controller, revision, arrayKey, definition.getID(),
         lowerPoint, upperPoint, mode, matches);
     return ValidTimeKeySequence.exactKeys(document, lo, config, definition.getID(), matches);
@@ -240,11 +258,7 @@ public final class ValidTimeIntervalIndex {
       // A known exact cohort needs no closed stab for endpoint verification. Membership still
       // excludes matching intervals in nested/sibling arrays; the proof never loads on an empty stab.
       if (controller.isKnownExactValidTimeArray(reader, exactCohort, document.getNodeKey(), ((Array) document).len())) {
-        final IntervalDomain domain = new IntervalDomain();
-        final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, exactCohort.getID(), domain);
-        final LongOpenHashSet keys = new LongOpenHashSet();
-        tree.stabHalfOpen(domain.point(instant), keys::add);
-        return readEvidence(document, exactCohort.getID(), keys).members();
+        return exactCohortMembers(document, instant, exactCohort.getID());
       }
     }
     final Sequence sequence = sequence(document, instant, config, false, strictEnd);
@@ -280,24 +294,42 @@ public final class ValidTimeIntervalIndex {
     return !(document instanceof AbstractJsonDBArray<?>) || document instanceof JsonDBArray;
   }
 
-  static Evidence readEvidence(final JsonDBItem document, final int indexId, final LongOpenHashSet closed) {
-    final long[] sorted = closed.toLongArray();
-    Arrays.sort(sorted);
-    return readEvidence(document, indexId, sorted, true);
+  /** Intersect compressed runs before expansion; every candidate is emitted once in key order. */
+  static Evidence candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
+      final boolean strictEnd, final int indexId) {
+    final IntervalDomain domain = new IntervalDomain();
+    final var reader = document.getTrx().getStorageEngineReader();
+    final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, indexId, domain);
+    final ChunkCandidates candidates = new ChunkCandidates(document, indexId, true);
+    final long point = domain.point(instant);
+    final boolean exact = domain.isExact(instant);
+    tree.stabChunks(point, exact && strictEnd, candidates);
+    if (exact && strictStart && candidates.hasCandidates) {
+      tree.startingAtChunks(point, candidates::removeExactStarts);
+    }
+    return candidates.evidence();
   }
 
-  private static Evidence readEvidence(final JsonDBItem document, final int indexId, final long[] sorted,
-      final boolean verify) {
+  /**
+   * Members of a proven-exact cohort valid at an exact instant: one half-open chunk stab is exact
+   * from keys, so neither the tie chunk at the instant nor a verification mask is read.
+   */
+  static long[] exactCohortMembers(final JsonDBItem document, final Instant instant, final int indexId) {
+    final IntervalDomain domain = new IntervalDomain();
+    final var reader = document.getTrx().getStorageEngineReader();
+    final var tree = ValidTimeIntervalIndexFactory.createReaderTree(reader, indexId, domain);
+    final ChunkCandidates candidates = new ChunkCandidates(document, indexId, false);
+    tree.stabHalfOpenChunks(domain.point(instant), candidates);
+    return candidates.evidence().members();
+  }
+
+  /** Keep the sorted keys the index registered as members of this document's array, in place. */
+  private static long[] members(final JsonDBItem document, final int indexId, final long[] sorted) {
     final var reader = document.getTrx().getStorageEngineReader();
     final HotOrderedStore members = document instanceof Array
         ? ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId)
         : null;
-    final HotOrderedStore verification = verify
-        ? ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId)
-        : null;
-    final LongOpenHashSet unverified = new LongOpenHashSet();
     NodeReferences memberChunk = null;
-    NodeReferences verificationChunk = null;
     long chunk = -1;
     int count = 0;
     for (final long key : sorted) {
@@ -306,83 +338,472 @@ public final class ValidTimeIntervalIndex {
         if (members != null) {
           memberChunk = members.chunk(document.getNodeKey(), 0, key);
         }
-        if (verification != null) {
-          verificationChunk = verification.chunk(0, 0, key);
-        }
       }
       if (members == null
           ? key == document.getNodeKey()
           : memberChunk != null && memberChunk.contains(key & 0xFFFFL)) {
         sorted[count++] = key;
-        if (verificationChunk != null && verificationChunk.contains(key & 0xFFFFL)) {
-          unverified.add(key);
+      }
+    }
+    return count == sorted.length
+        ? sorted
+        : Arrays.copyOf(sorted, count);
+  }
+
+  static final class ChunkCandidates implements PostingChunkConsumer, RelativeRangeConsumer {
+    private static final int WORDS = 1024;
+    // An eight-byte run key and an eight-byte bitmap word break even at 1024 matches.
+    private static final int DENSE_THRESHOLD = WORDS;
+    private final LongFunction<PostingMask> membership;
+    private final LongFunction<PostingMask> verification;
+    // Chunks keyed by base in ascending order: a stab touches a handful of 64K chunks, so a sorted
+    // pair of arrays beats a tree and keeps the fastutil map interface monomorphic for the JIT.
+    private long[] chunkBases = new long[8];
+    private Chunk[] chunkValues = new Chunk[8];
+    private int chunkCount;
+    private final RunBuffer runKeys = new RunBuffer();
+    private final long[] scratch = new long[WORDS];
+    private final int[] touchedWords = new int[WORDS];
+    private int touchedCount;
+    private boolean hasCandidates;
+    private final long[] wordGroups = new long[WORDS / Long.SIZE];
+
+    private static final class RunBuffer {
+      private static final long[] EMPTY = new long[0];
+      private long[] keys = EMPTY;
+      private int size;
+
+      private void appendWord(final long prefix, long bits) {
+        if (bits == 0) {
+          return;
+        }
+        final int required = Math.addExact(size, Long.bitCount(bits));
+        if (required > keys.length) {
+          final long capacity = Math.max(16L, Math.max(required, (long) keys.length + (keys.length >> 1)));
+          final int boundedCapacity = (int) Math.min(Integer.MAX_VALUE - 8L, capacity);
+          if (boundedCapacity < required) {
+            throw new OutOfMemoryError("Valid-time run buffer exceeds the maximum array size");
+          }
+          keys = Arrays.copyOf(keys, boundedCapacity);
+        }
+        final long[] output = keys;
+        int position = size;
+        while (bits != 0) {
+          output[position++] = prefix | Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1;
+        }
+        size = position;
+      }
+    }
+
+    private static final class Run {
+      private final int position;
+      private int limit;
+      private @Nullable Run next;
+
+      private Run(final int position, final int limit) {
+        this.position = position;
+        this.limit = limit;
+      }
+    }
+
+    private static final class Chunk {
+      private final PostingMask membership;
+      private @Nullable Run first;
+      private @Nullable Run last;
+      private @Nullable PostingMask unverified;
+      private long @Nullable [] selected;
+      // An upper bound for sparse runs until union; exact for a dense container.
+      private int count;
+
+      private Chunk(final PostingMask membership) {
+        this.membership = membership;
+      }
+    }
+
+    /** With {@code verify} false every candidate is taken as exact and no verification mask is read. */
+    private ChunkCandidates(final JsonDBItem document, final int indexId, final boolean verify) {
+      final var reader = document.getTrx().getStorageEngineReader();
+      final long documentKey = document.getNodeKey();
+      if (document instanceof Array) {
+        final HotOrderedStore members = ValidTimeIntervalIndexFactory.createMembershipStore(reader, indexId);
+        membership = base -> members.chunkMask(documentKey, 0, base);
+      } else {
+        membership = base -> (documentKey & ~0xFFFFL) == base
+            ? PostingMask.from(NodeReferences.ofSortedArray(new long[] {documentKey & 0xFFFFL}))
+            : PostingMask.from(null);
+      }
+      if (verify) {
+        final HotOrderedStore unverified = ValidTimeIntervalIndexFactory.createVerificationStore(reader, indexId);
+        verification = base -> unverified.chunkMask(0, 0, base);
+      } else {
+        verification = _ -> PostingMask.from(null);
+      }
+    }
+
+    ChunkCandidates(final LongFunction<PostingMask> membership, final LongFunction<PostingMask> verification) {
+      this.membership = Objects.requireNonNull(membership);
+      this.verification = Objects.requireNonNull(verification);
+    }
+
+    private void mark(final int key) {
+      final int word = key >>> 6;
+      if (scratch[word] == 0) {
+        touchedWords[touchedCount++] = word;
+      }
+      scratch[word] |= 1L << key;
+    }
+
+    /**
+     * Mark every key of one chunk's references: a plain loop over the packed run, or a word-wise bitmap
+     * walk.
+     */
+    private void collect(final NodeReferences references) {
+      final long[] keys = references.sortedKeysOrNull();
+      if (keys != null) {
+        for (final long key : keys) {
+          mark((int) key);
+        }
+        return;
+      }
+      references.getNodeKeys().forAllInRange(0L, WORDS << 6, this);
+    }
+
+    @Override
+    public void acceptPresent(final int relativePos) {
+      mark(relativePos);
+    }
+
+    @Override
+    public void acceptAbsent(final int relativePos) {}
+
+    @Override
+    public void acceptAllPresent(final int relativeFrom, final int relativeTo) {
+      final int firstWord = relativeFrom >>> 6;
+      final int lastWord = (relativeTo - 1) >>> 6;
+      for (int word = firstWord; word <= lastWord; word++) {
+        if (scratch[word] == 0) {
+          touchedWords[touchedCount++] = word;
+        }
+      }
+      PostingMask.fillRange(scratch, relativeFrom, relativeTo);
+    }
+
+    @Override
+    public void acceptAllAbsent(final int relativeFrom, final int relativeTo) {}
+
+    private Chunk chunk(final long base) {
+      final int index = Arrays.binarySearch(chunkBases, 0, chunkCount, base);
+      if (index >= 0) {
+        return chunkValues[index];
+      }
+      final Chunk chunk = new Chunk(membership.apply(base));
+      final int insert = -index - 1;
+      if (chunkCount == chunkBases.length) {
+        chunkBases = Arrays.copyOf(chunkBases, chunkCount << 1);
+        chunkValues = Arrays.copyOf(chunkValues, chunkCount << 1);
+      }
+      System.arraycopy(chunkBases, insert, chunkBases, insert + 1, chunkCount - insert);
+      System.arraycopy(chunkValues, insert, chunkValues, insert + 1, chunkCount - insert);
+      chunkBases[insert] = base;
+      chunkValues[insert] = chunk;
+      chunkCount++;
+      return chunk;
+    }
+
+    private @Nullable Chunk chunkOrNull(final long base) {
+      final int index = Arrays.binarySearch(chunkBases, 0, chunkCount, base);
+      return index >= 0
+          ? chunkValues[index]
+          : null;
+    }
+
+    @Override
+    public void accept(final long base, final NodeReferences references, final boolean verifyOnly) {
+      if (!references.hasNodeKeys()) {
+        return;
+      }
+      final Chunk chunk = chunk(base);
+      if (chunk.membership.isEmpty()) {
+        return;
+      }
+      collect(references);
+      try {
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.CANDIDATE_WORDS_VISITED.add(touchedCount);
+        }
+        int count = 0;
+        final long[] selected = chunk.selected;
+        for (int index = 0; index < touchedCount; index++) {
+          final int word = touchedWords[index];
+          long bits = scratch[word] & chunk.membership.word(word);
+          if (bits != 0) {
+            if (chunk.unverified == null) {
+              chunk.unverified = verification.apply(base);
+            }
+            if (verifyOnly) {
+              if (Diagnostics.SCAN_DIAGNOSTICS) {
+                Diagnostics.CANDIDATE_WORDS_VISITED.increment();
+              }
+              bits &= chunk.unverified.word(word);
+            }
+          }
+          scratch[word] = bits;
+          if (selected == null) {
+            count += Long.bitCount(bits);
+          } else {
+            count += Long.bitCount(bits & ~selected[word]);
+            selected[word] |= bits;
+          }
+        }
+        if (count == 0) {
+          return;
+        }
+        hasCandidates = true;
+        if (selected != null) {
+          chunk.count += count;
+          return;
+        }
+        if (chunk.first == null && count >= DENSE_THRESHOLD) {
+          if (Diagnostics.SCAN_DIAGNOSTICS) {
+            Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
+          }
+          chunk.selected = scratch.clone();
+          chunk.count = count;
+          return;
+        }
+        final int start = runKeys.size;
+        for (int index = 0; index < touchedCount; index++) {
+          final int word = touchedWords[index];
+          runKeys.appendWord(base | ((long) word << 6), scratch[word]);
+        }
+        final Run run = new Run(start, runKeys.size);
+        if (chunk.last == null) {
+          chunk.first = run;
+        } else {
+          chunk.last.next = run;
+        }
+        chunk.last = run;
+        chunk.count += count;
+        if (chunk.count >= DENSE_THRESHOLD) {
+          resetScratch();
+          final int groups = mergeRuns(chunk);
+          int unique = 0;
+          for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
+            final int group = Integer.numberOfTrailingZeros(remaining);
+            for (long words = wordGroups[group]; words != 0; words &= words - 1) {
+              final int word = (group << 6) | Long.numberOfTrailingZeros(words);
+              unique += Long.bitCount(scratch[word]);
+            }
+          }
+          if (unique >= DENSE_THRESHOLD) {
+            if (Diagnostics.SCAN_DIAGNOSTICS) {
+              Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
+            }
+            chunk.selected = scratch.clone();
+            chunk.first = null;
+            chunk.last = null;
+          } else {
+            final int unionStart = runKeys.size;
+            emitWords(base, groups);
+            chunk.first = new Run(unionStart, runKeys.size);
+            chunk.last = chunk.first;
+          }
+          chunk.count = unique;
+          clearWordGroups(groups);
+        }
+      } finally {
+        resetScratch();
+      }
+    }
+
+    void removeExactStarts(final long base, final NodeReferences references, final boolean ignored) {
+      final Chunk chunk = chunkOrNull(base);
+      if (chunk == null || chunk.count == 0) {
+        return;
+      }
+      collect(references);
+      try {
+        final PostingMask unverified = Objects.requireNonNull(chunk.unverified);
+        final long[] selected = chunk.selected;
+        if (selected != null) {
+          for (int index = 0; index < touchedCount; index++) {
+            final int word = touchedWords[index];
+            final long removed = selected[word] & scratch[word] & ~unverified.word(word);
+            if (Diagnostics.SCAN_DIAGNOSTICS) {
+              Diagnostics.CANDIDATE_WORDS_VISITED.increment();
+            }
+            selected[word] &= ~removed;
+            chunk.count -= Long.bitCount(removed);
+          }
+          return;
+        }
+        final long[] keys = runKeys.keys;
+        for (Run run = chunk.first; run != null; run = run.next) {
+          int position = run.position;
+          for (int index = run.position; index < run.limit; index++) {
+            final long key = keys[index];
+            final int word = (int) ((key & 0xFFFFL) >>> 6);
+            final long bit = 1L << key;
+            if ((scratch[word] & bit) != 0) {
+              if (Diagnostics.SCAN_DIAGNOSTICS) {
+                Diagnostics.CANDIDATE_WORDS_VISITED.increment();
+              }
+              if ((unverified.word(word) & bit) == 0) {
+                continue;
+              }
+            }
+            keys[position++] = key;
+          }
+          chunk.count -= run.limit - position;
+          run.limit = position;
+        }
+      } finally {
+        resetScratch();
+      }
+    }
+
+    private void resetScratch() {
+      for (int index = 0; index < touchedCount; index++) {
+        scratch[touchedWords[index]] = 0;
+      }
+      touchedCount = 0;
+    }
+
+    Evidence evidence() {
+      int capacity = 0;
+      for (int index = 0; index < chunkCount; index++) {
+        capacity = Math.addExact(capacity, chunkValues[index].count);
+      }
+      final long[] keys = new long[capacity];
+      final long[] source = runKeys.keys;
+      final Roaring64Bitmap unverifiedKeys = new Roaring64Bitmap();
+      int position = 0;
+      for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        final long chunkBase = chunkBases[chunkIndex];
+        final Chunk chunk = chunkValues[chunkIndex];
+        if (chunk.count == 0) {
+          continue;
+        }
+        final PostingMask unverified = Objects.requireNonNull(chunk.unverified);
+        final long[] selected = chunk.selected;
+        if (selected != null) {
+          for (int word = 0; word < WORDS; word++) {
+            long bits = selected[word];
+            final long prefix = chunkBase | ((long) word << 6);
+            while (bits != 0) {
+              keys[position++] = prefix | Long.numberOfTrailingZeros(bits);
+              bits &= bits - 1;
+            }
+            if (!unverified.isEmpty()) {
+              long unchecked = selected[word] & unverified.word(word);
+              while (unchecked != 0) {
+                unverifiedKeys.addLong(prefix | Long.numberOfTrailingZeros(unchecked));
+                unchecked &= unchecked - 1;
+              }
+            }
+          }
+          continue;
+        }
+        final Run first = Objects.requireNonNull(chunk.first);
+        final int start = position;
+        if (first.next == null) {
+          final int count = first.limit - first.position;
+          System.arraycopy(source, first.position, keys, position, count);
+          position += count;
+        } else {
+          final int groups = mergeRuns(chunk);
+          for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
+            final int group = Integer.numberOfTrailingZeros(remaining);
+            for (long words = wordGroups[group]; words != 0; words &= words - 1) {
+              final int word = (group << 6) | Long.numberOfTrailingZeros(words);
+              long bits = scratch[word];
+              final long prefix = chunkBase | ((long) word << 6);
+              while (bits != 0) {
+                keys[position++] = prefix | Long.numberOfTrailingZeros(bits);
+                bits &= bits - 1;
+              }
+            }
+          }
+          clearWordGroups(groups);
+        }
+        if (!unverified.isEmpty()) {
+          for (int index = start; index < position; index++) {
+            markUnverified(keys[index], unverified, unverifiedKeys);
+          }
+        }
+      }
+      return new Evidence(position == keys.length
+          ? keys
+          : Arrays.copyOf(keys, position), unverifiedKeys);
+    }
+
+    private int mergeRuns(final Chunk chunk) {
+      int groups = 0;
+      for (Run run = chunk.first; run != null; run = run.next) {
+        groups = mergeRunWords(run, runKeys.keys, wordGroups, groups);
+      }
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
+        for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
+          Diagnostics.CANDIDATE_WORDS_VISITED.add(Long.bitCount(wordGroups[Integer.numberOfTrailingZeros(remaining)]));
+        }
+      }
+      return groups;
+    }
+
+    private void emitWords(final long base, final int groups) {
+      for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
+        final int group = Integer.numberOfTrailingZeros(remaining);
+        for (long words = wordGroups[group]; words != 0; words &= words - 1) {
+          final int word = (group << 6) | Long.numberOfTrailingZeros(words);
+          runKeys.appendWord(base | ((long) word << 6), scratch[word]);
         }
       }
     }
-    return new Evidence(count == sorted.length
-        ? sorted
-        : Arrays.copyOf(sorted, count), unverified);
-  }
 
-  static LongOpenHashSet closedCandidates(final JsonDBItem document, final Instant instant, final int indexId) {
-    final IntervalDomain domain = new IntervalDomain();
-    final var tree =
-        ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(), indexId, domain);
-    final LongOpenHashSet closed = new LongOpenHashSet();
-    tree.stab(domain.point(instant), closed::add);
-    return closed;
-  }
-
-  static long[] candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
-      final boolean strictEnd, final int indexId, final Evidence evidence, final LongOpenHashSet closed) {
-    final IntervalDomain domain = new IntervalDomain();
-    final long point = domain.point(instant);
-    final boolean exactPoint = domain.isExact(instant);
-    final LongOpenHashSet candidates = exactPoint && strictEnd
-        ? new LongOpenHashSet()
-        : closed;
-    if (exactPoint && (strictStart || strictEnd)) {
-      final var tree =
-          ValidTimeIntervalIndexFactory.createReaderTree(document.getTrx().getStorageEngineReader(), indexId, domain);
-      if (strictEnd) {
-        tree.stabHalfOpen(point, candidates::add);
-      }
-      if (strictStart) {
-        tree.startingAt(point, key -> {
-          if (!evidence.unverified().contains(key)) {
-            candidates.remove(key);
-          }
-        });
-      }
-      if (strictEnd && !evidence.unverified().isEmpty()) {
-        final var keys = closed.iterator();
-        while (keys.hasNext()) {
-          final long key = keys.nextLong();
-          if (evidence.unverified().contains(key)) {
-            candidates.add(key);
-          }
+    private void clearWordGroups(final int groups) {
+      for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
+        final int group = Integer.numberOfTrailingZeros(remaining);
+        for (long words = wordGroups[group]; words != 0; words &= words - 1) {
+          scratch[(group << 6) | Long.numberOfTrailingZeros(words)] = 0;
         }
+        wordGroups[group] = 0;
       }
     }
-    final long[] sorted = candidates.toLongArray();
-    Arrays.sort(sorted);
-    return matchingMembers(sorted, evidence.members());
+
+    private int mergeRunWords(final Run run, final long[] source, final long[] wordGroups, int groups) {
+      int position = run.position;
+      while (position < run.limit) {
+        final long key = source[position++];
+        final int word = (int) ((key & 0xFFFFL) >>> 6);
+        long bits = 1L << key;
+        while (position < run.limit) {
+          final long next = source[position];
+          if ((int) ((next & 0xFFFFL) >>> 6) != word) {
+            break;
+          }
+          bits |= 1L << next;
+          position++;
+        }
+        final long previous = scratch[word];
+        if (previous == 0) {
+          final int group = word >>> 6;
+          wordGroups[group] |= 1L << word;
+          groups |= 1 << group;
+        }
+        scratch[word] = previous | bits;
+      }
+      return groups;
+    }
   }
 
-  private static long[] matchingMembers(final long[] sorted, final long[] members) {
-    int memberIndex = 0;
-    int matchCount = 0;
-    for (final long key : sorted) {
-      while (memberIndex < members.length && members[memberIndex] < key) {
-        memberIndex++;
-      }
-      if (memberIndex < members.length && members[memberIndex] == key) {
-        sorted[matchCount++] = key;
-      }
+  private static void markUnverified(final long key, final PostingMask unverified, final Roaring64Bitmap keys) {
+    if (Diagnostics.SCAN_DIAGNOSTICS) {
+      Diagnostics.CANDIDATE_WORDS_VISITED.increment();
     }
-    return matchCount == sorted.length
-        ? sorted
-        : Arrays.copyOf(sorted, matchCount);
+    if ((unverified.word((int) ((key & 0xFFFFL) >>> 6)) & (1L << key)) != 0) {
+      keys.addLong(key);
+    }
   }
 
   private static @Nullable IndexDef findValidTimeIndex(final JsonDBItem document) {

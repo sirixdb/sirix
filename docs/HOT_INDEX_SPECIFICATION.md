@@ -914,7 +914,8 @@ because the lookup-cache key does not include the mode (`hot/AbstractHOTIndexRea
    warning) a non-ascending array; `cache.put(key, nodeKeys, generation)` (`:342-388`).
 
 The index root reference is resolved from the revision root's container page and memoized only for
-readers without an intent log (`:537-590`).
+readers without an intent log (`:537-590`). Committed container-page reuse follows the
+[revision-scoped index-metadata contract](formal-verification.md#revision-scoped-index-metadata).
 
 #### 4.2.3 `HOTLookupCache`
 

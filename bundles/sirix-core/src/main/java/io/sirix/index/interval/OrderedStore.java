@@ -38,6 +38,12 @@ public interface OrderedStore {
    */
   void scan(long forkNode, long endpointLo, long endpointHi, LongConsumer out);
 
+  /** Scan compressed postings, flagging ties at an exclusive end before expansion. */
+  default void scanChunks(long forkNode, long endpointLo, long endpointHi, long exclusiveEnd,
+      PostingChunkConsumer out) {
+    throw new UnsupportedOperationException("This store does not expose posting chunks");
+  }
+
   /** Stream registrations whose fork lies in the inclusive range, regardless of endpoint. */
   void scanForks(long forkLo, long forkHi, LongConsumer out);
 

@@ -120,6 +120,46 @@ public final class HotOrderedStore implements OrderedStore {
     scan(from, to, out);
   }
 
+  @Override
+  public void scanChunks(final long forkNode, final long endpointLo, final long endpointHi, final long exclusiveEnd,
+      final PostingChunkConsumer out) {
+    requireNonNull(out);
+    if (reader == null || endpointLo > endpointHi) {
+      return;
+    }
+    walkChunks(new ValidTimeKey(store, forkNode, endpointLo), new ValidTimeKey(store, forkNode, endpointHi),
+        exclusiveEnd, out);
+  }
+
+  private void walkChunks(final ValidTimeKey lower, final ValidTimeKey upper, final long exclusiveEnd,
+      final PostingChunkConsumer out) {
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    final var root = r.getRootReference();
+    if (root == null) {
+      return;
+    }
+    final byte[] from = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    final byte[] to = new byte[from.length];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(lower, 0, from, 0);
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(upper, -1, to, 0);
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+      while (chunks.hasNext()) {
+        final NodeReferences refs = chunks.next(false);
+        if (refs == null) {
+          continue;
+        }
+        if (SCAN_DIAGNOSTICS) {
+          if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
+            INTERVAL_REFS_EMITTED.add(refs.cardinality());
+          } else {
+            POSTING_REFS_EMITTED.add(refs.cardinality());
+          }
+        }
+        out.accept(chunks.chunkBase(), refs, exclusiveEnd >= 0 && chunks.endpoint() == exclusiveEnd);
+      }
+    }
+  }
+
   public @Nullable NodeReferences chunk(final long forkNode, final long endpoint, final long ref) {
     if (ref < 0 || (ref >>> 48) != 0) {
       throw new IllegalArgumentException("Reference exceeds the HOT chunk domain: " + ref);
@@ -128,18 +168,35 @@ public final class HotOrderedStore implements OrderedStore {
     if (SCAN_DIAGNOSTICS) {
       POSTING_LOOKUPS.increment();
     }
+    return readChunk(forkNode, endpoint, ref);
+  }
+
+  private @Nullable NodeReferences readChunk(final long forkNode, final long endpoint, final long ref) {
+    final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
+    final byte[] key = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
+    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(new ValidTimeKey(store, forkNode, endpoint),
+        (int) (ref >>> 16), key, 0);
     final var root = r.getRootReference();
     if (root == null) {
       return null;
     }
-    final byte[] key = new byte[ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES];
-    ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(new ValidTimeKey(store, forkNode, endpoint),
-        (int) (ref >>> 16), key, 0);
     try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, key, key)) {
       return chunks.hasNext()
           ? chunks.next(true)
           : null;
     }
+  }
+
+  /** The same chunk lookup as {@link #chunk}, with a revision-cached immutable mask result. */
+  public PostingMask chunkMask(final long forkNode, final long endpoint, final long ref) {
+    if (ref < 0 || (ref >>> 48) != 0) {
+      throw new IllegalArgumentException("Reference exceeds the HOT chunk domain: " + ref);
+    }
+    if (SCAN_DIAGNOSTICS) {
+      POSTING_LOOKUPS.increment();
+    }
+    return ValidTimeReadCache.mask(requireNonNull(reader), store, forkNode, endpoint, ref & ~0xFFFFL,
+        () -> readChunk(forkNode, endpoint, ref));
   }
 
   public long cardinality(final long forkNode, final long endpoint) {
@@ -177,8 +234,8 @@ public final class HotOrderedStore implements OrderedStore {
           return true;
         }
       }
+      return false;
     }
-    return false;
   }
 
   private long cardinality(final long forkNode, final long endpoint, final boolean stopAtFirst) {
@@ -206,8 +263,8 @@ public final class HotOrderedStore implements OrderedStore {
           break;
         }
       }
+      return count;
     }
-    return count;
   }
 
   /** Reads one bounded chunk at a time, including its chronological deltas and side payload. */
@@ -241,6 +298,11 @@ public final class HotOrderedStore implements OrderedStore {
 
     private long chunkBase() {
       return chunkBase;
+    }
+
+    /** The endpoint of the logical key whose chunk {@link #next} returned last. */
+    private long endpoint() {
+      return ValidTimeKeySerializer.getSignFlippedLong(composite, 1 + Long.BYTES);
     }
 
     private @Nullable NodeReferences next(final boolean countPostingChunk) {

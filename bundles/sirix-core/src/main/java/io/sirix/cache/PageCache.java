@@ -5,7 +5,6 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import io.sirix.page.HOTLeafPage;
-import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -17,11 +16,22 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiFunction;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
+
+  private static final boolean SCAN_DIAGNOSTICS = Boolean.getBoolean("sirix.validTime.scanDiag");
+
+  private static final class Diagnostics {
+    private static final LongAdder INDEX_ROOT_LOADS = new LongAdder();
+  }
+
+  public static long indexRootLoads() {
+    return Diagnostics.INDEX_ROOT_LOADS.sum();
+  }
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
@@ -111,7 +121,9 @@ public final class PageCache implements Cache<PageReference, Page> {
   @Override
   public void putIfAbsent(PageReference key, Page value) {
     assert !(value instanceof KeyValueLeafPage) || !value.isClosed();
-    cache.asMap().putIfAbsent(key, value);
+    if (isCacheablePageType(key, value)) {
+      cache.asMap().putIfAbsent(key, value);
+    }
   }
 
   @Override
@@ -137,7 +149,10 @@ public final class PageCache implements Cache<PageReference, Page> {
       }
       final Page page = mappingFunction.apply(k, v);
       computed[0] = page;
-      return isCacheablePageType(page)
+      if (SCAN_DIAGNOSTICS && isIndexRootPage(page)) {
+        Diagnostics.INDEX_ROOT_LOADS.increment();
+      }
+      return isCacheablePageType(k, page)
           ? page
           : null;
     });
@@ -147,12 +162,11 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * The revision root and its index-root children are per-revision mutable metadata that must not be
-   * shared via this cache — ONE policy consulted by both {@link #put} and the compute path of
-   * {@link #get(PageReference, BiFunction)}.
+   * Index roots are admitted only under detached revision-scoped keys. Writer-backed loads use
+   * ordinary keys and stay private. All admission routes consult this same policy.
    */
-  private static boolean isCacheablePageType(final Page page) {
-    return page != null && !(page instanceof RevisionRootPage) && !isIndexRootPage(page);
+  private static boolean isCacheablePageType(final PageReference key, final Page page) {
+    return page != null && !(page instanceof RevisionRootPage) && (!isIndexRootPage(page) || key.isRevisionCacheKey());
   }
 
   /**
@@ -211,7 +225,7 @@ public final class PageCache implements Cache<PageReference, Page> {
           "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
 
-    if (isCacheablePageType(value)) {
+    if (isCacheablePageType(key, value)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
       cache.put(key, value);
     }
@@ -219,7 +233,7 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    cache.putAll(map);
+    map.forEach(this::put);
   }
 
   @Override

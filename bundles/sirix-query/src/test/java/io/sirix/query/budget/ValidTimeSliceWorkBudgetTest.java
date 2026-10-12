@@ -71,7 +71,7 @@ import static org.mockito.Mockito.withSettings;
 final class ValidTimeSliceWorkBudgetTest {
   private static final WorkCapture INDEX_WORK =
       WorkCapture.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, EngineWorkCounters.VALID_TIME_POSTING_REFS,
-          EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_POSTING_CHUNKS);
+          EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS);
 
   /** Both accessors observe the same unit: one timestamp field value read. */
   private static void assertTimestampReads(final JsonNodeReadOnlyTrx cursor, final long minimum, final long maximum) {
@@ -222,8 +222,8 @@ final class ValidTimeSliceWorkBudgetTest {
         final WorkReport work = INDEX_WORK.run(() -> assertEquals(2,
             ((Numeric) new Query(observedChain, "count(for $x in " + source + predicate + ")").evaluate(
                 observedContext)).intValue()));
-        work.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 4,
-            "an exact outer cohort must retain the closed and half-open index stabs")
+        work.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 2,
+            "an exact outer cohort must use one chunk-wise half-open stab")
             .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
                 "cohort exactness must not enumerate membership or unrelated verification references")
             .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2, 7,
@@ -455,7 +455,7 @@ final class ValidTimeSliceWorkBudgetTest {
             ((Numeric) new Query(observedChain, "count(" + closed + ")").evaluate(observedContext)).intValue()));
         cold.assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 1, "cold admission must use the interval index")
             .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "cold validation must not enumerate references")
-            .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 7,
+            .assertAtLeast(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 7,
                 "first admission must validate multiple compressed cohort chunks");
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
@@ -488,7 +488,7 @@ final class ValidTimeSliceWorkBudgetTest {
                       "warm admission must not enumerate references")
                   .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
                       "only candidate membership and verification may be probed")
-                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+                  .assertExactly(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 2,
                       "warm admission must not decode cohort chunks again");
               assertTimestampReads(cursor, 0, 0);
               verify(cursor, times(request == 0
@@ -499,8 +499,8 @@ final class ValidTimeSliceWorkBudgetTest {
                   : 1)).getFirstChildKey();
               System.out.printf(
                   "valid-time admission rows=%d first=%s mode=%d demand=%d coldChunks=%d warmChunks=%d intervalRefs=%d postingRefs=%d probes=%d objectReads=%d timestampReads=0%n",
-                  count, matchFirst, mode, demand, cold.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS),
-                  warm.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS),
+                  count, matchFirst, mode, demand, cold.of(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS),
+                  warm.of(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS),
                   warm.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
                   warm.of(EngineWorkCounters.VALID_TIME_POSTING_REFS),
                   warm.of(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS), request == 0
@@ -514,7 +514,7 @@ final class ValidTimeSliceWorkBudgetTest {
                   .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_REFS, count,
                       "explicit enumeration must observe the whole cohort");
         INDEX_WORK.run(() -> assertEquals(count, membership.cardinality(document.getNodeKey(), 0)))
-                  .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+                  .assertAtLeast(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 2,
                       "explicit cardinality must decode multiple posting chunks");
         realCursor.moveTo(matchKey);
         clearInvocations(cursor);
@@ -720,7 +720,7 @@ final class ValidTimeSliceWorkBudgetTest {
             "selective demands must never enumerate unrelated posting references")
         .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2, 6,
             "only the three candidates' membership and verification chunks may be probed")
-        .assertBetween(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 1, 6,
+        .assertBetween(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 1, 6,
             "only the three candidates' compressed posting chunks may be read");
     assertTimestampReads(cursor, 0, 0);
     if (demand == 0) {
@@ -734,7 +734,7 @@ final class ValidTimeSliceWorkBudgetTest {
         "valid-time selective records=%d first=%s mode=%d demand=%d intervalRefs=%d postingRefs=%d postingLookups=%d postingChunks=%d objectReads=%d timestampReads=0%n",
         count, first, mode, demand, work.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
         work.of(EngineWorkCounters.VALID_TIME_POSTING_REFS), work.of(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS),
-        work.of(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS), demand == 0
+        work.of(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS), demand == 0
             ? 0
             : 1);
   }
@@ -910,7 +910,7 @@ final class ValidTimeSliceWorkBudgetTest {
         .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS, "an empty closed stab must not expand posting evidence")
         .assertZero(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS,
             "an empty closed stab must not probe posting evidence")
-        .assertZero(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, "an empty closed stab must not read posting chunks");
+        .assertZero(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, "an empty closed stab must not read posting chunks");
     System.out.printf("valid-time empty stab records=%d point=%s mode=%d route=%s intervalRefs=%d postingRefs=%d%n",
         count, point, mode, route, work.of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS),
         work.of(EngineWorkCounters.VALID_TIME_POSTING_REFS));
@@ -923,7 +923,7 @@ final class ValidTimeSliceWorkBudgetTest {
             "posting checks must not enumerate membership or verification references")
         .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
             "nonempty candidates must probe both membership and verification postings")
-        .assertAtLeast(EngineWorkCounters.VALID_TIME_POSTING_CHUNKS, 2,
+        .assertAtLeast(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 2,
             "inexact candidates must read both compressed posting chunks");
   }
 

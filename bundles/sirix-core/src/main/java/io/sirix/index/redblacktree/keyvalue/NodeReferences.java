@@ -341,6 +341,18 @@ public final class NodeReferences implements References {
         : ((Roaring64Bitmap) current).toArray();
   }
 
+  /**
+   * The compact sorted run backing this instance, or {@code null} once a bitmap exists. A read-only
+   * view: the array is the instance's own storage and callers must never mutate it. Hot consumers
+   * that know the keys fit a chunk use it to iterate without a per-key callback.
+   */
+  public long @Nullable [] sortedKeysOrNull() {
+    final Object current = refs;
+    return current instanceof long[] keys
+        ? keys
+        : null;
+  }
+
   /** Visit every referenced node key in ascending order, without materializing a bitmap. */
   public void forEachNodeKey(final LongConsumer consumer) {
     final Object current = refs;

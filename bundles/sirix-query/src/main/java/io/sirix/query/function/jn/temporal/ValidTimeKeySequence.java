@@ -14,8 +14,7 @@ import io.sirix.index.interval.IntervalDomain;
 import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex.Evidence;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBObject;
-import it.unimi.dsi.fastutil.longs.LongArrays;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import org.jspecify.annotations.Nullable;
 
@@ -54,7 +53,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
     final ValidTimeKeySequence sequence =
         new ValidTimeKeySequence(document, instant, config, false, false, null, indexId);
     sequence.candidates = keys;
-    sequence.evidence = new Evidence(keys, new LongOpenHashSet(0));
+    sequence.evidence = new Evidence(keys, new Roaring64Bitmap());
     return sequence;
   }
 
@@ -68,14 +67,8 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   private long[] candidates() {
     if (candidates == null) {
-      final var closed = ValidTimeIntervalIndex.closedCandidates(document, instant, indexId);
-      if (closed.isEmpty()) {
-        candidates = LongArrays.EMPTY_ARRAY;
-        return candidates;
-      }
-      evidence = ValidTimeIntervalIndex.readEvidence(document, indexId, closed);
-      candidates =
-          ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId, evidence, closed);
+      evidence = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId);
+      candidates = evidence.members();
     }
     return candidates;
   }
