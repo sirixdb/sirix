@@ -17,6 +17,7 @@ import io.sirix.query.bench.bitemporal.BitemporalSchema.Event;
 import io.sirix.query.bench.bitemporal.BitemporalSchema.Tier;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -163,12 +164,18 @@ public final class BitemporalSirixLoadMain {
   }
 
   private static void createBusinessResource(final Database<JsonResourceSession> database, final String name) {
-    database.createResource(ResourceConfiguration.newBuilder(name)
-                                                 .validTimePaths("vf", "vt")
-                                                 .storeDiffs(false)
-                                                 .customCommitTimestamps(true)
-                                                 .buildPathSummary(true)
-                                                 .build());
+    final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(name)
+                                                                       .validTimePaths("vf", "vt")
+                                                                       .storeDiffs(false)
+                                                                       .customCommitTimestamps(true)
+                                                                       .buildPathSummary(true);
+    // What a commit writes for a touched page, and what reading it back costs, is decided by the
+    // versioning algorithm, so commit-latency campaigns run the same load under each of them.
+    final String versioning = System.getProperty("sirix.bitemporal.versioning");
+    if (versioning != null) {
+      builder.versioningApproach(VersioningType.valueOf(versioning));
+    }
+    database.createResource(builder.build());
   }
 
   static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
