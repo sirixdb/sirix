@@ -231,6 +231,10 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
           return null;
         }
+        mappings.putIfAbsent(mapping.sourceRevision(), mapping);
+        while (mappings.size() > 64) {
+          mappings.pollFirstEntry();
+        }
         return derived.createStorageEngineReader(mapping.indexRevision());
       } catch (final RuntimeException unavailable) {
         LOGGER.warn("Derived revision unavailable for {} at {}", source.getResourcePath(),

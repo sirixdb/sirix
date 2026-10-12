@@ -130,6 +130,15 @@ public interface StorageEngineReader extends AutoCloseable {
    */
   StorageEngineReader getTransactionView();
 
+  /**
+   * Borrow the exact derived snapshot for this immutable source view, or {@code null} while it is
+   * unavailable. The source reader owns and closes the returned reader; callers must not close it.
+   * Missing snapshots are retried so a reader opened during maintainer lag can use later catch-up.
+   */
+  default @Nullable StorageEngineReader getDerivedIndexReader() {
+    return null;
+  }
+
   /** A scope whose close restores the caller's previously pinned record page. */
   interface RecordPageGuard extends AutoCloseable {
     @Override

@@ -7,6 +7,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
+import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -224,6 +225,7 @@ final class BitemporalTemporalAggregateTimestampTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      DerivedIndexTestSupport.await(store.lookup("bt").getDatabase());
       for (int revision = 1; revision <= 3; revision++) {
         final String text = "for $c in jn:doc('bt','contracts'," + revision + ")[] "
             + "where xs:dateTime($c.vf) le xs:dateTime('2024-06-15T00:00:00Z') "
@@ -246,6 +248,7 @@ final class BitemporalTemporalAggregateTimestampTest {
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      DerivedIndexTestSupport.await(store.lookup("bt").getDatabase());
       for (final int index : new int[] {6, 7, 8, 11}) {
         final String text = BitemporalQueries.all().get(index - 1).text();
         final String expected = run(oracle, context, text);

@@ -100,7 +100,8 @@ public final class TemporalAggregateRoute {
     if (!DerivedIndexMaintainer.enabled(reader.getResourceSession().getResourceConfig())) {
       return serveSnapshot(reader, reader, indexes, array, point, request);
     }
-    try (StorageEngineReader derived = document.getResourceSession().openDerivedIndexReader(reader)) {
+    try {
+      final StorageEngineReader derived = reader.getDerivedIndexReader();
       return derived == null
           ? null
           : serveSnapshot(reader, derived, indexes, array, point, request);

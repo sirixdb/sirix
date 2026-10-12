@@ -107,10 +107,12 @@ the same source revision. Signed intermediate parts retain negative counts and f
 complete checkpoints and query results require nonnegative counts.
 
 Prefix-4 mappings bind source revisions to derived revisions and to a durable 128-bit source log
-identity. Queries validate that identity and open the mapped derived snapshot. A cold query can
-read the durable mapping before the daemon has initialized its memory cache. If no exact mapping
-exists, maintenance is poisoned, or the derived snapshot cannot be opened, the route declines to
-the existing exact masked/scan route. It never serves a stale summary. Query-time log-tail catch-up
+identity. Queries validate that identity and borrow the mapped derived snapshot for the lifetime
+of their immutable source reader, which closes it. Missing snapshots are retried after catch-up.
+A cold query can read the durable mapping before the daemon has initialized its bounded memory
+cache. Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
+exists, maintenance is poisoned, or the derived snapshot cannot be opened. A previously validated
+snapshot remains exact for its immutable source view. The route never serves a stale summary. Query-time log-tail catch-up
 and a query-language await function are not part of this change.
 
 A revert uses the slab's represented base revision, reverts the derived writer to that source

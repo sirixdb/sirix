@@ -353,6 +353,42 @@ final class DerivedIndexMaintainerTest {
   }
 
   @Test
+  void sourceReaderOwnsAnExactSnapshotAndRetriesLag() {
+    final var path = directory.toPath().resolve("reader-lifetime");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        final StorageEngineReader snapshot;
+        try (StorageEngineReader source = session.createStorageEngineReader(1)) {
+          assertNull(source.getDerivedIndexReader());
+          resource.drain();
+          snapshot = source.getDerivedIndexReader();
+          assertNotNull(snapshot);
+          assertSame(snapshot, source.getDerivedIndexReader());
+          assertNull(writer.getStorageEngineWriter().getDerivedIndexReader(), "Writers never borrow committed indexes");
+          setNumber(writer, 20);
+          writer.commit();
+          resource.drain();
+          assertSame(snapshot, source.getDerivedIndexReader(), "New publications do not replace an immutable view");
+          assertFalse(snapshot.isClosed());
+        }
+        assertTrue(snapshot.isClosed(), "Closing the source releases its derived snapshot");
+        assertSum(session, 2, 20);
+      }
+    }
+  }
+
+  @Test
   void pipelinedPublicationsAndUserSessionsShareOneMaintainer() {
     final var path = directory.toPath().resolve("pipelined");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
@@ -468,8 +504,8 @@ final class DerivedIndexMaintainerTest {
   }
 
   private static void assertSum(final JsonResourceSession session, final int revision, final long sum) {
-    try (StorageEngineReader source = session.createStorageEngineReader(revision);
-        StorageEngineReader derived = session.openDerivedIndexReader(source)) {
+    try (StorageEngineReader source = session.createStorageEngineReader(revision)) {
+      final StorageEngineReader derived = source.getDerivedIndexReader();
       assertNotNull(derived, "Expected an exact derived snapshot for revision " + revision);
       final IndexDef definition =
           session.getRtxIndexController(revision).getIndexes().getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
