@@ -140,7 +140,8 @@ and the surviving historical revision, under all four versioning types. Run it a
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
-                           --tests 'io.sirix.index.projection.*WorkBudgetTest'
+                           --tests 'io.sirix.index.projection.*WorkBudgetTest' \
+                           --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest

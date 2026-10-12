@@ -4,13 +4,21 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.index.IndexType;
+import com.sun.management.ThreadMXBean;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
+
+import java.lang.management.ManagementFactory;
+import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Pins the memory the flush lane uses to stop re-encoding a leaf whose pre-serialization mints
@@ -30,6 +38,76 @@ final class RefusedOverflowLeafTableTest {
 
   /** A bound wide enough that these tests never trip expiry unless they mean to. */
   private static final int WIDE_BOUND = 1_000_000;
+  private static volatile @Nullable RefusedOverflowLeafTable allocationSink;
+
+  @Test
+  void unusedWriterTablesAllocateOnlyMetadataWithAnExecutableAllocationWitness() {
+    final var platformBean = ManagementFactory.getThreadMXBean();
+    assumeTrue(platformBean instanceof ThreadMXBean);
+    final var bean = (ThreadMXBean) platformBean;
+    assumeTrue(bean.isThreadAllocatedMemorySupported());
+    if (!bean.isThreadAllocatedMemoryEnabled()) {
+      bean.setThreadAllocatedMemoryEnabled(true);
+    }
+    // Initialize class/atomic access machinery outside the accounting interval.
+    for (int iteration = 0; iteration < 32; iteration++) {
+      final var table = new RefusedOverflowLeafTable(SMALL_SLOTS);
+      table.note(7, IndexType.NAME.getID(), 0);
+      assertTrue(table.shouldSkip(7, IndexType.NAME.getID(), 0, WIDE_BOUND));
+      allocationSink = table;
+    }
+    final long thread = Thread.currentThread().threadId();
+    final long start = bean.getThreadAllocatedBytes(thread);
+    boolean empty = true;
+    for (int iteration = 0; iteration < 8; iteration++) {
+      final var table = new RefusedOverflowLeafTable(RefusedOverflowLeafTable.DEFAULT_SLOTS);
+      empty &= !table.shouldSkip(7, IndexType.NAME.getID(), 0, WIDE_BOUND);
+      allocationSink = table;
+    }
+    final long unusedBytes = bean.getThreadAllocatedBytes(thread) - start;
+    assertTrue(empty);
+    assertTrue(unusedBytes < 8192, "Eight unused writer tables must not allocate eight MiB: " + unusedBytes);
+
+    final RefusedOverflowLeafTable table = Objects.requireNonNull(allocationSink);
+    final long firstRefusal = bean.getThreadAllocatedBytes(thread);
+    table.note(7, IndexType.NAME.getID(), 0);
+    final long backingBytes = bean.getThreadAllocatedBytes(thread) - firstRefusal;
+    assertTrue(backingBytes >= RefusedOverflowLeafTable.DEFAULT_SLOTS * 2L * Long.BYTES,
+        "Positive allocation witness must allocate the real backing table");
+    assertTrue(table.shouldSkip(7, IndexType.NAME.getID(), 0, WIDE_BOUND));
+  }
+
+  @Test
+  void simultaneousFirstRefusalsPublishOneTableWithoutLosingEitherIdentity() throws Exception {
+    try (final var workers = Executors.newFixedThreadPool(2)) {
+      for (int iteration = 0; iteration < 16; iteration++) {
+        final var table = new RefusedOverflowLeafTable(RefusedOverflowLeafTable.DEFAULT_SLOTS);
+        final int name = IndexType.NAME.getID();
+        assertNotEquals(table.indexForTesting(7, name), table.indexForTesting(8, name));
+        final var ready = new CountDownLatch(2);
+        final var start = new CountDownLatch(1);
+        final var first = workers.submit(() -> {
+          ready.countDown();
+          start.await();
+          table.note(7, name, 0);
+          return null;
+        });
+        final var second = workers.submit(() -> {
+          ready.countDown();
+          start.await();
+          table.note(8, name, 0);
+          return null;
+        });
+        ready.await();
+        start.countDown();
+        first.get();
+        second.get();
+        assertTrue(table.shouldSkip(7, name, 0, WIDE_BOUND));
+        assertTrue(table.shouldSkip(8, name, 0, WIDE_BOUND));
+        assertFalse(table.shouldSkip(9, name, 0, WIDE_BOUND));
+      }
+    }
+  }
 
   @Test
   void anIdentityIsRememberedAndNeighbouringIdentitiesAreNot() {
@@ -106,6 +184,7 @@ final class RefusedOverflowLeafTableTest {
     assertThrows(IllegalArgumentException.class, () -> new RefusedOverflowLeafTable(0));
     assertThrows(IllegalArgumentException.class, () -> new RefusedOverflowLeafTable(-1));
     assertThrows(IllegalArgumentException.class, () -> new RefusedOverflowLeafTable(24));
+    assertThrows(IllegalArgumentException.class, () -> new RefusedOverflowLeafTable(1 << 30));
   }
 
   @Test

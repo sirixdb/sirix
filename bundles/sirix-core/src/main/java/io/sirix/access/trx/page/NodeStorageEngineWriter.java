@@ -5970,7 +5970,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /**
    * Leaf identities whose pre-serialization minted overflow carriers only the recursive final commit
-   * can key. Always allocated so the kill switch can be flipped inside one JVM.
+   * can key. The wrapper is always present so the kill switch can be flipped inside one JVM; its
+   * backing array is allocated only on the first refusal, never for ordinary small commits.
    */
   private final RefusedOverflowLeafTable refusedOverflowLeaves =
       new RefusedOverflowLeafTable(RefusedOverflowLeafTable.DEFAULT_SLOTS);
