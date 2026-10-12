@@ -32,6 +32,7 @@ import io.sirix.node.json.ArrayNode;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
@@ -101,7 +102,9 @@ public final class TemporalAggregateRoute {
       return serveSnapshot(reader, reader, indexes, array, point, request);
     }
     try {
-      final StorageEngineReader derived = reader.getDerivedIndexReader();
+      final StorageEngineReader derived = ctx instanceof SirixQueryContext context
+          ? context.borrowDerivedAggregateReader(reader)
+          : reader.getDerivedIndexReader();
       return derived == null
           ? null
           : serveSnapshot(reader, derived, indexes, array, point, request);

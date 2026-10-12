@@ -10,6 +10,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
@@ -49,11 +50,44 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 @Isolated
 final class TemporalAggregateCommitRegressionTest {
   @TempDir
   File directory;
+
+  @Test
+  void querySnapshotLifetimeRejectsTruncatedAndReissuedPublication() throws Exception {
+    final long first = build(true);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        JsonResourceSession session = store.lookup("lineage").getDatabase().beginResourceSession("records")) {
+      assertEquals("{\"g\":1,\"count\":1,\"sum\":2}", run(chain, context, grouped(2)));
+      final StorageEngineReader original;
+      try (StorageEngineReader source = session.createStorageEngineReader(2)) {
+        original = context.borrowDerivedAggregateReader(source);
+      }
+      try (StorageEngineReader freshSource = session.createStorageEngineReader(2)) {
+        assertSame(original, context.borrowDerivedAggregateReader(freshSource));
+      }
+      assertFalse(original.isClosed(), "The context owns the snapshot beyond an individual source cursor");
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.truncateTo(1);
+      }
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        number(writer, first, 99);
+        writer.commit("replacement", Instant.parse("2024-02-15T00:00:00Z"));
+      }
+      assertEquals("{\"g\":1,\"count\":1,\"sum\":99}", run(chain, context, grouped(2)));
+      assertTrue(original.isClosed(), "The old publication was evicted");
+      try (StorageEngineReader source = session.createStorageEngineReader(2)) {
+        assertNotSame(original, context.borrowDerivedAggregateReader(source));
+      }
+    }
+  }
 
   static Stream<Arguments> ddlCases() {
     return Stream.of("create", "aggregate-one", "aggregate-all", "projection-one", "projection-all")

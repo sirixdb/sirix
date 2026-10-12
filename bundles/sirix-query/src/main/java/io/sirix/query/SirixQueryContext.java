@@ -29,6 +29,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.IdentityHashMap;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -117,6 +118,12 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   private @Nullable Time time;
 
   private final IdentityHashMap<JsonResourceSession, RevisionMemo> revisionMemos = new IdentityHashMap<>();
+  private final DerivedAggregateReaders aggregateReaders = new DerivedAggregateReaders();
+
+  /** Borrow an exact snapshot for one aggregate evaluation; the context owns its lifetime. */
+  public @Nullable StorageEngineReader borrowDerivedAggregateReader(final StorageEngineReader source) {
+    return aggregateReaders.borrow(requireNonNull(source));
+  }
 
   private static final class RevisionMemo {
     private final Object2IntOpenHashMap<Instant> revisions = new Object2IntOpenHashMap<>();
@@ -537,7 +544,14 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     synchronized (this) {
       revisionMemos.clear();
     }
-    xmlStore.close();
-    jsonStore.close();
+    try {
+      aggregateReaders.close();
+    } finally {
+      try {
+        xmlStore.close();
+      } finally {
+        jsonStore.close();
+      }
+    }
   }
 }

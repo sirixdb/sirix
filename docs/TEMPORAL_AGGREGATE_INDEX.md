@@ -108,7 +108,12 @@ complete checkpoints and query results require nonnegative counts.
 
 Prefix-4 mappings bind source revisions to derived revisions and to a durable 128-bit source log
 identity. Queries validate that identity and borrow the mapped derived snapshot for the lifetime
-of their immutable source reader, which closes it. Missing snapshots are retried after catch-up.
+of their immutable source reader, which closes it. A query context instead owns up to 64 snapshots
+on its coordinating thread, reusing them across source cursors from the same published history.
+The cache keys include the captured source UberPage's object identity, so commit, truncate and
+reopen require fresh identity validation even when revision numbers and timestamps are reused.
+Eviction and context close release these readers; other threads keep source-owned snapshots.
+Missing snapshots are retried after catch-up.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
 exists, maintenance is poisoned, or the derived snapshot cannot be opened. A previously validated
