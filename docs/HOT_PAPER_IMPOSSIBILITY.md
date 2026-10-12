@@ -1421,15 +1421,10 @@ contribution of Class 3 over Class 1 is therefore not a cheaper resolution but a
 *precise pre-commit detector* (the routing simulation) that fires the rebuild exactly
 when — and only when — an incremental add would strand.
 
-**Cost.** The strand check is `O(affected subtree)` per `betaIsDiscBit` firing, and the
-discharge is `O(one leaf + path)` on-path, `O(two leaves + path)` for the I8-safe off-path
-migration, and `O(insertDepth subtree)` for the I8-unsafe / wrap residual — all within the
-scoped-rebuild regime Theorem 4 already bounds, so Class 3 adds no asymptotic penalty.
-Strands are simulation-gated and rare (≈185 across
-the full stress suite), and a 200k-entry branch-heavy insert sustains ~200k entries/s
-(no `O(N²)` blow-up). The guard is applied at all seven partial-adding branch sites
-(site-1/-2 combo adds, full-node fold, leaf-pair, new-partition-root, full-boundary
-wrap, multi-affected `addEntry`).
+**Current cost contract.** The scoped-rebuild mechanisms above describe the earlier writer.
+For the current bounded stranding guards and their decline/refusal rules, see
+[HOT Index Specification §4.5.6](HOT_INDEX_SPECIFICATION.md#456-budgets-and-fail-closed-behaviour);
+the structural discharge is specified in §4.5.4 of that document.
 
 #### §8.4a-2 The firstKey-order complement — the I8-at-scale firing
 

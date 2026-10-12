@@ -46,7 +46,7 @@ final class ProjectionSortedDirectory {
   /**
    * Header admitting bounded directory nodes and indirect separators.
    */
-  private static final byte VERSION = 5;
+  private static final byte VERSION = 6;
   private static final int FIXED_HEADER_BYTES = 39;
   /**
    * Sentinel for a view whose layout does not aggregate its last key field.
@@ -90,8 +90,11 @@ final class ProjectionSortedDirectory {
         throw new IllegalStateException("invalid sorted projection directory header");
       }
       final int fixedBytes = FIXED_HEADER_BYTES;
-      if (header[4] != VERSION || header.length < fixedBytes + 1
-          || header.length != fixedBytes + (header[fixedBytes - 1] & 0xFF)) {
+      if (header[4] != VERSION) {
+        throw new IllegalStateException("obsolete or unsupported sorted projection directory version "
+            + (header[4] & 0xFF) + "; rebuild projection index");
+      }
+      if (header.length < fixedBytes + 1 || header.length != fixedBytes + (header[fixedBytes - 1] & 0xFF)) {
         throw new IllegalStateException("invalid sorted projection directory header");
       }
       final int height = header[5] & 0xFF;
