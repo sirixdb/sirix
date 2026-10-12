@@ -257,8 +257,9 @@ The maintenance sequence is:
 4. Normal fences select physical slot 1.
 5. Exact `KEYS` lookup finds 5 at local row 1 and proves which row group is
    affected.
-6. The extractor re-reads the selected `price` column for every live record in
-   that one row group, at most 1024 rows.
+6. The extractor re-reads the selected `price` column for record 5 only. Every
+   other live record of that one row group, at most 1023 rows, takes its cell
+   from the decoded prior `price` segment ([§5.1](#51-unchanged-rows-are-carried-over)).
 7. The writer re-encodes only that row group's price column segment and the
    small descriptor needed to reference and describe it.
 8. It refreshes slot-0 metadata with the committing revision. Depending on the
@@ -284,12 +285,57 @@ validation. A group with an open row tail first folds as specified in
 and `KEYS`. That fold may rewrite sibling segments while preserving their
 logical values and order exceptions.
 
-Re-extracting the whole selected column is intentional in V0. Zone maps and
-aggregate provenance flags describe the complete segment, and V0 has no
-per-row witness saying which cell established a sticky flag. Rebuilding one
-bounded column segment can therefore remove stale min/max or provenance while
-leaving every other column and `KEYS` untouched. The smallest persistent write
-unit is a semantic column segment, not an individual cell.
+The smallest persistent write unit is a semantic column segment, not an
+individual cell: zone maps and aggregate provenance flags describe the complete
+segment, so the selected segment is rebuilt as a whole and can drop a stale
+min/max or provenance flag while every other column and `KEYS` stay untouched.
+
+### 5.1 Unchanged rows are carried over
+
+Rebuilding a segment does not mean reading its records again. The dirty set
+names every record whose row may differ from its persisted row. It is the same
+set that decides which row groups are touched at all, so an unchanged row of a
+touched group is as trustworthy as any row of an untouched group. Maintenance
+therefore reads from the document only the records the commit changed, and
+carries every other row over from what it has already decoded: the prior column
+slices on the value-update path, the whole prior row group when membership
+changes ([§6.3](#63-local-rewrite), [§7](#7-middle-insert-why-an-exception-locator-is-needed)).
+Document reads follow the number of changed records, not the size of the row
+group.
+
+A carried row must be appended exactly as an extraction would append it, and
+extraction decides three things per cell that V0 persists only as one sticky
+flag per column: the cell was unrepresentable, it was truncated from a
+non-integral number (for a double column: converted lossily), or it lacked
+`Double` / canonical UTC provenance. The flags pin every present cell down in
+these cases:
+
+| Column | Persisted flags | What they prove for every present cell |
+|---|---|---|
+| any kind | none raised | no witness |
+| timestamp | lexical flag, UTC provenance kept | a `Z`-suffixed UTC value; it raises the lexical flag and keeps provenance |
+| timestamp | provenance missing, no lexical flag | a canonical value without the suffix; it lacks provenance and raises nothing else |
+| double | provenance missing, nothing else | nothing about one cell, but the flag is the only thing an impure cell changes |
+
+In the last case the cells are carried by value and the rebuilt segment's flag
+is settled separately: if no extracted row raised it, carried cells are read
+from the document, that column only, until one proves impure. Where no cell is
+`Double`-typed, which is what the shredder produces, the first probe ends the
+search. Where the last impure cell was just rewritten, every carried cell is
+probed and the flag clears, as it must.
+
+Any other combination names no row: a present cell may hold a real value or a
+stored default, and a one-cell replacement may have removed the only witness.
+Such a row group reads every row from the document, as does a commit that
+replays an identity removal through its own reader. An absent cell is always
+written as the extractor leaves it, never as a decoder happened to fill it.
+
+`ProjectionIndexChangeListener.lastMaintenanceLocality()` reports the rows
+extracted, the rows carried over and the cells probed.
+`ProjectionUnchangedRowCarryOverTest` runs one edit script against this
+behaviour and against the reference that reads every row
+(`sirix.projection.maintenance.reextractUnchangedRows`), under every
+`VersioningType`, and requires byte-identical row groups after each commit.
 
 Revision 1 continues to expose the old price value 20. Revision 2 exposes 25.
 The projection writer does not rewrite unchanged semantic segment slots;
@@ -342,7 +388,9 @@ exception:       0   0
 ```
 
 Because row ordinals shifted, the row group's `KEYS` and every projected column
-segment in that row group are semantically rebuilt. Content-addressed write
+segment in that row group are semantically rebuilt. The surviving rows are
+carried over from the decoded row group, not read from the document again
+([§5.1](#51-unchanged-rows-are-carried-over)). Content-addressed write
 suppression may carry an accidentally byte-identical segment forward, but the
 membership path must treat all columns as affected. Other row groups are not
 rebuilt. The writer compares the old and new normal endpoints and updates the
@@ -751,6 +799,10 @@ The intended persistent work, in phone-readable form, is:
   destinations, plus changed local locator/fence/link and slot-0/derived units.
 - **Unrelated change:** no projection bytes.
 
+Document reads are bounded the same way: a touched row group reads the records
+the commit changed and carries the rest over
+([§5.1](#51-unchanged-rows-are-carried-over)).
+
 Small metadata is chunked so changing one link or fence does not rewrite a
 global fence array. Distant row groups and unrelated projection definitions
 remain untouched.
@@ -946,6 +998,8 @@ The implementation is incomplete until focused tests cover:
 
 - Value-only updates obey the bitmap and segment-write contract in
   [§5](#5-value-update-price-20-becomes-25).
+- A commit that changes one row of a row group reads one record from the
+  document (`ProjectionUnchangedRowWorkBudgetTest`).
 - Ordinary normal LDJSON ingestion creates no locator entries.
 - Local insert/delete/move leaves distant row-group hashes unchanged.
 - Allocation profile confirms no per-row allocation regression.
@@ -961,7 +1015,8 @@ The principal implementation responsibilities are:
 - `ProjectionIndexRowExtractor`: exact extraction of selected columns from a
   source record root.
 - `ProjectionIndexRowGroupPage`: primitive in-memory rows and lazy exception
-  metadata.
+  metadata; `rowWitnessRule`, `RowCopier` and `appendSingleColumnRowFromSlice`
+  carry unchanged rows over.
 - `ProjectionIndexColumnSegmentCodec`: V0 KEYS marker/bitmap encoding and
   independent column-segment encoding.
 - `ProjectionRecordLocator`: sparse negative-key locator codec and access.

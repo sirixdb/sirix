@@ -1443,6 +1443,480 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
+   * Row-witness rule: every present cell of the column was extracted without a witness.
+   *
+   * @see #rowWitnessRule
+   */
+  static final byte ROW_WITNESS_NONE = 0;
+
+  /** Row-witness rule: the column's flags name no row; its cells must be read from the document. */
+  static final byte ROW_WITNESS_UNKNOWN = 1;
+
+  /**
+   * Row-witness rule of a TIMESTAMP column whose every present cell is a canonical Z-suffixed UTC
+   * value: each one raised the lexical unrepresentable flag and none lacked UTC provenance.
+   */
+  static final byte ROW_WITNESS_LEXICAL_UTC = 2;
+
+  /**
+   * Row-witness rule of a TIMESTAMP column without a Z-suffixed cell: every present cell lacked UTC
+   * provenance and none raised the lexical flag.
+   */
+  static final byte ROW_WITNESS_NO_UTC = 3;
+
+  /**
+   * Row-witness rule of a NUMERIC_DOUBLE column that saw a cell without {@code Double} source typing.
+   * The flag names no row, but it is the only thing such a cell changes: the cells can be carried
+   * over by value, and the page they are carried into needs one of them proven impure before it may
+   * raise the flag itself (see {@link #markImpureSource}).
+   */
+  static final byte ROW_WITNESS_SOME_IMPURE = 4;
+
+  /**
+   * How the row-local witnesses of a column can be recovered from its persisted sticky flags.
+   *
+   * <p>
+   * A row group keeps "a present cell was unrepresentable", "a cell was truncated from a non-integral
+   * number" (for a double column: converted lossily) and "a cell lacked double / canonical UTC
+   * provenance" as one flag per column, not per row. Extraction decides each of them per cell, so a
+   * row can be carried into another page without consulting the document only when the flags pin
+   * every present cell down:
+   * </p>
+   * <ul>
+   * <li>no flag raised: no cell raised one;</li>
+   * <li>a TIMESTAMP column: a present cell either is a Z-suffixed UTC value from year 1 on, which
+   * raises the lexical flag and keeps UTC provenance, or is a canonical value without the suffix,
+   * which does the opposite, or is poisoned or a Z-suffixed year-zero value, which does both. A
+   * column that raised exactly one of the two flags therefore raised it for every present cell;</li>
+   * <li>a NUMERIC_DOUBLE column whose only raised flag is the missing purity bit: see
+   * {@link #ROW_WITNESS_SOME_IMPURE};</li>
+   * <li>anything else names no row ({@link #ROW_WITNESS_UNKNOWN}): a present cell may be a real value
+   * or a stored default. A {@link #COLUMN_KIND_STRING_SEGMENT} column is reported the same way,
+   * because no append path takes its segment-scoped ids.</li>
+   * </ul>
+   *
+   * @param kind the column kind
+   * @param flags the column's persisted flag byte
+   * @return one of the {@code ROW_WITNESS_*} rules
+   */
+  static byte rowWitnessRule(final byte kind, final byte flags) {
+    final boolean unrepresentable = (flags & COLUMN_FLAG_UNREPRESENTABLE) != 0;
+    final boolean nonIntegral = (flags & COLUMN_FLAG_NON_INTEGRAL) != 0;
+    final boolean pure = (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) != 0;
+    if (nonIntegral) {
+      return ROW_WITNESS_UNKNOWN;
+    }
+    return switch (kind) {
+      case COLUMN_KIND_TIMESTAMP -> unrepresentable
+          ? pure
+              ? ROW_WITNESS_LEXICAL_UTC
+              : ROW_WITNESS_UNKNOWN
+          : pure
+              ? ROW_WITNESS_NONE
+              : ROW_WITNESS_NO_UTC;
+      case COLUMN_KIND_NUMERIC_DOUBLE -> unrepresentable
+          ? ROW_WITNESS_UNKNOWN
+          : pure
+              ? ROW_WITNESS_NONE
+              : ROW_WITNESS_SOME_IMPURE;
+      // Segment-scoped ids are minted by a load-time build only; no append path takes them, so no
+      // row of such a column is carried over either.
+      case COLUMN_KIND_STRING_SEGMENT -> ROW_WITNESS_UNKNOWN;
+      default -> unrepresentable
+          ? ROW_WITNESS_UNKNOWN
+          : ROW_WITNESS_NONE;
+    };
+  }
+
+  /** {@link #rowWitnessRule} of {@code column} as this page holds it. */
+  byte rowWitnessRule(final int column) {
+    checkColumn(column);
+    return rowWitnessRule(columnKinds[column], columnFlagsByte(column));
+  }
+
+  /** Whether no column's rule is {@link #ROW_WITNESS_UNKNOWN}, so whole rows can be carried over. */
+  boolean rowWitnessesKnown() {
+    for (int c = 0; c < columnCount; c++) {
+      if (rowWitnessRule(columnKinds[c], columnFlagsByte(c)) == ROW_WITNESS_UNKNOWN) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Record that a cell carried into {@code column} by value lacked {@code Double} source typing: the
+   * caller proved it by extracting that cell. Only meaningful for {@link #ROW_WITNESS_SOME_IMPURE}.
+   */
+  void markImpureSource(final int column) {
+    checkColumn(column);
+    if (columnKinds[column] != COLUMN_KIND_NUMERIC_DOUBLE) {
+      throw new IllegalArgumentException("column " + column + " is not a double column");
+    }
+    columnSawImpureSource[column] = true;
+  }
+
+  /**
+   * Open a copier that appends rows of {@code source} to this page.
+   *
+   * @param source a decoded page of the same column kinds for which {@link #rowWitnessesKnown} holds
+   * @return the copier; valid while neither page is reset
+   */
+  RowCopier copierFrom(final ProjectionIndexRowGroupPage source) {
+    return new RowCopier(Objects.requireNonNull(source, "source"));
+  }
+
+  /**
+   * Appends rows of an already decoded page to this page with exactly the effect of re-extracting
+   * them from the document and appending the extraction.
+   *
+   * <p>
+   * Maintenance uses it for the rows of a touched row group that the commit did not change: the
+   * persisted row is the row, so reading its record again costs a document walk per row for nothing.
+   * The equivalence rests on three facts. The source page pins every row-local witness down
+   * ({@link #rowWitnessesKnown}), so each cell is appended with the witnesses an extraction would
+   * report. A cell that is absent is written as the extractor leaves it (zero, {@code false}, the
+   * empty string, no set element) rather than as the source page happens to hold it, so the copy
+   * never depends on a decoder's filler value. And dictionary ids are assigned in first-appearance
+   * order as by an extraction, because every string goes through the same interning entry point; the
+   * per-column memo only skips the lookup of a source entry this copier has already interned.
+   * </p>
+   *
+   * <p>
+   * One witness is not decided here: a {@link #ROW_WITNESS_SOME_IMPURE} column. Its cells are carried
+   * over without raising this page's flag, and {@link #awaitsImpureWitness} reports the column until
+   * an extracted row or {@link #markImpureSource} raises it.
+   * </p>
+   */
+  final class RowCopier {
+    private final ProjectionIndexRowGroupPage source;
+    private final byte[] rules;
+    /** Per column: whether a present cell of a {@link #ROW_WITNESS_SOME_IMPURE} column was carried. */
+    private final boolean[] carriedSomeImpure;
+    /** Per column: destination dictionary id of each source dictionary entry, {@code -1} if unset. */
+    private final int[] @Nullable [] dictionaryIdMemo;
+    /** Per STRING_SET column: start of each source row's run in the flat element lane. */
+    private final int[] @Nullable [] setRowStarts;
+    private byte[] scratch = EMPTY_UTF8;
+
+    private RowCopier(final ProjectionIndexRowGroupPage source) {
+      if (source == ProjectionIndexRowGroupPage.this) {
+        throw new IllegalArgumentException("a projection page cannot copy rows from itself");
+      }
+      if (source.columnCount != columnCount) {
+        throw new IllegalArgumentException(
+            "projection row copy needs " + columnCount + " columns, source has " + source.columnCount);
+      }
+      rules = new byte[columnCount];
+      for (int c = 0; c < columnCount; c++) {
+        if (source.columnKinds[c] != columnKinds[c]) {
+          throw new IllegalArgumentException("projection row copy column " + c + " kind " + source.columnKinds[c]
+              + " does not match destination kind " + columnKinds[c]);
+        }
+        rules[c] = source.rowWitnessRule(c);
+        if (rules[c] == ROW_WITNESS_UNKNOWN) {
+          throw new IllegalArgumentException("projection row copy source column " + c + " names no witness row");
+        }
+      }
+      this.source = source;
+      carriedSomeImpure = new boolean[columnCount];
+      dictionaryIdMemo = new int[columnCount][];
+      setRowStarts = new int[columnCount][];
+    }
+
+    /**
+     * Whether {@code column} is a double column of which this copier carried a present cell that may
+     * have lacked {@code Double} source typing, while the page has not seen an impure cell yet.
+     */
+    boolean awaitsImpureWitness(final int column) {
+      return carriedSomeImpure[column] && !columnSawImpureSource[column];
+    }
+
+    /**
+     * Append source row {@code sourceRow}.
+     *
+     * @return {@code false} when this page is full or cannot take {@code orderLabel}; nothing was
+     *         appended in that case
+     */
+    boolean append(final int sourceRow, final boolean orderException, final byte[] orderLabel) {
+      if (sourceRow < 0 || sourceRow >= source.rowCount) {
+        throw new IndexOutOfBoundsException("projection source row out of range: " + sourceRow);
+      }
+      if (rowCount == MAX_ROWS || !canAppendOrderLabel(orderLabel)) {
+        return false;
+      }
+      ensureCapacity();
+      final int row = rowCount;
+      final long recordKey = source.recordKeys[sourceRow];
+      recordKeys[row] = recordKey;
+      appendSyntheticOrderLabel(row);
+      if (orderException) {
+        if (orderExceptionBits == null) {
+          orderExceptionBits = new long[(MAX_ROWS + 63) >>> 6];
+        }
+        hasOrderExceptions = true;
+        orderExceptionBits[row >>> 6] |= 1L << (row & 63);
+      } else {
+        if (recordKey < firstRecordKey) {
+          firstRecordKey = recordKey;
+        }
+        if (recordKey > lastRecordKey) {
+          lastRecordKey = recordKey;
+        }
+      }
+      final long sourceBit = 1L << (sourceRow & 63);
+      final int sourceWord = sourceRow >>> 6;
+      for (int c = 0; c < columnCount; c++) {
+        final boolean present = (source.presenceCols[c][sourceWord] & sourceBit) != 0;
+        boolean clean = present;
+        if (present) {
+          presenceCols[c][row >>> 6] |= 1L << (row & 63);
+          switch (rules[c]) {
+            case ROW_WITNESS_LEXICAL_UTC -> {
+              columnUnrepresentable[c] = true;
+              clean = false;
+            }
+            case ROW_WITNESS_NO_UTC -> columnSawImpureSource[c] = true;
+            case ROW_WITNESS_SOME_IMPURE -> carriedSomeImpure[c] = true;
+            default -> {
+              // ROW_WITNESS_NONE: the cell raised nothing.
+            }
+          }
+        }
+        switch (columnKinds[c]) {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
+              COLUMN_KIND_STRING_GLOBAL -> {
+            // A Z-suffixed timestamp keeps its epoch beside the lexical flag. A STRING_GLOBAL cell
+            // holds its resolved resource-wide id; an absent one holds id 0.
+            final long v = present
+                ? source.numericCols[c][sourceRow]
+                : 0L;
+            numericCols[c][row] = v;
+            if (clean) {
+              if (v < columnMin[c]) {
+                columnMin[c] = v;
+              }
+              if (v > columnMax[c]) {
+                columnMax[c] = v;
+              }
+            }
+          }
+          case COLUMN_KIND_BOOLEAN -> {
+            if (present && (source.booleanCols[c][sourceWord] & sourceBit) != 0) {
+              booleanCols[c][row >>> 6] |= 1L << (row & 63);
+            }
+          }
+          case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = present
+              ? internSourceEntry(c, source.stringDictIdCols[c][sourceRow], true)
+              : appendBorrowedStringUtf8(c, EMPTY_UTF8, 0);
+          case COLUMN_KIND_STRING_SET -> {
+            final int n = present
+                ? source.stringSetCountCols[c][sourceRow]
+                : 0;
+            if (n > 0) {
+              final int start = setRowStart(c, sourceRow);
+              final int[] sourceIds = source.stringSetIdCols[c];
+              for (int i = 0; i < n; i++) {
+                appendSetElement(c, internSourceEntry(c, sourceIds[start + i], false));
+              }
+            }
+            stringSetCountCols[c][row] = n;
+          }
+          default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+        }
+      }
+      rowCount++;
+      replaceLastOrderLabel(orderLabel);
+      return true;
+    }
+
+    private int setRowStart(final int c, final int sourceRow) {
+      int[] starts = setRowStarts[c];
+      if (starts == null) {
+        final int[] counts = source.stringSetCountCols[c];
+        starts = new int[source.rowCount];
+        int at = 0;
+        for (int r = 0; r < starts.length; r++) {
+          starts[r] = at;
+          at += counts[r];
+        }
+        setRowStarts[c] = starts;
+      }
+      return starts[sourceRow];
+    }
+
+    private int internSourceEntry(final int c, final int sourceId, final boolean scalar) {
+      int[] memo = dictionaryIdMemo[c];
+      if (memo == null) {
+        memo = new int[Math.max(1, source.stringDictionarySize(c))];
+        Arrays.fill(memo, -1);
+        dictionaryIdMemo[c] = memo;
+      }
+      final int known = memo[sourceId];
+      if (known >= 0) {
+        return known;
+      }
+      final byte[] backing = source.stringDictionaryEntryBacking(c, sourceId);
+      final int offset = source.stringDictionaryEntryOffset(c, sourceId);
+      final int length = source.stringDictionaryEntryLength(c, sourceId);
+      final int id;
+      if (scalar) {
+        id = appendBorrowedStringUtf8(c, borrowed(backing, offset, length), length);
+      } else {
+        // A set column's dictionary retains the array it is handed, exactly as on the extraction
+        // path, so it gets its own copy.
+        id = appendStringUtf8(c, Arrays.copyOfRange(backing, offset, offset + length), length, false);
+      }
+      memo[sourceId] = id;
+      return id;
+    }
+
+    /** The interning entry points read from offset zero; a slab entry is staged in a reused scratch. */
+    private byte[] borrowed(final byte[] backing, final int offset, final int length) {
+      if (offset == 0) {
+        return backing;
+      }
+      if (scratch.length < length) {
+        scratch = new byte[Math.max(length, scratch.length << 1)];
+      }
+      System.arraycopy(backing, offset, scratch, 0, length);
+      return scratch;
+    }
+  }
+
+  /**
+   * {@link #rowWitnessRule} of a decoded column slice, or {@link #ROW_WITNESS_UNKNOWN} when
+   * {@link #appendSingleColumnRowFromSlice} cannot take the kind's cells from a slice by value.
+   */
+  static byte sliceRowWitnessRule(final byte kind, final ProjectionColumnStore.ColumnSlice slice) {
+    final boolean byValue = switch (kind) {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
+          COLUMN_KIND_STRING_GLOBAL ->
+        slice.numericValues() != null;
+      case COLUMN_KIND_BOOLEAN -> slice.boolWords() != null;
+      case COLUMN_KIND_STRING_DICT ->
+        slice.hasStringDictIds() && slice.dictBytes() != null && slice.dictOffsets() != null;
+      case COLUMN_KIND_STRING_SET -> slice.setCounts() != null && slice.hasStringDictIds() && slice.dictBytes() != null
+          && slice.dictOffsets() != null;
+      default -> false;
+    };
+    return byValue
+        ? rowWitnessRule(kind, slice.flags())
+        : ROW_WITNESS_UNKNOWN;
+  }
+
+  /**
+   * Append row {@code sliceRow} of a decoded column slice to this one-column page, with exactly the
+   * effect of extracting that cell from the document and appending it through
+   * {@link #appendExtractedSingleColumnRow}. An absent cell is written as the extractor leaves it,
+   * not as the slice holds it. A {@link #ROW_WITNESS_SOME_IMPURE} cell is carried without raising the
+   * purity flag; the caller settles it through {@link #markImpureSource}.
+   *
+   * @param rule the slice's {@link #sliceRowWitnessRule}, not {@link #ROW_WITNESS_UNKNOWN}
+   * @param sliceDictIds the slice's dense dictionary ids for a STRING_DICT column (one per row) or a
+   *        STRING_SET column (the flat element lane), else {@code null}
+   * @param dictionaryIdMemo for those two kinds, one slot per slice dictionary entry holding the id
+   *        this page gave it, {@code -1} while unset; else {@code null}
+   * @param sliceSetRowStart for a STRING_SET column, where the row's run starts in the element lane
+   * @return {@code false} when this page is full
+   */
+  boolean appendSingleColumnRowFromSlice(final long recordKey, final ProjectionColumnStore.ColumnSlice slice,
+      final int sliceRow, final byte rule, final int @Nullable [] sliceDictIds, final int @Nullable [] dictionaryIdMemo,
+      final int sliceSetRowStart) {
+    if (columnCount != 1) {
+      throw new IllegalStateException("single-column append requires a one-column page, got " + columnCount);
+    }
+    if (rule == ROW_WITNESS_UNKNOWN) {
+      throw new IllegalArgumentException("a slice that names no witness row cannot be carried over");
+    }
+    if (sliceRow < 0 || sliceRow >= slice.rowCount()) {
+      throw new IndexOutOfBoundsException("projection slice row out of range: " + sliceRow);
+    }
+    if (rowCount == MAX_ROWS) {
+      return false;
+    }
+    final byte kind = columnKinds[0];
+    ensureCapacity();
+    final int row = rowCount;
+    recordKeys[row] = recordKey;
+    appendSyntheticOrderLabel(row);
+    firstRecordKey = Math.min(firstRecordKey, recordKey);
+    lastRecordKey = Math.max(lastRecordKey, recordKey);
+    final boolean present = (slice.presenceWords()[sliceRow >>> 6] & (1L << (sliceRow & 63))) != 0;
+    boolean clean = present;
+    if (present) {
+      presenceCols[0][row >>> 6] |= 1L << (row & 63);
+      if (rule == ROW_WITNESS_LEXICAL_UTC) {
+        columnUnrepresentable[0] = true;
+        clean = false;
+      } else if (rule == ROW_WITNESS_NO_UTC) {
+        columnSawImpureSource[0] = true;
+      }
+    }
+    switch (kind) {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
+          COLUMN_KIND_STRING_GLOBAL -> {
+        // A Z-suffixed timestamp keeps its epoch beside the lexical flag. A STRING_GLOBAL cell holds
+        // its resolved resource-wide id; an absent one holds id 0.
+        final long v = present
+            ? Objects.requireNonNull(slice.numericValues())[sliceRow]
+            : 0L;
+        numericCols[0][row] = v;
+        if (clean) {
+          columnMin[0] = Math.min(columnMin[0], v);
+          columnMax[0] = Math.max(columnMax[0], v);
+        }
+      }
+      case COLUMN_KIND_BOOLEAN -> {
+        if (present && (Objects.requireNonNull(slice.boolWords())[sliceRow >>> 6] & (1L << (sliceRow & 63))) != 0) {
+          booleanCols[0][row >>> 6] |= 1L << (row & 63);
+        }
+      }
+      case COLUMN_KIND_STRING_DICT -> stringDictIdCols[0][row] = present
+          ? internSliceEntry(slice, Objects.requireNonNull(sliceDictIds)[sliceRow],
+              Objects.requireNonNull(dictionaryIdMemo), true)
+          : appendBorrowedStringUtf8(0, EMPTY_UTF8, 0);
+      case COLUMN_KIND_STRING_SET -> {
+        final int n = present
+            ? Objects.requireNonNull(slice.setCounts())[sliceRow]
+            : 0;
+        for (int i = 0; i < n; i++) {
+          appendSetElement(0, internSliceEntry(slice, Objects.requireNonNull(sliceDictIds)[sliceSetRowStart + i],
+              Objects.requireNonNull(dictionaryIdMemo), false));
+        }
+        stringSetCountCols[0][row] = n;
+      }
+      default -> throw new IllegalStateException("column kind " + kind + " cannot be copied from a slice");
+    }
+    rowCount++;
+    return true;
+  }
+
+  /**
+   * Intern one dictionary entry of a decoded slice into this one-column page's dictionary. A miss
+   * happens once per distinct value of the row group, so staging the entry costs one small array per
+   * dictionary entry: the interning entry points read from offset zero, and a set column's dictionary
+   * retains the array it is handed, exactly as on the extraction path.
+   */
+  private int internSliceEntry(final ProjectionColumnStore.ColumnSlice slice, final int sliceId, final int[] memo,
+      final boolean scalar) {
+    final int known = memo[sliceId];
+    if (known >= 0) {
+      return known;
+    }
+    final int offset = slice.dictOffset(sliceId);
+    final int length = slice.dictLength(sliceId);
+    final byte[] bytes = Objects.requireNonNull(slice.dictBytes());
+    final int id = scalar
+        ? appendBorrowedStringUtf8(0, offset == 0
+            ? bytes
+            : Arrays.copyOfRange(bytes, offset, offset + length), length)
+        : appendStringUtf8(0, Arrays.copyOfRange(bytes, offset, offset + length), length, false);
+    memo[sliceId] = id;
+    return id;
+  }
+
+  /**
    * Whether the first {@code rows} rows of this page and of {@code other} hold the same content:
    * record keys, order labels and exceptions, presence, and every column value (strings by content,
    * not by dictionary id). Page-level sticky flags are not compared. The open-row-group tail path

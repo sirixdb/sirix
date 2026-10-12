@@ -42,6 +42,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -80,9 +81,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <b>Apply phase (once, at pre-commit via
  * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty records are located by the
  * sparse exception locator first and the normal-backbone fences second. Inserts and deletes rebuild
- * their touched leaves; an update that does not change row membership re-extracts only its dirty
- * column across the leaf and patches only that column's immutable segments. Extraction semantics
- * are shared 1:1 with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable node keys
+ * their touched leaves; an update that does not change row membership rebuilds only its dirty
+ * column's immutable segments. Either way only the dirty records are read from the document: a
+ * touched leaf's other rows are carried over from the decoded leaf, unless its sticky column flags
+ * name no row (see {@link ProjectionIndexRowGroupPage#rowWitnessRule}). Extraction semantics are
+ * shared 1:1 with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable node keys
  * identify rows but never determine their order: persisted projection-owned order labels place new
  * and moved rows, while sparse record locators route order exceptions. Slot 0's metadata is
  * rewritten with the updated leaf count and the committing revision as the new build revision,
@@ -111,6 +114,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexChangeListener.class));
 
   private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+
+  /**
+   * Whether a touched row group re-reads the rows its commit did not change from the document instead
+   * of carrying them over from the decoded row group. Carrying them over is the maintenance contract
+   * (work proportional to the changed records); re-reading every row is the reference behaviour the
+   * equivalence tests compare it against, and a diagnostic fallback.
+   */
+  private static volatile boolean reextractUnchangedRows =
+      Boolean.getBoolean("sirix.projection.maintenance.reextractUnchangedRows");
+
+  /** Test hook: select the reference behaviour of {@link #reextractUnchangedRows}. */
+  static void reextractUnchangedRows(final boolean reextract) {
+    reextractUnchangedRows = reextract;
+  }
+
   private static final AtomicLong HFT_COMMITS = new AtomicLong();
   private static final AtomicLong HFT_DIRTY_RECORDS = new AtomicLong();
   private static final AtomicLong HFT_ROW_GROUPS_READ = new AtomicLong();
@@ -1982,12 +2000,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /**
    * Logical projection I/O for the most recently completed maintenance pass. Segment counts are
    * independent of cache hits: they describe which persistent units the algorithm requested, making a
-   * one-cell locality assertion deterministic across hot and cold test runs.
+   * one-cell locality assertion deterministic across hot and cold test runs. {@code rowsExtracted}
+   * counts the rows of touched row groups whose record was read from the document,
+   * {@code rowsCarriedOver} the rows taken from the decoded row group because the commit did not
+   * change them, and {@code witnessProbes} the carried double cells read from the document to decide
+   * a row group's purity flag.
    */
   public record MaintenanceLocality(int fullRowGroupsRead, int descriptorsRead, int keySegmentsRead,
       int bodySegmentsRead, int dictionarySegmentsRead, int columnSegmentsEncoded, int columnSegmentsWritten,
-      int descriptorsWritten, int rowGroupsColumnPatched, int documentNeighborNodesRead) {
-    private static final MaintenanceLocality EMPTY = new MaintenanceLocality(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+      int descriptorsWritten, int rowGroupsColumnPatched, int documentNeighborNodesRead, int rowsExtracted,
+      int rowsCarriedOver, int witnessProbes) {
+    private static final MaintenanceLocality EMPTY = new MaintenanceLocality(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
   }
 
   /** Snapshot of the latest completed pass; immutable and safe to retain. */
@@ -2006,11 +2029,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private int descriptorsWritten;
     private int rowGroupsColumnPatched;
     private int documentNeighborNodesRead;
+    private int rowsExtracted;
+    private int rowsCarriedOver;
+    private int witnessProbes;
 
     private MaintenanceLocality snapshot() {
       return new MaintenanceLocality(fullRowGroupsRead, descriptorsRead, keySegmentsRead, bodySegmentsRead,
           dictionarySegmentsRead, columnSegmentsEncoded, columnSegmentsWritten, descriptorsWritten,
-          rowGroupsColumnPatched, documentNeighborNodesRead);
+          rowGroupsColumnPatched, documentNeighborNodesRead, rowsExtracted, rowsCarriedOver, witnessProbes);
     }
   }
 
@@ -2715,6 +2741,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // (<= MAX_ROWS) output group. Column-only commits retain their zero-allocation fast path.
     @Nullable
     LongOpenHashSet rewrittenRecordKeys = null;
+    // The rows of the page being built that were carried over, and their row in that page: what
+    // settleImpureWitnesses probes. Allocated with the first row group that carries rows over.
+    @Nullable
+    LongArrayList carriedKeys = null;
+    @Nullable
+    IntArrayList carriedRows = null;
     try {
       final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(indexDef,
           identityRemovalPaths == null
@@ -2799,6 +2831,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         int tailLabelBytes = tailFirstRows != null
             ? Objects.requireNonNull(edit.oldPage).orderLabelLength()
             : 0;
+        // Carry-over: a row this commit did not change is taken from the decoded row group instead
+        // of being read from the document again. The dirty set names every record whose row may
+        // differ from its persisted row; it is the same set that decides which row groups are
+        // touched at all, so an unchanged row of a touched group is exactly as trustworthy as a row
+        // of an untouched group. A row group holds up to MAX_ROWS rows, so re-reading them cost a
+        // document walk per row however few rows changed. The decoded page's sticky column flags
+        // must pin every row-local witness down (ProjectionIndexRowGroupPage#rowWitnessRule);
+        // otherwise, and while an identity removal reads through its own reader, every row is
+        // extracted as before.
+        final ProjectionIndexRowGroupPage carrySource = edit.oldPage != null && identityRemovalReader == null
+            && !reextractUnchangedRows && edit.oldPage.rowWitnessesKnown()
+                ? edit.oldPage
+                : null;
+        if (carrySource != null && carriedKeys == null) {
+          carriedKeys = new LongArrayList(ProjectionIndexRowGroupPage.MAX_ROWS);
+          carriedRows = new IntArrayList(ProjectionIndexRowGroupPage.MAX_ROWS);
+        }
         while (from < rows) {
           final int targetGroupSize = group < plannedGroups
               ? smallerGroupSize + (group < largerGroups
@@ -2807,6 +2856,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               : Math.min(ProjectionIndexRowGroupPage.MAX_ROWS, rows - from);
           ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
           page.setGlobalDictionaries(globalDictionaries);
+          ProjectionIndexRowGroupPage.RowCopier carry = null;
+          if (carriedKeys != null) {
+            carriedKeys.clear();
+            carriedRows.clear();
+          }
           int appendedRows = 0;
           if (tailFirstRows != null) {
             from = priorRows;
@@ -2828,15 +2882,31 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               }
               break;
             }
-            if (!extractInto(extractor, extractionTrx, key)) {
-              return false;
-            }
-            if (changeCapture != null) {
-              changeCapture.after(key, extractor,
-                  extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
-            }
             final boolean orderException = edit.orderExceptions.getBoolean(from);
-            final boolean appended = extractor.appendTo(page, key, orderException, orderLabel);
+            // A tail row is always a row this commit inserted, so it is never carried over.
+            final int carriedRow = carrySource == null || (tailRows != null && from >= priorRows) || dirty.contains(key)
+                ? -1
+                : edit.persistedRowOf(key);
+            final boolean appended;
+            if (carriedRow >= 0) {
+              if (carry == null) {
+                carry = page.copierFrom(carrySource);
+              }
+              appended = carry.append(carriedRow, orderException, orderLabel);
+              carriedKeys.add(key);
+              carriedRows.add(appendedRows);
+              locality.rowsCarriedOver++;
+            } else {
+              if (!extractInto(extractor, extractionTrx, key)) {
+                return false;
+              }
+              if (changeCapture != null) {
+                changeCapture.after(key, extractor,
+                    extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
+              }
+              appended = extractor.appendTo(page, key, orderException, orderLabel);
+              locality.rowsExtracted++;
+            }
             if (!appended) {
               throw new IllegalStateException("a preflighted projection maintenance row was rejected");
             }
@@ -2854,6 +2924,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             tailFirstRows = null;
             from = 0;
             continue;
+          }
+          if (carry != null
+              && !settleImpureWitnesses(page, carry, carriedKeys, carriedRows, extractor, extractionTrx, locality)) {
+            return false;
           }
           final int physicalSlot = group == 0
               ? edit.slot
@@ -2916,7 +2990,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         final ProjectionPersistedRecordLookup.Keys cachedKeys = persistedLookup.keys(slot);
         if (!applyColumnOnlyUpdate(storage, slot, changedColumnsBySlot.get(slot), persistedKinds, globalDictionaries,
             setValueRowCounts, extractor, extractionTrx, cachedKeys, changedLeafSlots, changedColumnsByLeaf, locality,
-            encodeWorkspace, changeCapture)) {
+            encodeWorkspace, changeCapture, identityRemovalReader == null && !reextractUnchangedRows
+                ? dirty
+                : null)) {
           return false;
         }
       }
@@ -3422,6 +3498,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
      * list — N(N−1)/2 comparisons inside beforeCommit().
      */
     private @Nullable LongOpenHashSet keySet;
+    /** Lazily built row index of {@link #oldPage}; see {@link #persistedRowOf}. */
+    private @Nullable Long2IntOpenHashMap persistedRows;
 
     private LeafEdit(final int slot, final boolean priorExists, final @Nullable ProjectionIndexRowGroupPage oldPage,
         final LongArrayList recordKeys, final BooleanArrayList orderExceptions,
@@ -3435,6 +3513,27 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       this.recordKeys = recordKeys;
       this.orderExceptions = orderExceptions;
       this.orderLabels = orderLabels;
+    }
+
+    /**
+     * Row of {@code recordKey} in the decoded row group this edit started from, {@code -1} when that
+     * row group did not hold it. Built on first use: a row group that takes only extracted rows never
+     * pays for it.
+     */
+    private int persistedRowOf(final long recordKey) {
+      Long2IntOpenHashMap rows = persistedRows;
+      if (rows == null) {
+        final ProjectionIndexRowGroupPage page = Objects.requireNonNull(oldPage);
+        final int count = page.getRowCount();
+        final long[] keys = page.recordKeys();
+        rows = new Long2IntOpenHashMap(count);
+        rows.defaultReturnValue(-1);
+        for (int row = 0; row < count; row++) {
+          rows.put(keys[row], row);
+        }
+        persistedRows = rows;
+      }
+      return rows.get(recordKey);
     }
 
     private LongOpenHashSet keySet() {
@@ -3501,10 +3600,64 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
 
   /**
+   * Decide the purity flag of every double column of {@code page} whose carried-over cells may have
+   * lacked {@code Double} source typing
+   * ({@link ProjectionIndexRowGroupPage#ROW_WITNESS_SOME_IMPURE}).
+   *
+   * <p>
+   * The decoded row group says that some cell of the column was impure, not which one, and an impure
+   * cell changes nothing but the flag. So the cells are carried over by value and the flag is settled
+   * here: if no extracted row raised it, carried cells are read from the document, that column only,
+   * until one proves impure. Where no cell of a column is {@code Double}-typed the first probe ends
+   * the search; where the last impure cell was just rewritten every carried cell is probed and the
+   * flag correctly stays clear.
+   * </p>
+   *
+   * @return {@code false} when a carried record can no longer be read
+   */
+  private static boolean settleImpureWitnesses(final ProjectionIndexRowGroupPage page,
+      final ProjectionIndexRowGroupPage.RowCopier carry, final LongArrayList carriedKeys,
+      final IntArrayList carriedRows, final ProjectionIndexRowExtractor extractor, final NodeReadOnlyTrx rtx,
+      final MaintenanceLocalityAccumulator locality) {
+    long[] mask = null;
+    final int columns = page.getColumnCount();
+    for (int column = 0; column < columns; column++) {
+      if (!carry.awaitsImpureWitness(column)) {
+        continue;
+      }
+      if (mask == null) {
+        mask = new long[(columns + Long.SIZE - 1) >>> 6];
+      } else {
+        Arrays.fill(mask, 0L);
+      }
+      mask[column >>> 6] = 1L << (column & 63);
+      final long[] presence = page.presenceColumnBits(column);
+      for (int i = 0, n = carriedKeys.size(); i < n; i++) {
+        final int row = carriedRows.getInt(i);
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0) {
+          continue;
+        }
+        locality.witnessProbes++;
+        if (!extractInto(extractor, rtx, carriedKeys.getLong(i), mask)) {
+          return false;
+        }
+        if (extractor.rowPresent(column) && extractor.rowNonDoubleSource(column)) {
+          page.markImpureSource(column);
+          break;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
    * Update-only path: preserve KEYS and every untouched column segment, rebuilding only the selected
-   * columns from masked extraction. Re-extracting the selected columns across the leaf is necessary
-   * with the V0 aggregate provenance flags: a one-cell replacement may remove the only
-   * unrepresentable/non-integral/non-double-source witness, and V0 stores no per-row witness bits.
+   * columns. A row the commit changed is extracted (masked to the selected columns); a row it did not
+   * change takes its cells from the decoded prior slices, when {@code carryOverDirty} names the
+   * changed records and the sticky flags of every selected slice pin its row-local witnesses down
+   * ({@link ProjectionIndexRowGroupPage#sliceRowWitnessRule}). Flags that name no row leave no
+   * choice: a one-cell replacement may remove the only unrepresentable or non-integral witness and V0
+   * stores no per-row witness bits, so that row group re-extracts the selected columns for every row.
    */
   private static boolean applyColumnOnlyUpdate(final ProjectionIndexHOTStorage storage, final int slot,
       final long[] changedColumnWords, final byte[] persistedKinds,
@@ -3514,7 +3667,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
       final MaintenanceLocalityAccumulator locality,
       final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace,
-      final @Nullable ProjectionChangeLog changeCapture) {
+      final @Nullable ProjectionChangeLog changeCapture, final @Nullable LongOpenHashSet carryOverDirty) {
     final byte[] descriptor = cachedKeys.descriptor();
     if (descriptor == null || RowGroupDescriptor.columnCount(descriptor) != persistedKinds.length) {
       return false;
@@ -3583,7 +3736,77 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (changeCapture != null) {
       changeCapture.before(recordKeys, priorSlices);
     }
-    for (final long recordKey : recordKeys) {
+    boolean carryOver = carryOverDirty != null;
+    final byte[] witnessRules = carryOver
+        ? new byte[persistedKinds.length]
+        : null;
+    for (int column = 0; carryOver && column < persistedKinds.length; column++) {
+      if (rebuiltColumns[column] != null) {
+        witnessRules[column] =
+            ProjectionIndexRowGroupPage.sliceRowWitnessRule(persistedKinds[column], priorSlices[column]);
+        carryOver = witnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_UNKNOWN;
+      }
+    }
+    // Per selected dictionary column: the slice's dense ids, the id each slice dictionary entry got
+    // in the rebuilt column, and for a set column where each row's element run starts.
+    int[][] sliceDictIds = null;
+    int[][] dictionaryIdMemos = null;
+    int[][] sliceSetRowStarts = null;
+    if (carryOver) {
+      for (int column = 0; column < persistedKinds.length; column++) {
+        final byte kind = persistedKinds[column];
+        if (rebuiltColumns[column] == null || (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET)) {
+          continue;
+        }
+        if (sliceDictIds == null) {
+          sliceDictIds = new int[persistedKinds.length][];
+          dictionaryIdMemos = new int[persistedKinds.length][];
+          sliceSetRowStarts = new int[persistedKinds.length][];
+        }
+        final ProjectionColumnStore.ColumnSlice slice = priorSlices[column];
+        sliceDictIds[column] = slice.stringDictIds();
+        final int[] memo = new int[Math.max(1, slice.dictSize())];
+        Arrays.fill(memo, -1);
+        dictionaryIdMemos[column] = memo;
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+          final int[] counts = Objects.requireNonNull(slice.setCounts());
+          final int[] starts = new int[recordKeys.length];
+          int at = 0;
+          for (int row = 0; row < starts.length; row++) {
+            starts[row] = at;
+            at += counts[row];
+          }
+          sliceSetRowStarts[column] = starts;
+        }
+      }
+    }
+    for (int row = 0; row < recordKeys.length; row++) {
+      final long recordKey = recordKeys[row];
+      if (carryOver && !carryOverDirty.contains(recordKey)) {
+        for (int column = 0; column < persistedKinds.length; column++) {
+          final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+          if (rebuilt == null) {
+            continue;
+          }
+          final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
+          if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, witnessRules[column],
+              dictionary
+                  ? sliceDictIds[column]
+                  : null,
+              dictionary
+                  ? dictionaryIdMemos[column]
+                  : null,
+              dictionary && sliceSetRowStarts[column] != null
+                  ? sliceSetRowStarts[column][row]
+                  : 0)) {
+            return false;
+          }
+        }
+        locality.rowsCarriedOver++;
+        continue;
+      }
+      locality.rowsExtracted++;
       if (!extractInto(extractor, rtx, recordKey, changedColumnWords)) {
         return false;
       }
@@ -3595,6 +3818,39 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
         if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
           return false;
+        }
+      }
+    }
+
+    if (carryOver) {
+      // Settle the purity flag of a carried double column exactly as settleImpureWitnesses does for
+      // a rebuilt row group: probe carried cells until one proves impure.
+      long[] mask = null;
+      for (int column = 0; column < persistedKinds.length; column++) {
+        final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+        if (rebuilt == null || witnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_SOME_IMPURE
+            || !rebuilt.columnPureDoubleSource(0)) {
+          continue;
+        }
+        if (mask == null) {
+          mask = new long[(persistedKinds.length + Long.SIZE - 1) >>> 6];
+        } else {
+          Arrays.fill(mask, 0L);
+        }
+        mask[column >>> 6] = 1L << (column & 63);
+        final long[] presence = priorSlices[column].presenceWords();
+        for (int row = 0; row < recordKeys.length; row++) {
+          if ((presence[row >>> 6] & (1L << (row & 63))) == 0 || carryOverDirty.contains(recordKeys[row])) {
+            continue;
+          }
+          locality.witnessProbes++;
+          if (!extractInto(extractor, rtx, recordKeys[row], mask)) {
+            return false;
+          }
+          if (extractor.rowPresent(column) && extractor.rowNonDoubleSource(column)) {
+            rebuilt.markImpureSource(0);
+            break;
+          }
         }
       }
     }
