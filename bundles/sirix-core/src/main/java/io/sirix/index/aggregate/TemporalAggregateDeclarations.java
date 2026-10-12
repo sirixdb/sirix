@@ -5,6 +5,7 @@ import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.index.IndexDef;
+import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.Indexes;
 import io.sirix.index.IndexType;
@@ -35,7 +36,9 @@ public final class TemporalAggregateDeclarations {
       return existing;
     }
     final IndexDef projection = indexes.getIndexDef(spec.projectionId(), IndexType.PROJECTION);
-    final int id = writer.getTemporalAggregateIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
+    final int id = DerivedIndexMaintainer.enabled(writer.getResourceSession().getResourceConfig())
+        ? ChangeLogStorage.nextAggregateId(writer)
+        : writer.getTemporalAggregateIndexPage(writer.getActualRevisionRootPage()).nextUnallocatedIndex();
     final IndexDef definition = IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(), spec, id);
     controller.createIndexes(Set.of(definition), transaction);
     return definition;

@@ -12,6 +12,8 @@ import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
 import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
+import io.sirix.index.changelog.ChangeLogStorage;
+import io.sirix.index.projection.ProjectionAggregateRows;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -51,6 +53,23 @@ public final class EngineWorkCounters {
   public static final WorkCounter TEMPORAL_PART_CHUNKS_READ = WorkCounter.gated("temporal.partChunksRead",
       "one aggregate part chunk requested", TemporalAggregateStorage::partChunksRead, "-Dsirix.hot.mergeDiag=true",
       TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_HEADS_READ = WorkCounter.gated("temporal.headsRead",
+      "one group-head slot requested for replay", TemporalAggregateStorage::headsRead, "-Dsirix.hot.mergeDiag=true",
+      TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter TEMPORAL_SLOTS_WRITTEN = WorkCounter.gated("temporal.slotsWritten",
+      "one aggregate header, head, part or mapping slot written", TemporalAggregateStorage::slotsWritten,
+      "-Dsirix.hot.mergeDiag=true", TemporalAggregateStorage::workDiagnosticsEnabled);
+
+  public static final WorkCounter CHANGE_LOG_CHUNKS_READ =
+      WorkCounter.gated("changeLog.chunksRead", "one persisted slab data chunk requested", ChangeLogStorage::chunksRead,
+          "-Dsirix.changelog.workDiag=true", () -> Boolean.getBoolean("sirix.changelog.workDiag"));
+
+  public static final WorkCounter AGGREGATE_PROJECTION_ROW_GROUPS_READ =
+      WorkCounter.gated("aggregate.projectionRowGroupsRead",
+          "one projection row group requested by aggregate build or replay", ProjectionAggregateRows::rowGroupsRead,
+          "-Dsirix.changelog.workDiag=true", () -> Boolean.getBoolean("sirix.changelog.workDiag"));
 
   public static final List<WorkCounter> TEMPORAL_READS =
       List.of(TEMPORAL_GROUP_HEADS_VISITED, TEMPORAL_GROUP_HEADS_DECODED, TEMPORAL_PART_CHUNKS_READ);

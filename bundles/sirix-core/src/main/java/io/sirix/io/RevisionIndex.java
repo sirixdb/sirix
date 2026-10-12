@@ -66,8 +66,7 @@ public final class RevisionIndex {
   /**
    * Empty index singleton for databases with no revisions.
    */
-  public static final RevisionIndex EMPTY =
-      new RevisionIndex(new long[0], new long[0], new long[1], new int[1], 0, 0);
+  public static final RevisionIndex EMPTY = new RevisionIndex(new long[0], new long[0], new long[1], new int[1], 0, 0);
 
   // ===== HOT PATH DATA (accessed during every search) =====
 
@@ -104,10 +103,10 @@ public final class RevisionIndex {
   private final int size;
 
   /**
-   * Number of leading revisions covered by the Eytzinger arrays. Commits append without
-   * rebuilding the Eytzinger layout (rebuilding per commit made every commit O(size) — O(size²)
-   * cumulative); the uncovered tail {@code [eytzingerSize, size)} is searched with a plain
-   * bounded binary search until the deferred rebuild folds it in.
+   * Number of leading revisions covered by the Eytzinger arrays. Commits append without rebuilding
+   * the Eytzinger layout (rebuilding per commit made every commit O(size) — O(size²) cumulative); the
+   * uncovered tail {@code [eytzingerSize, size)} is searched with a plain bounded binary search until
+   * the deferred rebuild folds it in.
    */
   private final int eytzingerSize;
 
@@ -325,8 +324,20 @@ public final class RevisionIndex {
       return new RevisionIndex(newTimestamps, newOffsets, newEytzinger, newMapping, newSize, newSize);
     }
 
-    return new RevisionIndex(newTimestamps, newOffsets, eytzingerTimestamps, eytzingerToSorted, newSize,
-                             eytzingerSize);
+    return new RevisionIndex(newTimestamps, newOffsets, eytzingerTimestamps, eytzingerToSorted, newSize, eytzingerSize);
+  }
+
+  /** Returns a detached surviving prefix after physical truncation. */
+  public RevisionIndex truncateTo(final int revision) {
+    if (revision < 0) {
+      throw new IllegalArgumentException("Negative revision frontier");
+    }
+    if (revision >= size - 1) {
+      return this;
+    }
+    // The original arrays may still belong to in-flight readers. A future append must not
+    // overwrite the truncated tail in their snapshot.
+    return create(Arrays.copyOf(timestamps, revision + 1), Arrays.copyOf(offsets, revision + 1));
   }
 
   /**
@@ -373,25 +384,24 @@ public final class RevisionIndex {
 
   /**
    * Bulk-copy the commit timestamps (epoch millis) for the inclusive revision range
-   * {@code [fromRevision, toRevision]} into a freshly allocated array, in ascending revision
-   * order.
+   * {@code [fromRevision, toRevision]} into a freshly allocated array, in ascending revision order.
    *
    * <p>
-   * This is the allocation-light source for history listings: the timestamps are already
-   * resident in this immutable index, so the whole range is served by a single
-   * {@link System#arraycopy} with no per-revision page reads, transaction opens, or boxing.
+   * This is the allocation-light source for history listings: the timestamps are already resident in
+   * this immutable index, so the whole range is served by a single {@link System#arraycopy} with no
+   * per-revision page reads, transaction opens, or boxing.
    *
    * <p>
-   * Bounds are validated against {@link #size}, never against the backing array length — the
-   * backing arrays may carry spare append capacity past {@code size} (see
+   * Bounds are validated against {@link #size}, never against the backing array length — the backing
+   * arrays may carry spare append capacity past {@code size} (see
    * {@link #withNewRevision(long, long)}).
    *
    * @param fromRevision first revision (0-indexed, inclusive)
-   * @param toRevision   last revision (0-indexed, inclusive)
-   * @return a new array of {@code toRevision - fromRevision + 1} epoch-milli timestamps in
-   *         ascending revision order
-   * @throws IndexOutOfBoundsException if {@code fromRevision < 0}, {@code toRevision >= size},
-   *                                   or {@code fromRevision > toRevision}
+   * @param toRevision last revision (0-indexed, inclusive)
+   * @return a new array of {@code toRevision - fromRevision + 1} epoch-milli timestamps in ascending
+   *         revision order
+   * @throws IndexOutOfBoundsException if {@code fromRevision < 0}, {@code toRevision >= size}, or
+   *         {@code fromRevision > toRevision}
    */
   public long[] timestampsMillis(int fromRevision, int toRevision) {
     if (fromRevision < 0 || toRevision >= size || fromRevision > toRevision) {

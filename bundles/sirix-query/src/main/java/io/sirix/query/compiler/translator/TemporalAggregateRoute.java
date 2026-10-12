@@ -18,6 +18,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.aggregate.AggregateSummary;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
@@ -39,6 +40,8 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -50,6 +53,8 @@ import java.util.concurrent.atomic.LongAdder;
 
 /** Exact point admission before the valid-time stab and masked grouped kernel. */
 public final class TemporalAggregateRoute {
+  private static final Logger LOGGER = LoggerFactory.getLogger(TemporalAggregateRoute.class);
+
   private static final class DomainHolder {
     private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
   }
@@ -92,6 +97,23 @@ public final class TemporalAggregateRoute {
     if (!DomainHolder.DOMAIN.isExact(point.instant())) {
       return null;
     }
+    if (!DerivedIndexMaintainer.enabled(reader.getResourceSession().getResourceConfig())) {
+      return serveSnapshot(reader, reader, indexes, array, point, request);
+    }
+    try (StorageEngineReader derived = document.getResourceSession().openDerivedIndexReader(reader)) {
+      return derived == null
+          ? null
+          : serveSnapshot(reader, derived, indexes, array, point, request);
+    } catch (final RuntimeException unavailable) {
+      LOGGER.warn("Derived aggregate snapshot unavailable at source revision {}; using exact fallback",
+          reader.getRevisionNumber(), unavailable);
+      return null;
+    }
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups serveSnapshot(final StorageEngineReader reader,
+      final StorageEngineReader aggregateReader, final Indexes indexes, final ArrayNode array, final Point point,
+      final RoutedGroupRequest request) {
     final List<IndexDef> candidates = new ArrayList<>();
     for (final IndexDef definition : indexes.getIndexDefs()) {
       if (definition.isTemporalAggregateIndex()) {
@@ -116,7 +138,8 @@ public final class TemporalAggregateRoute {
       if (groups == null || lanes == null) {
         continue;
       }
-      try (TemporalAggregateStorage.Reader storage = new TemporalAggregateStorage.Reader(reader, definition.getID())) {
+      try (TemporalAggregateStorage.Reader storage =
+          new TemporalAggregateStorage.Reader(aggregateReader, definition.getID())) {
         final byte[] header = storage.get(TemporalAggregateIndexes.headerKey());
         if (header == null || TemporalAggregateIndexes.header(header).unsupportedRows() != 0) {
           continue;

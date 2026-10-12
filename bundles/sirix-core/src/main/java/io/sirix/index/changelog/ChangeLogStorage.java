@@ -16,13 +16,23 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * One revision-owned change-log tree per source projection. Values are bounded inline HOT slots.
  */
 public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> implements AutoCloseable {
   public static final int CHUNK_BYTES = 2048;
+  private static final boolean WORK_DIAGNOSTICS = Boolean.getBoolean("sirix.changelog.workDiag");
+  private static final LongAdder CHUNKS_READ = new LongAdder();
+
+  public static long chunksRead() {
+    return CHUNKS_READ.sum();
+  }
+
   private static final byte[] HEADER = {0};
+  private static final byte[] NEXT_AGGREGATE_ID = {5, -1, -1, -1, -1};
   private byte[] keyBuffer = new byte[16];
   private final HOTTrieReader reader;
   private long slotsWritten;
@@ -112,7 +122,14 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       put(slabKey(slab.revision(), chunk),
           Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES, Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
     }
-    put(slabKey(slab.revision(), -1), ByteBuffer.allocate(8).putInt(bytes.length).putInt(chunks).array());
+    final ThreadLocalRandom random = ThreadLocalRandom.current();
+    put(slabKey(slab.revision(), -1),
+        ByteBuffer.allocate(24)
+                  .putInt(bytes.length)
+                  .putInt(chunks)
+                  .putLong(random.nextLong())
+                  .putLong(random.nextLong())
+                  .array());
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
   }
 
@@ -188,7 +205,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
     try (HOTTrieReader reader = new HOTTrieReader(storage)) {
       final byte[] header = Objects.requireNonNull(read(reader, root, slabKey(revision, -1)), "Missing change slab");
-      if (header.length != 8) {
+      if (header.length != 24) {
         throw new IllegalStateException("Invalid change-log chunk directory");
       }
       final ByteBuffer buffer = ByteBuffer.wrap(header);
@@ -199,6 +216,9 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       }
       final byte[] bytes = new byte[length];
       for (int chunk = 0; chunk < chunks; chunk++) {
+        if (WORK_DIAGNOSTICS) {
+          CHUNKS_READ.increment();
+        }
         final byte[] part =
             Objects.requireNonNull(read(reader, root, slabKey(revision, chunk)), "Missing change-log chunk");
         final int expected = Math.min(CHUNK_BYTES, length - chunk * CHUNK_BYTES);
@@ -212,6 +232,61 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
         throw new IllegalStateException("Change-log identity mismatch");
       }
       return slab;
+    }
+  }
+
+  /** A slab directory identifies a publication even if truncate reuses its revision and timestamp. */
+  public static byte @Nullable [] identity(final StorageEngineReader storage, final int projection,
+      final int revision) {
+    final PageReference root =
+        storage.getChangeLogIndexPage(storage.getActualRevisionRootPage()).getIndexReference(projection);
+    if (root == null) {
+      return null;
+    }
+    try (HOTTrieReader reader = new HOTTrieReader(storage)) {
+      final byte[] directory = read(reader, root, slabKey(revision, -1));
+      if (directory == null) {
+        return null;
+      }
+      if (directory.length != 24) {
+        throw new IllegalStateException("Invalid change-log identity");
+      }
+      return Arrays.copyOfRange(directory, 8, 24);
+    }
+  }
+
+  /** Aggregate declaration reservations live with the log, never in source aggregate pages. */
+  public static int nextAggregateId(final StorageEngineReader storage) {
+    final PageReference root = storage.getChangeLogIndexPage(storage.getActualRevisionRootPage()).getIndexReference(0);
+    if (root == null) {
+      return 0;
+    }
+    try (HOTTrieReader reader = new HOTTrieReader(storage)) {
+      final byte[] next = read(reader, root, NEXT_AGGREGATE_ID);
+      return next == null
+          ? 0
+          : ByteBuffer.wrap(next).getInt();
+    }
+  }
+
+  public static boolean aggregateIdReserved(final StorageEngineReader storage, final int index) {
+    final PageReference root = storage.getChangeLogIndexPage(storage.getActualRevisionRootPage()).getIndexReference(0);
+    if (root == null) {
+      return false;
+    }
+    try (HOTTrieReader reader = new HOTTrieReader(storage)) {
+      return read(reader, root, ByteBuffer.allocate(5).put((byte) 5).putInt(index).array()) != null;
+    }
+  }
+
+  public static void reserveAggregateId(final StorageEngineWriter writer, final int index) {
+    if (index < 0 || index == Integer.MAX_VALUE || aggregateIdReserved(writer, index)) {
+      throw new IllegalArgumentException("Temporal aggregate id has already been reserved or is invalid: " + index);
+    }
+    final int next = Math.max(nextAggregateId(writer), index + 1);
+    try (ChangeLogStorage storage = new ChangeLogStorage(writer, 0)) {
+      storage.put(ByteBuffer.allocate(5).put((byte) 5).putInt(index).array(), new byte[] {1});
+      storage.put(NEXT_AGGREGATE_ID, ByteBuffer.allocate(4).putInt(next).array());
     }
   }
 

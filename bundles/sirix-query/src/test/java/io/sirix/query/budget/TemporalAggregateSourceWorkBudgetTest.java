@@ -22,6 +22,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -95,6 +96,7 @@ final class TemporalAggregateSourceWorkBudgetTest {
     try (var store =
         BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build()) {
       final JsonDBCollection real = store.lookup("source");
+      DerivedIndexTestSupport.await(real.getDatabase());
       final JsonDBCollection collection = mock(JsonDBCollection.class, delegatesTo(real));
       final JsonDBStore observedStore = mock(JsonDBStore.class, delegatesTo(store));
       doReturn(collection).when(observedStore).lookup("source");
@@ -233,6 +235,7 @@ final class TemporalAggregateSourceWorkBudgetTest {
           writer.moveTo(array);
           writer.commit();
         }
+        DerivedIndexTestSupport.await(session);
       }
     }
   }

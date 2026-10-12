@@ -342,6 +342,8 @@ public final class ResourceConfiguration {
    */
   private final boolean storeNodeHistory;
 
+  private final boolean asyncDerivedIndexes;
+
   /**
    * Binary encoding version of storage.
    */
@@ -443,6 +445,7 @@ public final class ResourceConfiguration {
     storeDiffs = builder.storeDiffs;
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
+    asyncDerivedIndexes = builder.asyncDerivedIndexes;
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     regionCompressionType = builder.regionCompressionType;
@@ -587,6 +590,11 @@ public final class ResourceConfiguration {
     return storeChildCount;
   }
 
+  /** Whether aggregate declarations are maintained in the hidden derived resource. */
+  public boolean asyncDerivedIndexes() {
+    return asyncDerivedIndexes;
+  }
+
   public boolean storeNodeHistory() {
     return storeNodeHistory;
   }
@@ -617,7 +625,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
       "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
-      "resourceUuid", "regionCompression"};
+      "resourceUuid", "regionCompression", "asyncDerivedIndexes"};
 
   /**
    * Serialize the configuration.
@@ -695,6 +703,7 @@ public final class ResourceConfiguration {
       }
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
+      jsonWriter.name(JSONNAMES[28]).value(config.asyncDerivedIndexes);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -839,6 +848,7 @@ public final class ResourceConfiguration {
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
+      boolean asyncDerivedIndexes = true;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[21])) {
@@ -865,6 +875,8 @@ public final class ResourceConfiguration {
           resourceUuid = UUID.fromString(jsonReader.nextString());
         } else if (name.equals(JSONNAMES[27])) {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
+        } else if (name.equals(JSONNAMES[28])) {
+          asyncDerivedIndexes = jsonReader.nextBoolean();
         }
       }
 
@@ -893,6 +905,7 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .regionCompressionType(regionCompressionType)
+             .asyncDerivedIndexes(asyncDerivedIndexes)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
@@ -1012,6 +1025,8 @@ public final class ResourceConfiguration {
      * Determines if node history should be stored or not.
      */
     private boolean storeNodeHistory = true;
+
+    private boolean asyncDerivedIndexes = true;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
@@ -1267,6 +1282,15 @@ public final class ResourceConfiguration {
      */
     public Builder customCommitTimestamps(final boolean customCommitTimestamps) {
       this.customCommitTimestamps = customCommitTimestamps;
+      return this;
+    }
+
+    /**
+     * Maintain temporal aggregates in a hidden resource (default), or use the synchronous kernel for
+     * embedded deployments that cannot run a background service.
+     */
+    public Builder asyncDerivedIndexes(final boolean enabled) {
+      asyncDerivedIndexes = enabled;
       return this;
     }
 

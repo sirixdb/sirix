@@ -59,6 +59,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("records")
                                                    .validTimePaths("lo", "hi")
+                                                   .asyncDerivedIndexes(false)
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .buildPathSummary(true)
                                                    .storeDiffs(false)
@@ -183,6 +184,7 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder("records")
                                                    .validTimePaths("lo", "hi")
+                                                   .asyncDerivedIndexes(false)
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .buildPathSummary(true)
                                                    .storeDiffs(false)

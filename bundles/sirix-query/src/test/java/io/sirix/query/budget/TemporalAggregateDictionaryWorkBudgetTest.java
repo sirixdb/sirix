@@ -18,6 +18,7 @@ import io.sirix.budget.WorkCounter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.io.StorageType;
@@ -71,6 +72,8 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
             var context = SirixQueryContext.createWithJsonStore(store);
             var chain = SirixCompileChain.createWithJsonStore(store);
             var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+          DerivedIndexTestSupport.await(store.lookup("dictionary").getDatabase());
+          Databases.clearGlobalCaches();
           final String query = query(publication, correlated);
           final String expected = expected(rows, publication, correlated);
           for (int temperature = 0; temperature < 2; temperature++) {
@@ -174,22 +177,26 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
         controller.createIndexes(Set.of(projection), writer);
         TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"), List.of("count(*)", "sum(n)"));
         writer.commit("initial", publicationInstant(0));
+        DerivedIndexTestSupport.await(session);
         for (int row = 1; row < rows; row++) {
           writer.moveTo(first);
           assertTrue(writer.moveToRightSibling());
           writer.remove();
         }
         writer.commit("delete almost all groups", publicationInstant(1));
+        DerivedIndexTestSupport.await(session);
         for (int change = 0; change < CHURN; change++) {
           writer.moveTo(first);
           writer.moveToFirstChild();
           writer.moveToFirstChild();
           writer.setNumberValue(rows + change);
           writer.commit("change group", publicationInstant(change + 2));
+          DerivedIndexTestSupport.await(session);
         }
         writer.moveTo(first);
         writer.remove();
         writer.commit("empty", publicationInstant(CHURN + 2));
+        DerivedIndexTestSupport.await(session);
       }
     }
   }

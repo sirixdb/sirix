@@ -25,6 +25,17 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
   private static final LongAdder GROUP_HEADS_VISITED = new LongAdder();
   private static final LongAdder GROUP_HEADS_DECODED = new LongAdder();
   private static final LongAdder PART_CHUNKS_READ = new LongAdder();
+  private static final LongAdder SLOTS_WRITTEN = new LongAdder();
+  private static final LongAdder HEADS_READ = new LongAdder();
+
+  public static long slotsWritten() {
+    return SLOTS_WRITTEN.sum();
+  }
+
+  public static long headsRead() {
+    return HEADS_READ.sum();
+  }
+
   static final byte[] HEADER = {0};
   private byte[] keyBuffer = new byte[32];
   private final Reader reader;
@@ -67,6 +78,9 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
       throw new IllegalArgumentException("Temporal aggregate slot exceeds inline bound");
     }
     doIndex(key, key.length, value, value.length);
+    if (WORK_DIAGNOSTICS) {
+      SLOTS_WRITTEN.increment();
+    }
     if (key[0] == 3) {
       nodesWritten++;
     }
@@ -81,11 +95,17 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
 
   // Defensive accessors own the primitive arrays; this carrier is not a value-equality key.
   @SuppressWarnings("ArrayRecordComponent")
-  public record GroupHead(long rows, int checkpointTier, long[] parts, byte[] tiers) {
+  public record GroupHead(long rows, int checkpointTier, long[] parts, byte[] tiers, long checkpointBytes,
+      long deltaBytes) {
+    public GroupHead(final long rows, final int checkpointTier, final long[] parts, final byte[] tiers) {
+      this(rows, checkpointTier, parts, tiers, 1, 0);
+    }
+
     public GroupHead {
       Objects.requireNonNull(parts);
       Objects.requireNonNull(tiers);
-      if (rows < 0 || checkpointTier < 1 || checkpointTier > TemporalAggregateParts.MAX_TIERS || parts.length == 0
+      if (checkpointBytes < 1 || deltaBytes < 0 || rows < 0 || checkpointTier < 1
+          || checkpointTier > TemporalAggregateParts.MAX_TIERS || parts.length == 0
           || parts.length > TemporalAggregateParts.MAX_PARTS || tiers.length != parts.length
           || tiers[0] != checkpointTier) {
         throw new IllegalArgumentException("Invalid temporal aggregate group head");
@@ -112,8 +132,8 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
 
     public byte[] encode() {
-      final ByteBuffer bytes = ByteBuffer.allocate(16 + parts.length * (Long.BYTES + 1));
-      bytes.putLong(rows).putInt(checkpointTier).putInt(parts.length);
+      final ByteBuffer bytes = ByteBuffer.allocate(32 + parts.length * (Long.BYTES + 1));
+      bytes.putLong(rows).putInt(checkpointTier).putInt(parts.length).putLong(checkpointBytes).putLong(deltaBytes);
       for (int index = 0; index < parts.length; index++) {
         bytes.putLong(parts[index]).put(tiers[index]);
       }
@@ -121,23 +141,25 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
 
     public static GroupHead decode(final byte[] value) {
-      if (value.length < 25 || value.length > 16 + TemporalAggregateParts.MAX_PARTS * (Long.BYTES + 1)) {
+      if (value.length < 41 || value.length > 32 + TemporalAggregateParts.MAX_PARTS * (Long.BYTES + 1)) {
         throw new IllegalStateException("Invalid temporal aggregate group head length");
       }
       final ByteBuffer bytes = ByteBuffer.wrap(value);
       final long rows = bytes.getLong();
       final int checkpointTier = bytes.getInt();
       final int count = bytes.getInt();
-      if (count < 1 || count > TemporalAggregateParts.MAX_PARTS || value.length != 16 + count * (Long.BYTES + 1)) {
+      if (count < 1 || count > TemporalAggregateParts.MAX_PARTS || value.length != 32 + count * (Long.BYTES + 1)) {
         throw new IllegalStateException("Invalid temporal aggregate group part count");
       }
+      final long checkpointBytes = bytes.getLong();
+      final long deltaBytes = bytes.getLong();
       final long[] parts = new long[count];
       final byte[] tiers = new byte[count];
       for (int index = 0; index < count; index++) {
         parts[index] = bytes.getLong();
         tiers[index] = bytes.get();
       }
-      return new GroupHead(rows, checkpointTier, parts, tiers);
+      return new GroupHead(rows, checkpointTier, parts, tiers, checkpointBytes, deltaBytes);
     }
   }
 
@@ -189,6 +211,9 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     }
 
     public byte @Nullable [] get(final byte[] key) {
+      if (WORK_DIAGNOSTICS && key[0] == 1) {
+        HEADS_READ.increment();
+      }
       if (key[0] == 3) {
         nodesRead++;
         if (WORK_DIAGNOSTICS) {

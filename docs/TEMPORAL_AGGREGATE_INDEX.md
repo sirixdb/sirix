@@ -48,7 +48,8 @@ declarations reject before changing lineage; dropping nothing leaves pending wor
 `TEMPORAL_AGGREGATE` has a dedicated HOT container under the revision root. Its values are opaque
 slots with replacement semantics and zero-length tombstones, like projection slots. Page ownership,
 rollback, fragment reconstruction and sliding-snapshot carry-forward use the normal Sirix storage
-engine. There is no separately published sidecar or process-local authority for committed answers.
+engine. By default these trees live in the hidden `<source>$derived` resource, with their own
+writer, revision roots and catalogue. The source stores declarations and durable change logs.
 The persisted byte layout is owned by [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
 Each typed group head points to one checkpoint and at most fifteen immutable delta parts per tier.
@@ -75,47 +76,68 @@ extractor already maintaining the projection. A format-1 `CHANGE_LOG` slab persi
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
-decoded slab for every declaration and shares parsed endpoints; it performs no projection reads or
+decoded slab for every declaration, caching repeated endpoints while applying it; it performs no projection reads or
 represented-revision reader opens. Unchanged maintenance barriers reuse the already-published batch;
 each new covered revision still receives an explicit empty slab. Columns outside a declaration cause no aggregate I/O. A
 transaction-local cache accounts for index creation and repeated explicit barriers; rollback
 removes all unpublished changes through normal page ownership.
 
-Changes are accumulated in sorted group, endpoint and value order. Each publication or explicit
-barrier appends a signed part with its own immutable id. Parts carry a size tier: sixteen parts of
-one tier merge into one part of the next tier, leaving other tiers untouched. Encoded byte growth
-can raise the result's tier, but cannot trigger a separate whole-group fold. The checkpoint's tier
-is one above its byte-size tier, using 2,048-byte units and powers of sixteen. Only a cascade reaching
-that top tier merges the checkpoint and remaining deltas into a new checkpoint. Signed intermediate
-parts retain negative counts and frequencies; only complete checkpoints and query results require
-nonnegative counts. At most six delta tiers fit the part format's signed-int byte-length limit, so a
-head holds at most 91 parts. Folding work is amortized across changed records and tier promotions;
-a top-tier cascade can still perform a large synchronous checkpoint rewrite.
+Changes are accumulated in sorted group, endpoint and value order. The database owns one lazy daemon
+maintainer, which retains the source and derived sessions independently of application handles.
+A shared revision listener wakes it only after the source revision is durable and published; a
+one-second recheck also finds missed notifications. Ordinary source commits neither acquire the
+derived writer lock nor write aggregate pages. The hidden resource uses `FILE_CHANNEL`,
+`SLIDING_SNAPSHOT`, custom source timestamps, and no diffs, node history or path summary.
 
-The maintenance guarantee is amortized across publications, with an explicit exception to the
-original per-publication changed-record bound. For fixed aggregate lanes and domain height, each
-delta contribution is merged at most once per tier, giving an `O(log_16 N)` merge charge per changed
-record over the sequence, where `N` is accumulated change volume. A checkpoint rewrite is charged
-across the publications that fill its top tier. At fan-in 16, equal-sized tier-0 parts promote to
-tiers 1, 2 and 3 after 16, 256 and 4,096
-publications respectively. A stable tier-3 checkpoint therefore cascades once every 4,096 such
-publications. Larger parts and encoded byte growth can start at, or jump to, a higher tier and reach
-the checkpoint sooner; these frequencies describe small parts without byte-tier jumps.
+The maintainer builds new declarations from the committed projection and applies subsequent slabs
+without projection or document reads. It mirrors only aggregate declarations into the derived
+catalogue, retaining their source ids. Drops affect new snapshots; historical snapshots keep their
+catalogues and parts. Ordinary maintenance does not rewrite a catalogue file. Work is scheduled in
+bounded batches of at most eight revisions or 100,000 entries, with one derived commit and exact
+mapping at the batch end. Catalogue changes end a batch so declaring revisions have a snapshot.
+Intermediate revisions use the exact fallback until query-time tail catch-up is available.
 
-A top-tier cascade reads all prior parts and re-encodes the entire group, including untouched
-records. Its worst-case work is linear in the group's stored endpoints, summary nodes and value
-frequencies, with chunk I/O proportional to the bytes read and rewritten in 2,048-byte units. A
-single small publication can therefore incur resource-sized work when that group spans the resource.
-The cumulative work budget includes this cost; it does not provide a per-publication work or latency
-ceiling. This synchronous cascade is the approved tradeoff for retaining tiered compaction.
+Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
+counts. Groups with more than sixteen parts or delta bytes above half the checkpoint become fold
+candidates. A separate derived commit folds candidates when idle; sustained publication forces a
+separate fold after 64 revisions, or earlier to leave room for batch replay after a crash, within
+the existing 91-part representation. Catch-up never
+folds old parts. A fold reads only its candidate groups and atomically republishes the mapping for
+the same source revision. Signed intermediate parts retain negative counts and frequencies; only
+complete checkpoints and query results require nonnegative counts.
+
+Prefix-4 mappings bind source revisions to derived revisions and to a durable 128-bit source log
+identity. Queries validate that identity and open the mapped derived snapshot. A cold query can
+read the durable mapping before the daemon has initialized its memory cache. If no exact mapping
+exists, maintenance is poisoned, or the derived snapshot cannot be opened, the route declines to
+the existing exact masked/scan route. It never serves a stale summary. Query-time log-tail catch-up
+and a query-language await function are not part of this change.
+
+A revert uses the slab's represented base revision, reverts the derived writer to that source
+mapping (replaying slabs from the preceding mapped revision for a batch interior), then applies
+the new slab. Mapping entries for previously published branches survive the
+revert. Truncation invalidates mappings above the surviving source frontier and serializes against
+active maintenance, without putting a lock on normal source commits. Before replaying a replacement
+history, the maintainer truncates its own discarded revisions. Equal source timestamps are safe:
+revision identity, rather than timestamps alone, determines admissibility. After a process crash,
+normal Sirix beacon/commit-marker recovery chooses the durable derived root; its mapping determines
+where replay resumes.
+
+Failures roll back the derived transaction and poison only that resource. Maintained revision, lag,
+poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`; the source remains
+usable and queries retain exact fallback behavior. Shutdown stops the worker before closing resource
+sessions and allows up to 30 seconds for an in-flight batch to finish. Lag at shutdown is safe.
 
 Capture and slab persistence run only while the projection has a declared aggregate consumer.
 Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
 a consumer have no slab.
-Maintenance remains synchronous. The log is groundwork for separately maintained derived resources;
-there is no background maintainer or query-time lag protocol in this version.
-Historical revisions retain their original group heads and parts through ordinary page copy-on-write.
+
+Embedded deployments can select `ResourceConfiguration.Builder.asyncDerivedIndexes(false)` or set
+`-Dsirix.derived.disabled=true` before opening the database. They retain the synchronous log-fed
+kernel and source-owned aggregate pages. That kernel keeps its existing tiered compaction and
+amortized work budgets. The asynchronous mode moves both initial builds and incremental aggregate
+writes off the source commit path.
 
 Long operands and long record counts bound sums within signed 128 bits. Products are checked before
 entering the index; an overflowing product declines serving instead of wrapping. Removing an

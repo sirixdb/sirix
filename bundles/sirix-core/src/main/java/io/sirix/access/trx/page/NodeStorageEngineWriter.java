@@ -21,6 +21,9 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.access.trx.node.AbstractResourceSession;
+
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.Databases;
@@ -6016,6 +6019,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
+    final DerivedIndexMaintainer.Resource derived =
+        ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
+    if (derived == null) {
+      return truncateStorageTo(revision);
+    }
+    derived.lockHistory();
+    try {
+      final StorageEngineWriter result = truncateStorageTo(revision);
+      derived.truncate(revision);
+      return result;
+    } finally {
+      derived.unlockHistory();
+    }
+  }
+
+  private StorageEngineWriter truncateStorageTo(final int revision) {
     // Refuse an unsupported backend while NOTHING has been mutated yet. Everything below is
     // ordered so the resource is at either the original or the target revision at any instant;
     // a storage that throws from its own truncateTo lands outside that set — the beacons and

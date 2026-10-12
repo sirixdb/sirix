@@ -57,6 +57,14 @@ import java.util.concurrent.TimeUnit;
 public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AutoCloseable {
 
+  /**
+   * Opens an exact derived snapshot for a published source reader, or returns null while unavailable.
+   * The caller owns the returned reader. A missing mapping must use the normal exact query route.
+   */
+  default @Nullable StorageEngineReader openDerivedIndexReader(final StorageEngineReader source) {
+    return null;
+  }
+
   /** Optional immutable companion posting-mask cache; custom sessions may leave masks uncached. */
   default @Nullable ValidTimeReadCache getValidTimeReadCache() {
     return null;

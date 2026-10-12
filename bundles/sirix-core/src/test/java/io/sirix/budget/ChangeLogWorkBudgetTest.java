@@ -231,6 +231,7 @@ final class ChangeLogWorkBudgetTest {
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       database.createResource(ResourceConfiguration.newBuilder("data")
                                                    .validTimePaths("lo", "hi")
+                                                   .asyncDerivedIndexes(false)
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .storeDiffs(false)
                                                    .build());

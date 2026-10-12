@@ -148,6 +148,10 @@ and the surviving historical revision, under all four versioning types. Run it a
 # JUnit framework consistency (part of the normal query test task)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.JUnitFrameworkConsistencyTest'
 
+# Derived-resource crash boundaries (source publication, before/after derived beacon)
+./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexCrashRecoveryTest' \
+                           -Dsirix.crash.run=true
+
 # Static bug detection
 ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne
 ```

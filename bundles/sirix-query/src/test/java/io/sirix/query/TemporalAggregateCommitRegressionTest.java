@@ -545,6 +545,7 @@ final class TemporalAggregateCommitRegressionTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String query)
       throws Exception {
+    TemporalAggregateTestSupport.await(context);
     try (ByteArrayOutputStream output = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(output, false, StandardCharsets.UTF_8)) {
       new Query(chain, query).serialize(context, writer);

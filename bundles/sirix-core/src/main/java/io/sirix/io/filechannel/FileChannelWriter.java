@@ -457,6 +457,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // invalidateAll only clears this resource's entries; truncateTo is a cold recovery/
       // rollback path, so re-fetching the survivors is fine.
       cache.synchronous().invalidateAll();
+      revisionIndexHolder.update(revisionIndexHolder.get().truncateTo(revision));
 
       // Claims above the truncated-to revision are stale (their record slots will be rewritten
       // with different content), and the writer's UUID is known here — drop the whole entry and
