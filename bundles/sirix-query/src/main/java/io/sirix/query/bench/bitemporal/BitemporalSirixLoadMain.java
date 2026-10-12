@@ -173,7 +173,8 @@ public final class BitemporalSirixLoadMain {
 
   static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
       final String resource) {
-    if (!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource)) {
+    if (!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource)
+        || Boolean.getBoolean("sirix.bitemporal.disableBusinessKeyIndex")) {
       return;
     }
     final var storage = writer.getStorageEngineWriter();
@@ -211,7 +212,11 @@ public final class BitemporalSirixLoadMain {
         throw new IllegalStateException("inserted " + state.name + " resource has no array root");
       }
       state.arrayNodeKey = wtx.getNodeKey();
-      ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, BitemporalSchema.DATABASE);
+      // Commit-latency campaigns measure the maintenance cost of each index family by declaring
+      // fewer of them; the query kit needs every family, so the defaults declare them all.
+      if (!Boolean.getBoolean("sirix.bitemporal.disableValidTimeIndexes")) {
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, BitemporalSchema.DATABASE);
+      }
       createBusinessKeyIndex(session, wtx, state.name);
       // The projection the grouped queries read their columns from, built from the same E0 records
       // and maintained by every later publication's commit.

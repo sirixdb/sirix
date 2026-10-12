@@ -77,6 +77,9 @@ public final class BitemporalProjections {
   public static void declare(final JsonResourceSession session, final JsonNodeTrx wtx, final String resource) {
     Objects.requireNonNull(session, "session");
     Objects.requireNonNull(wtx, "wtx");
+    if (Boolean.getBoolean("sirix.bitemporal.disableProjection")) {
+      return;
+    }
     final JsonIndexController controller = session.getWtxIndexController(wtx.getRevisionNumber());
     if (controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION) > 0) {
       return;
