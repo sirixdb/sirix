@@ -28,8 +28,8 @@
 
 package io.sirix.index.hot;
 
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTIndirectPage.NodeType;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage.NodeType;
 import io.sirix.page.PageReference;
 
 import java.util.List;

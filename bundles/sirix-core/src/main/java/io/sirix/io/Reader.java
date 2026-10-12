@@ -31,7 +31,7 @@ package io.sirix.io;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
-import io.sirix.page.HOTProjectionRead;
+import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;

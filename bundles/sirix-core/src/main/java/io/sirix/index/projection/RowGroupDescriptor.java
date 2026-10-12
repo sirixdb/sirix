@@ -3,7 +3,7 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import java.util.Arrays;
 import java.util.Objects;

@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;

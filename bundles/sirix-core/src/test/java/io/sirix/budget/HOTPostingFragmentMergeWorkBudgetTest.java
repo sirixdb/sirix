@@ -8,7 +8,7 @@ import io.sirix.index.hot.PostingDeltas;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;

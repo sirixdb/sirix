@@ -21,7 +21,7 @@ import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.aggregate.TemporalAggregateParts;
 import io.sirix.index.aggregate.AggregateSummary;
 import io.sirix.index.aggregate.TemporalAggregateDomain;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.io.TempDir;

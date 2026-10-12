@@ -5,15 +5,15 @@
  */
 package io.sirix.index.interval;
 
-import io.sirix.access.trx.page.HOTRangeCursor;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTRangeCursor;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTKeySerializer;
 import io.sirix.index.hot.NodeReferencesSerializer.ChunkAccumulator;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.hot.PostingDeltas;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;

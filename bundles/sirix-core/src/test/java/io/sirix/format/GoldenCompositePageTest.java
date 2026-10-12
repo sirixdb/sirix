@@ -10,7 +10,7 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.xml.ElementNode;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;

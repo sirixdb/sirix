@@ -11,7 +11,7 @@ import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,8 +53,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * It lives in this package rather than beside the HOT-layer fixtures because the segment-slot API
  * is projection-internal. Strategy-matrix, eviction and historical-read coverage sit in
- * {@code io.sirix.page.HOTCompleteDumpMergeTest} and
- * {@code io.sirix.page.HOTTombstoneEvictionTest}, at the layer where the merge itself lives.
+ * {@code io.sirix.index.hot.page.HOTCompleteDumpMergeTest} and
+ * {@code io.sirix.index.hot.page.HOTTombstoneEvictionTest}, at the layer where the merge itself
+ * lives.
  * </p>
  */
 final class ProjectionSegmentResurrectionTest {

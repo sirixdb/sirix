@@ -10,7 +10,7 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
-import io.sirix.page.HOTProjectionRead;
+import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;

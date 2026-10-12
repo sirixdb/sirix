@@ -4,7 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.api.StorageEngineReader;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;

@@ -28,19 +28,19 @@
 package io.sirix.index.hot;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.access.trx.page.HOTRangeCursor;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTRangeCursor;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.HOTLookupCache;
-import io.sirix.cache.HOTLookupKey;
+import io.sirix.index.hot.cache.HOTLookupCache;
+import io.sirix.index.hot.cache.HOTLookupKey;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.CASPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;

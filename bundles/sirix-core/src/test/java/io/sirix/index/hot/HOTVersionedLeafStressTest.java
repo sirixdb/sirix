@@ -17,7 +17,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;

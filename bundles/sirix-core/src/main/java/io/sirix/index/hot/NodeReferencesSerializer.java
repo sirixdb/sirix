@@ -27,13 +27,13 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTRangeCursor;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTRangeCursor;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.io.HashAlgorithm;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;

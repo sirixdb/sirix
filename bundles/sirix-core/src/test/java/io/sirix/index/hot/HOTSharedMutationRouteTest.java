@@ -17,7 +17,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

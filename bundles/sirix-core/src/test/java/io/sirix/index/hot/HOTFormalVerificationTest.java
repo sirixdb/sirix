@@ -1169,7 +1169,7 @@ final class HOTFormalVerificationTest {
    * half-empty leaves).</li>
    * <li><b>Indirect fan-out</b> — most non-root indirects should have fan-out near 2..32 (BiNode
    * through MultiNode range). Sparse fan-out below 2 indicates degenerate structure; fan-out above 32
-   * violates {@link io.sirix.page.HOTIndirectPage}'s capacity.</li>
+   * violates {@link io.sirix.index.hot.page.HOTIndirectPage}'s capacity.</li>
    * </ol>
    *
    * <p>
@@ -1265,14 +1265,14 @@ final class HOTFormalVerificationTest {
   private void walkStats(io.sirix.page.PageReference ref, io.sirix.api.json.JsonNodeReadOnlyTrx rtx, int[] leafCount,
       int[] wellFilled, long[] entries, int[] indirects, long[] fanoutSum, int[] minFanout, int[] maxFanout) {
     final var page = rtx.getStorageEngineReader().loadHOTPage(ref);
-    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+    if (page instanceof io.sirix.index.hot.page.HOTLeafPage leaf) {
       leafCount[0]++;
       entries[0] += leaf.getEntryCount();
       if (leaf.getEntryCount() >= 256)
         wellFilled[0]++;
       return;
     }
-    if (page instanceof io.sirix.page.HOTIndirectPage indirect) {
+    if (page instanceof io.sirix.index.hot.page.HOTIndirectPage indirect) {
       indirects[0]++;
       final int fan = indirect.getNumChildren();
       fanoutSum[0] += fan;

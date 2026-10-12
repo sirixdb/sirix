@@ -5,7 +5,7 @@ package io.sirix.query.function.jn.index;
 
 import io.sirix.access.Databases;
 import io.sirix.cache.BufferManager;
-import io.sirix.cache.HOTLookupCache;
+import io.sirix.index.hot.cache.HOTLookupCache;
 import io.sirix.query.AbstractJsonTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

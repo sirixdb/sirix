@@ -12,7 +12,7 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;

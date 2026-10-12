@@ -3,7 +3,7 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.api.HOTReadIntent;
+import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
 import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;

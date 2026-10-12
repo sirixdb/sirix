@@ -21,6 +21,9 @@
 
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTProjectionImage;
+import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.BytesIn;

@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;

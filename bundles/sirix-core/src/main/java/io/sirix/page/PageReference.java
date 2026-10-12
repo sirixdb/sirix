@@ -21,6 +21,7 @@
 
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.utils.ToStringHelper;
 import org.jspecify.annotations.Nullable;
@@ -191,8 +192,8 @@ public final class PageReference {
    * Get in-memory instance of deserialized page.
    *
    * <p>
-   * A swizzled {@link io.sirix.page.HOTLeafPage} that has been closed is treated as a cache miss: the
-   * swizzle is cleared and {@code null} is returned so the caller re-resolves through the
+   * A swizzled {@link io.sirix.index.hot.page.HOTLeafPage} that has been closed is treated as a cache
+   * miss: the swizzle is cleared and {@code null} is returned so the caller re-resolves through the
    * transaction-intent log ({@code logKey}) or persistent storage. This situation is routine under
    * copy-on-write: indirect pages copy their child reference arrays (including the swizzled page
    * pointer), and when the TIL later overwrites the entry at the shared {@code logKey} it closes the
@@ -508,7 +509,7 @@ public final class PageReference {
    * cache leaf. Unlike {@link #refreshesToUnclaimedDurableReference()}, this never refreshes a TIL
    * handle: cache admission accepts only the already-materialized, shallow durable shape.
    */
-  boolean isRawCanonicalHOTCacheReference() {
+  public boolean isRawCanonicalHOTCacheReference() {
     return page == null && pageFragments != null && pageFragments.isEmpty() && key != Constants.NULL_ID_LONG
         && logKey == Constants.NULL_ID_INT && activeTilGeneration == -1 && transactionLogReference == null
         && !hasPendingPageWrite();

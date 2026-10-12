@@ -7,7 +7,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;

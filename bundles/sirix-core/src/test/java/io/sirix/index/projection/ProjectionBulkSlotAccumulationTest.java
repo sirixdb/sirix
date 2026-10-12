@@ -12,7 +12,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.index.hot.BulkSpliceTestBridge;
 import io.sirix.index.hot.HOTBulkSlotLoader;
 import io.sirix.index.hot.PathKeySerializer;

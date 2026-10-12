@@ -3,6 +3,7 @@
  */
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesOut;

@@ -28,6 +28,9 @@
 
 package io.sirix.page;
 
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafEntry;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.node.LE;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
@@ -6807,7 +6810,7 @@ public enum PageKind {
    *
    * @return the flags byte (all bits within {@code allowedMask})
    */
-  static byte readVersionAndFlagsAllowing(final BytesIn<?> source, final byte allowedMask) {
+  public static byte readVersionAndFlagsAllowing(final BytesIn<?> source, final byte allowedMask) {
     final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
     if (version != BinaryEncodingVersion.V0) {
       throw new IllegalStateException("Unknown binary encoding version: " + version);

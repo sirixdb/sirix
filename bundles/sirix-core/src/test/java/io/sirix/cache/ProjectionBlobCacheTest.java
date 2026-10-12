@@ -3,7 +3,7 @@
  */
 package io.sirix.cache;
 
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;

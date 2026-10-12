@@ -6,7 +6,7 @@
 
 package io.sirix.index.hot;
 
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

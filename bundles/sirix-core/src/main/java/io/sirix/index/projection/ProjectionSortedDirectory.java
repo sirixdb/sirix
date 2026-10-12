@@ -5,8 +5,8 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionSortedGroupSma.Update;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.api.HOTReadIntent;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.reader.HOTReadIntent;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
