@@ -156,9 +156,9 @@ oversized dictionaries reuse that reader. Empty arrays defer point evaluation fo
 modes, including correlated scans.
 
 SH1 declares `grade` and `(sid, grade)` groupings on contracts in
-`BitemporalTemporalAggregates`. The loader's
-`-Dsirix.bitemporal.disableTemporalAggregates=true` switch creates the comparison store without
-these declarations. `SIRIX_COMMIT` output separates publication apply and commit costs.
+`BitemporalTemporalAggregates`. The benchmark's
+[loader comparison controls](../bundles/sirix-query/bench/bitemporal/README.md#loader-comparison-controls)
+own the switches that omit these declarations.
 
 ## Verification
 

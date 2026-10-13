@@ -296,12 +296,12 @@ Rebuilding a segment does not mean reading its records again. The dirty set
 names every record whose row may differ from its persisted row. It is the same
 set that decides which row groups are touched at all, so an unchanged row of a
 touched group is as trustworthy as any row of an untouched group. Maintenance
-therefore reads from the document only the records the commit changed, and
-carries every other row over from what it has already decoded: the prior column
-slices on the value-update path, the whole prior row group when membership
+therefore reads changed records from the document and, when the witness rules
+below permit it, carries unchanged rows over from what it has already decoded:
+the prior column slices on the value-update path, the whole prior row group when membership
 changes ([§6.3](#63-local-rewrite), [§7](#7-middle-insert-why-an-exception-locator-is-needed)).
-Document reads follow the number of changed records, not the size of the row
-group.
+On this path, document extraction follows the number of changed records;
+witness probes and re-extraction fallbacks are described below.
 
 A carried row must be appended exactly as an extraction would append it, and
 extraction decides three things per cell that V0 persists only as one sticky
@@ -312,7 +312,7 @@ these cases:
 
 | Column | Persisted flags | What they prove for every present cell |
 |---|---|---|
-| any kind | none raised | no witness |
+| any carryable kind | no adverse flag; double/UTC provenance kept where applicable | no witness |
 | timestamp | lexical flag, UTC provenance kept | a `Z`-suffixed UTC value; it raises the lexical flag and keeps provenance |
 | timestamp | provenance missing, no lexical flag | a canonical value without the suffix; it lacks provenance and raises nothing else |
 | double | provenance missing, nothing else | nothing about one cell, but the flag is the only thing an impure cell changes |
@@ -326,9 +326,12 @@ probed and the flag clears, as it must.
 
 Any other combination names no row: a present cell may hold a real value or a
 stored default, and a one-cell replacement may have removed the only witness.
-Such a row group reads every row from the document, as does a commit that
-replays an identity removal through its own reader. An absent cell is always
-written as the extractor leaves it, never as a decoder happened to fill it.
+Such a membership rewrite reads every row from the document; a value-only
+update re-extracts the selected columns for every row if any selected slice has
+an unknown witness rule. Segment-scoped string IDs cannot be carried over by
+either append path. A commit that replays an identity removal through its own
+reader also re-extracts rows. An absent cell is always written as the extractor
+leaves it, never as a decoder happened to fill it.
 
 `ProjectionIndexChangeListener.lastMaintenanceLocality()` reports the rows
 extracted, the rows carried over and the cells probed.
@@ -799,9 +802,9 @@ The intended persistent work, in phone-readable form, is:
   destinations, plus changed local locator/fence/link and slot-0/derived units.
 - **Unrelated change:** no projection bytes.
 
-Document reads are bounded the same way: a touched row group reads the records
-the commit changed and carries the rest over
-([§5.1](#51-unchanged-rows-are-carried-over)).
+Document extraction and witness probes follow the carry-over and fallback rules
+in [§5.1](#51-unchanged-rows-are-carried-over); fallback work stays within touched
+row groups.
 
 Small metadata is chunked so changing one link or fence does not rewrite a
 global fence array. Distant row groups and unrelated projection definitions
@@ -998,8 +1001,8 @@ The implementation is incomplete until focused tests cover:
 
 - Value-only updates obey the bitmap and segment-write contract in
   [§5](#5-value-update-price-20-becomes-25).
-- A commit that changes one row of a row group reads one record from the
-  document (`ProjectionUnchangedRowWorkBudgetTest`).
+- Eligible unchanged rows are carried over, with document extraction and
+  witness probes bounded by `ProjectionUnchangedRowWorkBudgetTest`.
 - Ordinary normal LDJSON ingestion creates no locator entries.
 - Local insert/delete/move leaves distant row-group hashes unchanged.
 - Allocation profile confirms no per-row allocation regression.

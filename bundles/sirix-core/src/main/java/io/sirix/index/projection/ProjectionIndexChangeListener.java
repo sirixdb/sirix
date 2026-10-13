@@ -82,20 +82,21 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty records are located by the
  * sparse exception locator first and the normal-backbone fences second. Inserts and deletes rebuild
  * their touched leaves; an update that does not change row membership rebuilds only its dirty
- * column's immutable segments. Either way only the dirty records are read from the document: a
- * touched leaf's other rows are carried over from the decoded leaf, unless its sticky column flags
- * name no row (see {@link ProjectionIndexRowGroupPage#rowWitnessRule}). Extraction semantics are
- * shared 1:1 with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable node keys
- * identify rows but never determine their order: persisted projection-owned order labels place new
- * and moved rows, while sparse record locators route order exceptions. Slot 0's metadata is
- * rewritten with the updated leaf count and the committing revision as the new build revision,
- * which re-keys the catalog's decoded-leaf cache. All writes ride the write transaction — invisible
- * to concurrent readers until commit, discarded on rollback, and historical revisions keep serving
- * their own immutable snapshots. When a declared aggregate consumes this projection, capture also
- * reads unchanged column slices to preserve complete old rows in the change log. It does not
- * re-encode those unchanged columns. Aggregate maintenance consumes the coalesced slab after the
- * projection installs its final rows; {@code docs/TEMPORAL_AGGREGATE_INDEX.md} owns the maintenance
- * and compaction contract.
+ * column's immutable segments. A touched leaf's other rows are carried over from the decoded leaf
+ * when its sticky column flags permit it (see {@link ProjectionIndexRowGroupPage#rowWitnessRule});
+ * unresolved double-source purity may still require probes of carried cells. Identity-removal
+ * replay and the diagnostic reference mode re-extract rows. Extraction semantics are shared 1:1
+ * with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable node keys identify rows but
+ * never determine their order: persisted projection-owned order labels place new and moved rows,
+ * while sparse record locators route order exceptions. Slot 0's metadata is rewritten with the
+ * updated leaf count and the committing revision as the new build revision, which re-keys the
+ * catalog's decoded-leaf cache. All writes ride the write transaction — invisible to concurrent
+ * readers until commit, discarded on rollback, and historical revisions keep serving their own
+ * immutable snapshots. When a declared aggregate consumes this projection, capture also reads
+ * unchanged column slices to preserve complete old rows in the change log. It does not re-encode
+ * those unchanged columns. Aggregate maintenance consumes the coalesced slab after the projection
+ * installs its final rows; {@code docs/TEMPORAL_AGGREGATE_INDEX.md} owns the maintenance and
+ * compaction contract.
  *
  * <h2>Bounded ownership</h2> Ordinary maintenance rewrites only touched row groups, fence chunks,
  * Bloom chunks, set-summary columns, and affected immutable dictionary radix paths. It never scans

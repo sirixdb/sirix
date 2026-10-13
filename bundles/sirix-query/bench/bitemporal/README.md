@@ -117,6 +117,27 @@ linked implementation reference. The loader's business-key index configuration a
 for eligible queries are documented in
 [Runtime revision routing for CAS lookups](../../../../docs/RUNTIME_REVISION_CAS.md).
 
+### Loader comparison controls
+
+Commit-maintenance comparisons can override the loader's defaults through JVM
+system properties on the JVM executing `BitemporalSirixLoadMain`. For the Gradle
+loader task, command-scoped `JAVA_TOOL_OPTIONS='-Dsirix.bitemporal.versioning=INCREMENTAL'`
+also reaches the forked loader JVM.
+
+| Property | Effect on a fresh load |
+|---|---|
+| `sirix.bitemporal.versioning` | Selects the business resources' versioning by an exact [`VersioningType`](../../../../bundles/sirix-core/src/main/java/io/sirix/settings/VersioningType.java) enum name; unset retains the resource builder default. |
+| `sirix.bitemporal.disableProjection=true` | Omits business-resource projection declarations and the dependent contracts temporal aggregates. |
+| `sirix.bitemporal.disableBusinessKeyIndex=true` | Omits the contracts/products business-key CAS declarations. |
+| `sirix.bitemporal.disableValidTimeIndexes=true` | Skips automatic VALIDTIME declarations for the business resources. |
+| `sirix.bitemporal.disableTemporalAggregates=true` | Omits contracts temporal aggregates without disabling projections. |
+
+All disable switches default to false. These controls change declarations, not
+existing stores or query bodies. Disclose the selected versioning and index
+configuration with comparison results: the query routes above describe the
+default declarations, and the query runner refuses a store without VALIDTIME
+definitions.
+
 ## Runtime prerequisites
 
 - Sirix runs from this checkout on its configured JDK 25 toolchain.

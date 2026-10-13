@@ -19,8 +19,8 @@ All notable changes to SirixDB are documented in this file.
 - **Unchanged commits skip index-catalogue serialization.** Shared resource sessions cache catalogue
   lookups and parsed definitions. See the [catalogue persistence rules](docs/ARCHITECTURE.md#index-catalogues)
   and [commit work budgets](bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
-- **Projection maintenance reads only the changed records.** A touched row group carries its
-  unchanged rows over from the decoded row group; the rules are in
+- **Projection maintenance carries eligible unchanged rows over.** Eligibility, witness probes
+  and re-extraction fallbacks are specified in
   [incremental maintenance](docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#51-unchanged-rows-are-carried-over).
 - **Projection tail appends extract only new rows.** Eligibility and fallback rules are described in
   [incremental maintenance](docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#9-tail-insert).
