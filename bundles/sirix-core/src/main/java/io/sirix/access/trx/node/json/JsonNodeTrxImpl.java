@@ -4156,8 +4156,8 @@ final class JsonNodeTrxImpl extends
 
       final NumericValueNode node = (NumericValueNode) nodeReadOnlyTrx.getStructuralNode();
       final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
-      final long oldValueAsLong = statsOn && node.getValue() != null
-          ? node.getValue().longValue()
+      final Number oldValue = statsOn && node.getValue() != null
+          ? node.getValue()
           : 0L;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
@@ -4173,11 +4173,8 @@ final class JsonNodeTrxImpl extends
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
       if (statsOn) {
-        pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
-        // KNOWN LIMITATION: path value-statistics store longs, so double/decimal values are
-        // truncated here. Stats feed optimizer cost estimation only (never query results); a
-        // type-faithful stats channel is a storage-format change tracked as a follow-up.
-        pathSummaryWriter.recordValue(pathNodeKey, value.longValue(), node.getNodeKey());
+        removeNumericPathStat(pathNodeKey, oldValue);
+        recordNumericPathStat(pathNodeKey, value, node.getNodeKey());
       }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
@@ -4293,8 +4290,8 @@ final class JsonNodeTrxImpl extends
     final long pathNodeKey = node.getPathNodeKey();
 
     final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
-    final long oldValueAsLong = statsOn && node.getValue() != null
-        ? node.getValue().longValue()
+    final Number oldValue = statsOn && node.getValue() != null
+        ? node.getValue()
         : 0L;
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
@@ -4311,11 +4308,8 @@ final class JsonNodeTrxImpl extends
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
     if (statsOn) {
-      pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
-      // KNOWN LIMITATION: path value-statistics store longs, so double/decimal values are
-      // truncated here. Stats feed optimizer cost estimation only (never query results); a
-      // type-faithful stats channel is a storage-format change tracked as a follow-up.
-      pathSummaryWriter.recordValue(pathNodeKey, value.longValue(), node.getNodeKey());
+      removeNumericPathStat(pathNodeKey, oldValue);
+      recordNumericPathStat(pathNodeKey, value, node.getNodeKey());
     }
 
     adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
