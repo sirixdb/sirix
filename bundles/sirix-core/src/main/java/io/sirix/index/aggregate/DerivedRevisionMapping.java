@@ -17,6 +17,8 @@ import java.util.List;
 /** Prefix 4 is independent of the group and part key spaces, in physical aggregate tree zero. */
 record DerivedRevisionMapping(int sourceRevision, int indexRevision, int projection, long timestamp, long identityHigh,
     long identityLow) {
+  static final int CACHE_CAPACITY = 64;
+
   private static byte[] key(final int revision) {
     return ByteBuffer.allocate(5).put((byte) 4).putInt(revision).array();
   }
@@ -104,14 +106,29 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
   }
 
   static List<DerivedRevisionMapping> readAll(final StorageEngineReader reader) {
-    final List<DerivedRevisionMapping> mappings = new ArrayList<>();
+    return readRange(reader, new byte[] {4}, new byte[] {5}, 10);
+  }
+
+  /** One bounded metadata read serves adjacent historical snapshots after a cold open. */
+  static List<DerivedRevisionMapping> readWindow(final StorageEngineReader reader, final int firstRevision) {
+    if (firstRevision < 1) {
+      throw new IllegalArgumentException("A mapping window starts at a positive source revision");
+    }
+    // The cursor includes both bounds. Widen before adding so the last window cannot wrap into
+    // negative revision keys (which include the frontier marker).
+    final int lastRevision = (int) Math.min(Integer.MAX_VALUE, (long) firstRevision + CACHE_CAPACITY - 1);
+    return readRange(reader, key(firstRevision), key(lastRevision), CACHE_CAPACITY);
+  }
+
+  private static List<DerivedRevisionMapping> readRange(final StorageEngineReader reader, final byte[] lower,
+      final byte[] upper, final int capacity) {
+    final List<DerivedRevisionMapping> mappings = new ArrayList<>(capacity);
     final PageReference root =
         reader.getTemporalAggregateIndexPage(reader.getActualRevisionRootPage()).getIndexReference(0);
     if (root == null) {
       return mappings;
     }
-    try (HOTTrieReader trie = new HOTTrieReader(reader);
-        HOTRangeCursor cursor = trie.range(root, new byte[] {4}, new byte[] {5})) {
+    try (HOTTrieReader trie = new HOTTrieReader(reader); HOTRangeCursor cursor = trie.range(root, lower, upper)) {
       while (cursor.hasNext()) {
         final HOTRangeCursor.Entry entry = cursor.next();
         final byte[] key = entry.keyBytes();

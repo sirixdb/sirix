@@ -28,6 +28,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ProjectionIndexByteScanTest {
 
   @Test
+  void numericOperatorsPreserveSignedLimitsMissingCellsAndPartialWords() {
+    final long[] values = {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1, 0, 1, Long.MAX_VALUE - 1, Long.MAX_VALUE};
+    final List<byte[]> leaves = new ArrayList<>();
+    // Shrinking and growing leaves also exercise reuse of the numeric and packed-mask scratch.
+    for (final int rows : new int[] {129, 1, 65, 64, 63}) {
+      final ProjectionIndexRowGroupPage page =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < rows; row++) {
+        assertTrue(
+            page.appendExtractedUtf8Row(row, new long[] {values[row % values.length]}, new boolean[1], new byte[1][],
+                new String[1][], new boolean[] {row % 13 != 0}, new boolean[1], new boolean[1], new boolean[1]));
+      }
+      leaves.add(page.serialize());
+    }
+    final List<ProjectionIndexScan.ColumnPredicate> predicates = new ArrayList<>();
+    for (final ProjectionIndexScan.Op op : List.of(ProjectionIndexScan.Op.GT, ProjectionIndexScan.Op.GE,
+        ProjectionIndexScan.Op.LT, ProjectionIndexScan.Op.LE, ProjectionIndexScan.Op.EQ, ProjectionIndexScan.Op.NE)) {
+      for (final long bound : values) {
+        predicates.add(ProjectionIndexScan.ColumnPredicate.numeric(0, op, bound));
+      }
+    }
+    for (final ProjectionIndexScan.Op lower : List.of(ProjectionIndexScan.Op.GT, ProjectionIndexScan.Op.GE)) {
+      for (final ProjectionIndexScan.Op upper : List.of(ProjectionIndexScan.Op.LT, ProjectionIndexScan.Op.LE)) {
+        predicates.add(ProjectionIndexScan.ColumnPredicate.numericBetween(0, lower, -1, upper, 1));
+        predicates.add(
+            ProjectionIndexScan.ColumnPredicate.numericBetween(0, lower, Long.MIN_VALUE, upper, Long.MAX_VALUE));
+      }
+    }
+    for (final ProjectionIndexScan.ColumnPredicate predicate : predicates) {
+      final ProjectionIndexScan.ColumnPredicate[] condition = {predicate};
+      assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, condition),
+          ProjectionIndexByteScan.conjunctiveCount(leaves, condition), "numeric operator " + predicate.op);
+    }
+  }
+
+  @Test
   void flatCountPreservesSparseGroupCountsAndFirstOrdinalsAcrossLeaves() {
     final List<byte[]> leaves = new ArrayList<>();
     final int[] leafSizes = {73, 127, 211};

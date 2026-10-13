@@ -216,7 +216,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     }
 
     public @Nullable StorageEngineReader openReader(final StorageEngineReader sourceReader) {
-      if (closed || poisonedRevision >= 0) {
+      if (closed || poisonedRevision >= 0 || sourceReader.getRevisionNumber() < 1) {
         return null;
       }
       try {
@@ -225,14 +225,23 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
           // A cold open must not decline merely because the daemon has not populated its cache.
           // Only a durable exact mapping admits a query; absent mappings still fall back.
           try (StorageEngineReader latest = derived.createStorageEngineReader()) {
-            mapping = DerivedRevisionMapping.read(latest, sourceReader.getRevisionNumber());
+            for (final DerivedRevisionMapping adjacent : DerivedRevisionMapping.readWindow(latest,
+                sourceReader.getRevisionNumber())) {
+              mappings.putIfAbsent(adjacent.sourceRevision(), adjacent);
+              if (adjacent.sourceRevision() == sourceReader.getRevisionNumber()) {
+                mapping = adjacent;
+              }
+            }
+          }
+          while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
+            mappings.pollFirstEntry();
           }
         }
         if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
           return null;
         }
         mappings.putIfAbsent(mapping.sourceRevision(), mapping);
-        while (mappings.size() > 64) {
+        while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
           mappings.pollFirstEntry();
         }
         return derived.createStorageEngineReader(mapping.indexRevision());
@@ -353,7 +362,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
               ? "src=" + last
               : "src=" + first + ".." + last, reader.getRevisionTimestamp());
           mappings.put(last, mapping);
-          while (mappings.size() > 64) {
+          while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
             mappings.pollFirstEntry();
           }
           maintained = last;

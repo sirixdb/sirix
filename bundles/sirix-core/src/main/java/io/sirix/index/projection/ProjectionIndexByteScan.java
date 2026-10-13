@@ -6129,90 +6129,120 @@ public final class ProjectionIndexByteScan {
     }
   }
 
-  private static void evalNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
-      final ProjectionIndexScan.Op op, final long lit, final long highLit, final long[] scratch, final long[] flags,
-      final long[] out) {
-    // 1) Load column into scratch — fully intrinsified (MOVQ per lane).
+  // Keep row loops independently compilable: a new operator may deoptimize the dispatcher,
+  // but must not invalidate the load loop and the other operators already used by a scan.
+  private static void loadNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final long[] scratch) {
     for (int k = 0; k < rowCount; k++) {
       scratch[k] = getLongLE(payload, baseOff + k * 8);
     }
+  }
+
+  private static void evalNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final ProjectionIndexScan.Op op, final long lit, final long highLit, final long[] scratch, final long[] flags,
+      final long[] out) {
+    loadNumericBytes(payload, baseOff, rowCount, scratch);
     // 2) Vectorisable compare pass. Each arm is a single relational op (or a
     // non-short-circuit AND of two, for the fused BETWEEN range) applied
     // branch-free into `flags` — the shape C2 SuperWord turns into a packed
     // vector compare. Dispatch is hoisted out of the loop by the tableswitch.
     switch (op) {
-      case GT -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] > lit)
-              ? 1L
-              : 0L;
-      }
-      case LT -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] < lit)
-              ? 1L
-              : 0L;
-      }
-      case GE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] >= lit)
-              ? 1L
-              : 0L;
-      }
-      case LE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] <= lit)
-              ? 1L
-              : 0L;
-      }
-      case EQ -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] == lit)
-              ? 1L
-              : 0L;
-      }
-      case NE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] != lit)
-              ? 1L
-              : 0L;
-      }
-      case BETWEEN_GT_LT -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v > lit) & (v < highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GT_LE -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v > lit) & (v <= highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GE_LT -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v >= lit) & (v < highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GE_LE -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v >= lit) & (v <= highLit))
-              ? 1L
-              : 0L;
-        }
-      }
+      case GT -> compareNumericGt(scratch, rowCount, lit, flags);
+      case LT -> compareNumericLt(scratch, rowCount, lit, flags);
+      case GE -> compareNumericGe(scratch, rowCount, lit, flags);
+      case LE -> compareNumericLe(scratch, rowCount, lit, flags);
+      case EQ -> compareNumericEq(scratch, rowCount, lit, flags);
+      case NE -> compareNumericNe(scratch, rowCount, lit, flags);
+      case BETWEEN_GT_LT -> compareNumericBetweenGtLt(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GT_LE -> compareNumericBetweenGtLe(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GE_LT -> compareNumericBetweenGeLt(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GE_LE -> compareNumericBetweenGeLe(scratch, rowCount, lit, highLit, flags);
       default -> throw new IllegalStateException("Unknown numeric op " + op);
     }
     // 3) Pack the per-row flags into the packed-bit output mask.
     packFlags(flags, rowCount, out);
+  }
+
+  private static void compareNumericGt(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] > lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericLt(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] < lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericGe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] >= lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericLe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] <= lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericEq(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] == lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericNe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] != lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericBetweenGtLt(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v > lit) & (v < highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  private static void compareNumericBetweenGtLe(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v > lit) & (v <= highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  private static void compareNumericBetweenGeLt(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v >= lit) & (v < highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  private static void compareNumericBetweenGeLe(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v >= lit) & (v <= highLit))
+          ? 1L
+          : 0L;
+    }
   }
 
   /**
