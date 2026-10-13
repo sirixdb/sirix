@@ -45,13 +45,14 @@ final class ProjectionNumericUpdateExactnessTest {
       for (final String dictionaries : new String[] {"never", "always"}) {
         System.setProperty(DICTIONARY_PROPERTY, dictionaries);
         final Path location = directory.resolve(dictionaries);
-        try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                          .location(location)
-                                                          .storageType(StorageType.FILE_CHANNEL)
-                                                          .buildPathSummary(true)
-                                                          .buildPathStatistics(true)
-                                                          .versioningType(versioning)
-                                                          .build();
+        try (
+            final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                           .location(location)
+                                                           .storageType(StorageType.FILE_CHANNEL)
+                                                           .buildPathSummary(true)
+                                                           .buildPathStatistics(true)
+                                                           .versioningType(versioning)
+                                                           .build();
             final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
             final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
           serialize(chain, context, "jn:store('carry','resource','" + document() + "')");

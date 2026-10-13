@@ -2860,7 +2860,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           ProjectionIndexRowGroupPage.RowCopier carry = null;
           if (carriedKeys != null) {
             carriedKeys.clear();
-            carriedRows.clear();
+            Objects.requireNonNull(carriedRows).clear();
           }
           int appendedRows = 0;
           if (tailFirstRows != null) {
@@ -2891,11 +2891,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             final boolean appended;
             if (carriedRow >= 0) {
               if (carry == null) {
-                carry = page.copierFrom(carrySource);
+                carry = page.copierFrom(Objects.requireNonNull(carrySource));
               }
               appended = carry.append(carriedRow, orderException, orderLabel);
-              carriedKeys.add(key);
-              carriedRows.add(appendedRows);
+              Objects.requireNonNull(carriedKeys).add(key);
+              Objects.requireNonNull(carriedRows).add(appendedRows);
               locality.rowsCarriedOver++;
             } else {
               if (!extractInto(extractor, extractionTrx, key)) {
@@ -2926,8 +2926,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             from = 0;
             continue;
           }
-          if (carry != null
-              && !settleImpureWitnesses(page, carry, carriedKeys, carriedRows, extractor, extractionTrx, locality)) {
+          if (carry != null && !settleImpureWitnesses(page, carry, Objects.requireNonNull(carriedKeys),
+              Objects.requireNonNull(carriedRows), extractor, extractionTrx, locality)) {
             return false;
           }
           final int physicalSlot = group == 0
@@ -3741,7 +3741,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final byte[] witnessRules = carryOver
         ? new byte[persistedKinds.length]
         : null;
-    for (int column = 0; carryOver && column < persistedKinds.length; column++) {
+    for (int column = 0; witnessRules != null && carryOver && column < persistedKinds.length; column++) {
       if (rebuiltColumns[column] != null) {
         witnessRules[column] =
             ProjectionIndexRowGroupPage.sliceRowWitnessRule(persistedKinds[column], priorSlices[column]);
@@ -3769,7 +3769,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         sliceDictIds[column] = slice.stringDictIds();
         final int[] memo = new int[Math.max(1, slice.dictSize())];
         Arrays.fill(memo, -1);
-        dictionaryIdMemos[column] = memo;
+        Objects.requireNonNull(dictionaryIdMemos)[column] = memo;
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
           final int[] counts = Objects.requireNonNull(slice.setCounts());
           final int[] starts = new int[recordKeys.length];
@@ -3778,27 +3778,28 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             starts[row] = at;
             at += counts[row];
           }
-          sliceSetRowStarts[column] = starts;
+          Objects.requireNonNull(sliceSetRowStarts)[column] = starts;
         }
       }
     }
     for (int row = 0; row < recordKeys.length; row++) {
       final long recordKey = recordKeys[row];
-      if (carryOver && !carryOverDirty.contains(recordKey)) {
+      if (carryOver && !Objects.requireNonNull(carryOverDirty).contains(recordKey)) {
+        final byte[] carriedWitnessRules = Objects.requireNonNull(witnessRules);
         for (int column = 0; column < persistedKinds.length; column++) {
           final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
           if (rebuilt == null) {
             continue;
           }
           final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
-          if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, witnessRules[column],
+          if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, carriedWitnessRules[column],
               dictionary
-                  ? sliceDictIds[column]
+                  ? Objects.requireNonNull(sliceDictIds)[column]
                   : null,
               dictionary
-                  ? dictionaryIdMemos[column]
+                  ? Objects.requireNonNull(dictionaryIdMemos)[column]
                   : null,
-              dictionary && sliceSetRowStarts[column] != null
+              dictionary && Objects.requireNonNull(sliceSetRowStarts)[column] != null
                   ? sliceSetRowStarts[column][row]
                   : 0)) {
             return false;
@@ -3824,12 +3825,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
 
     if (carryOver) {
+      final byte[] carriedWitnessRules = Objects.requireNonNull(witnessRules);
+      final LongOpenHashSet carriedDirty = Objects.requireNonNull(carryOverDirty);
       // Settle the purity flag of a carried double column exactly as settleImpureWitnesses does for
       // a rebuilt row group: probe carried cells until one proves impure.
       long[] mask = null;
       for (int column = 0; column < persistedKinds.length; column++) {
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-        if (rebuilt == null || witnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_SOME_IMPURE
+        if (rebuilt == null || carriedWitnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_SOME_IMPURE
             || !rebuilt.columnPureDoubleSource(0)) {
           continue;
         }
@@ -3841,7 +3844,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         mask[column >>> 6] = 1L << (column & 63);
         final long[] presence = priorSlices[column].presenceWords();
         for (int row = 0; row < recordKeys.length; row++) {
-          if ((presence[row >>> 6] & (1L << (row & 63))) == 0 || carryOverDirty.contains(recordKeys[row])) {
+          if ((presence[row >>> 6] & (1L << (row & 63))) == 0 || carriedDirty.contains(recordKeys[row])) {
             continue;
           }
           locality.witnessProbes++;
