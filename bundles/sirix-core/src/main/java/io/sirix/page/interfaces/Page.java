@@ -24,7 +24,6 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
-import java.io.Closeable;
 import java.util.List;
 
 /**

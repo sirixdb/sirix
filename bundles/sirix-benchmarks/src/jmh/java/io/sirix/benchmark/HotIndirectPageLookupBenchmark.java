@@ -168,13 +168,13 @@ public class HotIndirectPageLookupBenchmark {
 
   @Benchmark
   public int lookupFound() {
-    final int i = (idx++) & (numChildren - 1);
+    final int i = idx++ & (numChildren - 1);
     return page.findChildIndex(foundKeys[i]);
   }
 
   @Benchmark
   public int lookupMissingEquality() {
-    final int i = (idx++) & (numChildren - 1);
+    final int i = idx++ & (numChildren - 1);
     return page.findChildIndex(missingKeys[i]);
   }
 }

@@ -29,7 +29,6 @@
 package io.sirix.index.hot.reader;
 
 import io.sirix.api.StorageEngineReader;
-import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.page.HOTIndirectPage;
