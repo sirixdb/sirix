@@ -555,7 +555,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /** Constructor-stage injection seam for native-frame ownership tests. */
-  public HOTLeafPage(long recordPageKey, int revision, IndexType indexType,
+  HOTLeafPage(long recordPageKey, int revision, IndexType indexType,
       @Nullable MemorySegmentAllocator allocatorForTesting, @Nullable Runnable afterFrameAcquireForTesting) {
     this.binarySearchOnly = false;
     this.recordPageKey = recordPageKey;
