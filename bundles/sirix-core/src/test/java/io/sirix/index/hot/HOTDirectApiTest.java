@@ -6,25 +6,10 @@
 
 package io.sirix.index.hot;
 
-import io.brackit.query.atomic.Int32;
-import io.brackit.query.atomic.Str;
-import io.brackit.query.jdm.Type;
 import io.sirix.JsonTestHelper;
-import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.Database;
-import io.sirix.api.json.JsonNodeTrx;
-import io.sirix.api.json.JsonResourceSession;
-import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
-import io.sirix.index.SearchMode;
-import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
-import io.sirix.service.json.shredder.JsonShredder;
-import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,12 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
 
-import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;

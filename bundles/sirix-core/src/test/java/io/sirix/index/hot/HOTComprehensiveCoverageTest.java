@@ -13,14 +13,8 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
-import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.NodeKind;
 import io.sirix.index.hot.page.HOTIndirectPage;
-import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -32,15 +26,10 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

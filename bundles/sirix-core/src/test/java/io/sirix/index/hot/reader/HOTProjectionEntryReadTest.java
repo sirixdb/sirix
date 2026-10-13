@@ -6,7 +6,6 @@ package io.sirix.index.hot.reader;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.access.trx.page.RevisionRootPageReader;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.index.hot.reader.HOTTrieReader.LowerBoundResult;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.RevisionEpochTracker.Ticket;

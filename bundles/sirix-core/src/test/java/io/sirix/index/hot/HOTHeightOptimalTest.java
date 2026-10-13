@@ -12,7 +12,6 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.cache.Allocators;
-import io.sirix.node.NodeKind;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
@@ -25,7 +24,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
-import java.util.Random;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
