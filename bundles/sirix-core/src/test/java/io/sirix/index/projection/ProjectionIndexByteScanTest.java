@@ -13,6 +13,10 @@ import org.junit.jupiter.api.function.Executable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -109,6 +113,49 @@ final class ProjectionIndexByteScanTest {
           assertEquals(entry.getValue()[0], storage[offset], "group count");
           assertEquals(entry.getValue()[1], storage[offset + 1], "first matching ordinal");
         }
+      }
+    }
+  }
+
+  @Test
+  void distinctSinksFollowLeafDictionaryIdentityAndQueryOwnership() {
+    final List<byte[]> leaves = new ArrayList<>();
+    final Map<String, Set<Long>> expected = new HashMap<>();
+    final Set<Long> expectedMissing = new HashSet<>();
+    for (int leaf = 0; leaf < 4; leaf++) {
+      final int cardinality = new int[] {3, 117, 1, 91}[leaf];
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < 511; row++) {
+        final String group = "g" + ((row + leaf * 19) % cardinality);
+        final long value = (row + leaf * 3) % 23;
+        final boolean groupPresent = row % 13 != 0;
+        final boolean valuePresent = row % 17 != 0;
+        assertTrue(page.appendExtractedUtf8Row(leaf * 1000L + row, new long[] {0, value}, new boolean[2],
+            new byte[][] {group.getBytes(StandardCharsets.UTF_8), null}, new String[2][],
+            new boolean[] {groupPresent, valuePresent}, new boolean[2], new boolean[2], new boolean[2]));
+        if (valuePresent) {
+          (groupPresent
+              ? expected.computeIfAbsent(group, ignored -> new HashSet<>())
+              : expectedMissing).add(value);
+        }
+      }
+      leaves.add(page.serialize());
+    }
+    for (int query = 0; query < 2; query++) {
+      final GroupDistinctAccumulator distinct = new GroupDistinctAccumulator(1, Long.MAX_VALUE);
+      final GroupDistinctAccumulator.Worker worker = distinct.worker(0);
+      final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, true);
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
+          ? leaves
+          : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
+          ProjectionIndexByteScan.newGroupAggAcc(1, 0), 0, 0, worker, worker.missing(), null, null);
+      distinct.finish();
+      assertEquals(expectedMissing.size(), distinct.missingSize());
+      assertEquals(expected.size(), distinct.groupSizes().size());
+      for (final Map.Entry<String, Set<Long>> entry : expected.entrySet()) {
+        final long key = ProjectionIndexByteScan.utf8Hash(entry.getKey().getBytes(StandardCharsets.UTF_8));
+        assertEquals(entry.getValue().size(), distinct.groupSizes().get(key), entry.getKey());
       }
     }
   }

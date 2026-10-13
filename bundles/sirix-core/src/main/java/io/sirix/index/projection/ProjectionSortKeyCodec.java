@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -47,6 +50,8 @@ final class ProjectionSortKeyCodec {
   static final byte FIELD_STRING = 1;
   static final byte FIELD_LONG = 2;
   static final byte FIELD_BOOLEAN = 3;
+
+  private static final VarHandle LONG_LE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   private static final int DEFAULT_CAPACITY = 128;
   private static final int MAX_BUFFER_BYTES = Integer.MAX_VALUE - 8;
@@ -229,6 +234,19 @@ final class ProjectionSortKeyCodec {
    */
   static int stringFieldEnd(final byte[] key, final int at, final int end) {
     for (int i = at + 1; i + 1 < end; i++) {
+      if (i <= end - Long.BYTES) {
+        final long word = (long) LONG_LE.get(key, i);
+        final long zeros = (word - 0x0101010101010101L) & ~word & 0x8080808080808080L;
+        if (zeros == 0) {
+          i += Long.BYTES - 1;
+          continue;
+        }
+        // Borrow propagation may mark a byte after the first zero, but cannot precede it.
+        i += Long.numberOfTrailingZeros(zeros) >>> 3;
+        if (i + 1 >= end) {
+          return -1;
+        }
+      }
       if (key[i] == 0) {
         if (key[i + 1] == 0) {
           return i + 2;

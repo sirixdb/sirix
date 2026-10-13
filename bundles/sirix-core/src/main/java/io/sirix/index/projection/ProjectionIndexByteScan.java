@@ -2530,6 +2530,11 @@ public final class ProjectionIndexByteScan {
     int[] dictByteOff = s.dictByteOff;
     long[] dictHash = s.dictHashCache;
     int[] dictBase = s.dictSlotBase;
+    // Sinks are constant for one leaf's dictionary IDs. Keep this cache call-local: retaining a
+    // sink in thread scratch would retain the query's whole distinct accumulator between queries.
+    GroupDistinctAccumulator.Sink[] dictSinks = distinctBlock >= 0 && groupGlobalView == null
+        ? new GroupDistinctAccumulator.Sink[dictHash.length]
+        : null;
     final RegexHashCache regexCache = keyRegex != null
         ? new RegexHashCache()
         : null;
@@ -2602,6 +2607,9 @@ public final class ProjectionIndexByteScan {
         final int newSize = Math.max(dictHash.length * 2, dictSize);
         dictHash = s.dictHashCache = new long[newSize];
         dictBase = s.dictSlotBase = new int[newSize];
+        if (dictSinks != null) {
+          dictSinks = new GroupDistinctAccumulator.Sink[newSize];
+        }
       }
       final int lenHeaderOff = groupBase + 4;
       final int concatOff = lenHeaderOff + dictSize * 4;
@@ -2610,6 +2618,9 @@ public final class ProjectionIndexByteScan {
         dictByteOff[i] = running;
         running += getIntLE(payload, lenHeaderOff + i * 4);
         dictBase[i] = -1; // unresolved for THIS leaf
+        if (dictSinks != null) {
+          dictSinks[i] = null;
+        }
       }
       final int idsOff = globalGroup
           ? groupBase
@@ -2862,7 +2873,11 @@ public final class ProjectionIndexByteScan {
               dictBase[dictId] = cached;
             }
             if (distinctBlock >= 0) {
-              dset = distinctOut.sinkFor(h);
+              dset = dictSinks[dictId];
+              if (dset == null) {
+                dset = distinctOut.sinkFor(h);
+                dictSinks[dictId] = dset;
+              }
             }
             slotArr = out.storageAtAccBase(cached);
             base = out.offsetAtAccBase(cached);
