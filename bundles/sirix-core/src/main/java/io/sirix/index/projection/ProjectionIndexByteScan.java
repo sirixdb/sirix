@@ -2629,6 +2629,11 @@ public final class ProjectionIndexByteScan {
       final int groupPresOff = tailStart >= 0
           ? presenceWordsOff(payload, tailStart, groupColumn)
           : -1;
+      if (countOnly && keyRegex == null && !globalGroup) {
+        countStringGroups(payload, rowCount, groupPresOff, idsOff, lenHeaderOff, (long) (leafIndexBase + leaf) << 20,
+            s.mask, dictByteOff, dictHash, dictBase, out, missingAcc);
+        continue;
+      }
       final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
           ? s.groupAggPresOff
           : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
@@ -3379,6 +3384,15 @@ public final class ProjectionIndexByteScan {
         aggValOff[a] = s.columnDataOff[aggColumns[a]];
       }
       final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      if (countOnly && keyOffsets == null && keySubstr == null && keyCondCols == null && keyCondElse == null
+          && keyDivMod == null) {
+        if (!countCompositeGroups(payload, rowCount, leafOrdinalBase, s.mask, compKind, compPresOff, compValOff,
+            compDictHash, compDictIdA, compDictIdB, compDictOff, compDictLenOff, compDictProven, compNeedsProof, idLane,
+            twoLane, identity, identityRegistry, proofCache, out)) {
+          return;
+        }
+        continue;
+      }
       final int stride = rowCount + 63 >>> 6;
       final long[] scanMask = s.mask;
       for (int w = 0; w < stride; w++) {
@@ -3545,6 +3559,129 @@ public final class ProjectionIndexByteScan {
         }
       }
     }
+  }
+
+  /** Count by leaf-local dictionary ID before resolving each selected group once in the table. */
+  private static void countStringGroups(final byte[] payload, final int rowCount, final int groupPresOff,
+      final int idsOff, final int lenHeaderOff, final long leafOrdinalBase, final long[] scanMask,
+      final int[] dictByteOff, final long[] dictCounts, final int[] firstRows, final NumericGroupAggTable out,
+      final long[] missingAcc) {
+    // The caller resets firstRows to -1 for this leaf. The ordinary fold uses the same scratch
+    // arrays as hashes/handles, but neither representation survives the next leaf's reset.
+    final int stride = rowCount + 63 >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      final long present = groupPresOff >= 0
+          ? getLongLE(payload, groupPresOff + (w << 3))
+          : -1L;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int row = (w << 6) + bit;
+        if ((present & 1L << bit) == 0L) {
+          if (missingAcc[0] == 0L) {
+            missingAcc[1] = leafOrdinalBase | row;
+          }
+          missingAcc[0]++;
+          continue;
+        }
+        final int id = getIntLE(payload, idsOff + row * 4);
+        if (firstRows[id] < 0) {
+          firstRows[id] = row;
+          dictCounts[id] = 1L;
+        } else {
+          dictCounts[id]++;
+        }
+      }
+    }
+    final int dictSize = getIntLE(payload, lenHeaderOff - 4);
+    for (int id = 0; id < dictSize; id++) {
+      if (firstRows[id] < 0) {
+        continue;
+      }
+      final long ordinal = leafOrdinalBase | firstRows[id];
+      final long hash = fnv1a64(payload, dictByteOff[id], getIntLE(payload, lenHeaderOff + id * 4));
+      if (hash == 0L) {
+        final boolean fresh = !out.hasZeroKey();
+        final long[] zero = out.acquireZero(ordinal);
+        if (fresh) {
+          out.setZeroAux(leafOrdinalBase | id);
+        }
+        zero[0] += dictCounts[id];
+      } else {
+        final int handle = out.acquire(hash, ordinal);
+        if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+          continue;
+        }
+        final long[] storage = out.storageAtAccBase(handle);
+        final int offset = out.offsetAtAccBase(handle);
+        if (storage[offset] == 0L) {
+          out.setAuxAtAccBase(handle, leafOrdinalBase | id);
+        }
+        storage[offset] += dictCounts[id];
+      }
+    }
+  }
+
+  /** Count untransformed composite keys while retaining canonical byte proofs and pass ownership. */
+  private static boolean countCompositeGroups(final byte[] payload, final int rowCount, final long leafOrdinalBase,
+      final long[] scanMask, final byte[] kinds, final int[] presOff, final int[] valOff, final long[][] hashes,
+      final long[][] idA, final long[][] idB, final int[][] dictOff, final int[] lenOff, final long[][] proven,
+      final boolean[] needsProof, final int[] idLane, final boolean[] twoLane, final long[] identity,
+      final ProjectionStringIdentityRegistry registry,
+      final ProjectionStringIdentityRegistry.LocalProofCache proofCache, final NumericGroupAggTable out) {
+    final int stride = rowCount + 63 >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int row = (w << 6) + bit;
+        long hash = 0xcbf29ce484222325L;
+        long presenceMask = 0L;
+        for (int k = 0; k < kinds.length; k++) {
+          final int lane = idLane[k];
+          final long component;
+          if (presOff[k] >= 0 && (getLongLE(payload, presOff[k] + (w << 3)) & 1L << bit) == 0L) {
+            presenceMask |= 1L << k;
+            component = MISSING_COMPONENT_HASH;
+            identity[lane] = MISSING_COMPONENT_IDENTITY;
+            if (twoLane[k]) {
+              identity[lane + 1] = 0L;
+            }
+          } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(kinds[k])
+              || kinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            final long value = getLongLE(payload, valOff[k] + row * 8);
+            component = HashCommon.mix(value);
+            identity[lane] = value;
+          } else {
+            final int id = getIntLE(payload, valOff[k] + row * 4);
+            if (needsProof[k] && !proveOnFirstUse(registry, proofCache, k, proven[k], id, idA[k][id], idB[k][id],
+                payload, dictOff[k][id], getIntLE(payload, lenOff[k] + id * 4))) {
+              return false;
+            }
+            component = hashes[k][id];
+            identity[lane] = idA[k][id];
+            if (twoLane[k]) {
+              identity[lane + 1] = idB[k][id];
+            }
+          }
+          hash = hash * 0x100000001b3L ^ component;
+        }
+        identity[0] = presenceMask;
+        final int handle = out.acquireExact(hash, leafOrdinalBase | row, identity, 0);
+        if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+          continue;
+        }
+        final long[] storage = out.storageAtAccBase(handle);
+        final int offset = out.offsetAtAccBase(handle);
+        if (storage[offset] == 0L) {
+          out.setAuxAtAccBase(handle, leafOrdinalBase | row);
+        }
+        storage[offset]++;
+      }
+    }
+    return true;
   }
 
   /** Every selected component must already carry exact identity in one long lane. */
