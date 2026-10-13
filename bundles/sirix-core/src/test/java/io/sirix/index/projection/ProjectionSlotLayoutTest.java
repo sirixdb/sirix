@@ -3,7 +3,7 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;

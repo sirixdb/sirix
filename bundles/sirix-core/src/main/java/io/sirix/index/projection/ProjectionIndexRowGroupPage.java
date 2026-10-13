@@ -109,8 +109,8 @@ import org.jspecify.annotations.Nullable;
  *
  * A row group is not stored as one opaque value. Its zone-map descriptor, KEYS segment, and each
  * column's BODY / DICT / SET_COUNTS / STRING_BLOOM / optional DICT_HASHES segment occupy
- * independent composite-key slots in the projection's {@link io.sirix.page.HOTLeafPage} tree. A
- * segment above the inline threshold spills independently to the ordinary
+ * independent composite-key slots in the projection's {@link io.sirix.index.hot.page.HOTLeafPage}
+ * tree. A segment above the inline threshold spills independently to the ordinary
  * {@link io.sirix.page.OverflowPage} mechanism, so one large dictionary does not force the other
  * columns into its CoW unit.
  *

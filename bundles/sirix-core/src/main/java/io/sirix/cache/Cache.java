@@ -146,8 +146,8 @@ public interface Cache<K, V> {
    *
    * <p>
    * Membership is by reference identity for value types that do not override {@code equals} (e.g.
-   * {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid releasing off-heap
-   * memory of a page that is still owned (and shared) by a buffer cache.
+   * {@link io.sirix.index.hot.page.HOTLeafPage}). Used by transaction-teardown code to avoid
+   * releasing off-heap memory of a page that is still owned (and shared) by a buffer cache.
    * </p>
    *
    * @param value the value instance to look for (may be {@code null}, in which case {@code false} is
@@ -168,7 +168,7 @@ public interface Cache<K, V> {
    * <p>
    * Used to take a transaction-private page out of the shared cache so that background
    * ({@code ClockSweeper}) and pressure-driven eviction cannot reclaim its off-heap memory while the
-   * page is still needed (e.g. a dirty {@link io.sirix.page.HOTLeafPage} owned by the
+   * page is still needed (e.g. a dirty {@link io.sirix.index.hot.page.HOTLeafPage} owned by the
    * transaction-intent log until commit). The default implementation is a no-op; caches that hold
    * evictable, instance-identified pages override it.
    * </p>

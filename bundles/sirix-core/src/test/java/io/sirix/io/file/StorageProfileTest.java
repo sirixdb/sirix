@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.sirix.index.IndexType;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PathPage;
 
 import java.io.ByteArrayOutputStream;

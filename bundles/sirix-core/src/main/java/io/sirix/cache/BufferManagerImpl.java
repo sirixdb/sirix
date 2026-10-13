@@ -1,8 +1,11 @@
 package io.sirix.cache;
 
+import io.sirix.index.hot.cache.HOTFragmentCache;
+import io.sirix.index.hot.cache.HOTLookupCache;
+import io.sirix.index.hot.cache.HOTMiniPageCache;
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.page.HOTLeafPage;
-import io.sirix.page.HOTMiniPage;
+import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTMiniPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -123,9 +126,10 @@ public final class BufferManagerImpl implements BufferManager {
    *
    * <p>
    * {@code long[MAX_CACHED_NODE_KEYS]} (2064) + the {@code Entry} record (~24) + the
-   * {@link HOTLookupKey} (~56) + its owned key copy (~256 for a maxed CAS key). Deliberately the
-   * worst case: an average would size the table so that a workload of large posting lists overshoots
-   * the budget, which is exactly the workload that most needs the bound to hold.
+   * {@link io.sirix.index.hot.cache.HOTLookupKey} (~56) + its owned key copy (~256 for a maxed CAS
+   * key). Deliberately the worst case: an average would size the table so that a workload of large
+   * posting lists overshoots the budget, which is exactly the workload that most needs the bound to
+   * hold.
    * </p>
    */
   private static final long HOT_LOOKUP_WORST_CASE_ENTRY_BYTES = 2400L;

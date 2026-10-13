@@ -5,8 +5,8 @@ package io.sirix.cache;
 
 import io.sirix.page.PageReference;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
-import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import io.sirix.index.projection.ProjectionSortedReadView;
 import org.jspecify.annotations.Nullable;
 
@@ -188,7 +188,7 @@ public final class ProjectionBlobCache {
   }
 
   /** Resolve all descriptor/routing work before publishing its fixed, complete charge. */
-  long prepareViewWeight(final ProjectionSortedReadView view) {
+  public long prepareViewWeight(final ProjectionSortedReadView view) {
     if (!canCache(view)) {
       return -1;
     }
@@ -200,7 +200,7 @@ public final class ProjectionBlobCache {
   }
 
   /** Internal callers must obtain the immutable view's charge through {@link #prepareViewWeight}. */
-  boolean publishView(final Key key, final ProjectionSortedReadView view, final long weight,
+  public boolean publishView(final Key key, final ProjectionSortedReadView view, final long weight,
       final long expectedGeneration) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(view);

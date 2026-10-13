@@ -25,7 +25,7 @@
  */
 package io.sirix.benchmark;
 
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -168,13 +168,13 @@ public class HotIndirectPageLookupBenchmark {
 
   @Benchmark
   public int lookupFound() {
-    final int i = (idx++) & (numChildren - 1);
+    final int i = idx++ & (numChildren - 1);
     return page.findChildIndex(foundKeys[i]);
   }
 
   @Benchmark
   public int lookupMissingEquality() {
-    final int i = (idx++) & (numChildren - 1);
+    final int i = idx++ & (numChildren - 1);
     return page.findChildIndex(missingKeys[i]);
   }
 }

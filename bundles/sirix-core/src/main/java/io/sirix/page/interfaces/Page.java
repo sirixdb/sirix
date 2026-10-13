@@ -24,7 +24,6 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
-import java.io.Closeable;
 import java.util.List;
 
 /**
@@ -49,7 +48,8 @@ public interface Page extends AutoCloseable {
    * therefore report {@code 1}. Code resolving an externally assigned slot must use the page type's
    * exact-slot accessor instead of comparing the slot number with this count. The default
    * implementation is the safe cardinality fallback for implementations that materialise the list
-   * lazily (for example {@link io.sirix.page.HOTIndirectPage} or {@code FullReferencesPage}).
+   * lazily (for example {@link io.sirix.index.hot.page.HOTIndirectPage} or
+   * {@code FullReferencesPage}).
    *
    * @return the number of references
    */

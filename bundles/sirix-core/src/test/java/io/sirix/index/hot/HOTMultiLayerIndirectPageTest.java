@@ -12,13 +12,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
@@ -38,7 +34,6 @@ import java.util.concurrent.TimeUnit;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.cache.Allocators;

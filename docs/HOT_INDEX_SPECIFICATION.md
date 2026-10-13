@@ -59,8 +59,8 @@ All paths are relative to the repository root.
 
 Short class names used without an alias: `AbstractHOTIndexWriter` = `hot/AbstractHOTIndexWriter.java`,
 `HOTIncrementalInsert` = `hot/HOTIncrementalInsert.java`, `HOTBulkBuilder` = `hot/HOTBulkBuilder.java`,
-`HOTTrieReader` = `trx/HOTTrieReader.java`, `HOTRangeCursor` = `trx/HOTRangeCursor.java`,
-`HOTLeafPage` = `page/HOTLeafPage.java`, `HOTIndirectPage` = `page/HOTIndirectPage.java`,
+`HOTTrieReader` = `hot/reader/HOTTrieReader.java`, `HOTRangeCursor` = `hot/reader/HOTRangeCursor.java`,
+`HOTLeafPage` = `hot/page/HOTLeafPage.java`, `HOTIndirectPage` = `hot/page/HOTIndirectPage.java`,
 `PageKind` = `page/PageKind.java`, `VersioningType` = `set/VersioningType.java`,
 `NodeStorageEngineReader` = `trx/NodeStorageEngineReader.java`,
 `NodeStorageEngineWriter` = `trx/NodeStorageEngineWriter.java`.
@@ -73,7 +73,7 @@ Short class names used without an alias: `AbstractHOTIndexWriter` = `hot/Abstrac
   byte 0 (`hot/DiscriminativeBitComputer.java:82`, `:296`, `:457-469`). "MSB-first" below means
   "smaller absolute index first".
 - **Key words** used for partial-key extraction are loaded **big-endian**: key byte `p` lands in
-  long bits 56-63 (`page/HOTIndirectPage.java:800-829`, `page/HOTLeafPage.java:770-778`). Several
+  long bits 56-63 (`hot/page/HOTIndirectPage.java:800-829`, `hot/page/HOTLeafPage.java:770-778`). Several
   field comments say "LE" for these masks; they are wrong (§8.3).
 - **On-disk integers** of page bodies are little-endian, like every `BytesOut` integer in the V0
   format (`docs/DISK_FORMAT.md:144-160`). "varlong" is the stop-bit encoding: 7 data bits per byte,
@@ -175,14 +175,14 @@ RevisionRootPage (one per revision)
 
 The design follows Binna et al., "HOT: A Height Optimized Trie Index for Main-Memory Database
 Systems" (SIGMOD 2018), and ports `HOTSingleThreaded.hpp` routines (for example
-`trx/HOTTrieReader.java:409-449`). The differences that matter for reimplementation:
+`hot/reader/HOTTrieReader.java:409-449`). The differences that matter for reimplementation:
 
 - **Multi-entry, page-sized leaves.** A Binna leaf holds one tuple identifier. A SirixDB leaf holds
-  up to 512 sorted entries in a 64 KiB frame (`page/HOTLeafPage.java:116`, `:165`), so every search
+  up to 512 sorted entries in a 64 KiB frame (`hot/page/HOTLeafPage.java:116`, `:165`), so every search
   ends with an in-leaf search, and the leaf-split bit is computed over many keys.
   `docs/HOT_PAPER_IMPOSSIBILITY.md` is the long argument about what this costs.
 - **No sibling pointers.** Range scans keep a parent stack; sibling pointers would force a
-  copy-on-write cascade over all siblings (`trx/HOTRangeCursor.java:44-48`).
+  copy-on-write cascade over all siblings (`hot/reader/HOTRangeCursor.java:44-48`).
 - **Chunked posting lists.** A logical posting list is split across keys `logicalKey ‖ chunkIdx`
   (§2.2), so one hot key never produces a value larger than a leaf.
 - **Versioned leaves.** A leaf's state for a revision is the combination of fragments (§3.5).
@@ -405,16 +405,16 @@ into a *dense partial key*:
 
 | Layout (id) | Stored fields | Extraction |
 |---|---|---|
-| `SINGLE_MASK` (0) | `initialBytePos` (int in memory, u16 on disk) and a 64-bit `bitMask` over the 8-byte big-endian window starting there | `Long.compress(keyWordBE(initialBytePos), bitMask)` — PEXT (`page/HOTIndirectPage.java:532-539`) |
+| `SINGLE_MASK` (0) | `initialBytePos` (int in memory, u16 on disk) and a 64-bit `bitMask` over the 8-byte big-endian window starting there | `Long.compress(keyWordBE(initialBytePos), bitMask)` — PEXT (`hot/page/HOTIndirectPage.java:532-539`) |
 | `MULTI_MASK` (1) | `extractionPositions[]` (key byte indices, u8 each) and `extractionMasks[]` (one u64 per 8 extraction bytes) | gather the extraction bytes into big-endian chunk words, compress each with its mask, concatenate MSB-first (SIMD `vpshufb` if the span is ≤ 32 bytes, otherwise scalar) (`:628-637`, `:647-673`, `:766-797`) |
 
-- Enum ids are explicit stable bytes, not ordinals (`page/HOTIndirectPage.java:116-120`, `:143-148`,
+- Enum ids are explicit stable bytes, not ordinals (`hot/page/HOTIndirectPage.java:116-120`, `:143-148`,
   `:179-184`).
 - Because the window is big-endian and `Long.compress` keeps bit order, the smallest absolute bit
   lands in the highest result bit. Dense partial keys therefore compare like the keys on the bits
   of `D`.
 - `mostSignificantBitIndex = initialBytePos*8 + (63 − highestSetBit(mask))`, stored as a `short`
-  (`page/HOTIndirectPage.java:201-207`, `:227`). A `short` overflows for bit indices above 32767
+  (`hot/page/HOTIndirectPage.java:201-207`, `:227`). A `short` overflows for bit indices above 32767
   (key byte 4095); CAS, PATH and VALIDTIME keys are far shorter, NAME keys are not bounded by the
   serializer.
 - Bytes past the end of the search key read as 0 (`:800-829`).
@@ -423,7 +423,7 @@ into a *dense partial key*:
 
 Each child `i` stores a *sparse partial key* `sparse[i]`: only the bits of the BiNodes on the path
 from the node's root to child `i` are set, all other bits of `D` are 0
-(`hot/SparsePartialKeys.java:51-55`). The search (`page/HOTIndirectPage.java:560-612`):
+(`hot/SparsePartialKeys.java:51-55`). The search (`hot/page/HOTIndirectPage.java:560-612`):
 
 1. `SINGLE_MASK` and `initialBytePos ≥ keyLen` → child 0.
 2. `dense = extract(key)`.
@@ -438,25 +438,25 @@ from the node's root to child `i` are set, all other bits of `D` are 0
 5. Prefer a match whose partial key equals `dense`; otherwise take the highest set bit of `matchMask`.
 
 Taking the highest subset match is Binna's rule; preferring equality is a SirixDB addition that the
-code now explains (`page/HOTIndirectPage.java:566-572`).
+code now explains (`hot/page/HOTIndirectPage.java:566-572`).
 
 #### 2.6.3 Partial-key width and fanout
 
 - Width by `|D|`: ≤ 8 bits → 1 byte, ≤ 16 → 2 bytes, otherwise 4 bytes
-  (`page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
+  (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
   class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
   so the implied invariant is `|D| ≤ 32`.
-- `MAX_NODE_ENTRIES = 32` (`page/HOTIndirectPage.java:111`) is the only fanout limit on the
+- `MAX_NODE_ENTRIES = 32` (`hot/page/HOTIndirectPage.java:111`) is the only fanout limit on the
   production write path (`hot/AbstractHOTIndexWriter.java:568`, `:3816`, `:4098`;
   `hot/HOTIncrementalInsert.java:1158`, `:1289`).
 - Node types: `SPAN_NODE` (id 0, factories require 2..16 children) and `MULTI_NODE` (id 1, factories
-  accept **1..32** children) (`page/HOTIndirectPage.java:123-125`, `:1338-1340`, `:1366-1368`). The
+  accept **1..32** children) (`hot/page/HOTIndirectPage.java:123-125`, `:1338-1340`, `:1366-1368`). The
   class Javadoc's "17-32 children" is wrong (`:72-73`, `:124`). Span and multi nodes "deliberately
   share this canonical PEXT route; their distinction is fanout, not lookup format" (`:542-543`).
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
-  keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`page/HOTIndirectPage.java:378-399`).
+  keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
 - `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
-  disk (`page/HOTIndirectPage.java:212`; `page/PageKind.java:6109`, `:5998`).
+  disk (`hot/page/HOTIndirectPage.java:212`; `page/PageKind.java:6109`, `:5998`).
 
 ### 2.7 The split criterion as implemented
 
@@ -477,8 +477,8 @@ The production criterion:
 1. **Leaf split = MSDB split.** A full leaf with the new key is split on the MSDB of the union: keys
    with that bit 0 go left, 1 go right, and the parent gains one BiNode on that bit
    (`hot/HOTIncrementalInsert.java:125-198`, split bit `:167`; in-place variant
-   `page/HOTLeafPage.java:3293-3442`). "Splitting on the MSDB rather than at the midpoint is what
-   makes this safe to repeat: the parent BiNode routes on one bit" (`page/HOTLeafPage.java:3270-3333`).
+   `hot/page/HOTLeafPage.java:3293-3442`). "Splitting on the MSDB rather than at the midpoint is what
+   makes this safe to repeat: the parent BiNode routes on one bit" (`hot/page/HOTLeafPage.java:3270-3333`).
    If a half does not fit one leaf it is built by `HOTBulkBuilder` (`hot/HOTIncrementalInsert.java:283-305`).
 2. **Integration = Binna's insertion cases** (§4.5.3): the new BiNode is added to the parent if the
    parent is not full and the bit is new, merged at an existing bit if it is already in `D`, placed
@@ -503,14 +503,14 @@ the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWrite
 | I7 | partial keys are strictly ascending (unsigned) in child order | detector `:200-208`; writer guard |
 | I8 | children are ordered by ascending first key of their subtrees | detector `:229-263`; writer guard |
 | I11 | every indirect child's MSB index is greater than N's | detector `:210-227`; writer guard |
-| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `:235-269`; writer guard; relied on by `trx/HOTRangeCursor.java:215-219` |
+| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `:235-269`; writer guard; relied on by `hot/reader/HOTRangeCursor.java:215-219` |
 | I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `:271-293`, `:308-344` (not in the writer's local guard) |
-| leaf order | entries of a leaf are sorted by unsigned key order and unique | `page/HOTLeafPage.java:2284-2291`; `put` rejects an existing key (`:1633-1652`) |
-| leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `page/HOTLeafPage.java:165`, `:184`, `:2227-2234`, `:2266-2282` |
-| height | ≤ 64 levels | `trx/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
+| leaf order | entries of a leaf are sorted by unsigned key order and unique | `hot/page/HOTLeafPage.java:2284-2291`; `put` rejects an existing key (`:1633-1652`) |
+| leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `hot/page/HOTLeafPage.java:165`, `:184`, `:2227-2234`, `:2266-2282` |
+| height | ≤ 64 levels | `hot/reader/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
 
 I10 of the catalog ("2 ≤ numChildren") is not enforced: `createMultiNode` accepts one child
-(`page/HOTIndirectPage.java:1366-1368`) and the writer checks `childCount < 1 || > MAX_NODE_ENTRIES`
+(`hot/page/HOTIndirectPage.java:1366-1368`) and the writer checks `childCount < 1 || > MAX_NODE_ENTRIES`
 (`hot/AbstractHOTIndexWriter.java:568`). Whether a one-child node is reachable was not established.
 
 ---
@@ -538,7 +538,7 @@ container pages; it contains no body layout for either HOT page kind. This secti
 
 | Constant | Value | Meaning | Cite |
 |---|---|---|---|
-| `DEFAULT_SIZE` | 65 536 | off-heap frame of a mutable leaf | `page/HOTLeafPage.java:116` |
+| `DEFAULT_SIZE` | 65 536 | off-heap frame of a mutable leaf | `hot/page/HOTLeafPage.java:116` |
 | `MAX_ENTRIES` | 512 | entry limit | `:165` |
 | `PEXT_MAX_ENTRIES` | 32 | in-leaf PEXT/SIMD search used for 2..32 entries | `:168`, `:619` |
 | `MAX_KEY_VALUE_LENGTH` | 0xFFFF | suffix and value length limit (u16 fields) | `:184`, `:2227-2234` |
@@ -563,7 +563,7 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 ```
 
 - Ordinary leaf fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`, `slotOffsets[512]`,
-  `entryCount`, `usedSlotMemorySize` (`page/HOTLeafPage.java:246-257`, `:500`, `:515`).
+  `entryCount`, `usedSlotMemorySize` (`hot/page/HOTLeafPage.java:246-257`, `:500`, `:515`).
   Compact raw images follow the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 - Entries are appended at `usedSlotMemorySize`; order is carried only by `slotOffsets`, which an
   insert shifts with `System.arraycopy` (`:2284-2291`).
@@ -586,7 +586,7 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
   `hot/HOTBulkBuilder.java:339-360`). Only live bytes count, because the rebuild repacks the heap.
   Bytes and offsets are staged in thread-local scratch and published after every entry was validated
   and copied, so no failure leaves relocated offsets over un-relocated bytes
-  (`page/HOTLeafPage.java:2176-2219`). Consequently an entry that is refused never leaves a shortened
+  (`hot/page/HOTLeafPage.java:2176-2219`). Consequently an entry that is refused never leaves a shortened
   prefix behind.
 - **Updates**: a smaller or equal value is overwritten in place; a larger one is appended and the
   offset repointed; dead bytes are reclaimed only by `compact()` when an append does not fit
@@ -633,7 +633,7 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
   (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
-  with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `page/HOTLeafPage.java:3010-3018`).
+  with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `hot/page/HOTLeafPage.java:3010-3018`).
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
@@ -641,7 +641,7 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
   `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
   that buffer transfers to the page;
   otherwise a 64 KiB frame is allocated and the heap copied (`:5838-5871`). The first mutation of a
-  zero-copy leaf promotes it into a fresh frame (`page/HOTLeafPage.java:2379-2441`).
+  zero-copy leaf promotes it into a fresh frame (`hot/page/HOTLeafPage.java:2379-2441`).
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
@@ -650,7 +650,7 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 
 `pageKey`, `revision`, `height`, `nodeType` (final); `layoutType`, `numChildren`, the mask fields of
 §2.6.1, `mostSignificantBitIndex`, `int[] partialKeys`, `SparsePartialKeys`, `PageReference[]
-childReferences` (`page/HOTIndirectPage.java:210-239`). A per-child first-key memo
+childReferences` (`hot/page/HOTIndirectPage.java:210-239`). A per-child first-key memo
 (`childFirstKeyCache`, 32 entries, lazily created, never serialized) is used only by readers without
 an intent log and is cleared by every `setChildReference` (`:849-898`).
 
@@ -671,19 +671,19 @@ Writer `page/PageKind.java:6099-6158`; reader `:5991-6096`.
 | 9 | i32 LE | numChildren |
 | 10a | SINGLE_MASK: u16 LE `initialBytePos`, u64 LE `bitMask`, i16 LE `mostSignificantBitIndex` | the i16 is written but **ignored** on read; the factory recomputes it (`:6124-6126`, `:6034-6036`, `:6090-6092`) |
 | 10b | MULTI_MASK: i16 LE `mostSignificantBitIndex`, u16 LE `numExtractionBytes`, `numExtractionBytes` × u8 positions, ⌈n/8⌉ × u64 LE masks | (`:6117-6121`, `:6019-6027`) |
-| 11 | numChildren × {u8 \| u16 LE \| i32 LE} | partial keys, width per §2.6.3 (`page/HOTIndirectPage.java:1105-1135`; `page/PageKind.java:6044-6058`) |
+| 11 | numChildren × {u8 \| u16 LE \| i32 LE} | partial keys, width per §2.6.3 (`hot/page/HOTIndirectPage.java:1105-1135`; `page/PageKind.java:6044-6058`) |
 | 12 | numChildren × (i64 childDiskKey, u8 fragmentCount, fragmentCount × (i32 revision, i64 key)) | child references with their fragment chains; a null child is written as key −1, count 0; `fragmentCount > 255` throws (`:6135-6156`, `:6062-6077`) |
 
 - The field order of a child reference (`key, count, fragments`) differs from the generic
   reference encoding (`count, fragments, key, hash`) (`page/SerializationType.java:65-80`, `:209-222`).
 - **Child references carry no hash** (§3.6).
 - The factories validate child counts, so a corrupt count throws `IllegalArgumentException`
-  (`page/HOTIndirectPage.java:1336-1456`).
+  (`hot/page/HOTIndirectPage.java:1336-1456`).
 
 #### 3.3.3 Copy-on-write helpers
 
 The copy constructor deep-copies masks and partial keys and creates a new `PageReference` per child
-that keeps the child's disk key and fragments (`page/HOTIndirectPage.java:437-468`);
+that keeps the child's disk key and fragments (`hot/page/HOTIndirectPage.java:437-468`);
 `copyWithNewPageKey`, `withUpdatedChild` and `copyWithUpdatedChild` are the other forms
 (`:475-479`, `:1272-1323`). `commit` recurses only into children whose log key is set, i.e. children
 staged in the intent log (`:1514-1521`).
@@ -692,7 +692,7 @@ staged in the intent log (`:1514-1521`).
 
 | Method | Page key | Revision | `completePageRef` | `completeDump` | Dirty bits | Cite |
 |---|---|---|---|---|---|---|
-| `copy()` | same | same | `this` | unchanged | cleared | `page/HOTLeafPage.java:2974-2976`, `:3020-3085` |
+| `copy()` | same | same | `this` | unchanged | cleared | `hot/page/HOTLeafPage.java:2974-2976`, `:3020-3085` |
 | `copyForRevision(rev)` | same | `rev` (≥ source) | `this` | false | cleared | `:2990-3001` |
 | `copyAsFreshPage(key, rev)` | new | new | null | **true** | cleared | `:3010-3018` |
 
@@ -801,7 +801,7 @@ Additional HOT details owned by this specification, beyond the scope of `docs/DI
 
 ### 4.1 Loading a page
 
-`HOTTrieReader.loadPage(ref)` (`trx/HOTTrieReader.java:1224-1282`):
+`HOTTrieReader.loadPage(ref)` (`hot/reader/HOTTrieReader.java:1224-1282`):
 
 1. In guarded mode take the guarded route (§4.9.4).
 2. If `ref.getPage()` is set and not closed, use it (the swizzle).
@@ -828,7 +828,7 @@ Additional HOT details owned by this specification, beyond the scope of `docs/DI
    the result is adopted into the leaf
    cache with `getOrLoadAndGuard`, and a losing duplicate is retired (`:3768-3894`).
 6. `SirixIOException` → null, which `HOTTrieReader` turns into
-   `IllegalStateException("HOT structural corruption: ...")` (`trx/HOTTrieReader.java:544-546`, `:860-862`).
+   `IllegalStateException("HOT structural corruption: ...")` (`hot/reader/HOTTrieReader.java:544-546`, `:860-862`).
 
 HOT cache sizing, residency and requested-slot admission are owned by
 [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
@@ -869,7 +869,7 @@ The ordinary leaf lookup below remains the path for posting indexes and complete
 
 #### 4.2.1 Trie level: descent
 
-`navigateToLeafUnchecked(rootRef, key, keyLen)` (`trx/HOTTrieReader.java:854-907`):
+`navigateToLeafUnchecked(rootRef, key, keyLen)` (`hot/reader/HOTTrieReader.java:854-907`):
 
 ```
 depth = 0; ref = rootRef
@@ -887,7 +887,7 @@ loop:
 `get(rootRef, key)` wraps this in the optimistic retry loop: descend, `leaf.findEntry(key)`, take the
 value slice, validate the leaf stamp; on failure re-descend, at most `MAX_STAMP_RETRIES = 64` times,
 then `IllegalStateException(... "sustained allocator thrashing")`
-(`trx/HOTTrieReader.java:232-244`, `:298-331`, `:533-536`). A `RuntimeException` thrown while the stamp
+(`hot/reader/HOTTrieReader.java:232-244`, `:298-331`, `:533-536`). A `RuntimeException` thrown while the stamp
 still validates is rethrown as corruption, not retried (`:319-322`). The returned slice views
 unpinned memory: the caller must validate again after reading it or copy it (`:287-292`).
 
@@ -922,11 +922,11 @@ readers without an intent log (`:537-590`). Committed container-page reuse follo
 | Aspect | Specification | Cite |
 |---|---|---|
 | Scope | one per `BufferManagerImpl`; the JVM-global buffer manager makes it JVM-global | `cache/BufferManagerImpl.java:342-344`; `bundles/sirix-core/src/main/java/io/sirix/access/Databases.java:60` |
-| Key | `databaseId, resourceId, revisionNumber, indexType, indexNumber, key bytes`, precomputed hash (multiply mix `0x9E3779B97F4A7C15`) | `cache/HOTLookupKey.java:41-64`, `:137-157` |
-| Value | ascending `long[]` node keys; `long[0]` = absent | `cache/HOTLookupCache.java:55-63` |
+| Key | `databaseId, resourceId, revisionNumber, indexType, indexNumber, key bytes`, precomputed hash (multiply mix `0x9E3779B97F4A7C15`) | `hot/cache/HOTLookupKey.java:41-64`, `:137-157` |
+| Value | ascending `long[]` node keys; `long[0]` = absent | `hot/cache/HOTLookupCache.java:55-63` |
 | Structure | set-associative, 8 ways, power-of-two sets, `sets = min(highestOneBit(maxEntries/8), MAX_SLOTS/8)`, `MAX_SLOTS = 1 << 24` | `:102`, `:120-123`, `:184-204` |
 | Default capacity | `recordPageBudget / 32 / 2400` entries clamped to [1024, 65536]; 65536 if no budget | `cache/BufferManagerImpl.java:83-126` |
-| Entry limit | lists of more than `MAX_CACHED_NODE_KEYS = 256` are not cached | `cache/HOTLookupCache.java:81`, `:345-347` |
+| Entry limit | lists of more than `MAX_CACHED_NODE_KEYS = 256` are not cached | `hot/cache/HOTLookupCache.java:81`, `:345-347` |
 | Eviction | a free way, else a per-set rotating victim counter (deliberately racy) | `:125-134`, `:366-374` |
 | Staleness | none by construction: the revision is part of the key and committed content is immutable | `:24-33` |
 | Invalidation | `invalidateResource`/`invalidateDatabase` (O(capacity) scans) after `truncateTo`, rollback and recovery, which reuse revision numbers | `:403-490`; `bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java:478`; `trx/NodeStorageEngineWriter.java:4625` |
@@ -934,13 +934,13 @@ readers without an intent log (`:537-590`). Committed container-page reuse follo
 | Bypassed when | the reader has an intent log; no buffer manager; cache disabled (`maxEntries = 0` or `EmptyBufferManager`); `databaseId == 0` (collision guard for the global table); any range or scan API | `hot/AbstractHOTIndexReader.java:186-237` |
 
 The implementation replaced Caffeine after a measurement recorded in the class comment (miss 622 ns
-uncached vs. 1207 ns with Caffeine, hit 121 ns; `cache/HOTLookupCache.java:35-53`).
+uncached vs. 1207 ns with Caffeine, hit 121 ns; `hot/cache/HOTLookupCache.java:35-53`).
 
 ### 4.3 Lower and upper bound
 
 `lowerOrUpperBound` is a port of Binna §4.2 / `HOTSingleThreaded.hpp:347-415` of the paper's
 reference implementation (that file is not in this repository)
-(`trx/HOTTrieReader.java:409-449` documentation, `:548-721` code):
+(`hot/reader/HOTTrieReader.java:409-449` documentation, `:548-721` code):
 
 | Phase | Action |
 |---|---|
@@ -961,10 +961,10 @@ descent (`:757-761`).
 #### 4.4.1 Cursor
 
 `HOTTrieReader.range(root, fromKey, toKey)` creates a `HOTRangeCursor`; both bounds are inclusive
-(`trx/HOTTrieReader.java:376-378`; `trx/HOTRangeCursor.java:138-139`, `:322`).
+(`hot/reader/HOTTrieReader.java:376-378`; `hot/reader/HOTRangeCursor.java:138-139`, `:322`).
 
 - **Seek**: `fromKey == null` → leftmost leaf, index 0; otherwise `lowerBound`; a null leaf means
-  exhausted (`trx/HOTRangeCursor.java:167-187`).
+  exhausted (`hot/reader/HOTRangeCursor.java:167-187`).
 - **Step** (`advanceToValid`, `:197-267`): classify one batch of reads, validate the stamp, then apply
   the verdict:
   - `ADVANCE_LEAF` at the end of the leaf;
@@ -972,21 +972,21 @@ descent (`:757-761`).
     `toKey`) or `SKIP_LEAF`;
   - per entry `classifyAgainstBounds` → `EXIT_SCAN`, `SKIP_ENTRY` or `EMIT`.
 - **Torn read**: `recoverTorn` reloads the same `PageReference` and keeps the position, which is
-  valid because content per reference is immutable (`:263-296`; `trx/HOTTrieReader.java:523-530`,
+  valid because content per reference is immutable (`:263-296`; `hot/reader/HOTTrieReader.java:523-530`,
   `:1356-1366`).
 - **End**: the parent stack is exhausted, or the first key past `toKey` (sound because of I12).
 - **APIs**: `Iterator.next()` copies key and value (length clamped to `slotCapacity()`) and validates;
   the zero-allocation API (`advance()`, `currentKeySlice`, `currentValueSlice`, `validateLeaf()`)
   leaves validation to the caller (`:367-536`).
 
-**Leaf to leaf** (`advanceToNextLeaf`, `trx/HOTTrieReader.java:964-995`): from the deepest stack entry
+**Leaf to leaf** (`advanceToNextLeaf`, `hot/reader/HOTTrieReader.java:964-995`): from the deepest stack entry
 upwards, take the next child of the parent, hint the sibling window, descend to its leftmost leaf
 (pushing each level); pop levels whose children are exhausted; an empty stack ends the scan.
 Amortized O(1) stack work per leaf plus the popped levels.
 
 #### 4.4.2 Sibling windows and the per-level watermark
 
-- `PREFETCH_WINDOW = Integer.getInteger("sirix.hot.prefetch.window", 16)` (`trx/HOTTrieReader.java:100`).
+- `PREFETCH_WINDOW = Integer.getInteger("sirix.hot.prefetch.window", 16)` (`hot/reader/HOTTrieReader.java:100`).
 - `prefetchSiblingWindow(parent, startIdx, numChildren, depth)` (`:1044-1074`):
   `from = max(startIdx, pathPrefetchedUntil[depth])`, `end = min(startIdx + WINDOW, numChildren)`;
   nothing if `from ≥ end`; otherwise set the watermark to `end` and hint every child in `[from, end)`
@@ -1003,7 +1003,7 @@ Amortized O(1) stack work per leaf plus the popped levels.
 - **Virtual-thread route** (non-advisory backends): a semaphore-gated virtual thread loads and
   swizzles the sibling. Its default permit count `sirix.hot.prefetch.parallelism = 0` disables it
   after measured regressions and `NativeThreadSet` contention
-  (`trx/HOTTrieReader.java:102-183`, `:1392-1423`).
+  (`hot/reader/HOTTrieReader.java:102-183`, `:1392-1423`).
 - **Point descents do not hint** on the advisory route: "a point descent has no evidence that the sibling
   is needed next" (`:883-897`).
 - `prefetchLeafPaths(root, keys, keyLen, count)` (`:1101-1163`): for `count ≥ 2` keys on an advisory
@@ -1697,7 +1697,7 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
 - A HOT reader resolves its root from its own revision root (`hot/AbstractHOTIndexReader.java:555-590`),
   so it sees only pages reachable from that revision.
 - Immutability is the load-bearing assumption: "Content per PageReference is immutable, so a retry
-  re-derives the identical answer" (`trx/HOTTrieReader.java:309-310`); "everything below a committed
+  re-derives the identical answer" (`hot/reader/HOTTrieReader.java:309-310`); "everything below a committed
   PageReference is immutable (swizzle/evict cycles reload identical content)" (`:253-255`).
 - There is no reader/writer lock on the HOT read path.
 
@@ -1726,14 +1726,14 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
 Readers inside a write transaction resolve TIL modified → TIL complete → swizzle → leaf cache → disk
 (`trx/NodeStorageEngineReader.java:4364-4434`; `trx/NodeStorageEngineWriter.java:5393-5423`), and three
 memos are disabled for them: the lookup cache, the root memo and the first-key memo
-(`hot/AbstractHOTIndexReader.java:186-188`, `:549-551`; `trx/HOTTrieReader.java:267`).
+(`hot/AbstractHOTIndexReader.java:186-188`, `:549-551`; `hot/reader/HOTTrieReader.java:267`).
 
 The old revision stays readable because its container page, indirect pages and leaf images are never
 mutated, new pages get new offsets, and leaf history is a fragment chain (`set/VersioningType.java:1440-1463`).
 
 #### 4.9.3 Optimistic leaf reads (seqlock over frame-slot versions)
 
-Leaves are read without pins. The protocol (`page/HOTLeafPage.java:4007-4105`):
+Leaves are read without pins. The protocol (`hot/page/HOTLeafPage.java:4007-4105`):
 
 ```
 binding = leaf.readStampBinding()     // even = stable binding; odd = rebind in flight or torn down
@@ -1750,32 +1750,32 @@ if !ok: re-resolve the PageReference and redo (slot indices stay valid: content 
   `storeStoreFence`, swap, generation + 2 (even) (`:4156-4166`). Teardown sets the generation odd
   permanently before releasing memory (`:4274`).
 - "A stamp is a per-SLOT sequence number and proves nothing without the slot it belongs to", hence the
-  binding (`trx/HOTTrieReader.java:219-230`).
+  binding (`hot/reader/HOTTrieReader.java:219-230`).
 - **Torn read vs. corruption**: every read batch is wrapped in a `catch (RuntimeException)`; if the stamp
   still validates the exception is corruption and rethrown, otherwise the batch is retried
-  (`trx/HOTTrieReader.java:319-323`; `trx/HOTRangeCursor.java:233-239`;
+  (`hot/reader/HOTTrieReader.java:319-323`; `hot/reader/HOTRangeCursor.java:233-239`;
   `hot/AbstractHOTIndexReader.java:467-472`; `hot/NodeReferencesSerializer.java:559-569`).
 
 #### 4.9.4 Guarded fallback and progress under eviction
 
 - After a failed validation, or an odd binding or stamp at load, the reader sets `guardReads` for the
-  rest of the walk (`trx/HOTTrieReader.java:209-216`, `:1260-1266`, `:1334-1341`).
+  rest of the walk (`hot/reader/HOTTrieReader.java:209-216`, `:1260-1266`, `:1334-1341`).
 - `loadGuardedPage` releases the previous guard, loads with `loadHOTPageAndGuard`, rejects an odd stamp
   as `IllegalStateException("Guarded HOT leaf has an invalid lifetime stamp")`, and adopts the leaf as
   guarded: **at most one guarded leaf per reader** (`:1285-1310`, `:1461-1473`).
 - Guards: `acquireGuard` increments and re-checks closed/orphaned; `releaseGuard` frees an orphaned page
   at zero; `close()` orphans and frees only without guards; the clock sweeper skips guarded pages
-  (`page/HOTLeafPage.java:4171-4263`; `cache/ClockSweeper.java:245-250`).
+  (`hot/page/HOTLeafPage.java:4171-4263`; `cache/ClockSweeper.java:245-250`).
 - This is what the commit "Guarantee HOT read progress with guarded recovery after eviction"
   (`5d76b53ac`) added: a reader under continuous eviction makes progress because it stops relying on
   validation once validation has failed.
 - **Ending a walk releases the guard.** `HOTTrieReader.endWalk()` clears the current leaf, drops
   `guardReads` and clears the path; `close()` is exactly `endWalk()`, and `HOTRangeCursor.close()` —
   idempotent, so a repeated close can never end a later walk on a reused reader — calls it
-  (`trx/HOTTrieReader.java:1482-1505`; `trx/HOTRangeCursor.java:559-575`). Before PR #1214 the cursor
+  (`hot/reader/HOTTrieReader.java:1482-1505`; `hot/reader/HOTRangeCursor.java:559-575`). Before PR #1214 the cursor
   only called `clearPath()` and its Javadoc claimed "neither the cursor nor the reader pins leaves",
   which was false in guarded mode: the guard survived until `HOTTrieReader.close()`. A cursor whose
-  `descendToFirstEntry` throws now closes itself before rethrowing (`trx/HOTRangeCursor.java:148-153`).
+  `descendToFirstEntry` throws now closes itself before rethrowing (`hot/reader/HOTRangeCursor.java:148-153`).
   All production users still close both (`hot/AbstractHOTIndexReader.java:896-911`; try-with-resources
   in `proj/ProjectionIndexHOTStorage.java`).
 - `FrameReusedException` is not caught explicitly on the HOT read path; as a `RuntimeException` it falls
@@ -1788,8 +1788,8 @@ if !ok: re-resolve the PageReference and redo (slot indices stay valid: content 
 | `HOTTrieReader`, `HOTRangeCursor`, `ChunkAccumulator` | single-threaded | per walk state; "Not thread-safe; pool per reader or per iterator" (`hot/NodeReferencesSerializer.java:464`) |
 | `AbstractHOTIndexReader` walk state | pooled via `AtomicReference` "so concurrent lookups through the same reader instance stay correct" (`hot/AbstractHOTIndexReader.java:135-142`) | but the storage reader below is single-threaded (§7) |
 | `HOTLookupCache` | JVM-global | VarHandle acquire/release + generation handshake (§4.2.3) |
-| `HOTIndirectPage.childFirstKeyCache` | shared page | volatile `AtomicReferenceArray`; idempotent racing initializers (`page/HOTIndirectPage.java:863-874`) |
-| `PageReference.setPage` | shared reference | volatile, idempotent for the prefetch race (`trx/HOTTrieReader.java:1379-1381`) |
+| `HOTIndirectPage.childFirstKeyCache` | shared page | volatile `AtomicReferenceArray`; idempotent racing initializers (`hot/page/HOTIndirectPage.java:863-874`) |
+| `PageReference.setPage` | shared reference | volatile, idempotent for the prefetch race (`hot/reader/HOTTrieReader.java:1379-1381`) |
 | leaf and fragment caches | JVM-global | `ShardedPageCache` + guards |
 
 ### 4.10 Read path at a glance
@@ -1849,9 +1849,9 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
-| Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `page/HOTCompleteDumpMergeTest` (5), `page/HOTLeafPageCowTest` (15), `page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
+| Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
-| Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
+| Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
 | Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
 | Query level (sirix-query) | `HOTIndexJsoniqDifferentialTest` (20), `HOTIndexMemoizationJsoniqTest` (21), `HOTIndexStressTest` (4, `@Tag("stress")`) | JSONiq results with and without indexes; memoization |
@@ -1897,8 +1897,8 @@ unless noted.
 
 | Property | Default | Effect | Cite |
 |---|---|---|---|
-| `sirix.hot.prefetch.window` | 16 | sibling window width for range-scan hints; also the size of the hint scratch array | `trx/HOTTrieReader.java:100`, `:279` |
-| `sirix.hot.prefetch.parallelism` | 0 | permits for virtual-thread sibling prefetch on non-advisory backends; 0 disables | `trx/HOTTrieReader.java:168-183` |
+| `sirix.hot.prefetch.window` | 16 | sibling window width for range-scan hints; also the size of the hint scratch array | `hot/reader/HOTTrieReader.java:100`, `:279` |
+| `sirix.hot.prefetch.parallelism` | 0 | permits for virtual-thread sibling prefetch on non-advisory backends; 0 disables | `hot/reader/HOTTrieReader.java:168-183` |
 | `sirix.hotLookupCache.maxEntries` | budget-derived, 1 024 to 65 536 | lookup-cache capacity; 0 disables; negative or invalid values warn and use the default; values above 2^24 are clamped | `cache/BufferManagerImpl.java:139-190`, `:339-344` |
 | `hot.validate.structural.disable` | false (validation on) | skips post-publication detector and route validation | `hot/AbstractHOTIndexWriter.java:4946`, `:2296` |
 | `sirix.filechannel.prefetchBatch` | 32 (clamped 0..1024) | the batch size `FileChannelReader` advertises; 0 turns off the advisory route, so HOT falls back to the (disabled) virtual-thread route | `io/filechannel/FileChannelReader.java:117-118` |
@@ -1916,7 +1916,7 @@ SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). HOT cache budgets and their con
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); **on in the sirix-core and sirix-query test JVMs**; read-counter semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads); posting-counter semantics below | `set/VersioningType.java`, `page/HOTLeafPage.java`, `hot/HOTIndexWriter.java`, `hot/AbstractHOTIndexWriter.java` |
+| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); **on in the sirix-core and sirix-query test JVMs**; read-counter semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads); posting-counter semantics below | `set/VersioningType.java`, `hot/page/HOTLeafPage.java`, `hot/HOTIndexWriter.java`, `hot/AbstractHOTIndexWriter.java` |
 
 **Posting counters** (enabled only by `-Dsirix.hot.mergeDiag=true`):
 `HOTIndexWriter.postingDeltaWrites()` counts single-posting delta slots, excluding the operation
@@ -1948,7 +1948,7 @@ canonical block, and one for which no block exists, §4.5.4 case 9),
 parts from it below the split bit (§4.5.3), and the writer's `DIRECTION_ONE_SPLIT_ABOVE_HALF` for a
 split-half sub-insert declined because the key and the affected child span the half's MSB (§4.5.4),
 `PREFIX_SHRINK_REFUSED_FOR_CAPACITY` for a leaf that refused a prefix shrink because the rebuilt
-residents plus the pending entry do not fit (§3.2.2, incremented in `page/HOTLeafPage.java:2172`),
+residents plus the pending entry do not fit (§3.2.2, incremented in `hot/page/HOTLeafPage.java:2172`),
 and `CONSOLIDATION_PAIR_DID_NOT_FIT` for a consolidation pair left unmerged because the union did
 not fit, whatever the reason (`hot/HOTIncrementalInsert.java:1056`).
 
@@ -1967,15 +1967,15 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 
 | Limit | Value | Source |
 |---|---|---|
-| entries per leaf | 512 | `page/HOTLeafPage.java:165` |
+| entries per leaf | 512 | `hot/page/HOTLeafPage.java:165` |
 | key suffix, value | 65 535 bytes each; a value that does not fit a 64 KiB leaf with its key throws "single value exceeds page capacity" | `:184`; `hot/AbstractHOTIndexWriter.java:3986-3990` |
-| children per indirect page | 32 | `page/HOTIndirectPage.java:111` |
+| children per indirect page | 32 | `hot/page/HOTIndirectPage.java:111` |
 | discriminative bits per node | 32 (implied by int partial keys) | §2.6.3 |
-| tree height | 64 | `trx/HOTTrieReader.java:93` |
+| tree height | 64 | `hot/reader/HOTTrieReader.java:93` |
 | fragments per child reference | 255 | `page/PageKind.java:6135-6156` |
 | node keys in posting indexes | < 2^48 | `hot/AbstractHOTIndexWriter.java:1477` |
 | CAS string bytes before framing | truncation and candidate re-checking as described in §2.4; stored framing in [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks) | `CASKeySerializer.MAX_STRING_VALUE_BYTES` |
-| cached posting list | 256 node keys | `cache/HOTLookupCache.java:81` |
+| cached posting list | 256 node keys | `hot/cache/HOTLookupCache.java:81` |
 | bulk loader memory | ≈ n × (key bytes + 20), all in memory; bulk only into an empty tree | §4.7.2 |
 | deletes | never shrink the tree; tombstones stay until a split or complete dump drops their image from the window | §4.6, §3.5 |
 | stored HOT child references | not hashed; only the newest image of a chain is verifiable | §3.6 |
@@ -2035,15 +2035,15 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 ### 8.2 Code comments that contradict the code
 
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
-- `page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
+- `hot/page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
 - `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
   repair.
-- `trx/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
+- `hot/reader/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
   in this repository.
 
 ### 8.3 Byte-order comments
 
-`page/HOTLeafPage.java:267`, `:271` ("LE word layout") and `page/HOTIndirectPage.java:231`, `:1388`,
-`:1425` ("LE order") describe masks whose words are assembled big-endian (`page/HOTLeafPage.java:770-778`,
-`page/HOTIndirectPage.java:776-789`). The masks are written to disk as little-endian `u64`s like every
+`hot/page/HOTLeafPage.java:267`, `:271` ("LE word layout") and `hot/page/HOTIndirectPage.java:231`, `:1388`,
+`:1425` ("LE order") describe masks whose words are assembled big-endian (`hot/page/HOTLeafPage.java:770-778`,
+`hot/page/HOTIndirectPage.java:776-789`). The masks are written to disk as little-endian `u64`s like every
 long; the big-endian statement of `docs/DISK_FORMAT.md:156-157` is the correct one.

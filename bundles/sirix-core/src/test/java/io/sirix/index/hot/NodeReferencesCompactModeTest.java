@@ -6,7 +6,7 @@ package io.sirix.index.hot;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.utils.OS;
 import org.junit.jupiter.api.Test;
 import org.roaringbitmap.longlong.LongIterator;

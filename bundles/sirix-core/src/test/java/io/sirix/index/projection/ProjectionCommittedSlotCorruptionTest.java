@@ -7,7 +7,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.node.LE;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;

@@ -15,9 +15,8 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.path.json.JsonPCRCollector;
-import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -35,7 +34,6 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -44,7 +42,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

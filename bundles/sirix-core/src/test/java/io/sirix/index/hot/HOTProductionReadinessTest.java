@@ -6,12 +6,11 @@
 package io.sirix.index.hot;
 
 import io.sirix.cache.Allocators;
-import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.utils.OS;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,14 +18,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

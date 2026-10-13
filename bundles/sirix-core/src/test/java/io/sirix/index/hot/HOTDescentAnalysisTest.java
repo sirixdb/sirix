@@ -6,8 +6,8 @@ package io.sirix.index.hot;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIncrementalInsert.DescentAnalysis;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.DisplayName;
@@ -28,19 +28,20 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verification of {@link HOTIncrementalInsert#analyzeDescent} — step 3 of the faithful
- * incremental port ({@code docs/HOT_INCREMENTAL_PORT_PLAN.md} §3 step 3): the post-processing
- * of Binna's {@code searchForInsert} that yields the mismatch bit β and the insert depth d*.
+ * Verification of {@link HOTIncrementalInsert#analyzeDescent} — step 3 of the faithful incremental
+ * port ({@code docs/HOT_INCREMENTAL_PORT_PLAN.md} §3 step 3): the post-processing of Binna's
+ * {@code searchForInsert} that yields the mismatch bit β and the insert depth d*.
  *
- * <p>The descent path is walked over canonical tries built by {@link HOTBulkBuilder}. Each
- * analysis is checked against independently-recomputed properties:
+ * <p>
+ * The descent path is walked over canonical tries built by {@link HOTBulkBuilder}. Each analysis is
+ * checked against independently-recomputed properties:
  * <ul>
- *   <li><b>mismatch bit</b> — β must equal {@code msdb(key, residentKey)} <em>and</em> the
- *       maximum {@code msdb} over <em>every</em> key of the landed leaf (the resident is the
- *       longest-prefix neighbour — analyzed from two keys, here cross-checked against all);</li>
- *   <li><b>insert depth</b> — with the trie condition (I11) the path MSBs strictly increase, so
- *       d* must sit exactly at the crossover: {@code pathNodes[d*].MSB} more significant than β,
- *       {@code pathNodes[d*+1].MSB} not — and the affected child is the slot taken at d*.</li>
+ * <li><b>mismatch bit</b> — β must equal {@code msdb(key, residentKey)} <em>and</em> the maximum
+ * {@code msdb} over <em>every</em> key of the landed leaf (the resident is the longest-prefix
+ * neighbour — analyzed from two keys, here cross-checked against all);</li>
+ * <li><b>insert depth</b> — with the trie condition (I11) the path MSBs strictly increase, so d*
+ * must sit exactly at the crossover: {@code pathNodes[d*].MSB} more significant than β,
+ * {@code pathNodes[d*+1].MSB} not — and the affected child is the slot taken at d*.</li>
  * </ul>
  */
 @DisplayName("HOTIncrementalInsert.analyzeDescent — mismatch bit + insert depth")
@@ -108,8 +109,8 @@ final class HOTDescentAnalysisTest {
     }
     closeLeaves(built.rootPage());
     assertTrue(checked > 0, "no fresh key analyzed — coverage gap");
-    System.out.println("[analyzeDescent] " + checked + " fresh keys — clean; insert depth "
-        + minDepth + ".." + maxDepth);
+    System.out.println(
+        "[analyzeDescent] " + checked + " fresh keys — clean; insert depth " + minDepth + ".." + maxDepth);
   }
 
   @Test
@@ -120,8 +121,7 @@ final class HOTDescentAnalysisTest {
     final int[] msbs = {4, 12, 20, 28};
     final HOTIndirectPage[] pathNodes = new HOTIndirectPage[msbs.length];
     for (int i = 0; i < msbs.length; i++) {
-      pathNodes[i] = HOTIndirectPage.createBiNode(i + 1, 1, msbs[i],
-          new PageReference(), new PageReference(), 1);
+      pathNodes[i] = HOTIndirectPage.createBiNode(i + 1, 1, msbs[i], new PageReference(), new PageReference(), 1);
       assertEquals(msbs[i], pathNodes[i].getMostSignificantBitIndex(), "controlled path MSB");
     }
     final int[] pathChildIndices = {0, 1, 0, 1};
@@ -137,11 +137,10 @@ final class HOTDescentAnalysisTest {
     for (int t = 0; t < betas.length; t++) {
       final int beta = betas[t];
       final byte[] probe = beKey(1L << (63 - beta)); // the key whose single set bit is β
-      final DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(pathNodes,
-          pathChildIndices, pathNodes.length, leaf, probe);
+      final DescentAnalysis analysis =
+          HOTIncrementalInsert.analyzeDescent(pathNodes, pathChildIndices, pathNodes.length, leaf, probe);
 
-      assertEquals(beta, analysis.mismatchBit(),
-          "β must be msdb(probe, all-zero resident) for β=" + beta);
+      assertEquals(beta, analysis.mismatchBit(), "β must be msdb(probe, all-zero resident) for β=" + beta);
       assertEquals(expectedInsertDepth[t], analysis.insertDepth(),
           "insert depth for β=" + beta + " over path MSBs " + Arrays.toString(msbs));
       assertEquals(pathChildIndices[expectedInsertDepth[t]], analysis.affectedChildIndex(),
@@ -180,8 +179,8 @@ final class HOTDescentAnalysisTest {
     assertEquals(-1, analysis.affectedChildIndex(), "no compound node ⇒ no affected child");
     assertNotNull(analysis.residentKey(), "a non-empty leaf yields a resident key");
     assertTrue(analysis.mismatchBit() >= 0, "a fresh key against a non-empty leaf has a β");
-    assertEquals(analysis.mismatchBit(),
-        HOTBulkBuilder.msdb(fresh, analysis.residentKey()), "β = msdb(key, residentKey)");
+    assertEquals(analysis.mismatchBit(), HOTBulkBuilder.msdb(fresh, analysis.residentKey()),
+        "β = msdb(key, residentKey)");
 
     closeLeaves(built.rootPage());
     System.out.println("[analyzeDescent] leaf-root index — insert depth -1");
@@ -200,13 +199,12 @@ final class HOTDescentAnalysisTest {
 
     // Precondition — the trie condition (I11): path MSBs strictly increase down the tree.
     for (int d = 1; d < pathDepth; d++) {
-      assertTrue(pathNodes[d - 1].getMostSignificantBitIndex()
-              < pathNodes[d].getMostSignificantBitIndex(),
+      assertTrue(pathNodes[d - 1].getMostSignificantBitIndex() < pathNodes[d].getMostSignificantBitIndex(),
           "canonical trie must satisfy I11 (MSBs strictly increase down the path)");
     }
 
-    final DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(pathNodes,
-        descent.pathChildIndices(), pathDepth, descent.leaf(), key);
+    final DescentAnalysis analysis =
+        HOTIncrementalInsert.analyzeDescent(pathNodes, descent.pathChildIndices(), pathDepth, descent.leaf(), key);
     assertFalse(analysis.keyAlreadyPresent(), "a fresh key must not be reported present");
 
     // (1) β = msdb(key, residentKey), and the resident is a key of the landed leaf.
@@ -214,8 +212,7 @@ final class HOTDescentAnalysisTest {
     assertNotNull(resident, "a fresh key against a non-empty leaf has a resident key");
     assertEquals(analysis.mismatchBit(), HOTBulkBuilder.msdb(key, resident),
         "the mismatch bit must be msdb(key, residentKey)");
-    assertTrue(leafContains(descent.leaf(), resident),
-        "the resident key must be an entry of the landed leaf");
+    assertTrue(leafContains(descent.leaf(), resident), "the resident key must be an entry of the landed leaf");
 
     // (2) longest-prefix property: no leaf key shares a longer prefix than the resident.
     assertEquals(maxLeafMsdb(descent.leaf(), key), analysis.mismatchBit(),
@@ -244,8 +241,8 @@ final class HOTDescentAnalysisTest {
   // ======================================================================
 
   /** A walked descent path: the compound nodes, the slot chosen at each, and the landed leaf. */
-  private record Descent(HOTIndirectPage[] pathNodes, int[] pathChildIndices, int pathDepth,
-                         HOTLeafPage leaf) {}
+  private record Descent(HOTIndirectPage[] pathNodes, int[] pathChildIndices, int pathDepth, HOTLeafPage leaf) {
+  }
 
   /** Walk {@code key} from {@code rootRef} to its leaf over a swizzled in-memory trie. */
   private static Descent walk(final PageReference rootRef, final byte[] key) {
@@ -287,8 +284,7 @@ final class HOTDescentAnalysisTest {
     return false;
   }
 
-  private static HOTBulkBuilder.BuildResult build(final List<Long> sortedKeys,
-      final AtomicLong allocator) {
+  private static HOTBulkBuilder.BuildResult build(final List<Long> sortedKeys, final AtomicLong allocator) {
     final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(sortedKeys.size());
     for (final long key : sortedKeys) {
       entries.add(new HOTBulkBuilder.Entry(beKey(key), VALUE));

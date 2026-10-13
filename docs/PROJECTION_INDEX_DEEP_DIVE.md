@@ -1306,7 +1306,7 @@ rewrite, not an ETL export.
 | Kernels | `index/projection/ProjectionIndexByteScan.java` |
 | Segment-slot storage / 512-byte carrier choice | `page/OverflowPage.java`, `index/projection/ProjectionIndexHOTStorage.java` |
 | Per-leaf fence chunks | `index/projection/ProjectionIndexFences.java` |
-| Side map, refs serialization, split routing | `page/HOTLeafPage.java`, `page/PageKind.java` |
+| Side map, refs serialization, split routing | `index/hot/page/HOTLeafPage.java`, `page/PageKind.java` |
 | Commit chain | `access/trx/page/NodeStorageEngineWriter.java` |
 | Executor integration | `sirix-query .../scan/SirixVectorizedExecutor.java` |
 | Create/drop functions | `sirix-query .../function/jn/index/create/CreateProjectionIndex.java`, `.../drop/DropProjectionIndex.java` |

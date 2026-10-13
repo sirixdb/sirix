@@ -2,8 +2,8 @@ package io.sirix.index.hot;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.index.IndexType;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -404,8 +403,7 @@ class HOTBugFindingTest {
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFL, partialKeys, children, 2);
 
       // SpanNode with 2 children stays SpanNode — no downgrade since BI_NODE was removed
-      assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 2),
-          "SpanNode should not downgrade at 2 children");
+      assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 2), "SpanNode should not downgrade at 2 children");
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 3), "SpanNode should not downgrade at 3 children");
     }
   }

@@ -3,7 +3,7 @@ package io.sirix.access.trx.page;
 import io.sirix.cache.EmptyCache;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.index.IndexType;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import org.junit.jupiter.api.DisplayName;

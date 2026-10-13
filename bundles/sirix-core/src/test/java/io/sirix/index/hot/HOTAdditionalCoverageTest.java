@@ -14,7 +14,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.node.NodeKind;
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;

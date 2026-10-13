@@ -1,7 +1,7 @@
 package io.sirix.node;
 
 import io.sirix.index.IndexType;
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -10,10 +10,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Pins the stable on-disk id contracts: every persisted enum id must round-trip through its
- * lookup, unknown ids must fail fast with a descriptive error (never NPE/AIOOBE or a silently
- * wrong constant), and the id assignments themselves must not drift — a change here is an
- * on-disk format break.
+ * Pins the stable on-disk id contracts: every persisted enum id must round-trip through its lookup,
+ * unknown ids must fail fast with a descriptive error (never NPE/AIOOBE or a silently wrong
+ * constant), and the id assignments themselves must not drift — a change here is an on-disk format
+ * break.
  */
 public final class StableIdEncodingTest {
 
@@ -26,8 +26,7 @@ public final class StableIdEncodingTest {
 
   @Test
   public void unknownNodeKindIdFailsFast() {
-    final IllegalStateException inRange =
-        assertThrows(IllegalStateException.class, () -> NodeKind.getKind((byte) 100));
+    final IllegalStateException inRange = assertThrows(IllegalStateException.class, () -> NodeKind.getKind((byte) 100));
     assertTrue(inRange.getMessage().contains("100"));
     // Ids >= 128 arrive as negative bytes; before the guard this was an AIOOBE.
     assertThrows(IllegalStateException.class, () -> NodeKind.getKind((byte) 0xFE));

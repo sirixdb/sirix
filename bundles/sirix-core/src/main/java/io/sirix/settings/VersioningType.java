@@ -28,7 +28,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.FsstAwareSlotCopier;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PageFragmentKeyImpl;

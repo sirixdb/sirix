@@ -6,8 +6,8 @@ package io.sirix.index.hot;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTIncrementalInsert.BiNode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.DisplayName;
@@ -30,9 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Verification of {@link HOTIncrementalInsert#splitLeafPage} — step 1 of the faithful incremental
  * port. A leaf-page split must cut the bucket at its key-set MSDB into two complete
- * {@code R(S)}-subtree halves: every key in the left half has the split bit clear, every key in
- * the right half has it set, the union of the halves is exactly the input plus the new entry,
- * and tombstones / merged values are carried through.
+ * {@code R(S)}-subtree halves: every key in the left half has the split bit clear, every key in the
+ * right half has it set, the union of the halves is exactly the input plus the new entry, and
+ * tombstones / merged values are carried through.
  */
 @DisplayName("HOTIncrementalInsert.splitLeafPage — faithful leaf-page split")
 final class HOTLeafPageSplitFaithfulTest {
@@ -74,10 +74,12 @@ final class HOTLeafPageSplitFaithfulTest {
     final List<Long> sorted = new ArrayList<>(keys);
     final long dupKey = sorted.get(97);
     for (final long k : sorted) {
-      source.put(beKey(k), k == dupKey ? nodeRefs(1L, 2L) : VALUE);
+      source.put(beKey(k), k == dupKey
+          ? nodeRefs(1L, 2L)
+          : VALUE);
     }
-    final BiNode result = HOTIncrementalInsert.splitLeafPage(source, beKey(dupKey),
-        nodeRefs(3L), 1, IndexType.CAS, allocator::getAndIncrement);
+    final BiNode result = HOTIncrementalInsert.splitLeafPage(source, beKey(dupKey), nodeRefs(3L), 1, IndexType.CAS,
+        allocator::getAndIncrement);
 
     final Map<String, byte[]> entries = new HashMap<>();
     collectEntries(result.left().getPage(), entries);
@@ -85,8 +87,9 @@ final class HOTLeafPageSplitFaithfulTest {
     assertEquals(sorted.size(), entries.size(), "duplicate key must not grow the entry count");
     final byte[] mergedValue = entries.get(hex(beKey(dupKey)));
     final NodeReferences merged = NodeReferencesSerializer.deserialize(mergedValue);
-    assertTrue(merged.getNodeKeys().contains(1L) && merged.getNodeKeys().contains(2L)
-        && merged.getNodeKeys().contains(3L), "values OR-merged: expected {1,2,3}");
+    assertTrue(
+        merged.getNodeKeys().contains(1L) && merged.getNodeKeys().contains(2L) && merged.getNodeKeys().contains(3L),
+        "values OR-merged: expected {1,2,3}");
 
     source.close();
     closeLeaves(result.left().getPage());
@@ -114,10 +117,12 @@ final class HOTLeafPageSplitFaithfulTest {
       if (tomb) {
         tombstones++;
       }
-      source.put(sorted.get(i), tomb ? TOMBSTONE : VALUE);
+      source.put(sorted.get(i), tomb
+          ? TOMBSTONE
+          : VALUE);
     }
-    final BiNode result = HOTIncrementalInsert.splitLeafPage(source, newKey, VALUE, 1,
-        IndexType.CAS, allocator::getAndIncrement);
+    final BiNode result =
+        HOTIncrementalInsert.splitLeafPage(source, newKey, VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
 
     final Map<String, byte[]> entries = new HashMap<>();
     collectEntries(result.left().getPage(), entries);
@@ -138,15 +143,15 @@ final class HOTLeafPageSplitFaithfulTest {
 
   // ===== helpers =====
 
-  private static void checkSplit(final List<Long> sourceKeys, final long newKey,
-      final byte[] newValue, final String label) {
+  private static void checkSplit(final List<Long> sourceKeys, final long newKey, final byte[] newValue,
+      final String label) {
     final AtomicLong allocator = new AtomicLong(1);
     final HOTLeafPage source = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
     for (final long k : sourceKeys) {
       source.put(beKey(k), VALUE);
     }
-    final BiNode result = HOTIncrementalInsert.splitLeafPage(source, beKey(newKey), newValue, 1,
-        IndexType.CAS, allocator::getAndIncrement);
+    final BiNode result = HOTIncrementalInsert.splitLeafPage(source, beKey(newKey), newValue, 1, IndexType.CAS,
+        allocator::getAndIncrement);
 
     final TreeSet<Long> union = new TreeSet<>(Long::compareUnsigned);
     union.addAll(sourceKeys);
@@ -180,8 +185,8 @@ final class HOTLeafPageSplitFaithfulTest {
     }
     assertEquals(expected, got, label + ": union of halves == input keys + new key");
 
-    assertEquals(1 + Math.max(heightOf(result.left().getPage()), heightOf(result.right().getPage())),
-        result.height(), label + ": height = 1 + max child height");
+    assertEquals(1 + Math.max(heightOf(result.left().getPage()), heightOf(result.right().getPage())), result.height(),
+        label + ": height = 1 + max child height");
 
     source.close();
     closeLeaves(result.left().getPage());
@@ -217,7 +222,9 @@ final class HOTLeafPageSplitFaithfulTest {
   }
 
   private static int heightOf(final Page page) {
-    return page instanceof HOTIndirectPage indirect ? indirect.getHeight() : 0;
+    return page instanceof HOTIndirectPage indirect
+        ? indirect.getHeight()
+        : 0;
   }
 
   private static byte[] nodeRefs(final long... bits) {

@@ -1,6 +1,6 @@
 package io.sirix.index.hot;
 
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import java.util.Objects;
 
 /**

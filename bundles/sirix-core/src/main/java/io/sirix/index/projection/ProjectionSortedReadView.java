@@ -3,10 +3,10 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.api.HOTReadIntent;
+import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
-import io.sirix.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;

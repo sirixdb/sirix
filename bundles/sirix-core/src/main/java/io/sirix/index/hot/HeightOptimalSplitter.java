@@ -28,9 +28,9 @@
 
 package io.sirix.index.hot;
 
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTIndirectPage.NodeType;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage.NodeType;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 

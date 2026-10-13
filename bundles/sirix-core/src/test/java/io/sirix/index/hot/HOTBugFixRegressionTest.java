@@ -12,7 +12,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.page.CASPage;
-import io.sirix.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -31,7 +31,6 @@ import java.util.Set;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

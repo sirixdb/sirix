@@ -27,7 +27,7 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;

@@ -9,8 +9,8 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.page.CASPage;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -1212,8 +1212,8 @@ public final class HOTInvariantValidator {
 
   /**
    * Compute the dense PEXT extraction of {@code key} under {@code indirect}'s mask. Mirrors
-   * {@link io.sirix.page.HOTIndirectPage}'s SingleMask / MultiMask partial-key extraction so the
-   * validator can compare stored sparse-path partials against the would-be dense PEXT.
+   * {@link io.sirix.index.hot.page.HOTIndirectPage}'s SingleMask / MultiMask partial-key extraction
+   * so the validator can compare stored sparse-path partials against the would-be dense PEXT.
    */
   private static int computeDensePartialKey(HOTIndirectPage indirect, byte[] key) {
     if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {

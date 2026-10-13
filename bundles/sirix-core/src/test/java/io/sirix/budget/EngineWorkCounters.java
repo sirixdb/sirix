@@ -17,7 +17,7 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.page.ChunkedBodyConfig;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.ReplayWorkDiagnostics;
 

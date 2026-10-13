@@ -27,14 +27,14 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTRangeCursor;
-import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.index.hot.reader.HOTRangeCursor;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;

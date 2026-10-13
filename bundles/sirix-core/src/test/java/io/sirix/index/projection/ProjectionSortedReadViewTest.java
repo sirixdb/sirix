@@ -3,15 +3,15 @@
  */
 package io.sirix.index.projection;
 
-import io.sirix.api.HOTReadIntent;
+import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.cache.ProjectionBlobCache;
 import io.sirix.index.IndexType;
 import io.sirix.node.MemorySegmentBytesOut;
-import io.sirix.page.HOTLeafPage;
-import io.sirix.page.HOTProjectionImage;
+import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTProjectionImage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;

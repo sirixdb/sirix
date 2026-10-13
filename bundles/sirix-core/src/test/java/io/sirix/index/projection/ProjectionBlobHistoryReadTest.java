@@ -8,7 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
-import io.sirix.api.HOTReadIntent;
+import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;

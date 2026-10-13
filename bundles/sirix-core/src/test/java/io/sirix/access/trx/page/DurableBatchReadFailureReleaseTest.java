@@ -15,7 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.io.Writer;
 import io.sirix.io.ram.RAMStorage;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;

@@ -1,6 +1,7 @@
 package io.sirix.api;
 
-import io.sirix.cache.HOTMiniPageCache.ReadScope;
+import io.sirix.index.hot.reader.HOTReadIntent;
+import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.index.IndexType;
@@ -13,9 +14,9 @@ import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.ChangeLogIndexPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.VectorPage;
-import io.sirix.page.HOTLeafPage;
-import io.sirix.page.HOTIndirectPage;
-import io.sirix.page.HOTLeafEntry;
+import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafEntry;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;

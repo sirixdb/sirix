@@ -1,0 +1,541 @@
+/*
+ * Copyright (c) 2024, Sirix Contributors
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+package io.sirix.index.hot.page;
+
+import io.sirix.page.OverflowPage;
+import io.sirix.page.PageFragmentKeyImpl;
+import io.sirix.page.PageReference;
+import io.sirix.cache.FrameReusedException;
+import io.sirix.index.IndexType;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Unit tests for {@link HOTLeafPage}.
+ */
+class HOTLeafPageTest {
+
+  private static final int PAGE_SIZE = 64 * 1024;
+
+  private HOTLeafPage hotLeafPage;
+  private Arena arena;
+
+  @BeforeEach
+  void setUp() {
+    arena = Arena.ofConfined();
+    MemorySegment slotMemory = arena.allocate(PAGE_SIZE);
+
+    // Use the constructor that accepts pre-allocated memory
+    hotLeafPage = new HOTLeafPage(1L, 1, IndexType.PATH, slotMemory, null, // null releaser - Arena will handle cleanup
+        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+  }
+
+  @AfterEach
+  void tearDown() {
+    if (hotLeafPage != null && !hotLeafPage.isClosed()) {
+      hotLeafPage.close();
+      hotLeafPage = null;
+    }
+    if (arena != null) {
+      arena.close();
+      arena = null;
+    }
+  }
+
+  @Test
+  void readCopyPreservesIncompleteBoundaryWithoutRetainingItsDependency() {
+    try (HOTLeafPage ancestor = new HOTLeafPage(1, 0, IndexType.PATH)) {
+      hotLeafPage.put(new byte[] {1}, new byte[] {2});
+      hotLeafPage.setCompletePageRef(ancestor);
+      hotLeafPage.setCompleteDump(false);
+      try (HOTLeafPage readCopy = hotLeafPage.copyForRead();
+          HOTLeafPage freshCopy = hotLeafPage.copyAsFreshPage(2, 2)) {
+        assertFalse(readCopy.isCompleteDump());
+        assertNull(readCopy.getCompletePageRef());
+        assertTrue(freshCopy.isCompleteDump());
+        assertNull(freshCopy.getCompletePageRef());
+        assertSame(ancestor, hotLeafPage.getCompletePageRef());
+        assertFalse(hotLeafPage.isCompleteDump());
+        assertArrayEquals(new byte[] {2}, readCopy.copyStoredValue(0));
+        assertArrayEquals(new byte[] {2}, freshCopy.copyStoredValue(0));
+        assertTrue(readCopy.put(new byte[] {3}, new byte[] {4}));
+        assertEquals(1, hotLeafPage.size());
+      }
+    }
+  }
+
+  @Test
+  void compactStoredValuesMatchEveryValueReferenceIncludingEmptyValuesAndTail() {
+    final byte[][] values = {new byte[0], new byte[] {11}, new byte[] {12, 13, 14}, new byte[0], new byte[] {15, 16}};
+    for (int slot = 0; slot < values.length; slot++) {
+      assertTrue(hotLeafPage.put(new byte[] {7, (byte) slot}, values[slot]));
+    }
+    final int[] offsets = new int[values.length];
+    for (int slot = 0; slot < offsets.length; slot++) {
+      offsets[slot] = hotLeafPage.getSlotOffset(slot);
+    }
+    final byte[] bytes = hotLeafPage.slots().asSlice(0, hotLeafPage.getUsedSlotsSize()).toArray(ValueLayout.JAVA_BYTE);
+    try (HOTLeafPage compact = new HOTLeafPage(1, 1, IndexType.PATH, MemorySegment.ofArray(bytes), null, offsets,
+        values.length, bytes.length, hotLeafPage.getCommonPrefix().clone(), hotLeafPage.getCommonPrefixLen(), true)) {
+      for (int slot = 0; slot < values.length; slot++) {
+        final long reference = compact.valueRef(slot);
+        assertEquals(values[slot].length, HOTLeafPage.refLength(reference));
+        final byte[] referenced = new byte[HOTLeafPage.refLength(reference)];
+        for (int offset = 0; offset < referenced.length; offset++) {
+          referenced[offset] = compact.refByteAt(reference, offset);
+        }
+        assertArrayEquals(values[slot], referenced);
+        assertArrayEquals(referenced, compact.copyStoredValue(slot));
+      }
+    }
+  }
+
+  @Test
+  void testBasicCreation() {
+    assertEquals(1L, hotLeafPage.getPageKey());
+    assertEquals(1, hotLeafPage.getRevision());
+    assertEquals(IndexType.PATH, hotLeafPage.getIndexType());
+    assertEquals(0, hotLeafPage.getEntryCount());
+    assertFalse(hotLeafPage.isClosed());
+  }
+
+  @Test
+  void testInsertAndFind() {
+    byte[] key = "hello".getBytes(StandardCharsets.UTF_8);
+    byte[] value = "world".getBytes(StandardCharsets.UTF_8);
+
+    assertTrue(hotLeafPage.put(key, value));
+    assertEquals(1, hotLeafPage.getEntryCount());
+
+    int index = hotLeafPage.findEntry(key);
+    assertTrue(index >= 0, "Key should be found");
+
+    byte[] retrievedValue = hotLeafPage.getValue(index);
+    assertArrayEquals(value, retrievedValue);
+  }
+
+  @Test
+  void testSortedOrder() {
+    // Insert keys in random order
+    byte[] key1 = "apple".getBytes(StandardCharsets.UTF_8);
+    byte[] key2 = "banana".getBytes(StandardCharsets.UTF_8);
+    byte[] key3 = "cherry".getBytes(StandardCharsets.UTF_8);
+    byte[] value = "value".getBytes(StandardCharsets.UTF_8);
+
+    // Insert out of order
+    hotLeafPage.put(key2, value);
+    hotLeafPage.put(key1, value);
+    hotLeafPage.put(key3, value);
+
+    assertEquals(3, hotLeafPage.getEntryCount());
+
+    // Keys should be found in sorted positions
+    assertTrue(hotLeafPage.findEntry(key1) >= 0);
+    assertTrue(hotLeafPage.findEntry(key2) >= 0);
+    assertTrue(hotLeafPage.findEntry(key3) >= 0);
+
+    // Verify sorted order by checking positions
+    int pos1 = hotLeafPage.findEntry(key1);
+    int pos2 = hotLeafPage.findEntry(key2);
+    int pos3 = hotLeafPage.findEntry(key3);
+
+    assertTrue(pos1 < pos2, "apple should come before banana");
+    assertTrue(pos2 < pos3, "banana should come before cherry");
+  }
+
+  @Test
+  void testNotFound() {
+    byte[] key = "hello".getBytes(StandardCharsets.UTF_8);
+    byte[] value = "world".getBytes(StandardCharsets.UTF_8);
+
+    hotLeafPage.put(key, value);
+
+    byte[] notFoundKey = "notfound".getBytes(StandardCharsets.UTF_8);
+    int index = hotLeafPage.findEntry(notFoundKey);
+    assertTrue(index < 0, "Key should not be found");
+
+    // Verify insertion point is returned as -(insertionPoint + 1)
+    int insertionPoint = -(index + 1);
+    assertTrue(insertionPoint >= 0);
+  }
+
+  @Test
+  void testZeroCopyKeySlice() {
+    byte[] key = "testkey".getBytes(StandardCharsets.UTF_8);
+    byte[] value = "testvalue".getBytes(StandardCharsets.UTF_8);
+
+    hotLeafPage.put(key, value);
+
+    int index = hotLeafPage.findEntry(key);
+    MemorySegment keySlice = hotLeafPage.getKeySlice(index);
+
+    assertNotNull(keySlice);
+    assertEquals(key.length, keySlice.byteSize());
+
+    // Verify contents match
+    byte[] sliceBytes = new byte[(int) keySlice.byteSize()];
+    MemorySegment.copy(keySlice, ValueLayout.JAVA_BYTE, 0, sliceBytes, 0, sliceBytes.length);
+    assertArrayEquals(key, sliceBytes);
+  }
+
+  @Test
+  void testZeroCopyValueSlice() {
+    byte[] key = "testkey".getBytes(StandardCharsets.UTF_8);
+    byte[] value = "testvalue".getBytes(StandardCharsets.UTF_8);
+
+    hotLeafPage.put(key, value);
+
+    int index = hotLeafPage.findEntry(key);
+    MemorySegment valueSlice = hotLeafPage.getValueSlice(index);
+
+    assertNotNull(valueSlice);
+    assertEquals(value.length, valueSlice.byteSize());
+
+    // Verify contents match
+    byte[] sliceBytes = new byte[(int) valueSlice.byteSize()];
+    MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, sliceBytes, 0, sliceBytes.length);
+    assertArrayEquals(value, sliceBytes);
+  }
+
+  @Test
+  void testGuardManagement() {
+    assertEquals(0, hotLeafPage.getGuardCount());
+
+    hotLeafPage.acquireGuard();
+    assertEquals(1, hotLeafPage.getGuardCount());
+    assertTrue(hotLeafPage.isHot());
+
+    hotLeafPage.acquireGuard();
+    assertEquals(2, hotLeafPage.getGuardCount());
+
+    hotLeafPage.releaseGuard();
+    assertEquals(1, hotLeafPage.getGuardCount());
+
+    hotLeafPage.releaseGuard();
+    assertEquals(0, hotLeafPage.getGuardCount());
+  }
+
+  @Test
+  void testGuardUnderflowThrows() {
+    assertThrows(IllegalStateException.class, () -> {
+      hotLeafPage.releaseGuard();
+    });
+  }
+
+  @Test
+  void testOrphanedCleanup() {
+    hotLeafPage.acquireGuard();
+    hotLeafPage.markOrphaned();
+
+    assertTrue(hotLeafPage.isOrphaned());
+    assertFalse(hotLeafPage.isClosed(), "Should not close while guarded");
+
+    hotLeafPage.releaseGuard();
+    assertTrue(hotLeafPage.isClosed(), "Should close when guard released and orphaned");
+  }
+
+  @Test
+  void sideReferenceRetirementDefersCleanupToTheLastInFlightLookup() throws InterruptedException {
+    final PageReference reference = new PageReference().setKey(42L);
+    hotLeafPage.setPageReference(7L, reference);
+    hotLeafPage.beginSideReferenceRead();
+
+    final AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+    final Thread closeThread = new Thread(() -> {
+      try {
+        hotLeafPage.close();
+      } catch (final Throwable failure) {
+        closeFailure.set(failure);
+      }
+    }, "hot-leaf-side-reference-retirement");
+    closeThread.setDaemon(true);
+    closeThread.start();
+    try {
+      final long deadline = System.nanoTime() + 5_000_000_000L;
+      while (!hotLeafPage.sideReferencesRetired() && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+
+      assertTrue(hotLeafPage.sideReferencesRetired(), "close must retire new side-reference lookups");
+      closeThread.join(5_000L);
+      assertFalse(closeThread.isAlive(), "retirement must not block eviction behind a preempted reader");
+      assertNull(closeFailure.get(), "close must not fail while deferring side-map reclamation");
+      assertFalse(hotLeafPage.sideReferencesReleased(), "the in-flight reader must keep the map storage alive");
+      assertThrows(FrameReusedException.class, () -> hotLeafPage.getPageReference(7L));
+    } finally {
+      hotLeafPage.endSideReferenceRead();
+    }
+
+    assertTrue(hotLeafPage.sideReferencesReleased(), "the last reader must perform deferred reclamation");
+    assertThrows(FrameReusedException.class, hotLeafPage::segmentRefCount);
+  }
+
+  @Test
+  void frameReleaserRunsBeforeSideReferencesAreRetired() {
+    final AtomicReference<PageReference> releaserObservation = new AtomicReference<>();
+    final HOTLeafPage[] pageHolder = new HOTLeafPage[1];
+    final HOTLeafPage orderedPage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE),
+        () -> releaserObservation.set(pageHolder[0].getPageReference(7L)), new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    pageHolder[0] = orderedPage;
+    final PageReference reference = new PageReference().setKey(42L);
+    orderedPage.setPageReference(7L, reference);
+
+    orderedPage.close();
+
+    assertSame(reference, releaserObservation.get());
+    assertThrows(FrameReusedException.class, () -> orderedPage.getPageReference(7L));
+  }
+
+  @Test
+  void retainedHeapEstimateIncludesVariableArraysAndSideReferences() {
+    assertEquals(4L * 1024L, hotLeafPage.estimatedRetainedHeapBytes());
+
+    hotLeafPage.setAncestorOwnedBits(new int[] {1, 9}, new byte[] {0, 1});
+    hotLeafPage.setPageReference(7L, new PageReference().setKey(42L));
+
+    // int[2] = 24 + 8, byte[2] = 24 + 2, and one side-map entry = 144 bytes.
+    assertEquals(4L * 1024L + 32L + 26L + 144L, hotLeafPage.estimatedRetainedHeapBytes());
+
+    hotLeafPage.close();
+    assertTrue(hotLeafPage.sideReferencesReleased());
+    assertEquals(0L, hotLeafPage.estimatedRetainedHeapBytes());
+    assertThrows(FrameReusedException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+  }
+
+  @Test
+  void canonicalCacheAdmissionRejectsRetainedReferenceGraphs() {
+    final PageReference reference = new PageReference().setKey(42L);
+    hotLeafPage.setPageReference(7L, reference);
+    assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
+
+    final HOTLeafPage completePage =
+        new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    hotLeafPage.setCompletePageRef(completePage);
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    hotLeafPage.setCompletePageRef(null);
+
+    reference.setPage(new OverflowPage(new byte[] {1}));
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    reference.setPage(null);
+
+    reference.addPageFragment(new PageFragmentKeyImpl(1, 41L, 0L, 0L));
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    reference.setPageFragments(List.of());
+    assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
+
+    hotLeafPage.setPageReference(7L, new PageReference());
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+
+    completePage.close();
+  }
+
+  @Test
+  void testClose() {
+    assertFalse(hotLeafPage.isClosed());
+    hotLeafPage.close();
+    assertTrue(hotLeafPage.isClosed());
+
+    // Double close should be safe
+    hotLeafPage.close();
+    assertTrue(hotLeafPage.isClosed());
+  }
+
+  @Test
+  void testNeedsSplit() {
+    assertFalse(hotLeafPage.needsSplit());
+
+    // Insert entries until the page is full
+    // Note: We may hit space limit before MAX_ENTRIES due to key/value size
+    int inserted = 0;
+    for (int i = 0; i < HOTLeafPage.MAX_ENTRIES && !hotLeafPage.needsSplit(); i++) {
+      byte[] key = String.format("key%05d", i).getBytes(StandardCharsets.UTF_8);
+      byte[] value = "v".getBytes(StandardCharsets.UTF_8);
+      if (hotLeafPage.put(key, value)) {
+        inserted++;
+      } else {
+        break; // Space limit hit
+      }
+    }
+
+    // Either we hit MAX_ENTRIES or ran out of space
+    assertTrue(inserted > 0, "Should have inserted at least one entry");
+    assertTrue(hotLeafPage.needsSplit() || inserted == HOTLeafPage.MAX_ENTRIES);
+  }
+
+  @Test
+  void testVersionIncrement() {
+    assertEquals(0, hotLeafPage.getVersion());
+
+    hotLeafPage.incrementVersion();
+    assertEquals(1, hotLeafPage.getVersion());
+  }
+
+  @Test
+  void testHotFlag() {
+    assertFalse(hotLeafPage.isHot());
+
+    hotLeafPage.acquireGuard();
+    assertTrue(hotLeafPage.isHot());
+
+    hotLeafPage.clearHot();
+    assertFalse(hotLeafPage.isHot());
+
+    hotLeafPage.releaseGuard();
+  }
+
+  @Test
+  void testEmptyPage() {
+    assertEquals(0, hotLeafPage.getEntryCount());
+    assertEquals(0, hotLeafPage.size());
+
+    byte[] key = "notfound".getBytes(StandardCharsets.UTF_8);
+    int index = hotLeafPage.findEntry(key);
+    assertTrue(index < 0);
+  }
+
+  @Test
+  void testBinaryKeys() {
+    // Test with binary data (not just ASCII)
+    byte[] key1 = new byte[] {0x00, 0x01, 0x02};
+    byte[] key2 = new byte[] {0x00, 0x01, 0x03};
+    byte[] key3 = new byte[] {(byte) 0xFF, (byte) 0xFE};
+    byte[] value = new byte[] {0x10, 0x20};
+
+    hotLeafPage.put(key1, value);
+    hotLeafPage.put(key2, value);
+    hotLeafPage.put(key3, value);
+
+    assertEquals(3, hotLeafPage.getEntryCount());
+
+    assertTrue(hotLeafPage.findEntry(key1) >= 0);
+    assertTrue(hotLeafPage.findEntry(key2) >= 0);
+    assertTrue(hotLeafPage.findEntry(key3) >= 0);
+
+    // High bytes should sort after low bytes (unsigned comparison)
+    int posLow = hotLeafPage.findEntry(key1);
+    int posHigh = hotLeafPage.findEntry(key3);
+    assertTrue(posLow < posHigh, "Low bytes should sort before high bytes");
+  }
+
+  @Test
+  void testToString() {
+    String str = hotLeafPage.toString();
+    assertNotNull(str);
+    assertTrue(str.contains("HOTLeafPage"));
+    assertTrue(str.contains("pageKey=1"));
+    assertTrue(str.contains("indexType=PATH"));
+  }
+
+  /**
+   * REGRESSION: recalculateUsedMemory() previously used raw short (sign-extended) for key/value
+   * lengths, giving wrong results for lengths >= 32768. Test that compact() + getRemainingSpace() are
+   * consistent when a value of length >= 32768 is stored.
+   */
+  @Test
+  void testRecalculateUsedMemoryLargeValueLength() {
+    // A page that can hold one very large entry (we need > 32767 bytes for value)
+    // Default page size is 64KB = 65536 bytes.
+    // One entry: 2 (keyLen) + 1 (key) + 2 (valueLen) + 32768 (value) = 32773 bytes
+    byte[] smallKey = new byte[] {0x42};
+    byte[] largeValue = new byte[32768]; // exactly 0x8000 → sign-extends to -32768 when read as short
+    java.util.Arrays.fill(largeValue, (byte) 0xAB);
+
+    boolean inserted = hotLeafPage.put(smallKey, largeValue);
+    assertTrue(inserted, "Large value should fit in a 64KB page");
+    assertEquals(1, hotLeafPage.getEntryCount());
+
+    // Verify round-trip: the stored value equals what we inserted
+    int idx = hotLeafPage.findEntry(smallKey);
+    assertTrue(idx >= 0, "Key must be findable");
+    byte[] retrieved = hotLeafPage.getValue(idx);
+    assertArrayEquals(largeValue, retrieved, "Retrieved value must match inserted value");
+
+    // compact() calls recalculateUsedMemory() internally; must not corrupt usedMemory
+    int reclaimed = hotLeafPage.compact();
+    assertTrue(reclaimed >= 0, "Compact must not return negative (sign-overflow symptom)");
+
+    // After compact, the entry must still be findable and correct
+    idx = hotLeafPage.findEntry(smallKey);
+    assertTrue(idx >= 0, "Key must be findable after compact");
+    retrieved = hotLeafPage.getValue(idx);
+    assertArrayEquals(largeValue, retrieved, "Value must be intact after compact");
+
+    // Remaining space must be consistent: DEFAULT_SIZE - overhead - entrySize
+    // If recalculateUsedMemory signed-extended 32768 as -32768, usedMemory would be negative,
+    // making getRemainingSpace() return a huge positive value — detectable as > DEFAULT_SIZE.
+    long remaining = hotLeafPage.getRemainingSpace();
+    assertTrue(remaining >= 0, "Remaining space must not be negative");
+    assertTrue(remaining < HOTLeafPage.DEFAULT_SIZE,
+        "Remaining space must be less than page size (was " + remaining + "), sign-overflow if >= DEFAULT_SIZE");
+  }
+
+  @Test
+  void testCompactWithLargeKeys() {
+    // Insert keys longer than 8 bytes to exercise compareKeysSimd's > 8 byte path
+    byte[] key9 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8}; // 9 bytes
+    byte[] key16 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 1}; // 16 bytes, differs at byte 15
+    byte[] key17 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 2}; // 16 bytes, differs at byte 15
+    byte[] value = new byte[] {1};
+
+    hotLeafPage.put(key9, value);
+    hotLeafPage.put(key16, value);
+    hotLeafPage.put(key17, value);
+
+    assertEquals(3, hotLeafPage.getEntryCount());
+
+    // All three must be found (exercises compareKeysSimd chunk loop)
+    assertTrue(hotLeafPage.findEntry(key9) >= 0);
+    assertTrue(hotLeafPage.findEntry(key16) >= 0);
+    assertTrue(hotLeafPage.findEntry(key17) >= 0);
+
+    // compact should leave all entries intact
+    hotLeafPage.compact();
+    assertEquals(3, hotLeafPage.getEntryCount());
+    assertTrue(hotLeafPage.findEntry(key9) >= 0);
+    assertTrue(hotLeafPage.findEntry(key16) >= 0);
+    assertTrue(hotLeafPage.findEntry(key17) >= 0);
+  }
+}
