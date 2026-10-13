@@ -19,7 +19,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
-import io.sirix.page.HOTLeafPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.SirixFiles;
