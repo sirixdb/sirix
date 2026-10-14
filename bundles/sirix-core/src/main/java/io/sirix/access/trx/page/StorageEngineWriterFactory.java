@@ -99,11 +99,17 @@ public final class StorageEngineWriterFactory {
           bufferManager, new RevisionRootPageReader(), log);
 
       // Create new revision root page.
-      final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
-      // Use temporary KeyedTrieWriter to prepare revision root page.
-      final var tempKeyedTrieWriter = new KeyedTrieWriter();
-      final RevisionRootPage newRevisionRootPage = tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage,
-          storageEngineReader, log, representRevision, lastStoredRevision);
+      // The reader has already loaded and integrity-checked the represented root. Reuse that exact
+      // image instead of reading/deserializing it twice more while opening every successor writer.
+      // Revert still needs the latest root's allocation frontiers, even though its content comes
+      // from an older represented revision.
+      final RevisionRootPage representedRoot = storageEngineReader.getActualRevisionRootPage();
+      final RevisionRootPage lastCommitedRoot = representRevision == lastCommitedRevision
+          ? representedRoot
+          : storageEngineReader.loadRevRoot(lastCommitedRevision);
+      final RevisionRootPage newRevisionRootPage = uberPage.isBootstrap()
+          ? representedRoot
+          : new RevisionRootPage(representedRoot, lastStoredRevision + 1);
       final IndexController<?, ?> indexController =
           resourceSession.getWtxIndexController(newRevisionRootPage.getRevision());
 
@@ -161,7 +167,9 @@ public final class StorageEngineWriterFactory {
         // NodeStorageEngineWriter.prepareSecondaryIndexPage performs the single, typed first-touch
         // CoW operation. An empty write transaction consequently neither copies nor serializes every
         // secondary-index container in the resource.
-        if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
+        // With Dewey IDs disabled the container cannot change. Keep its durable reference instead
+        // of loading and rewriting the same page at every commit.
+        if (resourceConfig.areDeweyIDsStored && log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
           final Page deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
           log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
         }
