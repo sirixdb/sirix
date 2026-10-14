@@ -78,8 +78,8 @@ final class GlobalValueDictionaryReadViewMissPathTest {
    * Charged against the FULLY HOT window rather than against zero. Both windows drive the identical
    * {@code compareIds} call in the identical loop, so whatever a comparison costs before it resolves
    * anything is common to the two and cancels in the difference; what is left is the resolution, and
-   * that is what this bounds. The suite runs in its own JVM so sibling tests cannot inject
-   * Mockito interception allocations into the measured storage classes.
+   * that is what this bounds. The suite runs in its own JVM so sibling tests cannot inject Mockito
+   * interception allocations into the measured storage classes.
    * </p>
    */
   private static final double SLICE_PATH_MAX_BYTES_PER_PROBE = 40.0;
