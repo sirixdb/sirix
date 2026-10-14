@@ -370,7 +370,8 @@ final class DerivedIndexMaintainerTest {
         assertThrows(SirixUsageException.class,
             () -> database.createResource(ResourceConfiguration.newBuilder(hiddenName).build()));
         assertThrows(IllegalStateException.class, () -> database.removeResource("RECORDS"));
-        assertTrue(database.listResources().stream()
+        assertTrue(database.listResources()
+                           .stream()
                            .noneMatch(resourcePath -> resourcePath.getFileName().toString().equals(hiddenName)));
         assertSum(session, 1, 10);
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
