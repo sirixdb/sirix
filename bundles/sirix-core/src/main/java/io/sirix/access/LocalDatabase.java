@@ -127,9 +127,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   String canonicalResourceName(final String name) {
     final String canonicalName = ResourceConfiguration.canonicalResourceName(name);
-    final Path path = dbConfig.getDatabaseFile()
-                              .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                              .resolve(canonicalName);
+    final Path path =
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
     if (!Files.exists(path)) {
       return canonicalName;
     }
@@ -170,7 +169,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Cache keys include (databaseId, resourceId) to prevent collisions.
     final T session = resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
     if (DerivedIndexMaintainer.enabled(resourceConfig) && resourceConfig.getValidTimeConfig() != null
-        && session instanceof JsonResourceSession json && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
+        && session instanceof JsonResourceSession json
+        && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
       shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json));
       if (Files.exists(resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX))
@@ -568,8 +568,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertNotClosed();
     try (final Stream<Path> stream =
         Files.list(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
-      return stream.filter(path -> !DerivedIndexMaintainer.isDerivedResourceName(
-          canonicalResourceName(path.getFileName().toString()))).toList();
+      return stream.filter(
+          path -> !DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(path.getFileName().toString())))
+                   .toList();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

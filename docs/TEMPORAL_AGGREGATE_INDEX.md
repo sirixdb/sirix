@@ -27,8 +27,9 @@ Optional aggregate and change-log container classes are resolved only when those
 The shared page cache checks the `IndexRootPage` ownership marker instead of loading every index
 container implementation to classify an ordinary page; revision-owned containers remain uncached.
 `jn:drop-temporal-aggregate-index($document[, $id])` removes one declaration or all declarations.
-Physical ids are never reused. Removing a source projection also removes its dependent aggregate
-definitions from the new revision; historical catalogues and roots remain readable.
+Dropping a declaration does not free its id in that source history; reverting restores the earlier
+allocator state and can reuse an id in a new branch. Removing a source projection also removes its
+dependent aggregate definitions from the new revision; historical catalogues and roots remain readable.
 Aggregate CREATE and both aggregate DROP signatures are updating functions. REST checks MODIFY
 permission before evaluating an updating query, including a commit-wrapped DROP.
 
@@ -52,10 +53,11 @@ engine. By default these trees live in the hidden `<source>$derived` resource, w
 writer, revision roots and catalogue. The source stores declarations and durable change logs.
 The persisted byte layout is owned by [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
-The `$derived` suffix is reserved: public database handles cannot create, open or remove these
-internal resources, and `listResources()` omits them. Resource names are normalized to a single
-relative path component before lookup, so aliases such as `records/` identify the same source and
-cannot bypass the hidden-resource guard. Removing a source also removes its derived sibling,
+The `$derived` suffix is reserved regardless of casing: public database handles cannot create, open
+or remove these internal resources, and `listResources()` omits them. Resource names are normalized
+to a single relative path component before lookup; existing names are then resolved to their
+filesystem identity. Aliases such as `records/`, or filesystem-equivalent casing on a case-insensitive
+volume, cannot bypass the hidden-resource guard. Removing a source also removes its derived sibling,
 including an incomplete directory. Derived sessions survive the last application session closing;
 the database owns their lifetime.
 
@@ -141,8 +143,10 @@ revert. Truncation invalidates mappings above the surviving source frontier and 
 active maintenance, without putting a lock on normal source commits. Before replaying a replacement
 history, the maintainer truncates its own discarded revisions. Equal source timestamps are safe:
 revision identity, rather than timestamps alone, determines admissibility. After a process crash,
-normal Sirix beacon/commit-marker recovery chooses the durable derived root; its mapping determines
-where replay resumes.
+normal Sirix beacon/commit-marker recovery chooses the durable derived root. Restart resumes from
+the last mapping with a verified source log identity. Declaration-free mappings have no such identity
+and cannot anchor recovery; the worker walks back to a verified mapping and replays through normal
+bounded batches and separate folds.
 
 A missing, incomplete or unreadable derived resource is recreated from the authoritative source.
 Rebuilding scans committed projections for declarations and replays subsequent covered slabs;

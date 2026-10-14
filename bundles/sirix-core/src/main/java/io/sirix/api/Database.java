@@ -73,9 +73,9 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
   boolean existsResource(String resourceName);
 
   /**
-   * List all resources within this database.
+   * List resources available through public resource sessions.
    *
-   * @return all resources
+   * @return paths of publicly accessible resources
    */
   List<Path> listResources();
 
