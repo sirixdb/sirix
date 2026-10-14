@@ -42,17 +42,6 @@ import java.util.Map;
  */
 public final class TemporalAggregateIndexes {
   private static final int FORMAT = 5;
-  private static final int DERIVED_FOLD_FAN_IN = derivedFoldFanIn();
-
-  private static int derivedFoldFanIn() {
-    final int value = Integer.getInteger("sirix.derived.foldFanIn", TemporalAggregateParts.FAN_IN);
-    if (value < 2 || value > TemporalAggregateParts.MAX_PARTS - 8) {
-      throw new IllegalArgumentException(
-          "sirix.derived.foldFanIn must be between 2 and " + (TemporalAggregateParts.MAX_PARTS - 8));
-    }
-    return value;
-  }
-
   private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
   private static volatile MaintenanceWork lastMaintenance = new MaintenanceWork(0, 0, 0, 0, 0, 0, 0);
 
@@ -745,7 +734,7 @@ public final class TemporalAggregateIndexes {
             : Math.addExact(Objects.requireNonNull(prior).deltaBytes(), encoded.length);
         storage.put(entry.getKey(),
             new GroupHead(group.rows, checkpointTier, ids, tiers, checkpointBytes, deltaBytes).encode());
-        if (foldCandidate != null && (ids.length > DERIVED_FOLD_FAN_IN
+        if (foldCandidate != null && (ids.length > TemporalAggregateParts.FAN_IN
             || ids.length > TemporalAggregateParts.MAX_PARTS - 24 || deltaBytes > checkpointBytes / 2)) {
           foldCandidate.accept(entry.getKey(), ids.length);
         }

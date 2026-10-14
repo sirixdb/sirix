@@ -1063,12 +1063,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         serializedPageSegment = pipeline.compress(byteBufferBytes.getDestination());
       } else {
         final byte[] byteArray = byteBufferBytes.toByteArray();
-        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
-            final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+        final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
+        try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
           dataOutput.write(byteArray);
-          dataOutput.flush();
-          serializedPageBytes = output.toByteArray();
         }
+        serializedPageBytes = output.toByteArray();
       }
     }
 

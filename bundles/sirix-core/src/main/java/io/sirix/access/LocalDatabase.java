@@ -27,6 +27,8 @@ import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionSortedRunSpill;
 import io.sirix.io.SuperblockValidator;
+import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
@@ -196,8 +198,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private JsonResourceSession openDerivedResource(final JsonResourceSession source) {
     final String name = source.getResourcePath().getFileName() + DerivedIndexMaintainer.SUFFIX;
+    final Path derivedPath = source.getResourcePath().resolveSibling(name);
+    final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
+    final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (existsResource(name)) {
       try {
+        if (encrypted) {
+          final List<ByteHandler> derivedHandlers =
+              ResourceConfiguration.deserialize(derivedPath).byteHandlePipeline.getComponents();
+          for (final ByteHandler handler : sourceHandlers) {
+            if (handler instanceof Encryptor && !derivedHandlers.contains(handler)) {
+              throw new SirixIOException("Derived resource does not preserve source encryption: " + name);
+            }
+          }
+        }
         final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name);
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
@@ -211,17 +225,18 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         removeResource(name);
       }
     }
-    final ResourceConfiguration configuration =
-        ResourceConfiguration.newBuilder(name)
-                             .storageType(StorageType.FILE_CHANNEL)
-                             .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                             .storeDiffs(false)
-                             .storeNodeHistory(false)
-                             .buildPathSummary(false)
-                             .customCommitTimestamps(true)
-                             .asyncDerivedIndexes(false)
-                             .build();
-    if (!createResource(configuration, null)) {
+    final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(name)
+                                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                     .storeDiffs(false)
+                                                                     .storeNodeHistory(false)
+                                                                     .buildPathSummary(false)
+                                                                     .customCommitTimestamps(true)
+                                                                     .aggregateKernel(true);
+    if (encrypted) {
+      builder.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
+    }
+    if (!createResource(builder.build(), null)) {
       throw new SirixIOException("Could not create derived resource " + name);
     }
     return (JsonResourceSession) beginResourceSession(name);

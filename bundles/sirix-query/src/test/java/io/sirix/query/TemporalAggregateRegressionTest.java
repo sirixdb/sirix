@@ -403,6 +403,7 @@ final class TemporalAggregateRegressionTest {
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(
             session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]", List.of("g"), List.of("sum(n)"));
         writer.commit("initial", Instant.parse("2024-01-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         field(writer, first, "hi");
         writer.setStringValue("1970-01-01T00:00:00.002Z");
         writer.moveTo(array);
@@ -410,6 +411,7 @@ final class TemporalAggregateRegressionTest {
             {"g":1,"n":7,"lo":"1970-01-01T00:00:00.002Z","hi":"1970-01-01T00:00:00.003Z"}
             """), JsonNodeTrx.Commit.NO);
         writer.commit("split", Instant.parse("2024-02-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         writer.moveTo(first);
         writer.remove();
         writer.commit("delete first segment", Instant.parse("2024-03-15T00:00:00Z"));

@@ -4,6 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.access.AggregateKernelTestSupport;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -19,6 +20,8 @@ import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -29,7 +32,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.time.Duration;
@@ -39,6 +47,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -136,6 +145,96 @@ final class DerivedIndexMaintainerTest {
       await(state(session), 2);
       assertSum(session, 1, 10);
       assertSum(session, 2, 30);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"intact", "unencrypted", "different-key"})
+  void encryptedSnapshotsRetainSourceProtectionAcrossFoldsAndReopen(final String storeState) throws Exception {
+    final var path = directory.toPath().resolve("encrypted");
+    final var sourcePath = path.resolve("resources").resolve("records");
+    final var derivedPath = path.resolve("resources").resolve("records$derived");
+    final int latest = TemporalAggregateParts.FAN_IN + 2;
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .byteHandlerPipeline(new ByteHandlerPipeline(new Encryptor(sourcePath)))
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"g":"private-group","n":10,"lo":"2024-01-01T00:00:00Z","hi":"2024-12-01T00:00:00Z"}]
+            """), JsonNodeTrx.Commit.NO);
+        final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
+            List.of(field("g"), field("n"), field("lo"), field("hi")), List.of(Type.STR, Type.LON, Type.STR, Type.STR),
+            0, IndexDef.DbType.JSON);
+        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
+        TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
+            List.of("g"), List.of("sum(n)"));
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+        assertSum(session, 1, 10);
+        for (int revision = 2; revision <= latest; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+          resource.drain();
+        }
+        assertSum(session, latest, latest);
+      }
+    }
+    if (!storeState.equals("intact")) {
+      final var seedPath = directory.toPath().resolve("replacement");
+      final var emptyPath = seedPath.resolve("resources").resolve("empty");
+      final ByteHandlerPipeline replacementPipeline = storeState.equals("unencrypted")
+          ? new ByteHandlerPipeline()
+          : new ByteHandlerPipeline(new Encryptor(emptyPath));
+      Databases.createJsonDatabase(new DatabaseConfiguration(seedPath));
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(seedPath)) {
+        database.createResource(ResourceConfiguration.newBuilder("unused").build());
+        database.createResource(AggregateKernelTestSupport.newBuilder("empty")
+                                                         .storageType(StorageType.FILE_CHANNEL)
+                                                         .byteHandlerPipeline(replacementPipeline)
+                                                         .build());
+      }
+      assertEquals(ResourceConfiguration.deserialize(derivedPath).getID(),
+          ResourceConfiguration.deserialize(emptyPath).getID());
+      SirixFiles.recursiveRemove(derivedPath);
+      try (var entries = Files.walk(emptyPath)) {
+        for (final var entry : entries.toList()) {
+          Files.copy(entry, derivedPath.resolve(emptyPath.relativize(entry)));
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      resource.drain();
+      assertSum(session, 1, 10);
+      assertSum(session, latest, latest);
+      try (StorageEngineReader source = session.createStorageEngineReader(latest)) {
+        final StorageEngineReader derived = Objects.requireNonNull(source.getDerivedIndexReader());
+        final ByteHandlerPipeline pipeline = derived.getResourceSession().getResourceConfig().byteHandlePipeline;
+        assertTrue(pipeline.getComponents().contains(new Encryptor(sourcePath)));
+        final byte[] plaintext = "private-group".getBytes(StandardCharsets.UTF_8);
+        final ByteArrayOutputStream encrypted = new ByteArrayOutputStream();
+        try (OutputStream output = pipeline.serialize(encrypted)) {
+          output.write(plaintext);
+        }
+        try (InputStream input = pipeline.deserialize(new ByteArrayInputStream(encrypted.toByteArray()))) {
+          assertArrayEquals(plaintext, input.readAllBytes());
+        }
+        try (InputStream input =
+            new Encryptor(sourcePath).deserialize(new ByteArrayInputStream(encrypted.toByteArray()))) {
+          assertArrayEquals(plaintext, input.readAllBytes());
+        }
+      }
     }
   }
 

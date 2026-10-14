@@ -342,7 +342,7 @@ public final class ResourceConfiguration {
    */
   private final boolean storeNodeHistory;
 
-  private final boolean asyncDerivedIndexes;
+  private final boolean aggregateKernel;
 
   /**
    * Binary encoding version of storage.
@@ -445,7 +445,7 @@ public final class ResourceConfiguration {
     storeDiffs = builder.storeDiffs;
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
-    asyncDerivedIndexes = builder.asyncDerivedIndexes;
+    aggregateKernel = builder.aggregateKernel;
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     regionCompressionType = builder.regionCompressionType;
@@ -590,9 +590,9 @@ public final class ResourceConfiguration {
     return storeChildCount;
   }
 
-  /** Whether aggregate declarations are maintained in the hidden derived resource. */
-  public boolean asyncDerivedIndexes() {
-    return asyncDerivedIndexes;
+  /** Whether this internal resource runs the aggregate kernel directly. */
+  public boolean aggregateKernel() {
+    return aggregateKernel;
   }
 
   public boolean storeNodeHistory() {
@@ -625,7 +625,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
       "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
-      "resourceUuid", "regionCompression", "asyncDerivedIndexes"};
+      "resourceUuid", "regionCompression", "aggregateKernel"};
 
   /**
    * Serialize the configuration.
@@ -703,7 +703,7 @@ public final class ResourceConfiguration {
       }
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
-      jsonWriter.name(JSONNAMES[28]).value(config.asyncDerivedIndexes);
+      jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -848,7 +848,7 @@ public final class ResourceConfiguration {
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
-      boolean asyncDerivedIndexes = true;
+      boolean aggregateKernel = false;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[21])) {
@@ -876,7 +876,7 @@ public final class ResourceConfiguration {
         } else if (name.equals(JSONNAMES[27])) {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
         } else if (name.equals(JSONNAMES[28])) {
-          asyncDerivedIndexes = jsonReader.nextBoolean();
+          aggregateKernel = jsonReader.nextBoolean();
         }
       }
 
@@ -905,7 +905,7 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .regionCompressionType(regionCompressionType)
-             .asyncDerivedIndexes(asyncDerivedIndexes)
+             .aggregateKernel(aggregateKernel)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
@@ -1026,7 +1026,7 @@ public final class ResourceConfiguration {
      */
     private boolean storeNodeHistory = true;
 
-    private boolean asyncDerivedIndexes = true;
+    private boolean aggregateKernel;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
@@ -1285,12 +1285,8 @@ public final class ResourceConfiguration {
       return this;
     }
 
-    /**
-     * Maintain temporal aggregates in a hidden resource (default), or use the synchronous kernel for
-     * embedded deployments that cannot run a background service.
-     */
-    public Builder asyncDerivedIndexes(final boolean enabled) {
-      asyncDerivedIndexes = enabled;
+    Builder aggregateKernel(final boolean enabled) {
+      aggregateKernel = enabled;
       return this;
     }
 

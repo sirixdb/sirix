@@ -38,7 +38,6 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
   public static final String SUFFIX = "$derived";
   private static final Logger LOGGER = LoggerFactory.getLogger(DerivedIndexMaintainer.class);
   private static final DerivedIndex AGGREGATE = new TemporalAggregateDerivedIndex();
-  private static final boolean ENABLED = !Boolean.getBoolean("sirix.derived.disabled");
   private final ConcurrentHashMap<Path, Resource> resources = new ConcurrentHashMap<>();
   private final Thread worker;
   private volatile boolean stopped;
@@ -50,7 +49,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
   }
 
   public static boolean enabled(final ResourceConfiguration configuration) {
-    return ENABLED && configuration.asyncDerivedIndexes();
+    return !configuration.aggregateKernel();
   }
 
   /** Validate the restart marker before a database installs an existing derived resource. */

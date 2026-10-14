@@ -140,11 +140,7 @@ Dropping the last consumer stops logging; declaring a new one rebuilds sparse ro
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
 a consumer have no slab.
 
-Embedded deployments can select `ResourceConfiguration.Builder.asyncDerivedIndexes(false)` or set
-`-Dsirix.derived.disabled=true` before opening the database. They retain the synchronous log-fed
-kernel and source-owned aggregate pages. That kernel keeps its existing tiered compaction and
-amortized work budgets. The asynchronous mode moves both initial builds and incremental aggregate
-writes off the source commit path.
+Initial builds and incremental aggregate writes run off the source commit path.
 
 Long operands and long record counts bound sums within signed 128 bits. Products are checked before
 entering the index; an overflowing product declines serving instead of wrapping. Removing an
