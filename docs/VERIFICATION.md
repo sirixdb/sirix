@@ -88,6 +88,9 @@ The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a sepa
 It checks fresh interval roots and all companion postings after truncation reuses a revision number,
 and the surviving historical revision, under all four versioning types. Run it alone with
 `./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
+The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a separate JVM so
+inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
+with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 
 ```bash
 # Generative + oracle + regression tests (fast, part of the normal test task)

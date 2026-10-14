@@ -314,17 +314,39 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
     filter {
         includeTestsMatching 'io.sirix.index.interval.ValidTimeDisabledLookupCacheTest'
     }
+}
+
+// Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
+// interception prologues. Measure production dictionary allocations in an uncontaminated JVM.
+def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
+    group = 'verification'
+    description = 'Checks dictionary read-view behavior and allocation bounds in a separate JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
+    }
+}
+
+// Copy the complete fork options after all test conventions are configured, before Gradle
+// finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
+gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    jvmArgs = standardTest.jvmArgs
-    minHeapSize = standardTest.minHeapSize
-    maxHeapSize = standardTest.maxHeapSize
-    systemProperties = standardTest.systemProperties
-    systemProperty 'sirix.hotLookupCache.maxEntries', '0'
+    validTimeDisabledLookupCacheTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+        systemProperty 'sirix.hotLookupCache.maxEntries', '0'
+    }
+    dictionaryReadViewAllocationTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+    }
 }
 
 tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
+    exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
+    dependsOn dictionaryReadViewAllocationTest
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

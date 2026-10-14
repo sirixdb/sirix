@@ -746,10 +746,9 @@ public final class ResourceConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
-    try {
-      final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
-      final FileReader fileReader = new FileReader(configFile.toFile());
-      final JsonReader jsonReader = new JsonReader(fileReader);
+    final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    try (final FileReader fileReader = new FileReader(configFile.toFile());
+        final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
@@ -891,8 +890,6 @@ public final class ResourceConfiguration {
       }
 
       jsonReader.endObject();
-      jsonReader.close();
-      fileReader.close();
 
       // Deserialize database config.
       final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());

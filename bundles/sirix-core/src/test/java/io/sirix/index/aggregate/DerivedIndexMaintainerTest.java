@@ -154,7 +154,8 @@ final class DerivedIndexMaintainerTest {
   @ParameterizedTest
   @ValueSource(strings = {"intact", "unencrypted", "different-key"})
   void encryptedSnapshotsRetainSourceProtectionAcrossFoldsAndReopen(final String storeState) throws Exception {
-    final var path = directory.toPath().resolve("encrypted");
+    final var canonicalDirectory = directory.toPath().toRealPath();
+    final var path = canonicalDirectory.resolve("encrypted");
     final var sourcePath = path.resolve("resources").resolve("records");
     final var derivedPath = path.resolve("resources").resolve("records$derived");
     final int latest = TemporalAggregateParts.FAN_IN + 2;
@@ -192,7 +193,7 @@ final class DerivedIndexMaintainerTest {
       }
     }
     if (!storeState.equals("intact")) {
-      final var seedPath = directory.toPath().resolve("replacement");
+      final var seedPath = canonicalDirectory.resolve("replacement");
       final var emptyPath = seedPath.resolve("resources").resolve("empty");
       final ByteHandlerPipeline replacementPipeline = storeState.equals("unencrypted")
           ? new ByteHandlerPipeline()
