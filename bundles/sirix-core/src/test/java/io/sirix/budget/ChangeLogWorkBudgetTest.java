@@ -231,10 +231,10 @@ final class ChangeLogWorkBudgetTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       database.createResource(AggregateKernelTestSupport.newBuilder("data")
-                                                       .validTimePaths("lo", "hi")
-                                                       .storageType(StorageType.FILE_CHANNEL)
-                                                       .storeDiffs(false)
-                                                       .build());
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("data");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 100).append('[');

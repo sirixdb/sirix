@@ -77,7 +77,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     if (resources.putIfAbsent(source.getResourcePath(), resource) != null) {
       throw new IllegalStateException("Source is already registered with the derived maintainer");
     }
-    ((InternalResourceSession<?, ?>) source).addRevisionListener(resource.listener);
+    ((InternalResourceSession<?, ?>) source).addRevisionListener(resource);
     LockSupport.unpark(worker);
     return resource;
   }
@@ -94,7 +94,11 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     paused = true;
     for (final Resource resource : resources.values()) {
       resource.historyLock.lock();
-      resource.historyLock.unlock();
+      try {
+        // Acquiring the lock waits for maintenance already in progress to finish.
+      } finally {
+        resource.historyLock.unlock();
+      }
     }
   }
 
@@ -140,12 +144,11 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
   }
 
   /** Source-specific availability and failure state, shared by all source user sessions. */
-  public final class Resource implements AutoCloseable {
+  public final class Resource implements AutoCloseable, IntConsumer {
     private final JsonResourceSession source;
     private final JsonResourceSession derived;
     private final ConcurrentSkipListMap<Integer, DerivedRevisionMapping> mappings = new ConcurrentSkipListMap<>();
     private final ReentrantLock historyLock = new ReentrantLock();
-    private final IntConsumer listener = revision -> LockSupport.unpark(worker);
     private @Nullable JsonNodeTrx writer;
     private volatile int maintained;
     private volatile int poisonedRevision = -1;
@@ -168,6 +171,11 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private Resource(final JsonResourceSession source, final JsonResourceSession derived) {
       this.source = Objects.requireNonNull(source);
       this.derived = Objects.requireNonNull(derived);
+    }
+
+    @Override
+    public void accept(final int revision) {
+      LockSupport.unpark(worker);
     }
 
     public int maintainedRevision() {
@@ -285,6 +293,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       return advance(true);
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // All frontier writers hold historyLock.
     private boolean advance(final boolean manual) {
       historyLock.lock();
       try {
@@ -517,6 +526,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // Called only by maintenance holding historyLock.
     private void recordDocumentPages(final StorageEngineWriter destination) {
       if (TemporalAggregateStorage.workDiagnosticsEnabled()) {
         long pages = 0;
@@ -565,7 +575,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       historyLock.lock();
       try {
         closed = true;
-        ((InternalResourceSession<?, ?>) source).removeRevisionListener(listener);
+        ((InternalResourceSession<?, ?>) source).removeRevisionListener(this);
         if (writer != null) {
           writer.rollback();
           writer.close();

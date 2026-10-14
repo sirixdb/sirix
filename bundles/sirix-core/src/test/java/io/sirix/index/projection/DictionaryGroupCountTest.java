@@ -3,6 +3,7 @@ package io.sirix.index.projection;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.GlobalValueDictionary.ReadView;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -24,16 +26,16 @@ final class DictionaryGroupCountTest {
   private static final byte GLOBAL = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
   private static final ColumnPredicate[] SELECTED = {ColumnPredicate.numeric(2, ProjectionIndexScan.Op.GT, 0)};
 
-  private record Key(String string, Long number, Long date, Long global) {
+  private record Key(@Nullable String string, @Nullable Long number, @Nullable Long date, @Nullable Long global) {
   }
 
-  private record Fixture(List<byte[]> leaves, Map<Key, long[]> composite, Map<String, long[]> strings) {
+  private record Fixture(List<byte[]> leaves, Map<Key, long[]> composite, Map<@Nullable String, long[]> strings) {
   }
 
   private static Fixture fixture() {
     final List<byte[]> leaves = new ArrayList<>();
     final Map<Key, long[]> composite = new LinkedHashMap<>();
-    final Map<String, long[]> strings = new LinkedHashMap<>();
+    final Map<@Nullable String, long[]> strings = new LinkedHashMap<>();
     final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
     for (int id = 1; id <= 5; id++) {
       assertEquals(id, dictionary.intern("global-" + id));
@@ -50,8 +52,8 @@ final class DictionaryGroupCountTest {
         final long number = row % 19 == 0
             ? Long.MIN_VALUE
             : row % 11 - 5;
-        final long date = row % 7 - 3;
-        final long global = row % 5 + 1;
+        final long date = row % 7 - 3L;
+        final long global = row % 5 + 1L;
         final boolean[] present = {row % 13 != 0, row % 23 != 0, true, row % 29 != 0, row % 31 != 0};
         final long selected = row % 3;
         assertTrue(
@@ -95,9 +97,11 @@ final class DictionaryGroupCountTest {
             ? new int[0]
             : new int[] {2}, table, missing, 9);
         assertEquals(fixture.strings().size() - 1, table.sizeIncludingZero());
-        assertEquals(fixture.strings().get(null)[0], missing[0]);
-        assertEquals(fixture.strings().get(null)[1], missing[1]);
-        for (final Map.Entry<String, long[]> entry : fixture.strings().entrySet()) {
+        final long[] expectedMissing = fixture.strings().get(null);
+        assertNotNull(expectedMissing);
+        assertEquals(expectedMissing[0], missing[0]);
+        assertEquals(expectedMissing[1], missing[1]);
+        for (final Map.Entry<@Nullable String, long[]> entry : fixture.strings().entrySet()) {
           if (entry.getKey() == null) {
             continue;
           }
@@ -176,6 +180,7 @@ final class DictionaryGroupCountTest {
         : table;
   }
 
+  @SuppressWarnings("NullAway") // Existing scan APIs accept null for absent transform/distinct options.
   private static void scan(final List<byte[]> leaves, final NumericGroupAggTable out,
       final ProjectionStringIdentityRegistry registry, final boolean general) {
     ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(leaves, SELECTED, new int[] {0, 1, 3, 4},

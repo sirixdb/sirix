@@ -22,6 +22,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   }
 
   @Nullable
+  @SuppressWarnings("ReferenceEquality") // Thread ownership and publication identity require reference equality.
   StorageEngineReader borrow(final StorageEngineReader source) {
     if (closed) {
       throw new IllegalStateException("Query aggregate readers are closed");

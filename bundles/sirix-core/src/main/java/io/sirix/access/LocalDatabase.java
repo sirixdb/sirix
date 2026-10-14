@@ -224,14 +224,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         removeResource(name);
       }
     }
-    final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(name)
-                                                                     .storageType(StorageType.FILE_CHANNEL)
-                                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                     .storeDiffs(false)
-                                                                     .storeNodeHistory(false)
-                                                                     .buildPathSummary(false)
-                                                                     .customCommitTimestamps(true)
-                                                                     .aggregateKernel(true);
+    final ResourceConfiguration.Builder builder =
+        ResourceConfiguration.newBuilder(name)
+                             .storageType(StorageType.FILE_CHANNEL)
+                             .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                             .storeDiffs(false)
+                             .storeNodeHistory(false)
+                             .buildPathSummary(false)
+                             .customCommitTimestamps(true)
+                             .aggregateKernel(true);
     if (encrypted) {
       builder.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
     }
@@ -540,10 +541,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
-    final Path resourceFile =
-        dbConfig.getDatabaseFile()
-                .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                .resolve(ResourceConfiguration.canonicalResourceName(resourceName));
+    final Path resourceFile = dbConfig.getDatabaseFile()
+                                      .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                      .resolve(ResourceConfiguration.canonicalResourceName(resourceName));
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 

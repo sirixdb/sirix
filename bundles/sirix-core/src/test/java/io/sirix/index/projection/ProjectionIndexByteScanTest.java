@@ -118,6 +118,7 @@ final class ProjectionIndexByteScanTest {
   }
 
   @Test
+  @SuppressWarnings("NullAway") // The existing overload accepts absent budget and predicate tree.
   void distinctSinksFollowLeafDictionaryIdentityAndQueryOwnership() {
     final List<byte[]> leaves = new ArrayList<>();
     final Map<String, Set<Long>> expected = new HashMap<>();
@@ -128,7 +129,7 @@ final class ProjectionIndexByteScanTest {
           ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
       for (int row = 0; row < 511; row++) {
         final String group = "g" + ((row + leaf * 19) % cardinality);
-        final long value = (row + leaf * 3) % 23;
+        final long value = (row + leaf * 3L) % 23;
         final boolean groupPresent = row % 13 != 0;
         final boolean valuePresent = row % 17 != 0;
         assertTrue(page.appendExtractedUtf8Row(leaf * 1000L + row, new long[] {0, value}, new boolean[2],

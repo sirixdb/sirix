@@ -419,7 +419,8 @@ final class TemporalAggregateRegressionTest {
         for (int revision = 1; revision <= 3; revision++) {
           final int current = revision;
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
-              var derived = session.openDerivedIndexReader(transaction.getStorageEngineReader());
+              var derived =
+                  Objects.requireNonNull(session.openDerivedIndexReader(transaction.getStorageEngineReader()));
               var storage = new TemporalAggregateStorage.Reader(derived, aggregate.getID())) {
             final int[] groups = new int[1];
             storage.groups(Long.MAX_VALUE, (key, head) -> {

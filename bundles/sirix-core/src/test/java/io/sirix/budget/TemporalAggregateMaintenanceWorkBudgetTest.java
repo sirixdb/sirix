@@ -58,11 +58,11 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(AggregateKernelTestSupport.newBuilder("records")
-                                                       .validTimePaths("lo", "hi")
-                                                       .storageType(StorageType.FILE_CHANNEL)
-                                                       .buildPathSummary(true)
-                                                       .storeDiffs(false)
-                                                       .build());
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .buildPathSummary(true)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 110).append('[');
@@ -182,11 +182,11 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     final long[] firstCheckpoint = new long[1];
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(AggregateKernelTestSupport.newBuilder("records")
-                                                       .validTimePaths("lo", "hi")
-                                                       .storageType(StorageType.FILE_CHANNEL)
-                                                       .buildPathSummary(true)
-                                                       .storeDiffs(false)
-                                                       .build());
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .buildPathSummary(true)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 110).append('[');

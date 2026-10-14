@@ -8,6 +8,7 @@ import static java.util.Objects.requireNonNull;
 import io.sirix.index.projection.GlobalValueDictionary.ReadView;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
+import io.sirix.index.projection.ProjectionStringIdentityRegistry.LocalProofCache;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -2444,7 +2445,7 @@ public final class ProjectionIndexByteScan {
   private static void countNumericGroups(final byte[] payload, final int rowCount, final int groupPresOff,
       final int groupValOff, final long leafOrdinalBase, final long[] scanMask, final NumericGroupAggTable out,
       final long[] missingAcc) {
-    final int stride = rowCount + 63 >>> 6;
+    final int stride = (rowCount + 63) >>> 6;
     for (int w = 0; w < stride; w++) {
       long word = scanMask[w] & validRowsMask(w, stride, rowCount);
       final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
@@ -2877,7 +2878,7 @@ public final class ProjectionIndexByteScan {
               }
               dictBase[dictId] = cached;
             }
-            if (distinctBlock >= 0) {
+            if (dictSinks != null) {
               dset = dictSinks[dictId];
               if (dset == null) {
                 dset = distinctOut.sinkFor(h);
@@ -3568,7 +3569,7 @@ public final class ProjectionIndexByteScan {
       final long[] missingAcc) {
     // The caller resets firstRows to -1 for this leaf. The ordinary fold uses the same scratch
     // arrays as hashes/handles, but neither representation survives the next leaf's reset.
-    final int stride = rowCount + 63 >>> 6;
+    final int stride = (rowCount + 63) >>> 6;
     for (int w = 0; w < stride; w++) {
       long word = scanMask[w] & validRowsMask(w, stride, rowCount);
       final long present = groupPresOff >= 0
@@ -3624,13 +3625,14 @@ public final class ProjectionIndexByteScan {
   }
 
   /** Count untransformed composite keys while retaining canonical byte proofs and pass ownership. */
+  @SuppressWarnings("NullAway") // needsProof implies that registry and proofCache are present.
   private static boolean countCompositeGroups(final byte[] payload, final int rowCount, final long leafOrdinalBase,
       final long[] scanMask, final byte[] kinds, final int[] presOff, final int[] valOff, final long[][] hashes,
       final long[][] idA, final long[][] idB, final int[][] dictOff, final int[] lenOff, final long[][] proven,
       final boolean[] needsProof, final int[] idLane, final boolean[] twoLane, final long[] identity,
-      final ProjectionStringIdentityRegistry registry,
-      final ProjectionStringIdentityRegistry.LocalProofCache proofCache, final NumericGroupAggTable out) {
-    final int stride = rowCount + 63 >>> 6;
+      final @Nullable ProjectionStringIdentityRegistry registry, final @Nullable LocalProofCache proofCache,
+      final NumericGroupAggTable out) {
+    final int stride = (rowCount + 63) >>> 6;
     for (int w = 0; w < stride; w++) {
       long word = scanMask[w] & validRowsMask(w, stride, rowCount);
       while (word != 0L) {
@@ -6357,6 +6359,7 @@ public final class ProjectionIndexByteScan {
           : 0L;
   }
 
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
   private static void compareNumericBetweenGtLt(final long[] scratch, final int rowCount, final long lit,
       final long highLit, final long[] flags) {
     for (int k = 0; k < rowCount; k++) {
@@ -6367,6 +6370,7 @@ public final class ProjectionIndexByteScan {
     }
   }
 
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
   private static void compareNumericBetweenGtLe(final long[] scratch, final int rowCount, final long lit,
       final long highLit, final long[] flags) {
     for (int k = 0; k < rowCount; k++) {
@@ -6377,6 +6381,7 @@ public final class ProjectionIndexByteScan {
     }
   }
 
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
   private static void compareNumericBetweenGeLt(final long[] scratch, final int rowCount, final long lit,
       final long highLit, final long[] flags) {
     for (int k = 0; k < rowCount; k++) {
@@ -6387,6 +6392,7 @@ public final class ProjectionIndexByteScan {
     }
   }
 
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
   private static void compareNumericBetweenGeLe(final long[] scratch, final int rowCount, final long lit,
       final long highLit, final long[] flags) {
     for (int k = 0; k < rowCount; k++) {

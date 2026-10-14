@@ -68,7 +68,7 @@ final class TemporalAggregateCommitRegressionTest {
       assertEquals("{\"g\":1,\"count\":1,\"sum\":2}", run(chain, context, grouped(2)));
       final StorageEngineReader original;
       try (StorageEngineReader source = session.createStorageEngineReader(2)) {
-        original = context.borrowDerivedAggregateReader(source);
+        original = Objects.requireNonNull(context.borrowDerivedAggregateReader(source));
       }
       try (StorageEngineReader freshSource = session.createStorageEngineReader(2)) {
         assertSame(original, context.borrowDerivedAggregateReader(freshSource));

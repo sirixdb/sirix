@@ -160,12 +160,13 @@ final class DerivedIndexMaintainerTest {
     final int latest = TemporalAggregateParts.FAN_IN + 2;
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("records")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .byteHandlerPipeline(new ByteHandlerPipeline(new Encryptor(sourcePath)))
-                                                   .validTimePaths("lo", "hi")
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("records")
+                               .storageType(StorageType.FILE_CHANNEL)
+                               .byteHandlerPipeline(new ByteHandlerPipeline(new Encryptor(sourcePath)))
+                               .validTimePaths("lo", "hi")
+                               .storeDiffs(false)
+                               .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
@@ -200,9 +201,9 @@ final class DerivedIndexMaintainerTest {
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(seedPath)) {
         database.createResource(ResourceConfiguration.newBuilder("unused").build());
         database.createResource(AggregateKernelTestSupport.newBuilder("empty")
-                                                         .storageType(StorageType.FILE_CHANNEL)
-                                                         .byteHandlerPipeline(replacementPipeline)
-                                                         .build());
+                                                          .storageType(StorageType.FILE_CHANNEL)
+                                                          .byteHandlerPipeline(replacementPipeline)
+                                                          .build());
       }
       assertEquals(ResourceConfiguration.deserialize(derivedPath).getID(),
           ResourceConfiguration.deserialize(emptyPath).getID());
@@ -250,10 +251,10 @@ final class DerivedIndexMaintainerTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("records")
-                                                             .storageType(StorageType.FILE_CHANNEL)
-                                                             .validTimePaths("lo", "hi")
-                                                             .storeDiffs(false)
-                                                             .build()));
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .validTimePaths("lo", "hi")
+                                                              .storeDiffs(false)
+                                                              .build()));
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         declareSimple(session, writer);
@@ -287,9 +288,10 @@ final class DerivedIndexMaintainerTest {
         resource.pause();
         resource.drain();
         assertSum(session, 1, 10);
-        assertEquals(0, session.getRtxIndexController(session.getMostRecentRevisionNumber())
-                               .getIndexes()
-                               .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+        assertEquals(0,
+            session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                   .getIndexes()
+                   .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
       }
       assertSame(database, database.removeResource(sourceName));
       assertFalse(database.existsResource(sourceName));
@@ -322,9 +324,8 @@ final class DerivedIndexMaintainerTest {
     final var path = directory.toPath().resolve("invalid-names");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder("records")
-                                                             .storageType(StorageType.FILE_CHANNEL)
-                                                             .build()));
+      assertTrue(database.createResource(
+          ResourceConfiguration.newBuilder("records").storageType(StorageType.FILE_CHANNEL).build()));
       assertThrows(SirixUsageException.class, () -> ResourceConfiguration.newBuilder(name).build());
       assertThrows(SirixUsageException.class, () -> database.beginResourceSession(name));
       assertThrows(SirixUsageException.class, () -> database.removeResource(name));
@@ -533,9 +534,8 @@ final class DerivedIndexMaintainerTest {
         writer.revertTo(0);
         writer.commit();
         resource.drain();
-        assertEquals(0, session.getRtxIndexController(2)
-                               .getIndexes()
-                               .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+        assertEquals(0,
+            session.getRtxIndexController(2).getIndexes().getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
         declareSimple(session, writer);
         final IndexDef replacement = session.getWtxIndexController(writer.getRevisionNumber())
                                             .getIndexes()
@@ -611,8 +611,8 @@ final class DerivedIndexMaintainerTest {
         assertSum(session, 174, 10_174);
         try (StorageEngineReader source = session.createStorageEngineReader(174);
             StorageEngineReader latest = Objects.requireNonNull(source.getDerivedIndexReader())
-                                               .getResourceSession()
-                                               .createStorageEngineReader()) {
+                                                .getResourceSession()
+                                                .createStorageEngineReader()) {
           assertEquals(174, DerivedRevisionMapping.frontier(latest));
           assertNull(DerivedRevisionMapping.read(latest, 237));
         }
@@ -698,8 +698,8 @@ final class DerivedIndexMaintainerTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"empty,true", "empty,false", "missing-config,true", "missing-config,false",
-      "missing-data,true", "missing-data,false", "missing-indexes,true", "missing-indexes,false"})
+  @CsvSource({"empty,true", "empty,false", "missing-config,true", "missing-config,false", "missing-data,true",
+      "missing-data,false", "missing-indexes,true", "missing-indexes,false"})
   void incompleteDerivedDirectoriesRecoverAndCascadeWithTheirSource(final String damage, final boolean recover)
       throws Exception {
     final var path = directory.toPath().resolve("incomplete");
