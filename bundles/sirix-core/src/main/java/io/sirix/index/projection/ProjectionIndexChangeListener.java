@@ -3822,14 +3822,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             Objects.requireNonNull(dictionaryIdMemos), Objects.requireNonNull(sliceSetRowStarts), kind);
       }
     }
-    return populateColumnRows(recordKeys, rebuiltColumns, priorSlices, carryOver, carryOverDirty, witnessRules,
-        sliceDictIds, dictionaryIdMemos, sliceSetRowStarts, extractor, rtx, changedColumnWords, changeCapture,
-        locality);
+    return populateColumnRows(recordKeys, persistedKinds, rebuiltColumns, priorSlices, carryOver, carryOverDirty,
+        witnessRules, sliceDictIds, dictionaryIdMemos, sliceSetRowStarts, extractor, rtx, changedColumnWords,
+        changeCapture, locality);
   }
 
-  private static boolean populateColumnRows(final long[] recordKeys, final ProjectionIndexRowGroupPage[] rebuiltColumns,
-      final ProjectionColumnStore.ColumnSlice[] priorSlices, final boolean carryOver,
-      final @Nullable LongOpenHashSet carryOverDirty, final byte @Nullable [] witnessRules,
+  /** Keep the row/column loops together: no helper call per carried or extracted row. */
+  private static boolean populateColumnRows(final long[] recordKeys, final byte[] persistedKinds,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final boolean carryOver, final @Nullable LongOpenHashSet carryOverDirty, final byte @Nullable [] witnessRules,
       final int @Nullable [][] sliceDictIds, final int @Nullable [][] dictionaryIdMemos,
       final int @Nullable [][] sliceSetRowStarts, final ProjectionIndexRowExtractor extractor,
       final NodeReadOnlyTrx rtx, final long[] changedColumnWords, final @Nullable ProjectionChangeLog changeCapture,
@@ -3837,9 +3838,25 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     for (int row = 0; row < recordKeys.length; row++) {
       final long recordKey = recordKeys[row];
       if (carryOver && !Objects.requireNonNull(carryOverDirty).contains(recordKey)) {
-        if (!appendCarriedColumnRow(recordKey, row, rebuiltColumns, priorSlices, Objects.requireNonNull(witnessRules),
-            sliceDictIds, dictionaryIdMemos, sliceSetRowStarts)) {
-          return false;
+        final byte[] carriedWitnessRules = Objects.requireNonNull(witnessRules);
+        for (int column = 0; column < persistedKinds.length; column++) {
+          final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+          if (rebuilt == null) {
+            continue;
+          }
+          final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
+          if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, carriedWitnessRules[column],
+              dictionary
+                  ? Objects.requireNonNull(sliceDictIds)[column]
+                  : null,
+              dictionary
+                  ? Objects.requireNonNull(dictionaryIdMemos)[column]
+                  : null,
+              dictionary && Objects.requireNonNull(sliceSetRowStarts)[column] != null
+                  ? sliceSetRowStarts[column][row]
+                  : 0)) {
+            return false;
+          }
         }
         locality.rowsCarriedOver++;
         continue;
@@ -3852,19 +3869,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         changeCapture.after(recordKey, extractor,
             rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
       }
-      if (!appendExtractedColumnRow(recordKey, rebuiltColumns, extractor)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static boolean appendExtractedColumnRow(final long recordKey,
-      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionIndexRowExtractor extractor) {
-    for (int column = 0; column < rebuiltColumns.length; column++) {
-      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-      if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
-        return false;
+      for (int column = 0; column < persistedKinds.length; column++) {
+        final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+        if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
+          return false;
+        }
       }
     }
     return true;
@@ -3887,31 +3896,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       sliceSetRowStarts[column] = starts;
     }
-  }
-
-  private static boolean appendCarriedColumnRow(final long recordKey, final int row,
-      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
-      final byte[] witnessRules, final int @Nullable [][] sliceDictIds, final int @Nullable [][] dictionaryIdMemos,
-      final int @Nullable [][] sliceSetRowStarts) {
-    for (int column = 0; column < rebuiltColumns.length; column++) {
-      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-      if (rebuilt == null) {
-        continue;
-      }
-      final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
-      if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, witnessRules[column], dictionary
-          ? Objects.requireNonNull(sliceDictIds)[column]
-          : null,
-          dictionary
-              ? Objects.requireNonNull(dictionaryIdMemos)[column]
-              : null,
-          dictionary && Objects.requireNonNull(sliceSetRowStarts)[column] != null
-              ? sliceSetRowStarts[column][row]
-              : 0)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private static boolean settleColumnImpureWitnesses(final long[] recordKeys, final byte[] persistedKinds,
