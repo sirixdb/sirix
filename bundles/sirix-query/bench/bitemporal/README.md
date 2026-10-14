@@ -105,7 +105,8 @@ and paired overlap comparisons follow
 [Range intersections and joined overlap residuals](../../../../docs/VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 Contracts additionally declare temporal aggregates at E0 (`BitemporalTemporalAggregates`);
 [the aggregate reference](../../../../docs/TEMPORAL_AGGREGATE_INDEX.md) owns their declarations,
-comparison-store switch, synchronous maintenance and admission. The grouped queries retain the
+synchronous maintenance and admission; [loader comparison controls](#loader-comparison-controls)
+own declaration overrides. The grouped queries retain the
 VALIDTIME row-mask and projection-group route when aggregate admission declines.
 The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and separate apply/commit
 milliseconds. E0 reports `apply_ms=0.0` as a placeholder; its construction work is not timed there.
@@ -116,6 +117,27 @@ which physical operator served a particular execution. Q12's membership route is
 linked implementation reference. The loader's business-key index configuration and physical routing
 for eligible queries are documented in
 [Runtime revision routing for CAS lookups](../../../../docs/RUNTIME_REVISION_CAS.md).
+
+### Loader comparison controls
+
+Commit-maintenance comparisons can override the loader's defaults through JVM
+system properties on the JVM executing `BitemporalSirixLoadMain`. For the Gradle
+loader task, command-scoped `JAVA_TOOL_OPTIONS='-Dsirix.bitemporal.versioning=INCREMENTAL'`
+also reaches the forked loader JVM.
+
+| Property | Effect on a fresh load |
+|---|---|
+| `sirix.bitemporal.versioning` | Selects the business resources' versioning by an exact [`VersioningType`](../../../../bundles/sirix-core/src/main/java/io/sirix/settings/VersioningType.java) enum name; unset retains the resource builder default. |
+| `sirix.bitemporal.disableProjection=true` | Omits business-resource projection declarations and the dependent contracts temporal aggregates. |
+| `sirix.bitemporal.disableBusinessKeyIndex=true` | Omits the contracts/products business-key CAS declarations. |
+| `sirix.bitemporal.disableValidTimeIndexes=true` | Skips automatic VALIDTIME declarations for the business resources. |
+| `sirix.bitemporal.disableTemporalAggregates=true` | Omits contracts temporal aggregates without disabling projections. |
+
+All disable switches default to false. These controls change declarations, not
+existing stores or query bodies. Disclose the selected versioning and index
+configuration with comparison results: the query routes above describe the
+default declarations, and the query runner refuses a store without VALIDTIME
+definitions.
 
 ## Runtime prerequisites
 

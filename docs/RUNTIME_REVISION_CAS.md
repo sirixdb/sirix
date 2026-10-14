@@ -59,8 +59,10 @@ array trigger fallback even when ordering is known, bounding candidate work when
 duplicate arrays contribute unrelated postings. Revision memoization bounds both
 sessions and instants per session to 256 entries.
 
-The SH1 loader creates the integer CAS path `/[]/id` on contracts and products
-at E0, after automatic valid-time index creation. The half-open valid-time rewrite
+By default, the SH1 loader creates the integer CAS path `/[]/id` on contracts and products
+at E0, after automatic valid-time index creation; declaration overrides are owned by
+the [loader comparison controls](../bundles/sirix-query/bench/bitemporal/README.md#loader-comparison-controls).
+The half-open valid-time rewrite
 and its residual handling remain independent.
 
 ## Verification

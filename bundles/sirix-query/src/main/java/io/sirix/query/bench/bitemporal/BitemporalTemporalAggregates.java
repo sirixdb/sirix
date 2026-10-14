@@ -12,8 +12,8 @@ public final class BitemporalTemporalAggregates {
   private BitemporalTemporalAggregates() {}
 
   public static void declare(final JsonResourceSession session, final JsonNodeTrx transaction, final String resource) {
-    if (!BitemporalSchema.CONTRACTS.equals(resource)
-        || Boolean.getBoolean("sirix.bitemporal.disableTemporalAggregates")) {
+    if (!BitemporalSchema.CONTRACTS.equals(resource) || Boolean.getBoolean("sirix.bitemporal.disableTemporalAggregates")
+        || Boolean.getBoolean("sirix.bitemporal.disableProjection")) {
       return;
     }
     final JsonIndexController controller = session.getWtxIndexController(transaction.getRevisionNumber());
