@@ -391,9 +391,9 @@ exception:       0   0
 ```
 
 Because row ordinals shifted, the row group's `KEYS` and every projected column
-segment in that row group are semantically rebuilt. The surviving rows are
-carried over from the decoded row group, not read from the document again
-([§5.1](#51-unchanged-rows-are-carried-over)). Content-addressed write
+segment in that row group are semantically rebuilt. Eligible surviving rows
+are carried over from the decoded row group under the witness and fallback
+rules in [§5.1](#51-unchanged-rows-are-carried-over). Content-addressed write
 suppression may carry an accidentally byte-identical segment forward, but the
 membership path must treat all columns as affected. Other row groups are not
 rebuilt. The writer compares the old and new normal endpoints and updates the
