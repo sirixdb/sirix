@@ -325,78 +325,97 @@ final class ProjectionUnchangedRowCarryOverTest {
     final long pinned = planned.pinnedKey;
     final Map<String, Character> pinnedTypes = planned.types.get(pinned);
     final long neighbour = planned.recordKeys.get(planned.recordKeys.indexOf(pinned) + 1);
+    if (planPinnedEdits(edits, pinnedTypes, pinned, neighbour, commit)) {
+      return edits;
+    }
+    for (int i = 0; i < EDITS_PER_COMMIT; i++) {
+      planMixedEdit(edits, planned, random, commit, i, pinned);
+    }
+    planWitnessAndSplitEdits(edits, planned, random, commit, pinned, pinnedTypes);
+    return edits;
+  }
+
+  private static boolean planPinnedEdits(final List<Edit> edits, final Map<String, Character> pinnedTypes,
+      final long pinned, final long neighbour, final int commit) {
     switch (commit) {
       case REPAIR_BY_REBUILD_COMMIT -> {
         // The only impure cell of the API-fed double column is rewritten while its row group is
         // rebuilt (a neighbour is deleted): every carried cell is pure, so the flag must clear.
         edits.add(set(pinnedTypes, pinned, "e", Double.valueOf(4.5), 'f', null));
         edits.add(new Edit(Edit.Kind.DELETE, neighbour, null, null, ' ', null));
-        return edits;
+        return true;
       }
       case PLANT_IN_PLACE_COMMIT -> {
         edits.add(set(pinnedTypes, pinned, "e", Long.valueOf(11), 'l', null));
-        return edits;
+        return true;
       }
       case REPAIR_IN_PLACE_COMMIT -> {
         // The same through a column patch: no row moves, the one impure cell becomes pure.
         edits.add(set(pinnedTypes, pinned, "e", Double.valueOf(6.5), 'f', null));
-        return edits;
+        return true;
       }
       case DELETE_ONLY_COMMIT -> {
         // A rebuilt row group that takes no extracted row at all: the purity flag of its
         // shredder-fed double column can only come from a carried cell.
         edits.add(new Edit(Edit.Kind.DELETE, neighbour, null, null, ' ', null));
-        return edits;
+        return true;
       }
       case PURE_UPDATE_ONLY_COMMIT -> {
         // A column patch whose one extracted cell is Double-typed beside shredded ones.
         edits.add(set(pinnedTypes, pinned, "d", Double.valueOf(8.5), 'f', null));
-        return edits;
+        return true;
       }
       case REMOVE_NO_UTC_COMMIT -> {
         // A column patch whose one extracted cell is absent: the missing UTC provenance of the
         // unsuffixed timestamps beside it can only come from carried cells.
         pinnedTypes.remove("tn");
         edits.add(new Edit(Edit.Kind.REMOVE, pinned, "tn", null, ' ', null));
-        return edits;
+        return true;
       }
       default -> {
         // An ordinary commit of mixed edits, below.
       }
     }
-    for (int i = 0; i < EDITS_PER_COMMIT; i++) {
-      final int choice = random.nextInt(100);
-      final long recordKey = planned.recordKeys.get(random.nextInt(planned.recordKeys.size()));
-      final Map<String, Character> types = planned.types.get(recordKey);
-      if (choice < 50) {
-        final String field = SCALAR_FIELDS[random.nextInt(SCALAR_FIELDS.length)];
-        final Object value = cleanValue(field, random, commit * 1000 + i);
-        edits.add(set(types, recordKey, field, value, cleanType(field), random));
-      } else if (choice < 60) {
-        final String field = SCALAR_FIELDS[random.nextInt(SCALAR_FIELDS.length)];
-        if (types.remove(field) != null) {
-          edits.add(new Edit(Edit.Kind.REMOVE, recordKey, field, null, ' ', null));
-        }
-      } else if (choice < 68) {
-        if (types.containsKey("tags")) {
-          edits.add(new Edit(Edit.Kind.RETAG, recordKey, "tags", "tag" + random.nextInt(9), 'a', null));
-        }
-      } else if (choice < 90) {
-        final int ordinal = 1_000_000 + commit * 1000 + i;
-        final int position = random.nextInt(3);
-        final long anchor = position == 0
-            ? -1L
-            : position == 1
-                ? planned.recordKeys.get(planned.recordKeys.size() - 1)
-                : recordKey;
-        // The key is assigned when the edit is applied, so later edits of this commit do not address
-        // the new record.
-        edits.add(new Edit(Edit.Kind.INSERT, anchor, null, initialTypes(ordinal), ' ', record(ordinal)));
-      } else if (recordKey != pinned && planned.recordKeys.size() > INITIAL_RECORDS / 2) {
-        edits.add(new Edit(Edit.Kind.DELETE, recordKey, null, null, ' ', null));
-        planned.remove(recordKey);
+    return false;
+  }
+
+  private static void planMixedEdit(final List<Edit> edits, final Model planned, final Random random, final int commit,
+      final int i, final long pinned) {
+    final int choice = random.nextInt(100);
+    final long recordKey = planned.recordKeys.get(random.nextInt(planned.recordKeys.size()));
+    final Map<String, Character> types = planned.types.get(recordKey);
+    if (choice < 50) {
+      final String field = SCALAR_FIELDS[random.nextInt(SCALAR_FIELDS.length)];
+      final Object value = cleanValue(field, random, commit * 1000 + i);
+      edits.add(set(types, recordKey, field, value, cleanType(field), random));
+    } else if (choice < 60) {
+      final String field = SCALAR_FIELDS[random.nextInt(SCALAR_FIELDS.length)];
+      if (types.remove(field) != null) {
+        edits.add(new Edit(Edit.Kind.REMOVE, recordKey, field, null, ' ', null));
       }
+    } else if (choice < 68) {
+      if (types.containsKey("tags")) {
+        edits.add(new Edit(Edit.Kind.RETAG, recordKey, "tags", "tag" + random.nextInt(9), 'a', null));
+      }
+    } else if (choice < 90) {
+      final int ordinal = 1_000_000 + commit * 1000 + i;
+      final int position = random.nextInt(3);
+      final long anchor = position == 0
+          ? -1L
+          : position == 1
+              ? planned.recordKeys.get(planned.recordKeys.size() - 1)
+              : recordKey;
+      // The key is assigned when the edit is applied, so later edits of this commit do not address
+      // the new record.
+      edits.add(new Edit(Edit.Kind.INSERT, anchor, null, initialTypes(ordinal), ' ', record(ordinal)));
+    } else if (recordKey != pinned && planned.recordKeys.size() > INITIAL_RECORDS / 2) {
+      edits.add(new Edit(Edit.Kind.DELETE, recordKey, null, null, ' ', null));
+      planned.remove(recordKey);
     }
+  }
+
+  private static void planWitnessAndSplitEdits(final List<Edit> edits, final Model planned, final Random random,
+      final int commit, final long pinned, final Map<String, Character> pinnedTypes) {
     if (commit == SPLIT_COMMIT) {
       // Grow the open row group past its capacity in one commit, so a row group splits.
       final long last = planned.recordKeys.get(planned.recordKeys.size() - 1);
@@ -431,7 +450,6 @@ final class ProjectionUnchangedRowCarryOverTest {
       // An integer in the API-fed double column: the column turns impure in one cell.
       edits.add(set(pinnedTypes, pinned, "e", Long.valueOf(9), 'l', random));
     }
-    return edits;
   }
 
   /**

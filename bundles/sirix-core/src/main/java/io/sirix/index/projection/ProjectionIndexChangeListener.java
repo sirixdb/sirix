@@ -3681,54 +3681,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final ProjectionIndexRowGroupPage[] rebuiltColumns = new ProjectionIndexRowGroupPage[persistedKinds.length];
     final ProjectionColumnStore.ColumnSlice[] priorSlices =
         new ProjectionColumnStore.ColumnSlice[persistedKinds.length];
-    int selectedColumns = 0;
-    for (int column = 0; column < persistedKinds.length; column++) {
-      final boolean selected = columnSelected(changedColumnWords, column);
-      if (!selected && changeCapture == null) {
-        continue;
-      }
-      if (selected) {
-        selectedColumns++;
-      }
-      final byte[] body = storage.getVerifiedColumnSegment(slot, descriptor,
-          ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
-          ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
-      if (body == null) {
-        return false;
-      }
-      locality.bodySegmentsRead++;
-      final byte kind = persistedKinds[column];
-      final ProjectionColumnStore.ColumnSlice priorSlice;
-      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-        final byte[] dictionary = storage.getVerifiedColumnSegment(slot, descriptor,
-            ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column),
-            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT);
-        if (dictionary == null) {
-          return false;
-        }
-        locality.dictionarySegmentsRead++;
-        priorSlice = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, body, dictionary, column)
-            : ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, body, dictionary, column);
-      } else {
-        priorSlice = ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, body, column);
-      }
-      if (priorSlice.rowCount() != recordKeys.length) {
-        return false;
-      }
-      priorSlices[column] = priorSlice;
-      if (!selected) {
-        continue;
-      }
-      final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(new byte[] {kind});
-      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
-        if (globalDictionaries == null || globalDictionaries[column] == null) {
-          return false;
-        }
-        rebuilt.setGlobalDictionaries(new GlobalValueDictionaryEncoder[] {globalDictionaries[column]});
-      }
-      rebuiltColumns[column] = rebuilt;
+    final int selectedColumns =
+        prepareColumnUpdate(storage, slot, changedColumnWords, persistedKinds, globalDictionaries,
+            changeCapture != null, descriptor, recordKeys.length, rebuiltColumns, priorSlices, locality);
+    if (selectedColumns < 0) {
+      return false;
     }
     if (selectedColumns == 0) {
       return true;
@@ -3737,17 +3694,113 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (changeCapture != null) {
       changeCapture.before(recordKeys, priorSlices);
     }
-    boolean carryOver = carryOverDirty != null;
-    final byte[] witnessRules = carryOver
+    final boolean mayCarryOver = carryOverDirty != null;
+    final byte[] witnessRules = mayCarryOver
         ? new byte[persistedKinds.length]
         : null;
-    for (int column = 0; witnessRules != null && carryOver && column < persistedKinds.length; column++) {
+    final boolean carryOver = mayCarryOver
+        && columnCarryOverAllowed(persistedKinds, rebuiltColumns, priorSlices, Objects.requireNonNull(witnessRules));
+    if (!rebuildColumnRows(recordKeys, persistedKinds, rebuiltColumns, priorSlices, carryOver, carryOverDirty,
+        witnessRules, extractor, rtx, changedColumnWords, changeCapture, locality)) {
+      return false;
+    }
+    if (carryOver && !settleColumnImpureWitnesses(recordKeys, persistedKinds, rebuiltColumns, priorSlices,
+        Objects.requireNonNull(witnessRules), Objects.requireNonNull(carryOverDirty), extractor, rtx, locality)) {
+      return false;
+    }
+    persistColumnUpdate(storage, slot, descriptor, persistedKinds, selectedColumns, rebuiltColumns, priorSlices,
+        setValueRowCounts, changedLeafSlots, changedColumnsByLeaf, locality, encodeWorkspace);
+    return true;
+  }
+
+  /** Load verified prior slices and allocate selected columns; -1 requests the existing fallback. */
+  private static int prepareColumnUpdate(final ProjectionIndexHOTStorage storage, final int slot,
+      final long[] changedColumnWords, final byte[] persistedKinds,
+      final MaintenanceGlobalDictionary @Nullable [] globalDictionaries, final boolean captureChanges,
+      final byte[] descriptor, final int rowCount, final ProjectionIndexRowGroupPage[] rebuiltColumns,
+      final ProjectionColumnStore.ColumnSlice[] priorSlices, final MaintenanceLocalityAccumulator locality) {
+    int selectedColumns = 0;
+    for (int column = 0; column < persistedKinds.length; column++) {
+      final boolean selected = columnSelected(changedColumnWords, column);
+      if (!selected && !captureChanges) {
+        continue;
+      }
+      if (selected) {
+        selectedColumns++;
+      }
+      final byte kind = persistedKinds[column];
+      final ProjectionColumnStore.ColumnSlice priorSlice =
+          readPriorColumnSlice(storage, slot, descriptor, column, kind, rowCount, locality);
+      if (priorSlice == null) {
+        return -1;
+      }
+      priorSlices[column] = priorSlice;
+      if (!selected) {
+        continue;
+      }
+      final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(new byte[] {kind});
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        if (globalDictionaries == null || globalDictionaries[column] == null) {
+          return -1;
+        }
+        rebuilt.setGlobalDictionaries(new GlobalValueDictionaryEncoder[] {globalDictionaries[column]});
+      }
+      rebuiltColumns[column] = rebuilt;
+    }
+    return selectedColumns;
+  }
+
+  private static ProjectionColumnStore.@Nullable ColumnSlice readPriorColumnSlice(
+      final ProjectionIndexHOTStorage storage, final int slot, final byte[] descriptor, final int column,
+      final byte kind, final int rowCount, final MaintenanceLocalityAccumulator locality) {
+    final byte[] body = storage.getVerifiedColumnSegment(slot, descriptor,
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column), ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
+    if (body == null) {
+      return null;
+    }
+    locality.bodySegmentsRead++;
+    final ProjectionColumnStore.ColumnSlice priorSlice;
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      final byte[] dictionary = storage.getVerifiedColumnSegment(slot, descriptor,
+          ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column),
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT);
+      if (dictionary == null) {
+        return null;
+      }
+      locality.dictionarySegmentsRead++;
+      priorSlice = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, body, dictionary, column)
+          : ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, body, dictionary, column);
+    } else {
+      priorSlice = ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, body, column);
+    }
+    return priorSlice.rowCount() == rowCount
+        ? priorSlice
+        : null;
+  }
+
+  private static boolean columnCarryOverAllowed(final byte[] persistedKinds,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final byte[] witnessRules) {
+    for (int column = 0; column < persistedKinds.length; column++) {
       if (rebuiltColumns[column] != null) {
         witnessRules[column] =
             ProjectionIndexRowGroupPage.sliceRowWitnessRule(persistedKinds[column], priorSlices[column]);
-        carryOver = witnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_UNKNOWN;
+        if (witnessRules[column] == ProjectionIndexRowGroupPage.ROW_WITNESS_UNKNOWN) {
+          return false;
+        }
       }
     }
+    return true;
+  }
+
+  /** Retain lazy dictionary buffers without allocating a per-update context object. */
+  private static boolean rebuildColumnRows(final long[] recordKeys, final byte[] persistedKinds,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final boolean carryOver, final @Nullable LongOpenHashSet carryOverDirty, final byte @Nullable [] witnessRules,
+      final ProjectionIndexRowExtractor extractor, final NodeReadOnlyTrx rtx, final long[] changedColumnWords,
+      final @Nullable ProjectionChangeLog changeCapture, final MaintenanceLocalityAccumulator locality) {
     // Per selected dictionary column: the slice's dense ids, the id each slice dictionary entry got
     // in the rebuilt column, and for a set column where each row's element run starts.
     int[][] sliceDictIds = null;
@@ -3765,45 +3818,28 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           dictionaryIdMemos = new int[persistedKinds.length][];
           sliceSetRowStarts = new int[persistedKinds.length][];
         }
-        final ProjectionColumnStore.ColumnSlice slice = priorSlices[column];
-        sliceDictIds[column] = slice.stringDictIds();
-        final int[] memo = new int[Math.max(1, slice.dictSize())];
-        Arrays.fill(memo, -1);
-        Objects.requireNonNull(dictionaryIdMemos)[column] = memo;
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-          final int[] counts = Objects.requireNonNull(slice.setCounts());
-          final int[] starts = new int[recordKeys.length];
-          int at = 0;
-          for (int row = 0; row < starts.length; row++) {
-            starts[row] = at;
-            at += counts[row];
-          }
-          Objects.requireNonNull(sliceSetRowStarts)[column] = starts;
-        }
+        initializeSliceDictionary(column, priorSlices[column], recordKeys.length, sliceDictIds,
+            Objects.requireNonNull(dictionaryIdMemos), Objects.requireNonNull(sliceSetRowStarts), kind);
       }
     }
+    return populateColumnRows(recordKeys, rebuiltColumns, priorSlices, carryOver, carryOverDirty, witnessRules,
+        sliceDictIds, dictionaryIdMemos, sliceSetRowStarts, extractor, rtx, changedColumnWords, changeCapture,
+        locality);
+  }
+
+  private static boolean populateColumnRows(final long[] recordKeys, final ProjectionIndexRowGroupPage[] rebuiltColumns,
+      final ProjectionColumnStore.ColumnSlice[] priorSlices, final boolean carryOver,
+      final @Nullable LongOpenHashSet carryOverDirty, final byte @Nullable [] witnessRules,
+      final int @Nullable [][] sliceDictIds, final int @Nullable [][] dictionaryIdMemos,
+      final int @Nullable [][] sliceSetRowStarts, final ProjectionIndexRowExtractor extractor,
+      final NodeReadOnlyTrx rtx, final long[] changedColumnWords, final @Nullable ProjectionChangeLog changeCapture,
+      final MaintenanceLocalityAccumulator locality) {
     for (int row = 0; row < recordKeys.length; row++) {
       final long recordKey = recordKeys[row];
       if (carryOver && !Objects.requireNonNull(carryOverDirty).contains(recordKey)) {
-        final byte[] carriedWitnessRules = Objects.requireNonNull(witnessRules);
-        for (int column = 0; column < persistedKinds.length; column++) {
-          final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-          if (rebuilt == null) {
-            continue;
-          }
-          final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
-          if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, carriedWitnessRules[column],
-              dictionary
-                  ? Objects.requireNonNull(sliceDictIds)[column]
-                  : null,
-              dictionary
-                  ? Objects.requireNonNull(dictionaryIdMemos)[column]
-                  : null,
-              dictionary && Objects.requireNonNull(sliceSetRowStarts)[column] != null
-                  ? sliceSetRowStarts[column][row]
-                  : 0)) {
-            return false;
-          }
+        if (!appendCarriedColumnRow(recordKey, row, rebuiltColumns, priorSlices, Objects.requireNonNull(witnessRules),
+            sliceDictIds, dictionaryIdMemos, sliceSetRowStarts)) {
+          return false;
         }
         locality.rowsCarriedOver++;
         continue;
@@ -3816,49 +3852,121 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         changeCapture.after(recordKey, extractor,
             rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
       }
-      for (int column = 0; column < persistedKinds.length; column++) {
-        final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-        if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
-          return false;
-        }
+      if (!appendExtractedColumnRow(recordKey, rebuiltColumns, extractor)) {
+        return false;
       }
     }
+    return true;
+  }
 
-    if (carryOver) {
-      final byte[] carriedWitnessRules = Objects.requireNonNull(witnessRules);
-      final LongOpenHashSet carriedDirty = Objects.requireNonNull(carryOverDirty);
-      // Settle the purity flag of a carried double column exactly as settleImpureWitnesses does for
-      // a rebuilt row group: probe carried cells until one proves impure.
-      long[] mask = null;
-      for (int column = 0; column < persistedKinds.length; column++) {
-        final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
-        if (rebuilt == null || carriedWitnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_SOME_IMPURE
-            || !rebuilt.columnPureDoubleSource(0)) {
-          continue;
-        }
-        if (mask == null) {
-          mask = new long[(persistedKinds.length + Long.SIZE - 1) >>> 6];
-        } else {
-          Arrays.fill(mask, 0L);
-        }
-        mask[column >>> 6] = 1L << (column & 63);
-        final long[] presence = priorSlices[column].presenceWords();
-        for (int row = 0; row < recordKeys.length; row++) {
-          if ((presence[row >>> 6] & (1L << (row & 63))) == 0 || carriedDirty.contains(recordKeys[row])) {
-            continue;
-          }
-          locality.witnessProbes++;
-          if (!extractInto(extractor, rtx, recordKeys[row], mask)) {
-            return false;
-          }
-          if (extractor.rowPresent(column) && extractor.rowNonDoubleSource(column)) {
-            rebuilt.markImpureSource(0);
-            break;
-          }
-        }
+  private static boolean appendExtractedColumnRow(final long recordKey,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionIndexRowExtractor extractor) {
+    for (int column = 0; column < rebuiltColumns.length; column++) {
+      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+      if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
+        return false;
       }
     }
+    return true;
+  }
 
+  private static void initializeSliceDictionary(final int column, final ProjectionColumnStore.ColumnSlice slice,
+      final int rowCount, final int[][] sliceDictIds, final int[][] dictionaryIdMemos, final int[][] sliceSetRowStarts,
+      final byte kind) {
+    sliceDictIds[column] = slice.stringDictIds();
+    final int[] memo = new int[Math.max(1, slice.dictSize())];
+    Arrays.fill(memo, -1);
+    dictionaryIdMemos[column] = memo;
+    if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      final int[] counts = Objects.requireNonNull(slice.setCounts());
+      final int[] starts = new int[rowCount];
+      int at = 0;
+      for (int row = 0; row < starts.length; row++) {
+        starts[row] = at;
+        at += counts[row];
+      }
+      sliceSetRowStarts[column] = starts;
+    }
+  }
+
+  private static boolean appendCarriedColumnRow(final long recordKey, final int row,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final byte[] witnessRules, final int @Nullable [][] sliceDictIds, final int @Nullable [][] dictionaryIdMemos,
+      final int @Nullable [][] sliceSetRowStarts) {
+    for (int column = 0; column < rebuiltColumns.length; column++) {
+      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+      if (rebuilt == null) {
+        continue;
+      }
+      final boolean dictionary = sliceDictIds != null && sliceDictIds[column] != null;
+      if (!rebuilt.appendSingleColumnRowFromSlice(recordKey, priorSlices[column], row, witnessRules[column], dictionary
+          ? Objects.requireNonNull(sliceDictIds)[column]
+          : null,
+          dictionary
+              ? Objects.requireNonNull(dictionaryIdMemos)[column]
+              : null,
+          dictionary && Objects.requireNonNull(sliceSetRowStarts)[column] != null
+              ? sliceSetRowStarts[column][row]
+              : 0)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean settleColumnImpureWitnesses(final long[] recordKeys, final byte[] persistedKinds,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final byte[] witnessRules, final LongOpenHashSet carryOverDirty, final ProjectionIndexRowExtractor extractor,
+      final NodeReadOnlyTrx rtx, final MaintenanceLocalityAccumulator locality) {
+    // Settle the purity flag of a carried double column exactly as settleImpureWitnesses does for
+    // a rebuilt row group: probe carried cells until one proves impure.
+    long[] mask = null;
+    for (int column = 0; column < persistedKinds.length; column++) {
+      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+      if (rebuilt == null || witnessRules[column] != ProjectionIndexRowGroupPage.ROW_WITNESS_SOME_IMPURE
+          || !rebuilt.columnPureDoubleSource(0)) {
+        continue;
+      }
+      if (mask == null) {
+        mask = new long[(persistedKinds.length + Long.SIZE - 1) >>> 6];
+      } else {
+        Arrays.fill(mask, 0L);
+      }
+      mask[column >>> 6] = 1L << (column & 63);
+      if (!probeColumnImpurity(recordKeys, priorSlices[column].presenceWords(), carryOverDirty, column, rebuilt, mask,
+          extractor, rtx, locality)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean probeColumnImpurity(final long[] recordKeys, final long[] presence,
+      final LongOpenHashSet carryOverDirty, final int column, final ProjectionIndexRowGroupPage rebuilt,
+      final long[] mask, final ProjectionIndexRowExtractor extractor, final NodeReadOnlyTrx rtx,
+      final MaintenanceLocalityAccumulator locality) {
+    for (int row = 0; row < recordKeys.length; row++) {
+      if ((presence[row >>> 6] & (1L << (row & 63))) == 0 || carryOverDirty.contains(recordKeys[row])) {
+        continue;
+      }
+      locality.witnessProbes++;
+      if (!extractInto(extractor, rtx, recordKeys[row], mask)) {
+        return false;
+      }
+      if (extractor.rowPresent(column) && extractor.rowNonDoubleSource(column)) {
+        rebuilt.markImpureSource(0);
+        return true;
+      }
+    }
+    return true;
+  }
+
+  private static void persistColumnUpdate(final ProjectionIndexHOTStorage storage, final int slot,
+      final byte[] descriptor, final byte[] persistedKinds, final int selectedColumns,
+      final ProjectionIndexRowGroupPage[] rebuiltColumns, final ProjectionColumnStore.ColumnSlice[] priorSlices,
+      final ProjectionSetSummaryChunks.Accessor setValueRowCounts, final LongOpenHashSet changedLeafSlots,
+      final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf, final MaintenanceLocalityAccumulator locality,
+      final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace) {
     final ProjectionIndexColumnSegmentCodec.EncodedColumn[] encodedColumns =
         new ProjectionIndexColumnSegmentCodec.EncodedColumn[selectedColumns];
     int encodedColumnCount = 0;
@@ -3898,7 +4006,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       mergeChangedColumns(changedColumnsByLeaf, slot, actuallyChanged);
       locality.rowGroupsColumnPatched++;
     }
-    return true;
   }
 
   private boolean isCurrentRecordRoot(final long recordKey) {
