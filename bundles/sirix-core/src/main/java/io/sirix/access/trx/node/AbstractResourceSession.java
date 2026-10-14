@@ -120,9 +120,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   final Semaphore writeLock;
 
-  /**
-   * Strong reference to uber page before the begin of a write transaction.
-   */
   private final CopyOnWriteArrayList<IntConsumer> revisionListeners;
   private @Nullable Runnable derivedInitializer;
   private volatile DerivedIndexMaintainer.@Nullable Resource derivedResource;
@@ -165,6 +162,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         : sharedSession.derivedResource;
   }
 
+  /**
+   * Strong reference to uber page before the begin of a write transaction.
+   */
   final AtomicReference<UberPage> lastCommittedUberPage;
 
   /**

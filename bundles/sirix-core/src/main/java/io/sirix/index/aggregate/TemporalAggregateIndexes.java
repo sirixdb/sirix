@@ -37,8 +37,8 @@ import java.util.TreeMap;
 import java.util.Map;
 
 /**
- * Declaration validation, initial column build, and maintenance driven by the projection's dirty
- * rows.
+ * Declaration validation, committed-projection builds, and durable-slab maintenance. Ordinary
+ * sources reserve declarations and log changes; the derived resource runs the aggregate kernel.
  */
 public final class TemporalAggregateIndexes {
   private static final int FORMAT = 5;

@@ -52,6 +52,13 @@ engine. By default these trees live in the hidden `<source>$derived` resource, w
 writer, revision roots and catalogue. The source stores declarations and durable change logs.
 The persisted byte layout is owned by [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
+The `$derived` suffix is reserved: public database handles cannot create, open or remove these
+internal resources, and `listResources()` omits them. Resource names are normalized to a single
+relative path component before lookup, so aliases such as `records/` identify the same source and
+cannot bypass the hidden-resource guard. Removing a source also removes its derived sibling,
+including an incomplete directory. Derived sessions survive the last application session closing;
+the database owns their lifetime.
+
 Each typed group head points to one checkpoint and at most fifteen immutable delta parts per tier.
 A part contains sorted valid-time endpoints with prefix count, presence and signed 128-bit sums, plus a compressed segment tree of
 value-frequency vectors for declared extrema. Deltas with at most 64 extrema changes instead store
@@ -88,13 +95,18 @@ A shared revision listener wakes it only after the source revision is durable an
 one-second recheck also finds missed notifications. Ordinary source commits neither acquire the
 derived writer lock nor write aggregate pages. The hidden resource uses `FILE_CHANNEL`,
 `SLIDING_SNAPSHOT`, custom source timestamps, and no diffs, node history or path summary.
+For an encrypted source, it inherits the source byte-handler pipeline and encryption key reference.
+Opening an existing derived resource checks that it preserves the source's encryption configuration;
+an incompatible resource is rebuilt rather than accepted.
 
 The maintainer builds new declarations from the committed projection and applies subsequent slabs
 without projection or document reads. It mirrors only aggregate declarations into the derived
 catalogue, retaining their source ids. Drops affect new snapshots; historical snapshots keep their
-catalogues and parts. Ordinary maintenance does not rewrite a catalogue file. Work is scheduled in
-bounded batches of at most eight revisions or 100,000 entries, with one derived commit and exact
-mapping at the batch end. Catalogue changes end a batch so declaring revisions have a snapshot.
+catalogues and parts. Rebuilding a declaration after a revert resets its aggregate contents and
+part allocator while preserving existing revision mappings. Ordinary maintenance does not rewrite
+a catalogue file. Batches process at most eight revisions, stopping between revisions once they
+reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
+mapping at its end. Catalogue changes end a batch so declaring revisions have a snapshot.
 Intermediate revisions use the exact fallback until query-time tail catch-up is available.
 
 Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
@@ -115,7 +127,9 @@ reopen require fresh identity validation even when revision numbers and timestam
 Eviction and context close release these readers; other threads keep source-owned snapshots.
 Missing snapshots are retried after catch-up.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
-cache. Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
+cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
+Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.
+Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
 exists, maintenance is poisoned, or the derived snapshot cannot be opened. A previously validated
 snapshot remains exact for its immutable source view. The route never serves a stale summary. Query-time log-tail catch-up
 and a query-language await function are not part of this change.
@@ -129,6 +143,10 @@ history, the maintainer truncates its own discarded revisions. Equal source time
 revision identity, rather than timestamps alone, determines admissibility. After a process crash,
 normal Sirix beacon/commit-marker recovery chooses the durable derived root; its mapping determines
 where replay resumes.
+
+A missing, incomplete or unreadable derived resource is recreated from the authoritative source.
+Rebuilding scans committed projections for declarations and replays subsequent covered slabs;
+queries use the exact fallback until a matching derived snapshot is available.
 
 Failures roll back the derived transaction and poison only that resource. Maintained revision, lag,
 poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`; the source remains
@@ -191,15 +209,17 @@ own the switches that omit these declarations.
 both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning
-types. `TemporalAggregateMaintenanceWorkBudgetTest` also drives 528 small publications beside 256
-and 4,096 rows, then 4,096 publications beside 4,096 distinct-endpoint rows to force the tier-3
-checkpoint cascade. It checks the persisted part counts at every tier boundary, requires at most
-one checkpoint cascade per boundary, bounds cumulative chunk, endpoint and summary-node reads/writes
-per changed record, and checks all committed historical roots. Its first-publication case bounds copied aggregate leaf
-pages for 20 changed rows beside differently sized untouched populations, and requires zero new
-readers during maintenance. `ChangeLogWorkBudgetTest` bounds slab slots and verifies cold historical
-reads and reverted bases under all four versioning types. The work-budget commands
-in `VERIFICATION.md` include the maintenance budget; no test asserts wall-clock latency.
+types. `DerivedIndexMaintainerTest` covers lag, batching, declaration changes, revert and truncate,
+mapping-cache eviction, encryption, resource aliases, poisoned maintenance and rebuilding missing
+or damaged derived resources. `TemporalAggregateDerivedLagTest` checks query answers against an
+independent `BigInteger` model before, during and after replay under all four versioning types.
+`DerivedIndexCrashRecoveryTest` injects process death after source publication and before or after
+the derived beacon; its opt-in command is in [VERIFICATION.md](VERIFICATION.md).
+
+The counted-work inventory and bounds are owned by the
+[work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md);
+[VERIFICATION.md](VERIFICATION.md#running-the-layers) owns the commands; no budget test asserts
+wall-clock latency.
 
 Measurements recorded for commit `5a00aa171` describe the earlier part layout. The tiered layout and
 subsequent review fixes require refreshed read, commit and storage evidence before those measurements
