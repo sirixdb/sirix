@@ -387,11 +387,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   @Override
   protected void validateSupportedIndexLifecycles(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     for (final IndexDef indexDef : indexDefs) {
-      if (indexDef.isTemporalAggregateIndex() && !nodeWriteTrx.getResourceSession()
-                                                              .getResourcePath()
-                                                              .getFileName()
-                                                              .toString()
-                                                              .endsWith(DerivedIndexMaintainer.SUFFIX)) {
+      if (indexDef.isTemporalAggregateIndex() && !DerivedIndexMaintainer.isDerivedResourceName(
+          nodeWriteTrx.getResourceSession().getResourcePath().getFileName().toString())) {
         final IndexDef source = requireNonNull(
             getIndexes().getIndexDef(indexDef.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION),
             "Temporal aggregate index has no covering projection");

@@ -5,7 +5,6 @@ import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.changelog.ChangeLogStorage;
-import io.sirix.index.IndexType;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 
@@ -39,12 +38,6 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
     if (source.getRevisionNumber() != sourceRevision
         || source.getActualRevisionRootPage().getRevisionTimestamp() != timestamp) {
       return false;
-    }
-    if (projection < 0) {
-      return source.getResourceSession()
-                   .getRtxIndexController(sourceRevision)
-                   .getIndexes()
-                   .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0;
     }
     return matchesIdentity(source);
   }

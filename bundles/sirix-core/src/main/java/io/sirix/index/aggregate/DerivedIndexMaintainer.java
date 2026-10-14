@@ -20,6 +20,8 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -48,6 +50,10 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     worker.start();
   }
 
+  public static boolean isDerivedResourceName(final String name) {
+    return name.regionMatches(true, name.length() - SUFFIX.length(), SUFFIX, 0, SUFFIX.length());
+  }
+
   public static boolean enabled(final ResourceConfiguration configuration) {
     return !configuration.aggregateKernel();
   }
@@ -68,10 +74,13 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     if (stopped) {
       throw new IllegalStateException("Derived maintainer is closed");
     }
-    if (!source.getResourcePath()
-               .resolveSibling(source.getResourcePath().getFileName() + SUFFIX)
-               .equals(derived.getResourcePath())) {
-      throw new IllegalArgumentException("Derived resource must be the source's hidden sibling");
+    try {
+      if (!Files.isSameFile(source.getResourcePath().resolveSibling(source.getResourcePath().getFileName() + SUFFIX),
+          derived.getResourcePath())) {
+        throw new IllegalArgumentException("Derived resource must be the source's hidden sibling");
+      }
+    } catch (final IOException exception) {
+      throw new IllegalArgumentException("Could not resolve derived resource identity", exception);
     }
     final Resource resource = new Resource(source, derived);
     if (resources.putIfAbsent(source.getResourcePath(), resource) != null) {

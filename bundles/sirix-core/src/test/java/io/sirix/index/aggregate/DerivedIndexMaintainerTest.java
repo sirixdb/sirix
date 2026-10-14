@@ -320,6 +320,76 @@ final class DerivedIndexMaintainerTest {
   }
 
   @ParameterizedTest
+  @ValueSource(strings = {"records$DERIVED", "records$Derived", "RECORDS$derived"})
+  void filesystemAliasesPreserveHiddenOwnershipAndCanonicalSourceRemoval(final String hiddenName) throws Exception {
+    final var path = directory.toPath().resolve("filesystem-aliases");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    final var sourcePath = path.resolve("resources").resolve("records");
+    final var sourceAlias = sourcePath.resolveSibling("RECORDS");
+    final var derivedPath = sourcePath.resolveSibling("records$derived");
+    final var hiddenAlias = sourcePath.resolveSibling(hiddenName);
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertThrows(SirixUsageException.class,
+          () -> database.createResource(ResourceConfiguration.newBuilder(hiddenName).build()));
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("records")
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .validTimePaths("lo", "hi")
+                                                              .storeDiffs(false)
+                                                              .build()));
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+      }
+    }
+    final var renamed = derivedPath.resolveSibling("moving");
+    Files.move(derivedPath, renamed);
+    Files.move(renamed, hiddenAlias);
+    if (!Files.exists(derivedPath)) {
+      Files.createSymbolicLink(derivedPath, hiddenAlias.getFileName());
+    }
+    if (!Files.exists(sourceAlias)) {
+      Files.createSymbolicLink(sourceAlias, sourcePath.getFileName());
+    }
+    assertTrue(Files.isSameFile(sourceAlias, sourcePath));
+    assertTrue(Files.isSameFile(hiddenAlias, derivedPath));
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      try (JsonResourceSession session = database.beginResourceSession("records")) {
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        resource.drain();
+        assertSame(session, database.beginResourceSession("RECORDS"));
+        assertEquals(database.getResourceID("records"), database.getResourceID("RECORDS"));
+        assertTrue(database.existsResource("RECORDS"));
+        assertThrows(SirixUsageException.class, () -> database.beginResourceSession(hiddenName));
+        assertThrows(SirixUsageException.class, () -> database.removeResource(hiddenName));
+        assertThrows(SirixUsageException.class,
+            () -> database.createResource(ResourceConfiguration.newBuilder(hiddenName).build()));
+        assertThrows(IllegalStateException.class, () -> database.removeResource("RECORDS"));
+        assertTrue(database.listResources().stream()
+                           .noneMatch(resourcePath -> resourcePath.getFileName().toString().equals(hiddenName)));
+        assertSum(session, 1, 10);
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          setNumber(writer, 20);
+          writer.commit();
+        }
+        resource.drain();
+        assertSum(session, 2, 20);
+      }
+      assertThrows(SirixUsageException.class, () -> database.removeResource(hiddenName));
+      database.removeResource("RECORDS");
+      assertFalse(Files.exists(sourcePath));
+      assertFalse(Files.exists(derivedPath));
+      assertFalse(Files.exists(hiddenAlias));
+      assertThrows(SirixUsageException.class, () -> database.getResourceID("records"));
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"", ".", "records/..", "../records", "records/nested"})
   void resourceBoundariesRejectNamesOutsideTheDirectResourceNamespace(final String name) {
     final var path = directory.toPath().resolve("invalid-names");
@@ -649,7 +719,7 @@ final class DerivedIndexMaintainerTest {
           resource.pause();
           writer.commit(null, Instant.ofEpochMilli(1));
           resource.drain();
-          for (int revision = 2; revision <= 173; revision++) {
+          for (int revision = 2; revision <= 300; revision++) {
             setNumber(writer, revision);
             writer.commit(null, Instant.ofEpochMilli(revision));
             resource.drain();
@@ -658,12 +728,12 @@ final class DerivedIndexMaintainerTest {
                                             .getIndexes()
                                             .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
           session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
-          writer.commit(null, Instant.ofEpochMilli(174));
+          writer.commit(null, Instant.ofEpochMilli(301));
           resource.drain();
           writer.truncateTo(100);
         }
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
-          for (int revision = 101; revision <= 173; revision++) {
+          for (int revision = 101; revision <= 300; revision++) {
             setNumber(writer, 10_000 + revision);
             writer.commit(null, Instant.ofEpochMilli(revision));
           }
@@ -671,7 +741,7 @@ final class DerivedIndexMaintainerTest {
                                             .getIndexes()
                                             .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
           session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
-          writer.commit(null, Instant.ofEpochMilli(174));
+          writer.commit(null, Instant.ofEpochMilli(301));
         }
       }
     }
@@ -681,19 +751,19 @@ final class DerivedIndexMaintainerTest {
       final DerivedIndexMaintainer.Resource resource = state(session);
       resource.pause();
       resource.drain();
-      assertEquals(174, resource.maintainedRevision());
+      assertEquals(301, resource.maintainedRevision());
       assertSum(session, 100, 100);
-      try (StorageEngineReader source = session.createStorageEngineReader(173)) {
+      try (StorageEngineReader source = session.createStorageEngineReader(301)) {
         assertNull(source.getDerivedIndexReader());
       }
       try (JsonNodeTrx writer = session.beginNodeTrx()) {
-        writer.revertTo(173);
+        writer.revertTo(300);
         setNumber(writer, 30_000);
-        writer.commit(null, Instant.ofEpochMilli(175));
+        writer.commit(null, Instant.ofEpochMilli(302));
       }
       resource.drain();
       assertNull(resource.failure());
-      assertSum(session, 175, 30_000);
+      assertSum(session, 302, 30_000);
       assertSum(session, 100, 100);
     }
   }
