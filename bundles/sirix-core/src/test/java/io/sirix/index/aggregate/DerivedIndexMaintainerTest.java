@@ -14,6 +14,7 @@ import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
@@ -234,6 +235,104 @@ final class DerivedIndexMaintainerTest {
             new Encryptor(sourcePath).deserialize(new ByteArrayInputStream(encrypted.toByteArray()))) {
           assertArrayEquals(plaintext, input.readAllBytes());
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"%s/", "./%s", "%s/.", "unused/../%s", "./%s/./"})
+  void resourceAliasesPreserveHiddenOwnershipAndCascadeRemoval(final String aliasPattern) {
+    final var path = directory.toPath().resolve("aliases");
+    final String sourceName = aliasPattern.formatted("records");
+    final String derivedName = aliasPattern.formatted("records$derived");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("records")
+                                                             .storageType(StorageType.FILE_CHANNEL)
+                                                             .validTimePaths("lo", "hi")
+                                                             .storeDiffs(false)
+                                                             .build()));
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+        assertSum(session, 1, 10);
+        assertThrows(SirixUsageException.class, () -> database.beginResourceSession(derivedName));
+        assertThrows(SirixUsageException.class, () -> database.removeResource(derivedName));
+        assertThrows(SirixUsageException.class,
+            () -> database.createResource(ResourceConfiguration.newBuilder(derivedName).build()));
+        assertSame(session, database.beginResourceSession(sourceName));
+        assertEquals(database.getResourceID("records"), database.getResourceID(sourceName));
+        assertTrue(database.existsResource(sourceName));
+        assertThrows(IllegalStateException.class, () -> database.removeResource(sourceName));
+        assertSum(session, 1, 10);
+        final IndexDef aggregate = session.getWtxIndexController(writer.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
+        session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
+        writer.commit();
+        resource.drain();
+      }
+      assertThrows(SirixUsageException.class, () -> database.removeResource(derivedName));
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      try (JsonResourceSession session = database.beginResourceSession(sourceName)) {
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        resource.drain();
+        assertSum(session, 1, 10);
+        assertEquals(0, session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                               .getIndexes()
+                               .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+      }
+      assertSame(database, database.removeResource(sourceName));
+      assertFalse(database.existsResource(sourceName));
+      assertFalse(database.existsResource(derivedName));
+      assertFalse(Files.exists(path.resolve("resources").resolve("records$derived")));
+      assertTrue(database.listResources().isEmpty());
+      assertThrows(SirixUsageException.class, () -> database.getResourceID(sourceName));
+      final ResourceConfiguration configuration = ResourceConfiguration.newBuilder(sourceName)
+                                                                       .storageType(StorageType.FILE_CHANNEL)
+                                                                       .validTimePaths("lo", "hi")
+                                                                       .storeDiffs(false)
+                                                                       .build();
+      assertEquals("records", configuration.getName());
+      assertTrue(database.createResource(configuration));
+      try (JsonResourceSession session = database.beginResourceSession(sourceName);
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+        assertSum(session, 1, 10);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", ".", "records/..", "../records", "records/nested"})
+  void resourceBoundariesRejectNamesOutsideTheDirectResourceNamespace(final String name) {
+    final var path = directory.toPath().resolve("invalid-names");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("records")
+                                                             .storageType(StorageType.FILE_CHANNEL)
+                                                             .build()));
+      assertThrows(SirixUsageException.class, () -> ResourceConfiguration.newBuilder(name).build());
+      assertThrows(SirixUsageException.class, () -> database.beginResourceSession(name));
+      assertThrows(SirixUsageException.class, () -> database.removeResource(name));
+      assertThrows(SirixUsageException.class, () -> database.existsResource(name));
+      assertThrows(SirixUsageException.class, () -> database.getResourceID(name));
+      assertTrue(database.existsResource("records"));
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertStringValueAsFirstChild("retained");
+        writer.commit();
       }
     }
   }

@@ -34,6 +34,7 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -419,6 +420,15 @@ public final class ResourceConfiguration {
    */
   public static Builder newBuilder(final String resource) {
     return new Builder(resource);
+  }
+
+  static String canonicalResourceName(final String name) {
+    final Path path = Path.of(requireNonNull(name)).normalize();
+    final String canonicalName = path.toString();
+    if (path.getRoot() != null || path.getNameCount() != 1 || canonicalName.isEmpty() || canonicalName.equals("..")) {
+      throw new SirixUsageException("Invalid resource name: " + name);
+    }
+    return canonicalName;
   }
 
   /**
@@ -1072,7 +1082,7 @@ public final class ResourceConfiguration {
      * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
      */
     public Builder(final String resource) {
-      this.resource = requireNonNull(resource);
+      this.resource = canonicalResourceName(resource);
       pathSummary = true;
       storeChildCount = true;
       byteHandler = selectDefaultByteHandler();

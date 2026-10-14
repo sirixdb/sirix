@@ -61,10 +61,11 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
 
   @Override
   public Database<T> removeResource(final String resourceName) {
-    if (resourceName.endsWith(DerivedIndexMaintainer.SUFFIX)) {
-      throw new SirixUsageException("Derived resources are internal: " + resourceName);
+    final String canonicalName = ResourceConfiguration.canonicalResourceName(resourceName);
+    if (canonicalName.endsWith(DerivedIndexMaintainer.SUFFIX)) {
+      throw new SirixUsageException("Derived resources are internal: " + canonicalName);
     }
-    database().removeResource(resourceName);
+    database().removeResource(canonicalName);
     return this;
   }
 
