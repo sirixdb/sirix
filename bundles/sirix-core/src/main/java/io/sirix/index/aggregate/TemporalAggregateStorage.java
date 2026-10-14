@@ -7,11 +7,13 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.page.PageReference;
+import io.sirix.page.TemporalAggregateIndexPage;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Objects;
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
@@ -61,6 +63,20 @@ public final class TemporalAggregateStorage extends AbstractHOTIndexWriter<byte[
     super(writer, IndexType.TEMPORAL_AGGREGATE, index);
     initializeTemporalAggregateIndex();
     reader = new Reader(writer, () -> rootReference);
+  }
+
+  static void resetForBuild(final StorageEngineWriter writer, final int index) {
+    final TemporalAggregateIndexPage page = writer.prepareSecondaryIndexPage(IndexType.TEMPORAL_AGGREGATE);
+    if (!page.isIndexInitialized(index)) {
+      return;
+    }
+    final List<DerivedRevisionMapping> mappings = index == 0
+        ? DerivedRevisionMapping.readAll(writer)
+        : List.of();
+    page.resetTemporalAggregateIndexTree(writer, index, writer.getLog());
+    for (final DerivedRevisionMapping mapping : mappings) {
+      mapping.write(writer);
+    }
   }
 
   public long nodesWritten() {

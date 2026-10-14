@@ -158,7 +158,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         && session instanceof JsonResourceSession json && !canonicalName.endsWith(DerivedIndexMaintainer.SUFFIX)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
       shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json));
-      if (existsResource(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX)
+      if (Files.exists(resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX))
           || (session.getMostRecentRevisionNumber() > 0
               && json.getRtxIndexController(session.getMostRecentRevisionNumber())
                      .getIndexes()
@@ -197,8 +197,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Path derivedPath = source.getResourcePath().resolveSibling(name);
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
-    if (existsResource(name)) {
+    if (Files.exists(derivedPath)) {
       try {
+        if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
+          throw new SirixIOException("Incomplete derived resource: " + name);
+        }
         if (encrypted) {
           final List<ByteHandler> derivedHandlers =
               ResourceConfiguration.deserialize(derivedPath).byteHandlePipeline.getComponents();
@@ -420,7 +423,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
-    if (Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+    if (Files.exists(resourceFile) && (canonicalName.endsWith(DerivedIndexMaintainer.SUFFIX)
+        || ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0)) {
       // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
       // This prevents cache pollution when resource is removed and recreated with same IDs
       try {
@@ -469,7 +473,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;
-    if (!canonicalName.endsWith(DerivedIndexMaintainer.SUFFIX) && existsResource(derivedName)) {
+    if (!canonicalName.endsWith(DerivedIndexMaintainer.SUFFIX)
+        && Files.exists(resourceFile.resolveSibling(derivedName))) {
       removeResource(derivedName);
     }
     return this;

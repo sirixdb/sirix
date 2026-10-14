@@ -165,6 +165,7 @@ public final class TemporalAggregateIndexes {
         Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
     validate(definition, projection, config);
     final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.requireReady(reader, projection.getID());
+    TemporalAggregateStorage.resetForBuild(destination, definition.getID());
     try (TemporalAggregateStorage storage = new TemporalAggregateStorage(destination, definition.getID());
         PathSummaryReader paths = source.getResourceSession().openPathSummary(source.getRevisionNumber())) {
       final Maintenance maintenance = new Maintenance(storage, definition.getTemporalAggregateSpec(), new Header(1, 0));

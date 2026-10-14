@@ -12,6 +12,7 @@ import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixUsageException;
@@ -30,6 +31,7 @@ import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -505,6 +507,266 @@ final class DerivedIndexMaintainerTest {
         resource.drain();
         assertSum(session, 6, 888);
       }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void revertedDeclarationIdsRebuildEmptyContentsAndPreserveHistoricalMappings(final VersioningType versioning) {
+    final var path = directory.toPath().resolve("redeclared");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+        assertSum(session, 1, 10);
+        writer.revertTo(0);
+        writer.commit();
+        resource.drain();
+        assertEquals(0, session.getRtxIndexController(2)
+                               .getIndexes()
+                               .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE));
+        declareSimple(session, writer);
+        final IndexDef replacement = session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
+        assertNotNull(replacement);
+        assertEquals(0, replacement.getTemporalAggregateSpec().projectionId());
+        setNumber(writer, 30);
+        writer.commit();
+        resource.drain();
+        assertSum(session, 3, 30);
+        assertSum(session, 1, 10);
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      resource.drain();
+      assertSum(session, 1, 10);
+      assertSum(session, 3, 30);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void staleMappingWindowsCannotPoisonTruncatedCatchUpAndFolds(final VersioningType versioning) {
+    final var path = directory.toPath().resolve("stale-window");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .customCommitTimestamps(true)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records")) {
+        final DerivedIndexMaintainer.Resource resource;
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          declareSimple(session, writer);
+          resource = state(session);
+          resource.pause();
+          writer.commit(null, Instant.ofEpochMilli(1));
+          resource.drain();
+          for (int revision = 2; revision <= 237; revision++) {
+            setNumber(writer, revision);
+            writer.commit(null, Instant.ofEpochMilli(revision));
+            resource.drain();
+          }
+          try (StorageEngineReader source = session.createStorageEngineReader(237)) {
+            assertTrue(Objects.requireNonNull(source.getDerivedIndexReader()).getRevisionNumber() > 237);
+          }
+          writer.truncateTo(100);
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          for (int revision = 101; revision <= 174; revision++) {
+            setNumber(writer, 10_000 + revision);
+            writer.commit(null, Instant.ofEpochMilli(revision));
+          }
+        }
+        try (StorageEngineReader source = session.createStorageEngineReader(174)) {
+          assertNull(source.getDerivedIndexReader());
+        }
+        try (StorageEngineReader source = session.createStorageEngineReader(100)) {
+          assertNotNull(source.getDerivedIndexReader());
+        }
+        resource.drain();
+        assertNull(resource.failure());
+        assertEquals(-1, resource.poisonedRevision());
+        assertEquals(174, resource.maintainedRevision());
+        assertSum(session, 100, 100);
+        assertSum(session, 174, 10_174);
+        try (StorageEngineReader source = session.createStorageEngineReader(174);
+            StorageEngineReader latest = Objects.requireNonNull(source.getDerivedIndexReader())
+                                               .getResourceSession()
+                                               .createStorageEngineReader()) {
+          assertEquals(174, DerivedRevisionMapping.frontier(latest));
+          assertNull(DerivedRevisionMapping.read(latest, 237));
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      resource.drain();
+      assertSum(session, 100, 100);
+      assertSum(session, 174, 10_174);
+    }
+  }
+
+  @Test
+  void declarationFreeRestartDoesNotAdmitReissuedHistoryOrUseItAsARevertBase() {
+    final var path = directory.toPath().resolve("declaration-free-frontier");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .customCommitTimestamps(true)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records")) {
+        final DerivedIndexMaintainer.Resource resource;
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          declareSimple(session, writer);
+          resource = state(session);
+          resource.pause();
+          writer.commit(null, Instant.ofEpochMilli(1));
+          resource.drain();
+          for (int revision = 2; revision <= 173; revision++) {
+            setNumber(writer, revision);
+            writer.commit(null, Instant.ofEpochMilli(revision));
+            resource.drain();
+          }
+          final IndexDef aggregate = session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
+          session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
+          writer.commit(null, Instant.ofEpochMilli(174));
+          resource.drain();
+          writer.truncateTo(100);
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          for (int revision = 101; revision <= 173; revision++) {
+            setNumber(writer, 10_000 + revision);
+            writer.commit(null, Instant.ofEpochMilli(revision));
+          }
+          final IndexDef aggregate = session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
+          session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
+          writer.commit(null, Instant.ofEpochMilli(174));
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      resource.drain();
+      assertEquals(174, resource.maintainedRevision());
+      assertSum(session, 100, 100);
+      try (StorageEngineReader source = session.createStorageEngineReader(173)) {
+        assertNull(source.getDerivedIndexReader());
+      }
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.revertTo(173);
+        setNumber(writer, 30_000);
+        writer.commit(null, Instant.ofEpochMilli(175));
+      }
+      resource.drain();
+      assertNull(resource.failure());
+      assertSum(session, 175, 30_000);
+      assertSum(session, 100, 100);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"empty,true", "empty,false", "missing-config,true", "missing-config,false",
+      "missing-data,true", "missing-data,false", "missing-indexes,true", "missing-indexes,false"})
+  void incompleteDerivedDirectoriesRecoverAndCascadeWithTheirSource(final String damage, final boolean recover)
+      throws Exception {
+    final var path = directory.toPath().resolve("incomplete");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        resource.drain();
+        setNumber(writer, 20);
+        writer.commit();
+        resource.drain();
+        final IndexDef aggregate = session.getWtxIndexController(writer.getRevisionNumber())
+                                          .getIndexes()
+                                          .getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
+        session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
+        writer.commit();
+        resource.drain();
+      }
+    }
+    final var derivedPath = path.resolve("resources").resolve("records$derived");
+    switch (damage) {
+      case "empty" -> {
+        SirixFiles.recursiveRemove(derivedPath);
+        Files.createDirectory(derivedPath);
+      }
+      case "missing-config" ->
+        Files.delete(derivedPath.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()));
+      case "missing-data" ->
+        SirixFiles.recursiveRemove(derivedPath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
+      case "missing-indexes" ->
+        SirixFiles.recursiveRemove(derivedPath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath()));
+      default -> throw new IllegalArgumentException(damage);
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      assertFalse(database.existsResource("records$derived"));
+      if (recover) {
+        try (JsonResourceSession session = database.beginResourceSession("records/")) {
+          final DerivedIndexMaintainer.Resource resource = state(session);
+          resource.pause();
+          resource.drain();
+          assertSum(session, 1, 10);
+          try (JsonNodeReadOnlyTrx historical = session.beginNodeReadOnlyTrx(2)) {
+            historical.moveToDocumentRoot();
+            historical.moveToFirstChild();
+            historical.moveToFirstChild();
+            historical.moveToFirstChild();
+            historical.moveToRightSibling();
+            historical.moveToFirstChild();
+            assertEquals(20L, historical.getNumberValue().longValue());
+          }
+          assertEquals(3, resource.maintainedRevision());
+          assertTrue(database.existsResource("records$derived"));
+        }
+      }
+      database.removeResource("records/");
+      assertFalse(Files.exists(derivedPath));
+      assertTrue(database.listResources().isEmpty());
     }
   }
 

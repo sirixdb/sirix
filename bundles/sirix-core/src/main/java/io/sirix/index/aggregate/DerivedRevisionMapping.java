@@ -46,6 +46,13 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
                    .getIndexes()
                    .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0;
     }
+    return matchesIdentity(source);
+  }
+
+  boolean matchesIdentity(final StorageEngineReader source) {
+    if (projection < 0) {
+      return false;
+    }
     final byte[] identity = ChangeLogStorage.identity(source, projection, sourceRevision);
     return identity != null && ByteBuffer.wrap(identity).getLong() == identityHigh
         && ByteBuffer.wrap(identity).getLong(8) == identityLow;

@@ -220,28 +220,41 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
       try {
         DerivedRevisionMapping mapping = mappings.get(sourceReader.getRevisionNumber());
-        if (mapping == null) {
-          // A cold open must not decline merely because the daemon has not populated its cache.
-          // Only a durable exact mapping admits a query; absent mappings still fall back.
+        if (mapping != null) {
+          if (mapping.projection() < 0 || !mapping.matches(sourceReader)) {
+            return null;
+          }
+        } else {
+          final boolean locked = historyLock.tryLock();
           try (StorageEngineReader latest = derived.createStorageEngineReader()) {
-            for (final DerivedRevisionMapping adjacent : DerivedRevisionMapping.readWindow(latest,
-                sourceReader.getRevisionNumber())) {
-              mappings.putIfAbsent(adjacent.sourceRevision(), adjacent);
+            final List<DerivedRevisionMapping> window =
+                DerivedRevisionMapping.readWindow(latest, sourceReader.getRevisionNumber());
+            for (final DerivedRevisionMapping adjacent : window) {
               if (adjacent.sourceRevision() == sourceReader.getRevisionNumber()) {
                 mapping = adjacent;
+                break;
               }
             }
+            if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
+              return null;
+            }
+            if (locked && initialized && !truncatePending) {
+              try (StorageEngineReader current = source.createStorageEngineReader()) {
+                for (final DerivedRevisionMapping adjacent : window) {
+                  if (adjacent.sourceRevision() <= maintained && adjacent.matchesIdentity(current)) {
+                    mappings.putIfAbsent(adjacent.sourceRevision(), adjacent);
+                  }
+                }
+              }
+              while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
+                mappings.pollFirstEntry();
+              }
+            }
+          } finally {
+            if (locked) {
+              historyLock.unlock();
+            }
           }
-          while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
-            mappings.pollFirstEntry();
-          }
-        }
-        if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
-          return null;
-        }
-        mappings.putIfAbsent(mapping.sourceRevision(), mapping);
-        while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
-          mappings.pollFirstEntry();
         }
         return derived.createStorageEngineReader(mapping.indexRevision());
       } catch (final RuntimeException unavailable) {
@@ -305,6 +318,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
           while (maintained > 0 && frontier == null) {
             frontier = mapping(--maintained);
           }
+          mappings.tailMap(maintained, false).clear();
           final int indexRevision = frontier == null
               ? 0
               : frontier.indexRevision();
@@ -398,7 +412,15 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         return cached;
       }
       try (StorageEngineReader reader = derived.createStorageEngineReader()) {
-        return DerivedRevisionMapping.read(reader, revision);
+        final DerivedRevisionMapping mapping = DerivedRevisionMapping.read(reader, revision);
+        if (mapping == null) {
+          return null;
+        }
+        try (StorageEngineReader current = source.createStorageEngineReader(revision)) {
+          return mapping.matches(current)
+              ? mapping
+              : null;
+        }
       }
     }
 
@@ -465,6 +487,10 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         for (final IndexDef previous : target.getIndexDefs()) {
           if (definitions.stream().noneMatch(previous::hasSameDefinition)) {
             target.removeIndex(previous);
+            pendingFolds.remove(previous.getID());
+            if (pendingFolds.isEmpty()) {
+              foldRequired = false;
+            }
             catalogueChanged = true;
           }
         }
@@ -517,13 +543,16 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         }
       }
       try (JsonNodeReadOnlyTrx sourceReader = source.beginNodeReadOnlyTrx(maintained)) {
-        final DerivedRevisionMapping previous = Objects.requireNonNull(mappings.get(maintained));
+        final DerivedRevisionMapping previous = Objects.requireNonNull(mapping(maintained));
         final DerivedRevisionMapping mapping = DerivedRevisionMapping.of(sourceReader.getStorageEngineReader(),
             transaction.getRevisionNumber(), previous.projection());
         mapping.write(transaction.getStorageEngineWriter());
         recordDocumentPages(transaction.getStorageEngineWriter());
         transaction.commit("fold src=" + maintained, sourceReader.getRevisionTimestamp());
         mappings.put(maintained, mapping);
+        while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
+          mappings.pollFirstEntry();
+        }
       }
       pendingFolds.clear();
       foldRequired = false;
