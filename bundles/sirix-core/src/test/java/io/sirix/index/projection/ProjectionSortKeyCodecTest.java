@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,6 +98,46 @@ final class ProjectionSortKeyCodecTest {
     assertTrue(Arrays.compareUnsigned(first, writer.copyKey()) < 0);
     assertThrows(IllegalArgumentException.class, () -> writer.appendRecordKey(-1));
     assertThrows(IndexOutOfBoundsException.class, () -> writer.appendUtf8(large, 0, large.length + 1));
+  }
+
+  @Test
+  void stringFieldBoundsAndEscapesAcrossWordBoundaries() {
+    final Random random = new Random(94117);
+    final ProjectionSortKeyCodec.Writer writer = new ProjectionSortKeyCodec.Writer();
+    final ProjectionSortKeyCodec.Layout layout =
+        new ProjectionSortKeyCodec.Layout(new byte[] {ProjectionSortKeyCodec.FIELD_STRING});
+    for (int length = 0; length < 128; length++) {
+      final byte[] value = new byte[length];
+      random.nextBytes(value);
+      for (int zero = 0; zero < length; zero += 11) {
+        value[zero] = 0;
+      }
+      writer.reset();
+      writer.appendUtf8(value, 0, value.length);
+      final byte[] encoded = writer.copyKey();
+      for (int offset = 0; offset < Long.BYTES; offset++) {
+        final byte[] key = new byte[offset + encoded.length + 16];
+        Arrays.fill(key, (byte) 1);
+        System.arraycopy(encoded, 0, key, offset, encoded.length);
+        assertEquals(offset + encoded.length, layout.fieldEnd(key, offset, key.length, 0));
+        for (int end = offset + 1; end < offset + encoded.length; end++) {
+          assertEquals(-1, layout.fieldEnd(key, offset, end, 0), "truncated field");
+        }
+      }
+    }
+    for (int zero = 1; zero < 65; zero++) {
+      final byte[] key = new byte[80];
+      Arrays.fill(key, (byte) 1);
+      key[zero] = 0;
+      // 0x01 after zero is malformed, including the borrow-propagation case in a word.
+      assertEquals(-1, layout.fieldEnd(key, 0, key.length, 0));
+      key[zero + 1] = 0;
+      assertEquals(zero + 2, layout.fieldEnd(key, 0, key.length, 0));
+      key[zero + 1] = (byte) 0xFF;
+      key[78] = 0;
+      key[79] = 0;
+      assertEquals(80, layout.fieldEnd(key, 0, key.length, 0));
+    }
   }
 
   private static void appendString(final ProjectionSortKeyCodec.Writer writer, final String value) {

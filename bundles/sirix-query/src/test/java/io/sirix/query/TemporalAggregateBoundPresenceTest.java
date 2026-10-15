@@ -236,6 +236,7 @@ final class TemporalAggregateBoundPresenceTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String text)
       throws Exception {
+    TemporalAggregateTestSupport.await(context);
     try (ByteArrayOutputStream output = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(output, false, StandardCharsets.UTF_8)) {
       new Query(chain, text).serialize(context, writer);

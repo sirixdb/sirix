@@ -212,14 +212,21 @@ fail-fast lookups, never ordinals.
   draft in place; there are no persisted databases requiring a compatibility branch.
 - **Temporal aggregate HOT slots** (`IndexType` id 12, container `PageKind` id 18): revision-root
   reference offset 11. All fixed-width slot and part payload scalars are big-endian.
-  Prefix 0 holds format 4, the part-id allocator and unsupported-row count;
-  prefix 1 maps typed grouping values to `(live rows i64, checkpoint tier i32, part count i32)`
+  Prefix 0 holds format 5, the part-id allocator and unsupported-row count;
+  prefix 1 maps typed grouping values to `(live rows i64, checkpoint tier i32, part count i32,
+  checkpoint bytes i64, delta bytes i64)`
   followed by `(part id i64, tier u8)` pairs. The first part is the checkpoint; each lower tier holds
   fewer than sixteen deltas. There are at most six delta tiers and 91 parts, within one inline slot. Prefix 3 maps `(part id, chunk number)` to at most 2,048 opaque bytes. Parts hold sorted
   endpoint prefix counts and signed 128-bit sums, a compressed canonical time-cover tree and
   deduplicated sorted signed value-frequency prefixes for declared extrema (`TAP1` magic). Small
   deltas use `TAD1` magic and at most 64 sorted `(from, to, value, sign)` candidates per extrema lane
-  instead of a time-tree directory. Coordinates use day-aligned millisecond radix. See
+  instead of a time-tree directory. Prefix 4 in physical aggregate tree zero maps a source revision
+  `(prefix u8=4, source revision i32)` to `(source revision i32, derived revision i32, projection id i32,
+  mapping format i32=1, source timestamp i64, source identity high i64, source identity low i64)`.
+  Source revision -1 stores the latest maintained source revision as i32. These mappings and the
+  aggregate pages commit atomically in the hidden `<source>$derived` resource. A projection id of -1
+  identifies a revision with no aggregate declarations and is never admitted by the aggregate route.
+  Coordinates use day-aligned millisecond radix. See
   [TEMPORAL_AGGREGATE_INDEX.md](TEMPORAL_AGGREGATE_INDEX.md) for declaration, maintenance and admission semantics.
 - **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
   reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
@@ -228,7 +235,12 @@ fail-fast lookups, never ordinals.
   kind byte, then one flag byte per column (without presence), in chunks of at most 2,048 bytes.
   Chunk -1 holds the total length as i32; a zero-length directory removes an exception.
   Prefix 2 `(revision i32, chunk i32)` holds change slabs in chunks of at most 2,048 bytes; chunk
-  -1 is the `(total byte length i32, chunk count i32)` directory. All roots are revision owned.
+  -1 is the `(total byte length i32, chunk count i32, identity high i64, identity low i64)` directory.
+  Its random 128-bit publication identity prevents a derived mapping from matching a truncated and
+  replaced revision, even when the replacement uses the same revision number and timestamp.
+  Prefix 5 in physical change-log tree zero uses `(5, -1 i32)` for the next aggregate id (i32),
+  and `(5, aggregate id i32)` with value `1 u8` for each reserved declaration;
+  this keeps declarations from allocating aggregate pages in the source. All roots are revision owned.
   A slab begins with `SCLG` magic, format 1, projection id, revision, base revision and entry count
   (all i32), followed by a u16 column count, normalized u8 cell kinds and a slab-local UTF-8
   dictionary (i32 count, unsigned-varint byte lengths). Entries are sorted by record key and hold

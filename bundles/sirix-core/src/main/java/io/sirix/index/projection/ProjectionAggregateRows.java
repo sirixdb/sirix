@@ -6,9 +6,17 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
 
 /** Bounded row access for maintained aggregate indexes, sharing projection membership semantics. */
 public final class ProjectionAggregateRows {
+  private static final boolean WORK_DIAGNOSTICS = Boolean.getBoolean("sirix.changelog.workDiag");
+  private static final LongAdder ROW_GROUPS_READ = new LongAdder();
+
+  public static long rowGroupsRead() {
+    return ROW_GROUPS_READ.sum();
+  }
+
   @FunctionalInterface
   public interface Consumer {
     void accept(long record, ProjectionIndexRowGroupPage page, int row);
@@ -51,6 +59,9 @@ public final class ProjectionAggregateRows {
 
   private static ProjectionIndexRowGroupPage readPage(final StorageEngineReader reader, final int projection,
       final ProjectionIndexMetadata metadata, final int slot) {
+    if (WORK_DIAGNOSTICS) {
+      ROW_GROUPS_READ.increment();
+    }
     return ProjectionIndexRowGroupPage.deserialize(Objects.requireNonNull(
         ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(reader, projection, metadata.slotLayout(), slot),
         "Missing projection row group"));

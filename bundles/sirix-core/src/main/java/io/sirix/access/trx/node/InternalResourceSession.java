@@ -14,6 +14,7 @@ import io.sirix.page.UberPage;
 
 import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
+import java.util.function.IntConsumer;
 
 public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends ResourceSession<R, W> {
@@ -97,6 +98,12 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
   Lock getCommitLock();
 
   void setLastCommittedUberPage(UberPage lastUberPage);
+
+  /** Observers run after durability and publication, including pipelined commits. */
+  void addRevisionListener(IntConsumer listener);
+
+  void removeRevisionListener(IntConsumer listener);
+
 
   void closeWriteTransaction(int transactionID);
 

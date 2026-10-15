@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import org.junit.jupiter.api.Test;
@@ -12,7 +13,12 @@ import org.junit.jupiter.api.function.Executable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,6 +30,136 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * exactly.
  */
 final class ProjectionIndexByteScanTest {
+
+  @Test
+  void numericOperatorsPreserveSignedLimitsMissingCellsAndPartialWords() {
+    final long[] values = {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1, 0, 1, Long.MAX_VALUE - 1, Long.MAX_VALUE};
+    final List<byte[]> leaves = new ArrayList<>();
+    // Shrinking and growing leaves also exercise reuse of the numeric and packed-mask scratch.
+    for (final int rows : new int[] {129, 1, 65, 64, 63}) {
+      final ProjectionIndexRowGroupPage page =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < rows; row++) {
+        assertTrue(
+            page.appendExtractedUtf8Row(row, new long[] {values[row % values.length]}, new boolean[1], new byte[1][],
+                new String[1][], new boolean[] {row % 13 != 0}, new boolean[1], new boolean[1], new boolean[1]));
+      }
+      leaves.add(page.serialize());
+    }
+    final List<ProjectionIndexScan.ColumnPredicate> predicates = new ArrayList<>();
+    for (final ProjectionIndexScan.Op op : List.of(ProjectionIndexScan.Op.GT, ProjectionIndexScan.Op.GE,
+        ProjectionIndexScan.Op.LT, ProjectionIndexScan.Op.LE, ProjectionIndexScan.Op.EQ, ProjectionIndexScan.Op.NE)) {
+      for (final long bound : values) {
+        predicates.add(ProjectionIndexScan.ColumnPredicate.numeric(0, op, bound));
+      }
+    }
+    for (final ProjectionIndexScan.Op lower : List.of(ProjectionIndexScan.Op.GT, ProjectionIndexScan.Op.GE)) {
+      for (final ProjectionIndexScan.Op upper : List.of(ProjectionIndexScan.Op.LT, ProjectionIndexScan.Op.LE)) {
+        predicates.add(ProjectionIndexScan.ColumnPredicate.numericBetween(0, lower, -1, upper, 1));
+        predicates.add(
+            ProjectionIndexScan.ColumnPredicate.numericBetween(0, lower, Long.MIN_VALUE, upper, Long.MAX_VALUE));
+      }
+    }
+    for (final ProjectionIndexScan.ColumnPredicate predicate : predicates) {
+      final ProjectionIndexScan.ColumnPredicate[] condition = {predicate};
+      assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, condition),
+          ProjectionIndexByteScan.conjunctiveCount(leaves, condition), "numeric operator " + predicate.op);
+    }
+  }
+
+  @Test
+  void flatCountPreservesSparseGroupCountsAndFirstOrdinalsAcrossLeaves() {
+    final List<byte[]> leaves = new ArrayList<>();
+    final int[] leafSizes = {73, 127, 211};
+    for (int leaf = 0; leaf < leafSizes.length; leaf++) {
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN});
+      for (int row = 0; row < leafSizes[leaf]; row++) {
+        final long group = row % 9 == 0
+            ? 0L
+            : (row + leaf * 11) % 191 - 95L;
+        assertTrue(page.appendExtractedUtf8Row((long) leaf * 1000 + row, new long[] {group, 0L},
+            new boolean[] {false, (row + leaf) % 3 != 0}, new byte[2][], new String[2][],
+            new boolean[] {row % 11 != 0, true}, new boolean[2], new boolean[2], new boolean[2]));
+      }
+      leaves.add(page.serialize());
+    }
+
+    for (final ProjectionIndexScan.ColumnPredicate[] predicates : List.of(new ProjectionIndexScan.ColumnPredicate[0],
+        new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)})) {
+      final Long2ObjectOpenHashMap<long[]> expected = new Long2ObjectOpenHashMap<>();
+      final long[] expectedMissing = new long[2];
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(leaves, predicates, 0, new int[0], expected,
+          expectedMissing, 17);
+
+      final NumericGroupAggTable actual = new NumericGroupAggTable(0, 16);
+      final int initialCapacity = actual.capacity();
+      final long[] actualMissing = new long[2];
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(leaves, predicates, 0, new int[0], actual,
+          actualMissing, 17);
+
+      assertTrue(actual.capacity() > initialCapacity, "the fold must cross table growth");
+      assertTrue(expectedMissing[0] > 0, "the corpus must exercise the missing-key group");
+      assertTrue(actual.hasZeroKey(), "zero must remain separate from the missing-key group");
+      assertEquals(expected.size(), actual.sizeIncludingZero());
+      assertArrayEquals(expectedMissing, actualMissing);
+      for (final Long2ObjectMap.Entry<long[]> entry : expected.long2ObjectEntrySet()) {
+        if (entry.getLongKey() == 0L) {
+          assertArrayEquals(entry.getValue(), actual.zeroSlot());
+        } else {
+          final int handle = actual.handleOfProbeKey(entry.getLongKey());
+          final long[] storage = actual.storageAtAccBase(handle);
+          final int offset = actual.offsetAtAccBase(handle);
+          assertEquals(entry.getValue()[0], storage[offset], "group count");
+          assertEquals(entry.getValue()[1], storage[offset + 1], "first matching ordinal");
+        }
+      }
+    }
+  }
+
+  @Test
+  @SuppressWarnings("NullAway") // The existing overload accepts absent budget and predicate tree.
+  void distinctSinksFollowLeafDictionaryIdentityAndQueryOwnership() {
+    final List<byte[]> leaves = new ArrayList<>();
+    final Map<String, Set<Long>> expected = new HashMap<>();
+    final Set<Long> expectedMissing = new HashSet<>();
+    for (int leaf = 0; leaf < 4; leaf++) {
+      final int cardinality = new int[] {3, 117, 1, 91}[leaf];
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < 511; row++) {
+        final String group = "g" + ((row + leaf * 19) % cardinality);
+        final long value = (row + leaf * 3L) % 23;
+        final boolean groupPresent = row % 13 != 0;
+        final boolean valuePresent = row % 17 != 0;
+        assertTrue(page.appendExtractedUtf8Row(leaf * 1000L + row, new long[] {0, value}, new boolean[2],
+            new byte[][] {group.getBytes(StandardCharsets.UTF_8), null}, new String[2][],
+            new boolean[] {groupPresent, valuePresent}, new boolean[2], new boolean[2], new boolean[2]));
+        if (valuePresent) {
+          (groupPresent
+              ? expected.computeIfAbsent(group, ignored -> new HashSet<>())
+              : expectedMissing).add(value);
+        }
+      }
+      leaves.add(page.serialize());
+    }
+    for (int query = 0; query < 2; query++) {
+      final GroupDistinctAccumulator distinct = new GroupDistinctAccumulator(1, Long.MAX_VALUE);
+      final GroupDistinctAccumulator.Worker worker = distinct.worker(0);
+      final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, true);
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
+          ? leaves
+          : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
+          ProjectionIndexByteScan.newGroupAggAcc(1, 0), 0, 0, worker, worker.missing(), null, null);
+      distinct.finish();
+      assertEquals(expectedMissing.size(), distinct.missingSize());
+      assertEquals(expected.size(), distinct.groupSizes().size());
+      for (final Map.Entry<String, Set<Long>> entry : expected.entrySet()) {
+        final long key = ProjectionIndexByteScan.utf8Hash(entry.getKey().getBytes(StandardCharsets.UTF_8));
+        assertEquals(entry.getValue().size(), distinct.groupSizes().get(key), entry.getKey());
+      }
+    }
+  }
 
   private static final byte[] KINDS_NUM_BOOL_STR = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
       ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};

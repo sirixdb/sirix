@@ -259,7 +259,7 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.projection.numericProofs` | `true` | Read optional revisioned full-presence numeric bucket proofs. |
 | `sirix.projection.packedDictionaryCounts` | `true` | Count eligible packed dictionary IDs without a dense ID array. |
 | `sirix.projection.longLaneCompositeCounts` | `true` | Count composite keys with exact long identities in a separate primitive loop. |
-| `sirix.projection.dictionaryCountBatches` | `true` | Accumulate plain local-dictionary COUNT groups in reusable per-entry counters before folding the group table. |
+| `sirix.projection.dictionaryCountBatches` | `true` | Enable local-dictionary COUNT batching in `ProjectionColumnGroupScan`; literal `false` selects its general row kernel. Whole-leaf `ProjectionIndexByteScan` batching is unconditional. |
 | `sirix.projection.sortedSummaryMaxWorkers` | `4` | Worker ceiling, clamped to 1–8 and further limited by CPUs and one worker per 1,024 leaves of the queried key range. |
 | `sirix.projection.sortedLookahead` | `8` | Candidate leaves the sorted bound walk and span scan fetch as one batch, clamped to 1–64; 1 restores one read per step. |
 
@@ -529,8 +529,8 @@ contract. Packed IDs can feed the counters without materializing a dense ID arra
 This read-only specialization applies by key and aggregate semantics, independently of field names,
 query text, or dataset. Regex keys, global keys and queries with other aggregates retain their
 existing kernels. Counter scratch is bounded by the persisted leaf dictionary; no revisioned format,
-fine-grained update unit, or transaction ownership changes. The diagnostic property
-`-Dsirix.projection.dictionaryCountBatches=false` selects the general row kernel for comparison.
+fine-grained update unit, or transaction ownership changes. The comparison switch and its kernel
+scope are listed in [Controls](#controls).
 
 The v89 campaign preserves same-binary off/on trials and full-suite before/after trials separately.
 Its aggregate gains are small, with individual query regressions still being investigated; this

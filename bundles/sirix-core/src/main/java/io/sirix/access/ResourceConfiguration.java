@@ -34,6 +34,7 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -342,6 +343,8 @@ public final class ResourceConfiguration {
    */
   private final boolean storeNodeHistory;
 
+  private final boolean aggregateKernel;
+
   /**
    * Binary encoding version of storage.
    */
@@ -419,6 +422,15 @@ public final class ResourceConfiguration {
     return new Builder(resource);
   }
 
+  static String canonicalResourceName(final String name) {
+    final Path path = Path.of(requireNonNull(name)).normalize();
+    final String canonicalName = path.toString();
+    if (path.getRoot() != null || path.getNameCount() != 1 || canonicalName.isEmpty() || canonicalName.equals("..")) {
+      throw new SirixUsageException("Invalid resource name: " + name);
+    }
+    return canonicalName;
+  }
+
   /**
    * Convenience constructor using the standard settings.
    *
@@ -443,6 +455,7 @@ public final class ResourceConfiguration {
     storeDiffs = builder.storeDiffs;
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
+    aggregateKernel = builder.aggregateKernel;
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     regionCompressionType = builder.regionCompressionType;
@@ -587,6 +600,11 @@ public final class ResourceConfiguration {
     return storeChildCount;
   }
 
+  /** Whether this internal resource runs the aggregate kernel directly. */
+  public boolean aggregateKernel() {
+    return aggregateKernel;
+  }
+
   public boolean storeNodeHistory() {
     return storeNodeHistory;
   }
@@ -617,7 +635,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
       "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
-      "resourceUuid", "regionCompression"};
+      "resourceUuid", "regionCompression", "aggregateKernel"};
 
   /**
    * Serialize the configuration.
@@ -695,6 +713,7 @@ public final class ResourceConfiguration {
       }
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
+      jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -727,10 +746,9 @@ public final class ResourceConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
-    try {
-      final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
-      final FileReader fileReader = new FileReader(configFile.toFile());
-      final JsonReader jsonReader = new JsonReader(fileReader);
+    final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    try (final FileReader fileReader = new FileReader(configFile.toFile());
+        final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
@@ -839,6 +857,7 @@ public final class ResourceConfiguration {
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
+      boolean aggregateKernel = false;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[21])) {
@@ -865,12 +884,12 @@ public final class ResourceConfiguration {
           resourceUuid = UUID.fromString(jsonReader.nextString());
         } else if (name.equals(JSONNAMES[27])) {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
+        } else if (name.equals(JSONNAMES[28])) {
+          aggregateKernel = jsonReader.nextBoolean();
         }
       }
 
       jsonReader.endObject();
-      jsonReader.close();
-      fileReader.close();
 
       // Deserialize database config.
       final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
@@ -893,6 +912,7 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .regionCompressionType(regionCompressionType)
+             .aggregateKernel(aggregateKernel)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
@@ -1013,6 +1033,8 @@ public final class ResourceConfiguration {
      */
     private boolean storeNodeHistory = true;
 
+    private boolean aggregateKernel;
+
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
     /**
@@ -1057,7 +1079,7 @@ public final class ResourceConfiguration {
      * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
      */
     public Builder(final String resource) {
-      this.resource = requireNonNull(resource);
+      this.resource = canonicalResourceName(resource);
       pathSummary = true;
       storeChildCount = true;
       byteHandler = selectDefaultByteHandler();
@@ -1267,6 +1289,11 @@ public final class ResourceConfiguration {
      */
     public Builder customCommitTimestamps(final boolean customCommitTimestamps) {
       this.customCommitTimestamps = customCommitTimestamps;
+      return this;
+    }
+
+    Builder aggregateKernel(final boolean enabled) {
+      aggregateKernel = enabled;
       return this;
     }
 

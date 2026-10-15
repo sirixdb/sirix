@@ -598,7 +598,7 @@ Usage guide, maintenance semantics, REST gate, and current limits:
 
 For grouped aggregates at a valid-time point, a covering projection can also back a
 [versioned temporal aggregate index](docs/TEMPORAL_AGGREGATE_INDEX.md). That reference owns its
-declaration API, synchronous maintenance and query fallback rules.
+declaration API, maintenance and query fallback rules.
 
 ## Correctness & Formal Verification
 

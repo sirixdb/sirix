@@ -4,6 +4,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.index.IndexType;
+import org.jspecify.annotations.Nullable;
 
 import java.util.concurrent.atomic.AtomicLongArray;
 
@@ -33,12 +34,12 @@ import java.util.concurrent.atomic.AtomicLongArray;
  *
  * <p>
  * <b>Structure.</b> A direct-mapped table of (packed identity, epoch) pairs interleaved in one
- * {@link AtomicLongArray}: no allocation and no lock on the flush worker's path, two adjacent array
- * reads per snapshot entry. It never resizes and never chains. A collision simply overwrites the
- * older identity, and losing a mark costs exactly one further encode before the next refusal
- * re-marks the leaf — so the slot count is a throughput knob, never a correctness one. Because a
- * stored identity is compared in full, the table has no false positives; a false negative only
- * forfeits the optimisation.
+ * {@link AtomicLongArray}: after the first refusal initializes it, no allocation and no lock on the
+ * flush worker's path, two adjacent array reads per snapshot entry. It never resizes and never
+ * chains. A collision simply overwrites the older identity, and losing a mark costs exactly one
+ * further encode before the next refusal re-marks the leaf — so the slot count is a throughput
+ * knob, never a correctness one. Because a stored identity is compared in full, the table has no
+ * false positives; a false negative only forfeits the optimisation.
  * </p>
  *
  * <p>
@@ -69,8 +70,8 @@ final class RefusedOverflowLeafTable {
   /** Index-type ids are a byte and never exceed 15 today; the pack asserts that invariant. */
   private static final int MAX_INDEX_TYPE_ID = 0x0F;
 
-  /** Identity at {@code 2i}, the epoch that stored it at {@code 2i + 1}. */
-  private final AtomicLongArray slots;
+  /** Identity at {@code 2i}, its epoch at {@code 2i + 1}; absent until the first refusal. */
+  private volatile @Nullable AtomicLongArray slots;
 
   private final int mask;
 
@@ -79,11 +80,21 @@ final class RefusedOverflowLeafTable {
    * @throws IllegalArgumentException if {@code slotCount} is not a positive power of two
    */
   RefusedOverflowLeafTable(final int slotCount) {
-    if (slotCount <= 0 || Integer.bitCount(slotCount) != 1) {
-      throw new IllegalArgumentException("slotCount must be a positive power of two: " + slotCount);
+    if (slotCount <= 0 || Integer.bitCount(slotCount) != 1 || slotCount > Integer.MAX_VALUE / 2) {
+      throw new IllegalArgumentException(
+          "slotCount must be a positive power of two with two entries per slot: " + slotCount);
     }
-    this.slots = new AtomicLongArray(slotCount * 2);
     this.mask = slotCount - 1;
+  }
+
+  /** Small commits never use this table; avoid a 1 MiB allocation on every writer rebind. */
+  private synchronized AtomicLongArray initializeSlots() {
+    AtomicLongArray allocated = slots;
+    if (allocated == null) {
+      allocated = new AtomicLongArray((mask + 1) * 2);
+      slots = allocated;
+    }
+    return allocated;
   }
 
   /**
@@ -122,10 +133,14 @@ final class RefusedOverflowLeafTable {
   void note(final long recordPageKey, final int indexTypeId, final long epoch) {
     final long packed = pack(recordPageKey, indexTypeId);
     final int index = indexOf(packed);
+    AtomicLongArray allocated = slots;
+    if (allocated == null) {
+      allocated = initializeSlots();
+    }
     // Epoch first: a reader that then sees the identity sees an epoch at least as new as the one
     // this mark carries. Seeing an older epoch would only expire the mark early — one extra encode.
-    slots.setRelease(index + 1, epoch);
-    slots.setRelease(index, packed);
+    allocated.setRelease(index + 1, epoch);
+    allocated.setRelease(index, packed);
   }
 
   /**
@@ -144,11 +159,15 @@ final class RefusedOverflowLeafTable {
       return false;
     }
     final long packed = pack(recordPageKey, indexTypeId);
-    final int index = indexOf(packed);
-    if (slots.getAcquire(index) != packed) {
+    final AtomicLongArray allocated = slots;
+    if (allocated == null) {
       return false;
     }
-    final long age = epoch - slots.getAcquire(index + 1);
+    final int index = indexOf(packed);
+    if (allocated.getAcquire(index) != packed) {
+      return false;
+    }
+    final long age = epoch - allocated.getAcquire(index + 1);
     // Signed, and a negative age is NOT honoured. It means the mark carries a later epoch than the
     // one asking — a worker reading a stale flushEpoch while another writes a newer one. Both
     // answers are safe, so take the conservative one: when the age is not plainly inside the bound,

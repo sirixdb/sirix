@@ -51,6 +51,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RevisionIndexTest {
 
+  @Test
+  void truncationAllowsEarlierReplacementWithoutMutatingHistoricalIndex() {
+    final RevisionIndex original = RevisionIndex.create(new long[] {0, 10, 20, 30}, new long[] {100, 200, 300, 400});
+    final RevisionIndex surviving = original.truncateTo(1);
+    final RevisionIndex replacement = surviving.withNewRevision(500, 15);
+    assertEquals(3, replacement.size());
+    assertEquals(15, replacement.getTimestampMillis(2));
+    assertEquals(500, replacement.getOffset(2));
+    assertEquals(4, original.size());
+    assertEquals(20, original.getTimestampMillis(2));
+    assertEquals(300, original.getOffset(2));
+    assertThrows(IllegalArgumentException.class, () -> original.truncateTo(-1));
+  }
+
+
   @Nested
   @DisplayName("Corner Cases (C1-C6)")
   class CornerCases {

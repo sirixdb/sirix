@@ -88,6 +88,9 @@ The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a sepa
 It checks fresh interval roots and all companion postings after truncation reuses a revision number,
 and the surviving historical revision, under all four versioning types. Run it alone with
 `./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
+The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a separate JVM so
+inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
+with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 
 ```bash
 # Generative + oracle + regression tests (fast, part of the normal test task)
@@ -140,13 +143,18 @@ and the surviving historical revision, under all four versioning types. Run it a
 # Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
-                           --tests 'io.sirix.index.projection.*WorkBudgetTest'
+                           --tests 'io.sirix.index.projection.*WorkBudgetTest' \
+                           --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
 
 # JUnit framework consistency (part of the normal query test task)
 ./gradlew :sirix-query:test --tests 'io.sirix.query.JUnitFrameworkConsistencyTest'
+
+# Derived-resource crash boundaries (source publication, before/after derived beacon)
+./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexCrashRecoveryTest' \
+                           -Dsirix.crash.run=true
 
 # Static bug detection
 ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne

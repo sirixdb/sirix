@@ -16,6 +16,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -402,6 +403,7 @@ final class TemporalAggregateRegressionTest {
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(
             session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]", List.of("g"), List.of("sum(n)"));
         writer.commit("initial", Instant.parse("2024-01-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         field(writer, first, "hi");
         writer.setStringValue("1970-01-01T00:00:00.002Z");
         writer.moveTo(array);
@@ -409,14 +411,17 @@ final class TemporalAggregateRegressionTest {
             {"g":1,"n":7,"lo":"1970-01-01T00:00:00.002Z","hi":"1970-01-01T00:00:00.003Z"}
             """), JsonNodeTrx.Commit.NO);
         writer.commit("split", Instant.parse("2024-02-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         writer.moveTo(first);
         writer.remove();
         writer.commit("delete first segment", Instant.parse("2024-03-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         for (int revision = 1; revision <= 3; revision++) {
           final int current = revision;
           try (var transaction = session.beginNodeReadOnlyTrx(revision);
-              var storage =
-                  new TemporalAggregateStorage.Reader(transaction.getStorageEngineReader(), aggregate.getID())) {
+              var derived =
+                  Objects.requireNonNull(session.openDerivedIndexReader(transaction.getStorageEngineReader()));
+              var storage = new TemporalAggregateStorage.Reader(derived, aggregate.getID())) {
             final int[] groups = new int[1];
             storage.groups(Long.MAX_VALUE, (key, head) -> {
               groups[0]++;
@@ -622,6 +627,7 @@ final class TemporalAggregateRegressionTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String query)
       throws Exception {
+    TemporalAggregateTestSupport.await(context);
     try (ByteArrayOutputStream output = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(output, false, StandardCharsets.UTF_8)) {
       new Query(chain, query).serialize(context, writer);

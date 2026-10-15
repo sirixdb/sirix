@@ -1,5 +1,9 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.IntConsumer;
+
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.utils.ObjectPool;
@@ -115,6 +119,48 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Write lock to assure only one exclusive write transaction exists.
    */
   final Semaphore writeLock;
+
+  private final CopyOnWriteArrayList<IntConsumer> revisionListeners;
+  private @Nullable Runnable derivedInitializer;
+  private volatile DerivedIndexMaintainer.@Nullable Resource derivedResource;
+  private boolean retainedForDerivedIndexes;
+
+  public final void initializeDerivedIndexesWith(final Runnable initializer) {
+    derivedInitializer = requireNonNull(initializer);
+  }
+
+  public final void enableDerivedIndexes() {
+    if (sharedSession != null) {
+      sharedSession.enableDerivedIndexes();
+    } else if (derivedResource == null && derivedInitializer != null) {
+      derivedInitializer.run();
+    }
+  }
+
+  public final synchronized void retainForDerivedIndexes() {
+    assertNotClosed();
+    retainedForDerivedIndexes = true;
+  }
+
+  public final void setDerivedResource(final DerivedIndexMaintainer.Resource resource) {
+    derivedResource = requireNonNull(resource);
+  }
+
+  @Override
+  public final @Nullable StorageEngineReader openDerivedIndexReader(final StorageEngineReader source) {
+    final DerivedIndexMaintainer.Resource resource = sharedSession == null
+        ? derivedResource
+        : sharedSession.derivedResource;
+    return resource == null
+        ? null
+        : resource.openReader(source);
+  }
+
+  public final DerivedIndexMaintainer.@Nullable Resource getDerivedResource() {
+    return sharedSession == null
+        ? derivedResource
+        : sharedSession.derivedResource;
+  }
 
   /**
    * Strong reference to uber page before the begin of a write transaction.
@@ -339,6 +385,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.writeLock = requireNonNull(writeLock);
 
     lastCommittedUberPage = new AtomicReference<>(uberPage);
+    revisionListeners = new CopyOnWriteArrayList<>();
     this.user = user;
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
@@ -378,6 +425,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     writeLock = sharedSession.writeLock;
     commitLock = sharedSession.commitLock;
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
+    revisionListeners = sharedSession.revisionListeners;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
     knownIndexCatalogueRevisions = sharedSession.knownIndexCatalogueRevisions;
     parsedIndexCatalogues = sharedSession.parsedIndexCatalogues;
@@ -422,7 +470,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       if (sharedSession.userSessionCount <= 0) {
         throw new IllegalStateException("No user session is registered");
       }
-      if (sharedSession.userSessionCount == 1) {
+      if (sharedSession.userSessionCount == 1 && !sharedSession.retainedForDerivedIndexes) {
         sharedSession.close();
       }
       sharedSession.userSessionCount--;
@@ -1575,6 +1623,26 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     lastCommittedUberPage.set(requireNonNull(page));
+    if (revisionListeners.isEmpty()) {
+      return;
+    }
+    for (final IntConsumer listener : revisionListeners) {
+      try {
+        listener.accept(page.getRevisionNumber());
+      } catch (final RuntimeException failure) {
+        LOGGER.error("Revision listener failed after durable publication", failure);
+      }
+    }
+  }
+
+  @Override
+  public final void addRevisionListener(final IntConsumer listener) {
+    revisionListeners.addIfAbsent(requireNonNull(listener));
+  }
+
+  @Override
+  public final void removeRevisionListener(final IntConsumer listener) {
+    revisionListeners.remove(requireNonNull(listener));
   }
 
   @Override

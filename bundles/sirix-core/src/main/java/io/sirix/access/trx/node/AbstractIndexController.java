@@ -1,5 +1,8 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.index.changelog.ChangeLogStorage;
+
 import io.sirix.access.DatabaseType;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -383,7 +386,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
           storageEngineWriter.getProjectionIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         case VALIDTIME -> storageEngineWriter.getValidTimeIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         case TEMPORAL_AGGREGATE ->
-          storageEngineWriter.getTemporalAggregateIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
+          DerivedIndexMaintainer.enabled(storageEngineWriter.getResourceSession().getResourceConfig())
+              ? ChangeLogStorage.aggregateIdReserved(storageEngineWriter, indexDef.getID())
+              : storageEngineWriter.getTemporalAggregateIndexPage(revisionRoot).isIndexInitialized(indexDef.getID());
         default -> false;
       };
       if (physicalIdWasInitialized) {

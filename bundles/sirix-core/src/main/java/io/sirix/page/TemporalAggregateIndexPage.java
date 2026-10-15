@@ -91,6 +91,14 @@ public final class TemporalAggregateIndexPage extends AbstractForwardingPage imp
     }
   }
 
+  public void resetTemporalAggregateIndexTree(final StorageEngineReader reader, final int index,
+      final TransactionIntentLog log) {
+    checkIndex(index);
+    final PageReference reference = new PageReference();
+    setOrCreateReference(index, reference);
+    PageUtils.createHOTTree(reference, IndexType.TEMPORAL_AGGREGATE, reader, log);
+  }
+
   /**
    * Determine whether a physical temporal aggregate tree id has ever been initialized without
    * creating a structural reference.

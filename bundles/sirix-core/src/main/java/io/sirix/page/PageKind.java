@@ -8984,14 +8984,13 @@ public enum PageKind {
   }
 
   private static byte[] compressViaStream(ByteHandlerPipeline pipeline, byte[] uncompressedArray) {
-    try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedArray.length);
-        final DataOutputStream dataOutput = new DataOutputStream(pipeline.serialize(output))) {
+    final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedArray.length);
+    try (final DataOutputStream dataOutput = new DataOutputStream(pipeline.serialize(output))) {
       dataOutput.write(uncompressedArray);
-      dataOutput.flush();
-      return output.toByteArray();
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
+    return output.toByteArray();
   }
 
   private static byte[] segmentToByteArray(MemorySegment segment) {

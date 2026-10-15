@@ -4,6 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.access.AggregateKernelTestSupport;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -229,11 +230,11 @@ final class ChangeLogWorkBudgetTest {
     final var path = directory.toPath().resolve("unchanged-barrier");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("data")
-                                                   .validTimePaths("lo", "hi")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(AggregateKernelTestSupport.newBuilder("data")
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("data");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 100).append('[');

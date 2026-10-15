@@ -196,6 +196,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   private volatile boolean isClosed;
 
+  private @Nullable StorageEngineReader derivedIndexReader;
+
   /**
    * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at the END
    * of the close body (so {@code assertNotClosed} guards stay quiet during cleanup), which used to
@@ -476,6 +478,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public StorageEngineReader getTransactionView() {
     assertNotClosed();
     return transactionView;
+  }
+
+  @Override
+  public @Nullable StorageEngineReader getDerivedIndexReader() {
+    assertNotClosed();
+    if (trxIntentLog != null) {
+      return null;
+    }
+    if (derivedIndexReader == null || derivedIndexReader.isClosed()) {
+      derivedIndexReader = resourceSession.openDerivedIndexReader(this);
+    }
+    return derivedIndexReader;
   }
 
   void bindTransactionView(final StorageEngineWriter writer) {
@@ -3704,6 +3718,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       namePage = null;
 
       isClosed = true;
+      final StorageEngineReader derived = derivedIndexReader;
+      derivedIndexReader = null;
+      if (derived != null) {
+        derived.close();
+      }
     }
   }
 

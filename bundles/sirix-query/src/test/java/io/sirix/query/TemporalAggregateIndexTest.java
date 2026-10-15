@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.io.StorageType;
 import io.sirix.query.compiler.translator.TemporalAggregateRoute;
@@ -260,12 +261,15 @@ final class TemporalAggregateIndexTest {
         final IndexDef aggregate = TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"),
             List.of("sum(v)", "sum(v*m)"));
         writer.commit("exact", Instant.parse("2024-01-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         field(writer, first, "m");
         writer.setNumberValue(2);
         writer.commit("product overflow", Instant.parse("2024-02-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         writer.moveTo(first);
         writer.remove();
         writer.commit("recovered", Instant.parse("2024-03-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         session.getWtxIndexController(writer.getRevisionNumber()).dropIndexes(Set.of(aggregate), writer);
         writer.commit("dropped", Instant.parse("2024-04-15T00:00:00Z"));
       }
@@ -333,6 +337,7 @@ final class TemporalAggregateIndexTest {
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String text)
       throws Exception {
+    TemporalAggregateTestSupport.await(context);
     try (ByteArrayOutputStream output = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(output, false, StandardCharsets.UTF_8)) {
       new Query(chain, text).serialize(context, writer);

@@ -4,9 +4,9 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.access.AggregateKernelTestSupport;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
@@ -57,12 +57,12 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     final var databasePath = directory.toPath().resolve("budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("records")
-                                                   .validTimePaths("lo", "hi")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .buildPathSummary(true)
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(AggregateKernelTestSupport.newBuilder("records")
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .buildPathSummary(true)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 110).append('[');
@@ -181,12 +181,12 @@ final class TemporalAggregateMaintenanceWorkBudgetTest {
     final int[] checkpointTier = new int[1];
     final long[] firstCheckpoint = new long[1];
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("records")
-                                                   .validTimePaths("lo", "hi")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .buildPathSummary(true)
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(AggregateKernelTestSupport.newBuilder("records")
+                                                        .validTimePaths("lo", "hi")
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .buildPathSummary(true)
+                                                        .storeDiffs(false)
+                                                        .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final StringBuilder json = new StringBuilder(rows * 110).append('[');

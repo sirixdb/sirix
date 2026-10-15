@@ -8,6 +8,7 @@ import static java.util.Objects.requireNonNull;
 import io.sirix.index.projection.GlobalValueDictionary.ReadView;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
+import io.sirix.index.projection.ProjectionStringIdentityRegistry.LocalProofCache;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -2324,32 +2325,7 @@ public final class ProjectionIndexByteScan {
       final int stride = rowCount + 63 >>> 6;
       final long[] scanMask = s.mask;
       if (countOnly) {
-        for (int w = 0; w < stride; w++) {
-          long word = scanMask[w] & validRowsMask(w, stride, rowCount);
-          final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
-          final int rowBase = w << 6;
-          while (word != 0L) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final int rowIdx = rowBase + bit;
-            if ((groupPresWord & 1L << bit) == 0L) {
-              if (missingAcc[0] == 0) {
-                missingAcc[1] = leafOrdinalBase | rowIdx;
-              }
-              missingAcc[0]++;
-            } else {
-              final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
-              if (gv == 0L) {
-                out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
-              } else {
-                // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
-                final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
-                final long[] block = out.storageAtAccBase(handle);
-                block[out.offsetAtAccBase(handle)]++;
-              }
-            }
-          }
-        }
+        countNumericGroups(payload, rowCount, groupPresOff, groupValOff, leafOrdinalBase, scanMask, out, missingAcc);
         continue;
       }
       for (int w = 0; w < stride; w++) {
@@ -2463,6 +2439,42 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
+   * Keep the count loop in its own compilation unit: switching distinct/string-aggregate shapes can
+   * invalidate the larger scan's OSR code while its normal entry is still being compiled.
+   */
+  private static void countNumericGroups(final byte[] payload, final int rowCount, final int groupPresOff,
+      final int groupValOff, final long leafOrdinalBase, final long[] scanMask, final NumericGroupAggTable out,
+      final long[] missingAcc) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+      final int rowBase = w << 6;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int rowIdx = rowBase + bit;
+        if ((groupPresWord & 1L << bit) == 0L) {
+          if (missingAcc[0] == 0) {
+            missingAcc[1] = leafOrdinalBase | rowIdx;
+          }
+          missingAcc[0]++;
+        } else {
+          final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+          if (gv == 0L) {
+            out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
+          } else {
+            // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
+            final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
+            final long[] block = out.storageAtAccBase(handle);
+            block[out.offsetAtAccBase(handle)]++;
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * {@link #conjunctiveAggregateByGroupStringFlat} with the optional COUNT(DISTINCT) lane — the
    * string twin of the numeric overload's contract, with the group's set keyed by the SAME 64-bit
    * hash the table keys on.
@@ -2519,6 +2531,11 @@ public final class ProjectionIndexByteScan {
     int[] dictByteOff = s.dictByteOff;
     long[] dictHash = s.dictHashCache;
     int[] dictBase = s.dictSlotBase;
+    // Sinks are constant for one leaf's dictionary IDs. Keep this cache call-local: retaining a
+    // sink in thread scratch would retain the query's whole distinct accumulator between queries.
+    GroupDistinctAccumulator.Sink[] dictSinks = distinctBlock >= 0 && groupGlobalView == null
+        ? new GroupDistinctAccumulator.Sink[dictHash.length]
+        : null;
     final RegexHashCache regexCache = keyRegex != null
         ? new RegexHashCache()
         : null;
@@ -2591,6 +2608,9 @@ public final class ProjectionIndexByteScan {
         final int newSize = Math.max(dictHash.length * 2, dictSize);
         dictHash = s.dictHashCache = new long[newSize];
         dictBase = s.dictSlotBase = new int[newSize];
+        if (dictSinks != null) {
+          dictSinks = new GroupDistinctAccumulator.Sink[newSize];
+        }
       }
       final int lenHeaderOff = groupBase + 4;
       final int concatOff = lenHeaderOff + dictSize * 4;
@@ -2599,6 +2619,9 @@ public final class ProjectionIndexByteScan {
         dictByteOff[i] = running;
         running += getIntLE(payload, lenHeaderOff + i * 4);
         dictBase[i] = -1; // unresolved for THIS leaf
+        if (dictSinks != null) {
+          dictSinks[i] = null;
+        }
       }
       final int idsOff = globalGroup
           ? groupBase
@@ -2607,6 +2630,11 @@ public final class ProjectionIndexByteScan {
       final int groupPresOff = tailStart >= 0
           ? presenceWordsOff(payload, tailStart, groupColumn)
           : -1;
+      if (countOnly && keyRegex == null && !globalGroup) {
+        countStringGroups(payload, rowCount, groupPresOff, idsOff, lenHeaderOff, (long) (leafIndexBase + leaf) << 20,
+            s.mask, dictByteOff, dictHash, dictBase, out, missingAcc);
+        continue;
+      }
       final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
           ? s.groupAggPresOff
           : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
@@ -2850,8 +2878,12 @@ public final class ProjectionIndexByteScan {
               }
               dictBase[dictId] = cached;
             }
-            if (distinctBlock >= 0) {
-              dset = distinctOut.sinkFor(h);
+            if (dictSinks != null) {
+              dset = dictSinks[dictId];
+              if (dset == null) {
+                dset = distinctOut.sinkFor(h);
+                dictSinks[dictId] = dset;
+              }
             }
             slotArr = out.storageAtAccBase(cached);
             base = out.offsetAtAccBase(cached);
@@ -3353,6 +3385,15 @@ public final class ProjectionIndexByteScan {
         aggValOff[a] = s.columnDataOff[aggColumns[a]];
       }
       final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      if (countOnly && keyOffsets == null && keySubstr == null && keyCondCols == null && keyCondElse == null
+          && keyDivMod == null) {
+        if (!countCompositeGroups(payload, rowCount, leafOrdinalBase, s.mask, compKind, compPresOff, compValOff,
+            compDictHash, compDictIdA, compDictIdB, compDictOff, compDictLenOff, compDictProven, compNeedsProof, idLane,
+            twoLane, identity, identityRegistry, proofCache, out)) {
+          return;
+        }
+        continue;
+      }
       final int stride = rowCount + 63 >>> 6;
       final long[] scanMask = s.mask;
       for (int w = 0; w < stride; w++) {
@@ -3519,6 +3560,130 @@ public final class ProjectionIndexByteScan {
         }
       }
     }
+  }
+
+  /** Count by leaf-local dictionary ID before resolving each selected group once in the table. */
+  private static void countStringGroups(final byte[] payload, final int rowCount, final int groupPresOff,
+      final int idsOff, final int lenHeaderOff, final long leafOrdinalBase, final long[] scanMask,
+      final int[] dictByteOff, final long[] dictCounts, final int[] firstRows, final NumericGroupAggTable out,
+      final long[] missingAcc) {
+    // The caller resets firstRows to -1 for this leaf. The ordinary fold uses the same scratch
+    // arrays as hashes/handles, but neither representation survives the next leaf's reset.
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      final long present = groupPresOff >= 0
+          ? getLongLE(payload, groupPresOff + (w << 3))
+          : -1L;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int row = (w << 6) + bit;
+        if ((present & 1L << bit) == 0L) {
+          if (missingAcc[0] == 0L) {
+            missingAcc[1] = leafOrdinalBase | row;
+          }
+          missingAcc[0]++;
+          continue;
+        }
+        final int id = getIntLE(payload, idsOff + row * 4);
+        if (firstRows[id] < 0) {
+          firstRows[id] = row;
+          dictCounts[id] = 1L;
+        } else {
+          dictCounts[id]++;
+        }
+      }
+    }
+    final int dictSize = getIntLE(payload, lenHeaderOff - 4);
+    for (int id = 0; id < dictSize; id++) {
+      if (firstRows[id] < 0) {
+        continue;
+      }
+      final long ordinal = leafOrdinalBase | firstRows[id];
+      final long hash = fnv1a64(payload, dictByteOff[id], getIntLE(payload, lenHeaderOff + id * 4));
+      if (hash == 0L) {
+        final boolean fresh = !out.hasZeroKey();
+        final long[] zero = out.acquireZero(ordinal);
+        if (fresh) {
+          out.setZeroAux(leafOrdinalBase | id);
+        }
+        zero[0] += dictCounts[id];
+      } else {
+        final int handle = out.acquire(hash, ordinal);
+        if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+          continue;
+        }
+        final long[] storage = out.storageAtAccBase(handle);
+        final int offset = out.offsetAtAccBase(handle);
+        if (storage[offset] == 0L) {
+          out.setAuxAtAccBase(handle, leafOrdinalBase | id);
+        }
+        storage[offset] += dictCounts[id];
+      }
+    }
+  }
+
+  /** Count untransformed composite keys while retaining canonical byte proofs and pass ownership. */
+  @SuppressWarnings("NullAway") // needsProof implies that registry and proofCache are present.
+  private static boolean countCompositeGroups(final byte[] payload, final int rowCount, final long leafOrdinalBase,
+      final long[] scanMask, final byte[] kinds, final int[] presOff, final int[] valOff, final long[][] hashes,
+      final long[][] idA, final long[][] idB, final int[][] dictOff, final int[] lenOff, final long[][] proven,
+      final boolean[] needsProof, final int[] idLane, final boolean[] twoLane, final long[] identity,
+      final @Nullable ProjectionStringIdentityRegistry registry, final @Nullable LocalProofCache proofCache,
+      final NumericGroupAggTable out) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int row = (w << 6) + bit;
+        long hash = 0xcbf29ce484222325L;
+        long presenceMask = 0L;
+        for (int k = 0; k < kinds.length; k++) {
+          final int lane = idLane[k];
+          final long component;
+          if (presOff[k] >= 0 && (getLongLE(payload, presOff[k] + (w << 3)) & 1L << bit) == 0L) {
+            presenceMask |= 1L << k;
+            component = MISSING_COMPONENT_HASH;
+            identity[lane] = MISSING_COMPONENT_IDENTITY;
+            if (twoLane[k]) {
+              identity[lane + 1] = 0L;
+            }
+          } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(kinds[k])
+              || kinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+            final long value = getLongLE(payload, valOff[k] + row * 8);
+            component = HashCommon.mix(value);
+            identity[lane] = value;
+          } else {
+            final int id = getIntLE(payload, valOff[k] + row * 4);
+            if (needsProof[k] && !proveOnFirstUse(registry, proofCache, k, proven[k], id, idA[k][id], idB[k][id],
+                payload, dictOff[k][id], getIntLE(payload, lenOff[k] + id * 4))) {
+              return false;
+            }
+            component = hashes[k][id];
+            identity[lane] = idA[k][id];
+            if (twoLane[k]) {
+              identity[lane + 1] = idB[k][id];
+            }
+          }
+          hash = hash * 0x100000001b3L ^ component;
+        }
+        identity[0] = presenceMask;
+        final int handle = out.acquireExact(hash, leafOrdinalBase | row, identity, 0);
+        if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
+          continue;
+        }
+        final long[] storage = out.storageAtAccBase(handle);
+        final int offset = out.offsetAtAccBase(handle);
+        if (storage[offset] == 0L) {
+          out.setAuxAtAccBase(handle, leafOrdinalBase | row);
+        }
+        storage[offset]++;
+      }
+    }
+    return true;
   }
 
   /** Every selected component must already carry exact identity in one long lane. */
@@ -6118,90 +6283,124 @@ public final class ProjectionIndexByteScan {
     }
   }
 
-  private static void evalNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
-      final ProjectionIndexScan.Op op, final long lit, final long highLit, final long[] scratch, final long[] flags,
-      final long[] out) {
-    // 1) Load column into scratch — fully intrinsified (MOVQ per lane).
+  // Keep row loops independently compilable: a new operator may deoptimize the dispatcher,
+  // but must not invalidate the load loop and the other operators already used by a scan.
+  private static void loadNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final long[] scratch) {
     for (int k = 0; k < rowCount; k++) {
       scratch[k] = getLongLE(payload, baseOff + k * 8);
     }
+  }
+
+  private static void evalNumericBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final ProjectionIndexScan.Op op, final long lit, final long highLit, final long[] scratch, final long[] flags,
+      final long[] out) {
+    loadNumericBytes(payload, baseOff, rowCount, scratch);
     // 2) Vectorisable compare pass. Each arm is a single relational op (or a
     // non-short-circuit AND of two, for the fused BETWEEN range) applied
     // branch-free into `flags` — the shape C2 SuperWord turns into a packed
     // vector compare. Dispatch is hoisted out of the loop by the tableswitch.
     switch (op) {
-      case GT -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] > lit)
-              ? 1L
-              : 0L;
-      }
-      case LT -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] < lit)
-              ? 1L
-              : 0L;
-      }
-      case GE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] >= lit)
-              ? 1L
-              : 0L;
-      }
-      case LE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] <= lit)
-              ? 1L
-              : 0L;
-      }
-      case EQ -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] == lit)
-              ? 1L
-              : 0L;
-      }
-      case NE -> {
-        for (int k = 0; k < rowCount; k++)
-          flags[k] = (scratch[k] != lit)
-              ? 1L
-              : 0L;
-      }
-      case BETWEEN_GT_LT -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v > lit) & (v < highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GT_LE -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v > lit) & (v <= highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GE_LT -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v >= lit) & (v < highLit))
-              ? 1L
-              : 0L;
-        }
-      }
-      case BETWEEN_GE_LE -> {
-        for (int k = 0; k < rowCount; k++) {
-          final long v = scratch[k];
-          flags[k] = ((v >= lit) & (v <= highLit))
-              ? 1L
-              : 0L;
-        }
-      }
+      case GT -> compareNumericGt(scratch, rowCount, lit, flags);
+      case LT -> compareNumericLt(scratch, rowCount, lit, flags);
+      case GE -> compareNumericGe(scratch, rowCount, lit, flags);
+      case LE -> compareNumericLe(scratch, rowCount, lit, flags);
+      case EQ -> compareNumericEq(scratch, rowCount, lit, flags);
+      case NE -> compareNumericNe(scratch, rowCount, lit, flags);
+      case BETWEEN_GT_LT -> compareNumericBetweenGtLt(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GT_LE -> compareNumericBetweenGtLe(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GE_LT -> compareNumericBetweenGeLt(scratch, rowCount, lit, highLit, flags);
+      case BETWEEN_GE_LE -> compareNumericBetweenGeLe(scratch, rowCount, lit, highLit, flags);
       default -> throw new IllegalStateException("Unknown numeric op " + op);
     }
     // 3) Pack the per-row flags into the packed-bit output mask.
     packFlags(flags, rowCount, out);
+  }
+
+  private static void compareNumericGt(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] > lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericLt(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] < lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericGe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] >= lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericLe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] <= lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericEq(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] == lit)
+          ? 1L
+          : 0L;
+  }
+
+  private static void compareNumericNe(final long[] scratch, final int rowCount, final long lit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++)
+      flags[k] = (scratch[k] != lit)
+          ? 1L
+          : 0L;
+  }
+
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
+  private static void compareNumericBetweenGtLt(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v > lit) & (v < highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
+  private static void compareNumericBetweenGtLe(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v > lit) & (v <= highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
+  private static void compareNumericBetweenGeLt(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v >= lit) & (v < highLit))
+          ? 1L
+          : 0L;
+    }
+  }
+
+  @SuppressWarnings("ShortCircuitBoolean") // Non-short-circuit comparisons allow C2 vectorization.
+  private static void compareNumericBetweenGeLe(final long[] scratch, final int rowCount, final long lit,
+      final long highLit, final long[] flags) {
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
+      flags[k] = ((v >= lit) & (v <= highLit))
+          ? 1L
+          : 0L;
+    }
   }
 
   /**

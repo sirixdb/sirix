@@ -67,6 +67,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public @Nullable StorageEngineReader getDerivedIndexReader() {
+    return delegate().getDerivedIndexReader();
+  }
+
+  @Override
   public RecordPageGuard preserveRecordPageGuard() {
     return delegate().preserveRecordPageGuard();
   }

@@ -6,6 +6,8 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.Transaction;
 import io.sirix.exception.SirixThreadedException;
+import io.sirix.exception.SirixUsageException;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -59,7 +61,12 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
 
   @Override
   public Database<T> removeResource(final String resourceName) {
-    database().removeResource(resourceName);
+    database();
+    final String canonicalName = owner.localDatabase.canonicalResourceName(resourceName);
+    if (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
+      throw new SirixUsageException("Derived resources are internal: " + canonicalName);
+    }
+    database().removeResource(canonicalName);
     return this;
   }
 

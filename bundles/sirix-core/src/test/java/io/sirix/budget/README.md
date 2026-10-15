@@ -88,7 +88,9 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
-| `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work or cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
+| `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
+| `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
+| `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | explicit internal aggregate-kernel mode: 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work exceeds changed-record bounds or opens a reader; cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
 | `sirix-core` `BloomOpenChunkFetchWorkBudgetTest` | Bloom prune, open chunk of referenced tails | the open chunk's tails are paginated by the sealed-block fetch window again, costing one read transaction per window instead of one for the whole chunk |
 | `sirix-core` `JsonDiffArrayPositionWorkBudgetTest` | update-diff sidecar, array positions (on the default commit path) | an element's index is resolved by its own walk over the array prefix, a head insert touches an untouched suffix, **or** streaming append commits rewalk previously committed prefixes instead of consuming transient ingest positions (measurement: `docs/UPDATE_DIFF_INGEST_POSITIONS.md`) |
@@ -403,3 +405,10 @@ zero BODY requests, dense rows visited and sorted-key advances on a fresh compil
 Disabling numeric-mask reuse preserved the exact answer and the BODY bound (the column store also
 caches decoded slices), but revisited 10,000 dense rows and killed all four versioning cases. This
 mask-work mutation is recorded separately from the selective joined-route mutation above.
+
+The derived-maintenance diagnostics register `temporal.headsRead` (one group-head lookup),
+`temporal.slotsWritten` (one header/head/part/mapping write), `changeLog.chunksRead` (one slab data
+chunk lookup), and `aggregate.projectionRowGroupsRead` (one projection row group requested by the
+aggregate kernel) in `EngineWorkCounters`. The first two use `sirix.hot.mergeDiag`; the latter two
+use `sirix.changelog.workDiag`. Source work is captured with the maintainer paused so background
+maintenance cannot contaminate the process-global counts.

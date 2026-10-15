@@ -105,7 +105,7 @@ and paired overlap comparisons follow
 [Range intersections and joined overlap residuals](../../../../docs/VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals).
 Contracts additionally declare temporal aggregates at E0 (`BitemporalTemporalAggregates`);
 [the aggregate reference](../../../../docs/TEMPORAL_AGGREGATE_INDEX.md) owns their declarations,
-synchronous maintenance and admission; [loader comparison controls](#loader-comparison-controls)
+maintenance and admission; [loader comparison controls](#loader-comparison-controls)
 own declaration overrides. The grouped queries retain the
 VALIDTIME row-mask and projection-group route when aggregate admission declines.
 The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and separate apply/commit

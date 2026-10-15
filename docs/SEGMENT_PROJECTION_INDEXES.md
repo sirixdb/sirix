@@ -1031,9 +1031,10 @@ the load; that path is gone.
 1. **SET_COUNTS segments** and **DICT modes 2/3** give per-row-group value row counts for STRING_SET columns;
    `ProjectionColumnScan.countSetMembership` answers one set-membership count from them, or −1 when a leaf has none
    (`proj/ProjectionColumnScan.java:2671-2717`), gated by `sirix.projection.dictCount` (`SVE:8043`, `:7225-7245`).
-2. **Local dictionary COUNT batches** (`sirix.projection.dictionaryCountBatches`, default true): a count-only string
+2. **Local dictionary COUNT batches**: a count-only string
    group-by keeps an `int[dictSize + 1]` histogram and first-row array per leaf, hashes each used entry once and
-   acquires its group once (`proj/ProjectionColumnGroupScan.java:446-452`, `:719-792`).
+   acquires its group once (`proj/ProjectionColumnGroupScan.java:446-452`, `:719-792`). The switch's
+   kernel scope is owned by [read-performance Controls](PROJECTION_READ_PERFORMANCE.md#controls).
 3. **Packed dictionary counts** (`sirix.projection.packedDictionaryCounts`, default true): count packed 0/1/2/4-bit ids
    without a dense `int[]` (`:728`, `:1325`; `proj/ProjectionColumnStore.java:242-332`).
 4. The unrelated `SegmentScopedDictionaries.dictionaryCount(segment)` counts dictionaries minted per segment.
@@ -2004,7 +2005,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.projection.flagSummary` / `descriptorEvidence` | T / T | column flag evidence | `proj/ProjectionIndexCatalog.java:857-858`; `proj/ProjectionIndexRegistry.java:592-601` |
 | `sirix.projection.numericProofs` | T | numeric proof reads | `proj/ProjectionColumnStore.java:3206-3212` |
 | `sirix.projection.parallelChainFetch` / `chainFetchMinLeaves` / `chainFetchRangeLeaves` | T / 8192 / 1024 | parallel segment-chain fetch | `:3679-3729` |
-| `sirix.projection.dictionaryCountBatches` / `packedDictionaryCounts` / `longLaneCompositeCounts` | T / T / T | count kernels | `proj/ProjectionColumnGroupScan.java:446-449`, `:723`; `proj/ProjectionIndexByteScan.java:3051-3052` |
+| COUNT kernel controls | See [read-performance Controls](PROJECTION_READ_PERFORMANCE.md#controls) | dictionary batching, packed IDs and composite counts | `ProjectionColumnGroupScan`, `ProjectionIndexByteScan` |
 | `sirix.projection.manualLE` | codec: JVM manual, native VarHandle; byte scan: manual unless `false` | little-endian access style | `proj/ProjectionIndexRowGroupCodec.java:48-54`; `proj/ProjectionIndexByteScan.java:110-140` |
 | `sirix.projection.compositeIdentityMaxBytes` / `.compositeIdentity.lockFreeProbe` | maxHeap/8 in [32 MiB, 1 GiB] / true | string identity registry | `proj/ProjectionStringIdentityRegistry.java:85-179` |
 | `sirix.topK.workers` / `sirix.topK.docOrder` | CPUs / F | top-K parallelism and order | `proj/ProjectionColumnScan.java:50-56`, `:1008-1013` |

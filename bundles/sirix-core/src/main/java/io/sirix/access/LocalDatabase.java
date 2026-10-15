@@ -1,6 +1,10 @@
 package io.sirix.access;
 
 import io.sirix.utils.ToStringHelper;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexType;
+import io.sirix.settings.VersioningType;
 import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
@@ -23,6 +27,8 @@ import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionSortedRunSpill;
 import io.sirix.io.SuperblockValidator;
+import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
@@ -65,6 +71,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * Determines if the database instance is in the closed state or not.
    */
   private volatile boolean isClosed;
+
+  private @Nullable DerivedIndexMaintainer derivedMaintainer;
 
   /**
    * Central repository of all resource-ID/resource-name tuples. Uses two synchronized maps (forward +
@@ -117,17 +125,26 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.bufferManager = Databases.getGlobalBufferManager();
   }
 
+  String canonicalResourceName(final String name) {
+    final String canonicalName = ResourceConfiguration.canonicalResourceName(name);
+    final Path path =
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
+    if (!Files.exists(path)) {
+      return canonicalName;
+    }
+    try {
+      return path.toRealPath().getFileName().toString();
+    } catch (final IOException exception) {
+      throw new SirixIOException(exception);
+    }
+  }
+
   @Override
   public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
-    requireNonNull(resourceName);
-
+    final String canonicalName = canonicalResourceName(resourceName);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-    final Path resourcePath = dataDir.resolve(resourceName).normalize();
-
-    if (!resourcePath.startsWith(dataDir)) {
-      throw new SirixUsageException("Invalid resource name: path traversal detected in '" + resourceName + "'");
-    }
+    final Path resourcePath = dataDir.resolve(canonicalName);
 
     if (!Files.exists(resourcePath)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
@@ -150,7 +167,94 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.
-    return resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
+    final T session = resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
+    if (DerivedIndexMaintainer.enabled(resourceConfig) && resourceConfig.getValidTimeConfig() != null
+        && session instanceof JsonResourceSession json
+        && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
+      final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
+      shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json));
+      if (Files.exists(resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX))
+          || (session.getMostRecentRevisionNumber() > 0
+              && json.getRtxIndexController(session.getMostRecentRevisionNumber())
+                     .getIndexes()
+                     .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) != 0)) {
+        shared.enableDerivedIndexes();
+      }
+    }
+    return session;
+  }
+
+  private synchronized void enableDerivedIndexes(final JsonResourceSession source) {
+    assertNotClosed();
+    final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
+    if (shared.getDerivedResource() != null) {
+      return;
+    }
+    try {
+      final JsonResourceSession derived = openDerivedResource(source);
+      shared.retainForDerivedIndexes();
+      ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
+      resourceSessions.removeObject(source.getResourcePath(), source);
+      resourceSessions.removeObject(derived.getResourcePath(), derived);
+      if (derivedMaintainer == null) {
+        derivedMaintainer = new DerivedIndexMaintainer(getName());
+      }
+      shared.setDerivedResource(derivedMaintainer.register(source, derived));
+    } catch (final RuntimeException unavailable) {
+      // The source and its log remain authoritative even when derived storage cannot be opened.
+      logger.error("Derived resource unavailable for {}; queries retain exact fallback", source.getResourcePath(),
+          unavailable);
+    }
+  }
+
+  private JsonResourceSession openDerivedResource(final JsonResourceSession source) {
+    final String name = source.getResourcePath().getFileName() + DerivedIndexMaintainer.SUFFIX;
+    final Path derivedPath = source.getResourcePath().resolveSibling(name);
+    final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
+    final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
+    if (Files.exists(derivedPath)) {
+      try {
+        if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
+          throw new SirixIOException("Incomplete derived resource: " + name);
+        }
+        if (encrypted) {
+          final List<ByteHandler> derivedHandlers =
+              ResourceConfiguration.deserialize(derivedPath).byteHandlePipeline.getComponents();
+          for (final ByteHandler handler : sourceHandlers) {
+            if (handler instanceof Encryptor && !derivedHandlers.contains(handler)) {
+              throw new SirixIOException("Derived resource does not preserve source encryption: " + name);
+            }
+          }
+        }
+        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name);
+        DerivedIndexMaintainer.validateSnapshot(derived);
+        return derived;
+      } catch (final RuntimeException unreadable) {
+        logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
+        final Path path = source.getResourcePath().resolveSibling(name);
+        final T existing = resourceStore.getOpenResourceSession(path);
+        if (existing != null) {
+          resourceSessions.removeObject(path, existing);
+        }
+        removeResource(name);
+      }
+    }
+    final ResourceConfiguration.Builder builder =
+        ResourceConfiguration.newBuilder(name)
+                             .storageType(StorageType.FILE_CHANNEL)
+                             .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                             .storeDiffs(false)
+                             .storeNodeHistory(false)
+                             .buildPathSummary(false)
+                             .customCommitTimestamps(true)
+                             .aggregateKernel(true);
+    if (encrypted) {
+      builder.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
+    }
+    if (!createResource(builder.build(), null)) {
+      throw new SirixIOException("Could not create derived resource " + name);
+    }
+    return (JsonResourceSession) beginResourceSession(name);
   }
 
   /** A handle owns user sessions; the database owns their common storage and revision state. */
@@ -172,7 +276,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> S beginUserResourceSession(
       final String resourceName, final ResourceStore<S> userStore) {
-    final T shared = beginResourceSession(resourceName);
+    final String canonicalName = canonicalResourceName(resourceName);
+    if (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
+      throw new SirixUsageException("Derived resources are internal: " + canonicalName);
+    }
+    final T shared = beginResourceSession(canonicalName);
     // The hidden database-owned session keeps storage warm, but is not a user of the resource.
     // The user session registration below is atomic with respect to removeResource's guard.
     resourceSessions.removeObject(shared.getResourcePath(), shared);
@@ -186,6 +294,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
+    if (DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(requireNonNull(resourceConfig).getName()))) {
+      throw new SirixUsageException("Derived resource names are reserved");
+    }
     return createResource(resourceConfig, null);
   }
 
@@ -196,12 +307,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);
-    final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-    final Path path = dataDir.resolve(resourceConfig.resourcePath).normalize();
+    final Path path = resourceConfig.getResource();
 
-    if (!path.startsWith(dataDir)) {
-      throw new SirixUsageException(
-          "Invalid resource name: path traversal detected in '" + resourceConfig.resourcePath + "'");
+    if (userStore != null
+        && DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(resourceConfig.getName()))) {
+      throw new SirixUsageException("Derived resource names are reserved");
     }
 
     // If file is existing, skip.
@@ -312,23 +422,26 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized Database<T> removeResource(final String name) {
     assertNotClosed();
-    requireNonNull(name);
-
+    final String canonicalName = canonicalResourceName(name);
     final Path resourceFile =
-        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
 
     // Check that no running resource sessions are opened.
     if (this.resourceSessions.containsAnyEntry(resourceFile)) {
       throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
     }
 
+    if (derivedMaintainer != null) {
+      derivedMaintainer.remove(resourceFile);
+    }
     final T shared = resourceStore.getOpenResourceSession(resourceFile);
     if (shared != null) {
       shared.close();
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
-    if (Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+    if (Files.exists(resourceFile) && (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
+        || ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0)) {
       // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
       // This prevents cache pollution when resource is removed and recreated with same IDs
       try {
@@ -373,9 +486,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
       // kept answering with the dead resource's ID.
-      biMapInverseRemove(name);
+      biMapInverseRemove(canonicalName);
     }
 
+    final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;
+    if (!DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
+        && Files.exists(resourceFile.resolveSibling(derivedName))) {
+      removeResource(derivedName);
+    }
     return this;
   }
 
@@ -388,7 +506,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    final Long id = resourceNamesToResourceIDs.get(requireNonNull(name));
+    final Long id = resourceNamesToResourceIDs.get(canonicalResourceName(name));
     if (id == null) {
       throw new SirixUsageException("No resource found with name: " + name);
     }
@@ -439,8 +557,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
-    final Path resourceFile =
-        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    final Path resourceFile = dbConfig.getDatabaseFile()
+                                      .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                      .resolve(canonicalResourceName(resourceName));
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 
@@ -449,7 +568,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertNotClosed();
     try (final Stream<Path> stream =
         Files.list(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
-      return stream.toList();
+      return stream.filter(
+          path -> !DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(path.getFileName().toString())))
+                   .toList();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -469,6 +590,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     logger.trace("Close local database instance.");
 
+    if (derivedMaintainer != null) {
+      derivedMaintainer.close();
+    }
     resourceStore.close();
     transactionManager.close();
     isClosed = true;

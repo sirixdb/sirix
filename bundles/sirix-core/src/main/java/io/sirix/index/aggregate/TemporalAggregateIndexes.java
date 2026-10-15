@@ -1,6 +1,12 @@
 package io.sirix.index.aggregate;
 
 import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogStorage;
+import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.path.summary.PathSummaryReader;
+import java.util.function.LongFunction;
+import java.util.function.ObjIntConsumer;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -31,11 +37,11 @@ import java.util.TreeMap;
 import java.util.Map;
 
 /**
- * Declaration validation, initial column build, and maintenance driven by the projection's dirty
- * rows.
+ * Declaration validation, committed-projection builds, and durable-slab maintenance. Ordinary
+ * sources reserve declarations and log changes; the derived resource runs the aggregate kernel.
  */
 public final class TemporalAggregateIndexes {
-  private static final int FORMAT = 4;
+  private static final int FORMAT = 5;
   private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
   private static volatile MaintenanceWork lastMaintenance = new MaintenanceWork(0, 0, 0, 0, 0, 0, 0);
 
@@ -69,7 +75,12 @@ public final class TemporalAggregateIndexes {
     final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.requireReady(writer, projection.getID());
     try {
       listener(writer, projection.getID()).initializeChangeLog();
-      buildColumns(writer, definition, projection, config, metadata);
+      if (DerivedIndexMaintainer.enabled(writer.getResourceSession().getResourceConfig())) {
+        ChangeLogStorage.reserveAggregateId(writer, definition.getID());
+        ((AbstractResourceSession<?, ?>) session).enableDerivedIndexes();
+      } else {
+        buildColumns(writer, definition, projection, config, metadata);
+      }
     } catch (final RuntimeException | Error failure) {
       writer.markTransactionRollbackOnly(failure);
       throw failure;
@@ -78,7 +89,8 @@ public final class TemporalAggregateIndexes {
 
   /** Called only after the projection has installed its final rows for this maintenance batch. */
   public static void maintain(final StorageEngineWriter writer, final IndexDef projection, final ChangeLogSlab slab) {
-    if (!(writer.getResourceSession() instanceof JsonResourceSession session)) {
+    if (DerivedIndexMaintainer.enabled(writer.getResourceSession().getResourceConfig())
+        || !(writer.getResourceSession() instanceof JsonResourceSession session)) {
       return;
     }
     final ValidTimeConfig config = Objects.requireNonNull(session.getResourceConfig().getValidTimeConfig());
@@ -140,6 +152,104 @@ public final class TemporalAggregateIndexes {
             maintenance.endpointsRead, maintenance.endpointsWritten, maintenance.summaryNodesRead,
             maintenance.summaryNodesWritten);
       }
+    }
+  }
+
+  /**
+   * Builds from a published source projection; the destination has no document or projection tree.
+   */
+  public static void buildDerived(final StorageEngineWriter destination, final JsonNodeReadOnlyTrx source,
+      final IndexDef definition, final IndexDef projection) {
+    final StorageEngineReader reader = source.getStorageEngineReader();
+    final ValidTimeConfig config =
+        Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
+    validate(definition, projection, config);
+    final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.requireReady(reader, projection.getID());
+    TemporalAggregateStorage.resetForBuild(destination, definition.getID());
+    try (TemporalAggregateStorage storage = new TemporalAggregateStorage(destination, definition.getID());
+        PathSummaryReader paths = source.getResourceSession().openPathSummary(source.getRevisionNumber())) {
+      final Maintenance maintenance = new Maintenance(storage, definition.getTemporalAggregateSpec(), new Header(1, 0));
+      final Source rows = new Source(reader, metadata, projection, config,
+          record -> ProjectionAggregateRows.extract(projection, paths, source, record));
+      ProjectionAggregateRows.visit(reader, projection.getID(), metadata,
+          (record, page, row) -> maintenance.change(null, rows.row(record, page, row, maintenance.spec)));
+      maintenance.finish();
+    }
+  }
+
+  /**
+   * Applies one durable slab exactly once, without opening any source projection or document pages.
+   */
+  public static MaintenanceWork applyDerived(final StorageEngineWriter destination, final IndexDef definition,
+      final IndexDef projection, final ValidTimeConfig config, final ChangeLogSlab slab,
+      final ObjIntConsumer<byte[]> foldCandidate) {
+    validate(definition, projection, config);
+    if (slab.projection() != projection.getID() || slab.kinds().length != projection.getProjectionFields().size()) {
+      throw new IllegalArgumentException("Change-log schema does not match aggregate source");
+    }
+    final int from = endpointColumn(projection, config.getValidFromPath());
+    final int to = endpointColumn(projection, config.getValidToPath());
+    final byte[] kinds = slab.kinds();
+    final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
+    final long[] dependencies = new long[(kinds.length + 63) >>> 6];
+    dependOn(dependencies, from);
+    dependOn(dependencies, to);
+    for (final int column : spec.groupColumns()) {
+      dependOn(dependencies, column);
+    }
+    for (final Lane lane : spec.lanes()) {
+      dependOn(dependencies, lane.left());
+      if (lane.right() >= 0) {
+        dependOn(dependencies, lane.right());
+      }
+    }
+    final Map<String, Long> instants = new HashMap<>();
+    try (TemporalAggregateStorage storage = new TemporalAggregateStorage(destination, definition.getID())) {
+      final Header header = header(Objects.requireNonNull(storage.reader().get(TemporalAggregateStorage.HEADER)));
+      final Maintenance maintenance = new Maintenance(storage, spec, header);
+      long changed = 0;
+      for (final ChangeLogSlab.Entry entry : slab.entries()) {
+        if (affected(dependencies, entry.changed())) {
+          maintenance.change(fromLog(entry.before(), kinds, from, to, spec, instants),
+              fromLog(entry.after(), kinds, from, to, spec, instants));
+          changed++;
+        }
+      }
+      if (changed != 0) {
+        maintenance.finish(foldCandidate);
+      }
+      return new MaintenanceWork(changed, storage.reader().nodesRead(), storage.nodesWritten(),
+          maintenance.endpointsRead, maintenance.endpointsWritten, maintenance.summaryNodesRead,
+          maintenance.summaryNodesWritten);
+    }
+  }
+
+  /** Folds only the supplied touched groups, in a separate derived transaction. */
+  public static void foldDerived(final StorageEngineWriter writer, final IndexDef definition,
+      final Iterable<byte[]> groups) {
+    try (TemporalAggregateStorage storage = new TemporalAggregateStorage(writer, definition.getID())) {
+      final Header header = header(Objects.requireNonNull(storage.reader().get(TemporalAggregateStorage.HEADER)));
+      final TemporalAggregateParts parts =
+          new TemporalAggregateParts(definition.getTemporalAggregateSpec(), DOMAIN.height());
+      long next = header.nextPart();
+      for (final byte[] key : groups) {
+        final GroupHead head = GroupHead.decode(Objects.requireNonNull(storage.reader().get(key)));
+        if (head.parts().length < 2) {
+          continue;
+        }
+        final TemporalAggregateParts.Builder checkpoint = parts.builder();
+        for (final long part : head.parts()) {
+          checkpoint.merge(storage.reader().parts(), part);
+        }
+        final byte[] encoded = checkpoint.encode(true);
+        final int tier = Maintenance.tierForBytes(encoded.length) + 1;
+        storage.putPart(next, encoded);
+        storage.put(key,
+            new GroupHead(head.rows(), tier, new long[] {next}, new byte[] {(byte) tier}, encoded.length, 0).encode());
+        next = Math.incrementExact(next);
+      }
+      storage.put(TemporalAggregateStorage.HEADER,
+          ByteBuffer.allocate(20).putInt(FORMAT).putLong(next).putLong(header.unsupportedRows()).array());
     }
   }
 
@@ -289,7 +399,7 @@ public final class TemporalAggregateIndexes {
       state.atRevision(writer.getRevisionNumber());
       state.built = true;
       final Maintenance maintenance = new Maintenance(storage, definition.getTemporalAggregateSpec(), header);
-      final Source current = new Source(writer, metadata, projection, config, listener);
+      final Source current = new Source(writer, metadata, projection, config, listener::aggregateSourceRow);
       ProjectionAggregateRows.visit(writer, projection.getID(), metadata, (record, page, row) -> {
         final Row next = current.row(record, page, row, maintenance.spec);
         maintenance.change(null, next);
@@ -378,17 +488,17 @@ public final class TemporalAggregateIndexes {
     private final boolean directObjectFields;
     private final int fromColumn;
     private final int toColumn;
-    private final ProjectionIndexChangeListener listener;
+    private final LongFunction<ProjectionIndexRowGroupPage> recoverRow;
 
     private Source(final StorageEngineReader reader, final ProjectionIndexMetadata metadata, final IndexDef projection,
-        final ValidTimeConfig config, final ProjectionIndexChangeListener listener) {
+        final ValidTimeConfig config, final LongFunction<ProjectionIndexRowGroupPage> recoverRow) {
       this.reader = reader;
       columns = new TemporalAggregateColumns(reader, metadata);
       directObjectFields = projection.getProjectionRootPath().toString().equals("/[]")
           && projection.getProjectionFields().stream().allMatch(path -> path.toString().matches("/\\[\\]/[^/]+"));
       fromColumn = endpointColumn(projection, config.getValidFromPath());
       toColumn = endpointColumn(projection, config.getValidToPath());
-      this.listener = listener;
+      this.recoverRow = recoverRow;
     }
 
     private static boolean poisoned(final ProjectionIndexRowGroupPage page, final int column) {
@@ -421,7 +531,7 @@ public final class TemporalAggregateIndexes {
       }
       if (recover) {
         // Leaf-wide flags are not row identity: recover exact row-local provenance before subtracting.
-        page = listener.aggregateSourceRow(record);
+        page = recoverRow.apply(record);
         row = 0;
       }
       try {
@@ -529,13 +639,17 @@ public final class TemporalAggregateIndexes {
     }
 
     private void finish() {
+      finish(null);
+    }
+
+    private void finish(final @Nullable ObjIntConsumer<byte[]> foldCandidate) {
       for (final Map.Entry<byte[], Group> entry : groups.entrySet()) {
         final Group group = entry.getValue();
         final GroupHead prior = group.head;
         if (group.delta.isEmpty()) {
           if (prior != null && group.rows != prior.rows()) {
-            storage.put(entry.getKey(),
-                new GroupHead(group.rows, prior.checkpointTier(), prior.parts(), prior.tiers()).encode());
+            storage.put(entry.getKey(), new GroupHead(group.rows, prior.checkpointTier(), prior.parts(), prior.tiers(),
+                prior.checkpointBytes(), prior.deltaBytes()).encode());
           }
           continue;
         }
@@ -551,7 +665,7 @@ public final class TemporalAggregateIndexes {
         byte[] encoded = group.delta.encode(prior == null);
         int tier = tierForBytes(encoded.length);
         boolean checkpoint = prior == null;
-        while (!checkpoint) {
+        while (!checkpoint && foldCandidate == null) {
           if (tier >= checkpointTier) {
             for (final long part : ids) {
               group.delta.merge(storage.reader().parts(), part);
@@ -590,13 +704,41 @@ public final class TemporalAggregateIndexes {
           ids = new long[] {id};
           tiers = new byte[] {(byte) checkpointTier};
         } else {
+          if (foldCandidate != null) {
+            // Assign a free directory tier without reading or folding old parts. The separate
+            // fold commit restores size tiers; point reads depend only on the part ids.
+            final int[] counts = new int[TemporalAggregateParts.MAX_TIERS];
+            for (int at = 1; at < tiers.length; at++) {
+              counts[tiers[at]]++;
+            }
+            tier = 0;
+            while (tier < counts.length && counts[tier] >= TemporalAggregateParts.FAN_IN - 1) {
+              tier++;
+            }
+            if (tier == counts.length) {
+              throw new IllegalStateException("Derived group must be folded before appending another part");
+            }
+            checkpointTier = Math.max(checkpointTier, tier + 1);
+            tiers[0] = (byte) checkpointTier;
+          }
           ids = Arrays.copyOf(ids, ids.length + 1);
           tiers = Arrays.copyOf(tiers, tiers.length + 1);
           ids[ids.length - 1] = id;
           tiers[tiers.length - 1] = (byte) tier;
         }
         storage.putPart(id, encoded);
-        storage.put(entry.getKey(), new GroupHead(group.rows, checkpointTier, ids, tiers).encode());
+        final long checkpointBytes = checkpoint
+            ? encoded.length
+            : Objects.requireNonNull(prior).checkpointBytes();
+        final long deltaBytes = checkpoint
+            ? 0
+            : Math.addExact(Objects.requireNonNull(prior).deltaBytes(), encoded.length);
+        storage.put(entry.getKey(),
+            new GroupHead(group.rows, checkpointTier, ids, tiers, checkpointBytes, deltaBytes).encode());
+        if (foldCandidate != null && (ids.length > TemporalAggregateParts.FAN_IN
+            || ids.length > TemporalAggregateParts.MAX_PARTS - 24 || deltaBytes > checkpointBytes / 2)) {
+          foldCandidate.accept(entry.getKey(), ids.length);
+        }
         endpointsRead += group.delta.endpointsRead();
         endpointsWritten += group.delta.endpointsWritten();
         summaryNodesRead += group.delta.summaryNodesRead();
