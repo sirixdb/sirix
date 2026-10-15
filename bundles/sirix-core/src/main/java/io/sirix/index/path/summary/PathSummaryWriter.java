@@ -93,7 +93,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Sirix {@link PathSummaryReader}.
    */
-  private final PathSummaryReader pathSummaryReader;
+  private @Nullable PathSummaryReader pathSummaryReader;
+
+  private final ResourceSession<R, ? extends NodeTrx> resourceSession;
 
   /**
    * Sirix {@link NodeFactory} to create new nodes.
@@ -192,8 +194,25 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   public PathSummaryWriter(final StorageEngineWriter storageEngineWriter,
       final ResourceSession<R, ? extends NodeTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
+    this(storageEngineWriter, resMgr, nodeFactory, rtx, false);
+  }
+
+  /**
+   * Prepare a successor's path summary without traversing it until the first path operation. The
+   * reader is always rebuilt from the successor's own storage; no predecessor nodes or caches are
+   * retained. Useful when a caller commits and closes without making another edit.
+   */
+  public static <R extends NodeCursor & NodeReadOnlyTrx> PathSummaryWriter<R> createLazy(
+      final StorageEngineWriter storageEngineWriter, final ResourceSession<R, ? extends NodeTrx> resMgr,
+      final NodeFactory nodeFactory, final R rtx) {
+    return new PathSummaryWriter<>(storageEngineWriter, resMgr, nodeFactory, rtx, true);
+  }
+
+  private PathSummaryWriter(final StorageEngineWriter storageEngineWriter,
+      final ResourceSession<R, ? extends NodeTrx> resMgr, final NodeFactory nodeFactory, final R rtx,
+      final boolean lazy) {
     this.storageEngineWriter = requireNonNull(storageEngineWriter);
-    pathSummaryReader = PathSummaryReader.getInstance(storageEngineWriter, resMgr);
+    resourceSession = requireNonNull(resMgr);
     nodeRtx = requireNonNull(rtx);
     this.nodeFactory = requireNonNull(nodeFactory);
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
@@ -202,6 +221,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pendingStats = withPathStatistics
         ? new Long2ObjectOpenHashMap<>(32)
         : null;
+    if (!lazy) {
+      pathSummaryReader = PathSummaryReader.getInstance(storageEngineWriter, resMgr);
+    }
   }
 
   /**
@@ -210,7 +232,33 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @return {@link PathSummaryReader} instance
    */
   public PathSummaryReader getPathSummary() {
-    return pathSummaryReader;
+    PathSummaryReader reader = pathSummaryReader;
+    if (reader == null) {
+      if (storageEngineWriter.isClosed()) {
+        throw new IllegalStateException("Path summary storage is already closed.");
+      }
+      reader = PathSummaryReader.getInstance(storageEngineWriter, resourceSession);
+      pathSummaryReader = reader;
+    }
+    return reader;
+  }
+
+  @Override
+  public boolean isClosed() {
+    final PathSummaryReader reader = pathSummaryReader;
+    return reader == null
+        ? storageEngineWriter.isClosed()
+        : reader.isClosed();
+  }
+
+  @Override
+  public void close() {
+    final PathSummaryReader reader = pathSummaryReader;
+    if (reader != null) {
+      reader.close();
+    } else if (!storageEngineWriter.isClosed()) {
+      storageEngineWriter.close();
+    }
   }
 
   /**
@@ -236,6 +284,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (parentPathNodeKey < 0) {
       throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final QNm arrayName = ARRAY_PATH_QNM;
     final long existing = pathSummaryReader.findChild(parentPathNodeKey, arrayName, NodeKind.ARRAY);
     if (existing >= 0) {
@@ -266,6 +315,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (delta <= 0) {
       throw new IllegalArgumentException("delta must be positive: " + delta);
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(pathNodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.setReferenceCount(pathNode.getReferences() + delta);
     persistPathSummaryRecord(pathNode);
@@ -286,6 +336,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (arrayPathNodeKey < 0) {
       return -1L;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (!pathSummaryReader.moveTo(arrayPathNodeKey)) {
       return -1L;
     }
@@ -312,6 +363,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (!pathSummaryReader.moveTo(pathNodeKey)) {
       return;
     }
@@ -341,6 +393,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (objectKeyPathNodeKey < 0) {
       return -1;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (!pathSummaryReader.moveTo(objectKeyPathNodeKey)) {
       return -1;
     }
@@ -372,6 +425,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private void renamePathNode(final PathNode pathNode, final QNm name, final int uriKey, final int prefixKey,
       final int localNameKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final QNm oldName = pathSummaryReader.getName();
     final long parentKey = pathNode.getParentKey();
     final NodeKind pathKind = pathNode.getPathKind();
@@ -404,6 +458,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything went wrong
    */
   public long getPathNodeKey(final QNm name, final NodeKind pathKind) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final NodeKind kind = nodeRtx.getKind();
     int level = 0;
     if (kind == NodeKind.XML_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
@@ -440,6 +495,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (parentPathNodeKey < Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (!pathSummaryReader.moveTo(parentPathNodeKey)) {
       throw new IllegalStateException("Path-summary parent does not exist: " + parentPathNodeKey);
     }
@@ -456,6 +512,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @return its parent path node key, or {@code -1} when the child is absent or is the document root
    */
   public long getParentPathNodeKey(final long pathNodeKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final PathNode pathNode = pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey);
     return pathNode == null
         ? Fixed.NULL_NODE_KEY.getStandardProperty()
@@ -466,6 +523,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       final int parentLevel) {
     requireNonNull(name);
     requireNonNull(pathKind);
+    final PathSummaryReader pathSummaryReader = getPathSummary();
 
     final long childNodeKey = pathSummaryReader.findChild(parentNodeKey, name, pathKind);
 
@@ -490,6 +548,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Move path summary cursor to the path node which is references by the current node.
    */
   private void movePathSummary() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     NodeKind currentKind = nodeRtx.getKind();
     // Bare OBJECT/ARRAY containers don't carry a pathNodeKey of their own — the OBJECT_KEY
     // (or fused OBJECT_NAMED_OBJECT/ARRAY) anchor does. Hop up so the path-summary cursor
@@ -525,6 +584,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if an I/O error occurs
    */
   public PathSummaryWriter<R> insertPathAsFirstChild(final QNm name, final NodeKind pathKind, final int level) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final long parentKey = pathSummaryReader.getNodeKey();
     final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
     final long rightSibKey = pathSummaryReader.getFirstChildKey();
@@ -550,6 +610,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixIOException if anything weird happens
    */
   private void adaptForInsert(final Node newNode) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     assert newNode != null;
 
     if (newNode instanceof StructNode strucNode) {
@@ -591,6 +652,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!nodeRtx.moveTo(rootNodeKey)) {
       throw new IllegalArgumentException("Moved subtree does not exist: " + rootNodeKey);
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final LongArrayList oldPaths = new LongArrayList();
     final Long2IntOpenHashMap oldReferences = new Long2IntOpenHashMap();
     final DescendantAxis descendants = new DescendantAxis(nodeRtx, IncludeSelf.YES);
@@ -653,6 +715,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void remapMovedPath(final LongArrayList oldPaths, final Long2IntOpenHashMap oldReferences) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final long nodeKey = nodeRtx.getNodeKey();
     final long oldPath = nodeRtx.getPathNodeKey();
     final NodeKind kind = nodeRtx.getKind();
@@ -716,6 +779,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       adaptPathForMovedSubtree(node.getNodeKey());
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     // Possibly either reset a path node or decrement its reference counter
     // and search for the new path node or insert it.
     movePathSummary();
@@ -842,6 +906,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
   // Decrement reference count or remove path summary node.
   private long decrementReferenceCountOrRemove(final ImmutableNameNode node) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     long nodeKey = pathSummaryReader.getNodeKey();
     nodeRtx.moveTo(node.getNodeKey());
 
@@ -886,6 +951,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private void processFoundPathNode(final long oldPathNodeKey, final long newPathNodeKey, final long oldNodeKey,
       final QNm name, final int uriKey, final int prefixKey, final int localNameKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
@@ -962,6 +1028,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void adaptPathSummary(int level, long newPathNodeKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     // Fused OBJECT_NAMED_* records live in the path summary under the OBJECT_KEY pathKind, so
     // normalise the physical record kind to the logical path kind for filtering.
     final NodeKind rtxKind = nodeRtx.getKind();
@@ -985,6 +1052,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void adaptForNewPathNode() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     // Move to parent path node.
     moveToPathNodeOfParentNode();
 
@@ -1003,6 +1071,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void moveToPathNodeOfParentNode() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final long nodeKey = nodeRtx.getNodeKey();
 
     final long pathNodeKey;
@@ -1030,6 +1099,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void setNewPathNodeKey() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final NameNode node =
         storageEngineWriter.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
     node.setPathNodeKey(pathSummaryReader.getNodeKey());
@@ -1037,6 +1107,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void setReferenceCountToOne() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final PathNode currNode =
         storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(1);
@@ -1045,6 +1116,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void increaseReferenceCount() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     // Set new reference count.
     final PathNode currNode =
         storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
@@ -1061,6 +1133,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @return level of the path node
    */
   private int moveSummaryGetLevel(final ImmutableNode node) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     assert node != null;
     // Get parent path node and level.
     nodeRtx.moveToParent();
@@ -1094,6 +1167,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   @SuppressWarnings("unused")
   private void resetPathNodeKey(final long nodeKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
     persistDocumentRecord(currNode);
@@ -1105,6 +1179,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if Sirix fails to remove the path node
    */
   private void removePathSummaryNode(final RemoveSubtreePath remove) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     pathSummaryReader.clearCache();
 
     // Remove all descendant nodes.
@@ -1190,6 +1265,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void deleteOrDecrement() {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (nodeRtx.getNode() instanceof ImmutableNameNode) {
       movePathSummary();
       if (pathSummaryReader.getReferences() == 1) {
@@ -1208,6 +1284,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything went wrong
    */
   public void remove(final ImmutableNameNode node) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     if (pathSummaryReader.moveTo(node.getPathNodeKey())) {
       if (pathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
@@ -1218,6 +1295,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void decrementAndPersist(final long nodeKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.decrementReferenceCount();
     persistPathSummaryRecord(pathNode);
@@ -1308,6 +1386,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     flushPendingStats();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
@@ -1415,6 +1494,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pendingStats == null || pendingStats.isEmpty()) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final var it = pendingStats.long2ObjectEntrySet().fastIterator();
     while (it.hasNext()) {
       final var entry = it.next();
@@ -1485,6 +1565,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     flushPendingStats();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
@@ -1499,6 +1580,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     flushPendingStats();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
@@ -1513,6 +1595,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     flushPendingStats();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
@@ -1527,6 +1610,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     flushPendingStats();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
@@ -1579,6 +1663,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void markStaleRecursively(final long pathNodeKey) {
+    final PathSummaryReader pathSummaryReader = getPathSummary();
     final PathNode pathNode = pathNodeForStatUpdate(pathNodeKey);
     if (pathNode == null) {
       return;
@@ -1607,6 +1692,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
   @Override
   protected PathSummaryReader delegate() {
-    return pathSummaryReader;
+    return getPathSummary();
   }
 }
