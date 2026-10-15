@@ -242,35 +242,9 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
             return null;
           }
         } else {
-          final boolean locked = historyLock.tryLock();
-          try (StorageEngineReader latest = derived.createStorageEngineReader()) {
-            final List<DerivedRevisionMapping> window =
-                DerivedRevisionMapping.readWindow(latest, sourceReader.getRevisionNumber());
-            for (final DerivedRevisionMapping adjacent : window) {
-              if (adjacent.sourceRevision() == sourceReader.getRevisionNumber()) {
-                mapping = adjacent;
-                break;
-              }
-            }
-            if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
-              return null;
-            }
-            if (locked && initialized && !truncatePending) {
-              try (StorageEngineReader current = source.createStorageEngineReader()) {
-                for (final DerivedRevisionMapping adjacent : window) {
-                  if (adjacent.sourceRevision() <= maintained && adjacent.matchesIdentity(current)) {
-                    mappings.putIfAbsent(adjacent.sourceRevision(), adjacent);
-                  }
-                }
-              }
-              while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
-                mappings.pollFirstEntry();
-              }
-            }
-          } finally {
-            if (locked) {
-              historyLock.unlock();
-            }
+          mapping = loadMapping(sourceReader);
+          if (mapping == null) {
+            return null;
           }
         }
         return derived.createStorageEngineReader(mapping.indexRevision());
@@ -278,6 +252,45 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         LOGGER.warn("Derived revision unavailable for {} at {}", source.getResourcePath(),
             sourceReader.getRevisionNumber(), unavailable);
         return null;
+      }
+    }
+
+    private @Nullable DerivedRevisionMapping loadMapping(final StorageEngineReader sourceReader) {
+      DerivedRevisionMapping mapping = null;
+      final boolean locked = historyLock.tryLock();
+      try (StorageEngineReader latest = derived.createStorageEngineReader()) {
+        final List<DerivedRevisionMapping> window =
+            DerivedRevisionMapping.readWindow(latest, sourceReader.getRevisionNumber());
+        for (final DerivedRevisionMapping adjacent : window) {
+          if (adjacent.sourceRevision() == sourceReader.getRevisionNumber()) {
+            mapping = adjacent;
+            break;
+          }
+        }
+        if (mapping == null || mapping.projection() < 0 || !mapping.matches(sourceReader)) {
+          return null;
+        }
+        cacheMappingWindow(window, locked);
+        return mapping;
+      } finally {
+        if (locked) {
+          historyLock.unlock();
+        }
+      }
+    }
+
+    private void cacheMappingWindow(final List<DerivedRevisionMapping> window, final boolean locked) {
+      if (locked && initialized && !truncatePending) {
+        try (StorageEngineReader current = source.createStorageEngineReader()) {
+          for (final DerivedRevisionMapping adjacent : window) {
+            if (adjacent.sourceRevision() <= maintained && adjacent.matchesIdentity(current)) {
+              mappings.putIfAbsent(adjacent.sourceRevision(), adjacent);
+            }
+          }
+        }
+        while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
+          mappings.pollFirstEntry();
+        }
       }
     }
 
@@ -302,125 +315,149 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       return advance(true);
     }
 
-    @SuppressWarnings("NonAtomicVolatileUpdate") // All frontier writers hold historyLock.
     private boolean advance(final boolean manual) {
       historyLock.lock();
       try {
         if (closed || (paused && !manual) || stopped || poisonedRevision >= 0) {
           return false;
         }
-        if (!initialized) {
-          final int latest = source.getMostRecentRevisionNumber();
-          try (StorageEngineReader reader = derived.createStorageEngineReader()) {
-            int candidate = Math.min(DerivedRevisionMapping.frontier(reader), latest);
-            while (candidate > 0) {
-              final DerivedRevisionMapping mapping = DerivedRevisionMapping.read(reader, candidate);
-              if (mapping != null) {
-                try (StorageEngineReader sourceReader = source.createStorageEngineReader(candidate)) {
-                  if (mapping.matches(sourceReader)) {
-                    mappings.put(candidate, mapping);
-                    maintained = candidate;
-                    break;
-                  }
-                }
-              }
-              candidate--;
-            }
-          }
-          writerSourceRevision = -1;
-          truncatePending = true;
-          initialized = true;
-        }
-        if (truncatePending) {
-          DerivedRevisionMapping frontier = mapping(maintained);
-          while (maintained > 0 && frontier == null) {
-            frontier = mapping(--maintained);
-          }
-          mappings.tailMap(maintained, false).clear();
-          final int indexRevision = frontier == null
-              ? 0
-              : frontier.indexRevision();
-          if (derived.getMostRecentRevisionNumber() > indexRevision) {
-            if (writer == null) {
-              writer = derived.beginNodeTrx();
-            }
-            writer.truncateTo(indexRevision);
-            writer.close();
-            writer = null;
-          }
-          pendingFolds.clear();
-          foldRequired = false;
-          writerSourceRevision = maintained;
-          truncatePending = false;
-        }
-        if (maintained >= source.getMostRecentRevisionNumber()) {
-          return fold();
-        }
-        // Preserve the existing bounded point representation even under continuous publications.
-        // A fold is its own commit, never part of a catch-up transaction.
-        if (!pendingFolds.isEmpty() && (foldRequired || maintained - lastFoldRevision >= 64)) {
-          fold();
-        }
-        if (writer == null) {
-          writer = derived.beginNodeTrx();
-        }
-        final int first = maintained + 1;
-        final int latest = source.getMostRecentRevisionNumber();
-        int entries = 0;
-        int revision = first;
-        int projection = -1;
-        for (int count = 0; count < 8 && entries < 100_000 && !stopped && (!paused || manual)
-            && revision <= latest; count++, revision++) {
-          final AppliedRevision applied = applyRevision(revision);
-          entries += applied.entries();
-          projection = applied.projection();
-          if (applied.catalogueChanged()) {
-            revision++;
-            break;
-          }
-        }
-        if (revision == first) {
-          return false;
-        }
-        final int last = revision - 1;
-        final JsonNodeTrx transaction = Objects.requireNonNull(writer);
-        try (JsonNodeReadOnlyTrx reader = source.beginNodeReadOnlyTrx(last)) {
-          final DerivedRevisionMapping mapping =
-              DerivedRevisionMapping.of(reader.getStorageEngineReader(), transaction.getRevisionNumber(), projection);
-          mapping.write(transaction.getStorageEngineWriter());
-          recordDocumentPages(transaction.getStorageEngineWriter());
-          transaction.commit(first == last
-              ? "src=" + last
-              : "src=" + first + ".." + last, reader.getRevisionTimestamp());
-          mappings.put(last, mapping);
-          while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
-            mappings.pollFirstEntry();
-          }
-          maintained = last;
-        }
-        // Reserve room for an interior-base replay and another batch after a crash. This is
-        // a separate durable transaction, after the catch-up commit has completed.
-        if (foldRequired) {
-          fold();
-        }
-        return true;
+        return maintain(manual);
       } catch (final RuntimeException | Error exception) {
-        poisonedRevision = processingRevision;
-        failure = exception;
-        if (writer != null) {
-          try {
-            writer.rollback();
-            writer.close();
-          } catch (final RuntimeException cleanup) {
-            exception.addSuppressed(cleanup);
-          }
-          writer = null;
-        }
-        LOGGER.error("Derived maintenance poisoned for {} at source revision {}", source.getResourcePath(),
-            poisonedRevision, exception);
+        poison(exception);
         return false;
       } finally {
         historyLock.unlock();
+      }
+    }
+
+    private boolean maintain(final boolean manual) {
+      if (!initialized) {
+        initializeFrontier();
+      }
+      if (truncatePending) {
+        rewindToFrontier();
+      }
+      if (maintained >= source.getMostRecentRevisionNumber()) {
+        return fold();
+      }
+      // Preserve the existing bounded point representation even under continuous publications.
+      // A fold is its own commit, never part of a catch-up transaction.
+      if (!pendingFolds.isEmpty() && (foldRequired || maintained - lastFoldRevision >= 64)) {
+        fold();
+      }
+      if (writer == null) {
+        writer = derived.beginNodeTrx();
+      }
+      return applyBatch(manual);
+    }
+
+    private void poison(final Throwable exception) {
+      poisonedRevision = processingRevision;
+      failure = exception;
+      if (writer != null) {
+        try {
+          writer.rollback();
+          writer.close();
+        } catch (final RuntimeException cleanup) {
+          exception.addSuppressed(cleanup);
+        }
+        writer = null;
+      }
+      LOGGER.error("Derived maintenance poisoned for {} at source revision {}", source.getResourcePath(),
+          poisonedRevision, exception);
+    }
+
+    private void initializeFrontier() {
+      final int latest = source.getMostRecentRevisionNumber();
+      try (StorageEngineReader reader = derived.createStorageEngineReader()) {
+        int candidate = Math.min(DerivedRevisionMapping.frontier(reader), latest);
+        while (candidate > 0) {
+          final DerivedRevisionMapping mapping = DerivedRevisionMapping.read(reader, candidate);
+          if (mapping != null) {
+            try (StorageEngineReader sourceReader = source.createStorageEngineReader(candidate)) {
+              if (mapping.matches(sourceReader)) {
+                mappings.put(candidate, mapping);
+                maintained = candidate;
+                break;
+              }
+            }
+          }
+          candidate--;
+        }
+      }
+      writerSourceRevision = -1;
+      truncatePending = true;
+      initialized = true;
+    }
+
+    @SuppressWarnings("NonAtomicVolatileUpdate") // All frontier writers hold historyLock.
+    private void rewindToFrontier() {
+      DerivedRevisionMapping frontier = mapping(maintained);
+      while (maintained > 0 && frontier == null) {
+        frontier = mapping(--maintained);
+      }
+      mappings.tailMap(maintained, false).clear();
+      final int indexRevision = frontier == null
+          ? 0
+          : frontier.indexRevision();
+      if (derived.getMostRecentRevisionNumber() > indexRevision) {
+        if (writer == null) {
+          writer = derived.beginNodeTrx();
+        }
+        writer.truncateTo(indexRevision);
+        writer.close();
+        writer = null;
+      }
+      pendingFolds.clear();
+      foldRequired = false;
+      writerSourceRevision = maintained;
+      truncatePending = false;
+    }
+
+    private boolean applyBatch(final boolean manual) {
+      final int first = maintained + 1;
+      final int latest = source.getMostRecentRevisionNumber();
+      int entries = 0;
+      int revision = first;
+      int projection = -1;
+      for (int count = 0; count < 8 && entries < 100_000 && !stopped && (!paused || manual)
+          && revision <= latest; count++, revision++) {
+        final AppliedRevision applied = applyRevision(revision);
+        entries += applied.entries();
+        projection = applied.projection();
+        if (applied.catalogueChanged()) {
+          revision++;
+          break;
+        }
+      }
+      if (revision == first) {
+        return false;
+      }
+      final int last = revision - 1;
+      publishBatch(first, last, projection);
+      // Reserve room for an interior-base replay and another batch after a crash. This is
+      // a separate durable transaction, after the catch-up commit has completed.
+      if (foldRequired) {
+        fold();
+      }
+      return true;
+    }
+
+    private void publishBatch(final int first, final int last, final int projection) {
+      final JsonNodeTrx transaction = Objects.requireNonNull(writer);
+      try (JsonNodeReadOnlyTrx reader = source.beginNodeReadOnlyTrx(last)) {
+        final DerivedRevisionMapping mapping =
+            DerivedRevisionMapping.of(reader.getStorageEngineReader(), transaction.getRevisionNumber(), projection);
+        mapping.write(transaction.getStorageEngineWriter());
+        recordDocumentPages(transaction.getStorageEngineWriter());
+        transaction.commit(first == last
+            ? "src=" + last
+            : "src=" + first + ".." + last, reader.getRevisionTimestamp());
+        mappings.put(last, mapping);
+        while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
+          mappings.pollFirstEntry();
+        }
+        maintained = last;
       }
     }
 
@@ -474,65 +511,76 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
           }
         }
         if (writerSourceRevision != base) {
-          pendingFolds.clear();
-          foldRequired = false;
-          lastFoldRevision = base;
-          int mappedBase = base;
-          DerivedRevisionMapping mapping = mapping(mappedBase);
-          while (mappedBase > 0 && mapping == null) {
-            mapping = mapping(--mappedBase);
-          }
-          transaction.revertTo(mapping == null
-              ? 0
-              : mapping.indexRevision());
-          writerSourceRevision = mappedBase;
-          // Interior revisions of a batch have no standalone snapshot. Replay their durable
-          // slabs only on this rare revert path; query-time tail catch-up is separate work.
-          for (int replay = mappedBase + 1; replay <= base; replay++) {
-            applyRevision(replay);
-          }
-          // Reverting a snapshot also reverts its mapping tree. Preserve published branches.
-          try (StorageEngineReader latest = derived.createStorageEngineReader()) {
-            for (final DerivedRevisionMapping existing : DerivedRevisionMapping.readAll(latest)) {
-              existing.write(transaction.getStorageEngineWriter());
-            }
-          }
+          restoreBase(transaction, base);
         }
         processingRevision = revision;
-        final StorageEngineWriter destination = transaction.getStorageEngineWriter();
-        final Indexes target = derived.getWtxIndexController(transaction.getRevisionNumber()).getIndexes();
-        boolean catalogueChanged = false;
-        for (final IndexDef previous : target.getIndexDefs()) {
-          if (definitions.stream().noneMatch(previous::hasSameDefinition)) {
-            target.removeIndex(previous);
-            pendingFolds.remove(previous.getID());
-            if (pendingFolds.isEmpty()) {
-              foldRequired = false;
-            }
-            catalogueChanged = true;
-          }
-        }
-        for (final IndexDef definition : definitions) {
-          final IndexDef projection = Objects.requireNonNull(
-              sourceIndexes.getIndexDef(definition.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION));
-          final IndexDef previous = target.getIndexDef(definition.getID(), IndexType.TEMPORAL_AGGREGATE);
-          if (previous == null) {
-            catalogueChanged = true;
-            AGGREGATE.build(destination, reader, definition, sourceIndexes);
-            target.add(IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(),
-                definition.getTemporalAggregateSpec(), definition.getID()));
-          } else {
-            AGGREGATE.applySlab(destination, definition, sourceIndexes, source.getResourceConfig(),
-                slabs.get(projection.getID()), (key, partCount) -> {
-                  pendingFolds.computeIfAbsent(definition.getID(), ignored -> new TreeSet<>(Arrays::compareUnsigned))
-                              .add(key);
-                  foldRequired |= partCount > TemporalAggregateParts.MAX_PARTS - 24;
-                });
-          }
-        }
+        final boolean catalogueChanged = mirrorDeclarations(transaction, reader, sourceIndexes, definitions, slabs);
         writerSourceRevision = revision;
         return new AppliedRevision(entries, identityProjection, catalogueChanged);
       }
+    }
+
+    private void restoreBase(final JsonNodeTrx transaction, final int base) {
+      pendingFolds.clear();
+      foldRequired = false;
+      lastFoldRevision = base;
+      int mappedBase = base;
+      DerivedRevisionMapping mapping = mapping(mappedBase);
+      while (mappedBase > 0 && mapping == null) {
+        mapping = mapping(--mappedBase);
+      }
+      transaction.revertTo(mapping == null
+          ? 0
+          : mapping.indexRevision());
+      writerSourceRevision = mappedBase;
+      // Interior revisions of a batch have no standalone snapshot. Replay their durable
+      // slabs only on this rare revert path; query-time tail catch-up is separate work.
+      for (int replay = mappedBase + 1; replay <= base; replay++) {
+        applyRevision(replay);
+      }
+      // Reverting a snapshot also reverts its mapping tree. Preserve published branches.
+      try (StorageEngineReader latest = derived.createStorageEngineReader()) {
+        for (final DerivedRevisionMapping existing : DerivedRevisionMapping.readAll(latest)) {
+          existing.write(transaction.getStorageEngineWriter());
+        }
+      }
+    }
+
+    private boolean mirrorDeclarations(final JsonNodeTrx transaction, final JsonNodeReadOnlyTrx reader,
+        final Indexes sourceIndexes, final List<IndexDef> definitions,
+        final Int2ObjectOpenHashMap<ChangeLogSlab> slabs) {
+      final StorageEngineWriter destination = transaction.getStorageEngineWriter();
+      final Indexes target = derived.getWtxIndexController(transaction.getRevisionNumber()).getIndexes();
+      boolean catalogueChanged = false;
+      for (final IndexDef previous : target.getIndexDefs()) {
+        if (definitions.stream().noneMatch(previous::hasSameDefinition)) {
+          target.removeIndex(previous);
+          pendingFolds.remove(previous.getID());
+          if (pendingFolds.isEmpty()) {
+            foldRequired = false;
+          }
+          catalogueChanged = true;
+        }
+      }
+      for (final IndexDef definition : definitions) {
+        final IndexDef projection = Objects.requireNonNull(
+            sourceIndexes.getIndexDef(definition.getTemporalAggregateSpec().projectionId(), IndexType.PROJECTION));
+        final IndexDef previous = target.getIndexDef(definition.getID(), IndexType.TEMPORAL_AGGREGATE);
+        if (previous == null) {
+          catalogueChanged = true;
+          AGGREGATE.build(destination, reader, definition, sourceIndexes);
+          target.add(IndexDefs.createTemporalAggregateIdxDef(projection.getProjectionRootPath(),
+              definition.getTemporalAggregateSpec(), definition.getID()));
+        } else {
+          AGGREGATE.applySlab(destination, definition, sourceIndexes, source.getResourceConfig(),
+              slabs.get(projection.getID()), (key, partCount) -> {
+                pendingFolds.computeIfAbsent(definition.getID(), ignored -> new TreeSet<>(Arrays::compareUnsigned))
+                            .add(key);
+                foldRequired |= partCount > TemporalAggregateParts.MAX_PARTS - 24;
+              });
+        }
+      }
+      return catalogueChanged;
     }
 
     @SuppressWarnings("NonAtomicVolatileUpdate") // Called only by maintenance holding historyLock.
