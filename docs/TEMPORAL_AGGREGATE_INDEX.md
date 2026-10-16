@@ -81,7 +81,7 @@ population. The index never enumerates the matching records during a point query
 
 The projection listener coalesces dirty identities and column masks through page flushes. It captures
 old cells from the decoded leaves or column slices before replacement, and new cells from the
-extractor already maintaining the projection. A format-2 `CHANGE_LOG` slab persists the first old
+extractor already maintaining the projection. A format-3 `CHANGE_LOG` slab persists the first old
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same

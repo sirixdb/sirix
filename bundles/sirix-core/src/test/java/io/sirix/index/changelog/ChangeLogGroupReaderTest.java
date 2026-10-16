@@ -106,15 +106,16 @@ final class ChangeLogGroupReaderTest {
   @Test
   void externalDirectoryCannotExceedTheColdGroupChunkBound() {
     final List<Entry> entries = new ArrayList<>();
-    for (int record = 0; record < 300; record++) {
+    for (int record = 0; record < 2000; record++) {
       entries.add(new Entry(record, new long[] {3}, null, row(record, "value")));
     }
     withSlab(new ChangeLogSlab(0, 1, 0, KINDS, entries, GROUPINGS), source -> {
       final long before = ChangeLogStorage.chunksRead();
-      assertThrows(ChangeLogGroupReader.LimitExceeded.class,
-          () -> new ChangeLogGroupReader(source, 0, 1, new ChangeLogGroupReader.Budget()));
-      assertEquals(1, ChangeLogStorage.chunksRead() - before,
-          "Decline from section offsets before reading an oversized external directory");
+      try (var reader = new ChangeLogGroupReader(source, 0, 1, new ChangeLogGroupReader.Budget())) {
+        assertThrows(ChangeLogGroupReader.LimitExceeded.class, () -> reader.groups(7));
+      }
+      assertEquals(0, ChangeLogStorage.chunksRead() - before,
+          "Inline section offsets reject an oversized selected directory before reading it");
     });
   }
 
@@ -131,6 +132,38 @@ final class ChangeLogGroupReaderTest {
           }
           assertEquals(2, ChangeLogStorage.chunksRead() - before);
         });
+  }
+
+  @Test
+  void readsOnlyTheRequestedGroupingBesideAnOversizedUnrelatedDirectory() {
+    final byte[] kinds = {ChangeLogSlab.LONG, ChangeLogSlab.LONG};
+    final List<Entry> entries = new ArrayList<>();
+    for (int record = 0; record < 2000; record++) {
+      final Row row = new Row(true, 2);
+      row.flags[0] = ChangeLogSlab.PRESENT;
+      row.flags[1] = ChangeLogSlab.PRESENT;
+      row.numbers[0] = record == 1999
+          ? 1
+          : 0;
+      row.numbers[1] = record;
+      entries.add(new Entry(record, new long[] {3}, null, row));
+    }
+    final List<Grouping> groupings = List.of(new Grouping(7, List.of(0)), new Grouping(8, List.of(1)));
+    final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, kinds, entries, groupings);
+    withSlab(slab, source -> {
+      assertArrayEquals(slab.encode(), ChangeLogStorage.read(source, 0, 1).encode());
+      final long before = ChangeLogStorage.chunksRead();
+      try (var reader = new ChangeLogGroupReader(source, 0, 1, new ChangeLogGroupReader.Budget())) {
+        final List<Entry> selected = new ArrayList<>();
+        reader.visit(Objects.requireNonNull(reader.groups(7)), key(1), selected::add);
+        assertEquals(List.of(1999L), selected.stream().map(Entry::record).toList());
+        assertTrue(ChangeLogStorage.chunksRead() - before <= 2,
+            "Selected grouping metadata and payload retain the original cold bound");
+        final long read = ChangeLogStorage.chunksRead();
+        assertThrows(ChangeLogGroupReader.LimitExceeded.class, () -> reader.groups(8));
+        assertEquals(read, ChangeLogStorage.chunksRead(), "Do not fetch the oversized unrelated directory");
+      }
+    });
   }
 
   @Test

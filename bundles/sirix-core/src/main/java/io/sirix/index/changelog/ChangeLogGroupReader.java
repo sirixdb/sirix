@@ -60,7 +60,11 @@ public final class ChangeLogGroupReader implements AutoCloseable {
   private final IntOpenHashSet metadataChunks = new IntOpenHashSet(GROUP_CHUNK_LIMIT);
   private final byte[] kinds;
   private final String[] dictionary;
-  private final ChangeLogDirectory directory;
+  private final int metadataLength;
+  private final int directoryOffset;
+  private final byte[] inlineDirectory;
+  private final Int2ObjectOpenHashMap<ChangeLogDirectory.Groups> groupings = new Int2ObjectOpenHashMap<>();
+  private @Nullable List<ChangeLogDirectory.Section> sections;
   private final int baseRevision;
 
   public ChangeLogGroupReader(final StorageEngineReader source, final int projection, final int revision,
@@ -85,18 +89,14 @@ public final class ChangeLogGroupReader implements AutoCloseable {
       if (length < 42 || header.getInt() != (length + 2047L) / 2048) {
         throw new IllegalStateException("Invalid change-log extent length");
       }
-      final Sections sections = readSections(header, extent);
-      final Schema schema = readSchema(sections.metadata(), sections.directory(), projection);
+      final Sections selected = readSections(header, extent);
+      metadataLength = selected.metadata().length;
+      directoryOffset = ByteBuffer.wrap(selected.metadata()).getInt(28);
+      inlineDirectory = selected.directory();
+      final Schema schema = readSchema(selected.metadata(), projection);
       baseRevision = schema.baseRevision();
       kinds = schema.kinds();
       dictionary = schema.dictionary();
-      try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(sections.directory()))) {
-        directory =
-            ChangeLogDirectory.read(in, kinds.length, sections.metadata().length, length - sections.directory().length);
-        if (in.available() != 0) {
-          throw new IllegalStateException("Trailing change-log directory");
-        }
-      }
     } catch (final IOException exception) {
       reader.close();
       throw new IllegalStateException("Malformed change-log metadata", exception);
@@ -134,19 +134,17 @@ public final class ChangeLogGroupReader implements AutoCloseable {
       if (metadataLength < 38 || directoryOffset < metadataLength || directoryOffset > length) {
         throw new IllegalStateException("Invalid log section offsets");
       }
-      if ((long) metadataLength + length - directoryOffset > METADATA_BYTE_LIMIT) {
+      if (metadataLength > METADATA_BYTE_LIMIT) {
         throw new LimitExceeded();
       }
       requireChunks(metadataChunks, 0, metadataLength);
-      requireChunks(metadataChunks, directoryOffset, length - directoryOffset);
       metadata = bytes(0, metadataLength);
-      directoryBytes = bytes(directoryOffset, length - directoryOffset);
+      directoryBytes = new byte[0];
     }
     return new Sections(metadata, directoryBytes);
   }
 
-  private Schema readSchema(final byte[] metadata, final byte[] directoryBytes, final int projection)
-      throws IOException {
+  private Schema readSchema(final byte[] metadata, final int projection) throws IOException {
     try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(metadata))) {
       if (in.readInt() != ChangeLogSlab.MAGIC || in.readInt() != ChangeLogSlab.FORMAT || in.readInt() != projection
           || in.readInt() != revision) {
@@ -154,7 +152,8 @@ public final class ChangeLogGroupReader implements AutoCloseable {
       }
       final int baseRevision = in.readInt();
       if (baseRevision < 0 || baseRevision >= revision || in.readInt() < 0 || in.readInt() != metadata.length
-          || in.readInt() != length - directoryBytes.length) {
+          || in.readInt() != directoryOffset || directoryOffset < metadataLength || directoryOffset > length - 4
+          || inlineDirectory.length > length - directoryOffset) {
         throw new IllegalStateException("Invalid log section identity");
       }
       final int columns = ChangeLogSlab.bounded(in.readUnsignedShort(), in.available());
@@ -188,7 +187,54 @@ public final class ChangeLogGroupReader implements AutoCloseable {
   }
 
   public ChangeLogDirectory.@Nullable Groups groups(final int index) {
-    return directory.groups(index);
+    final ChangeLogDirectory.Groups cached = groupings.get(index);
+    if (cached != null) {
+      return cached;
+    }
+    try {
+      if (sections == null) {
+        final int count = ByteBuffer.wrap(directoryBytes(0, 4)).getInt();
+        final int tableLength = 4 + 12 * ChangeLogSlab.bounded(count, (length - directoryOffset - 4) / 12);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(directoryBytes(0, tableLength)))) {
+          sections = ChangeLogDirectory.readSections(in, length - directoryOffset);
+        }
+      }
+      for (final ChangeLogDirectory.Section section : sections) {
+        if (section.index() == index) {
+          try (DataInputStream in =
+              new DataInputStream(new ByteArrayInputStream(directoryBytes(section.offset(), section.length())))) {
+            final ChangeLogDirectory.Groups groups =
+                ChangeLogDirectory.readGroups(in, index, kinds.length, metadataLength, directoryOffset);
+            groupings.put(index, groups);
+            return groups;
+          }
+        }
+      }
+      return null;
+    } catch (final IOException exception) {
+      throw new IllegalStateException("Malformed change-log grouping", exception);
+    }
+  }
+
+  private byte[] directoryBytes(final int offset, final int size) {
+    if (offset < 0 || size < 0 || size > length - directoryOffset - offset) {
+      throw new IllegalStateException("Invalid change-log directory range");
+    }
+    if (offset + size <= inlineDirectory.length) {
+      final byte[] result = new byte[size];
+      System.arraycopy(inlineDirectory, offset, result, 0, size);
+      return result;
+    }
+    // Preflight the whole external span before allocation or reads. Inline prefixes are free
+    // of payload-chunk I/O, but a partially inlined group still charges its external suffix.
+    final int external = Math.max(offset, inlineDirectory.length);
+    requireChunks(metadataChunks, directoryOffset + external, offset + size - external);
+    final byte[] result = new byte[size];
+    final int prefix = external - offset;
+    System.arraycopy(inlineDirectory, Math.min(offset, inlineDirectory.length), result, 0, prefix);
+    final byte[] suffix = bytes(directoryOffset + external, size - prefix);
+    System.arraycopy(suffix, 0, result, prefix, suffix.length);
+    return result;
   }
 
   public void visit(final ChangeLogDirectory.Groups groups, final byte[] key,
@@ -209,8 +255,10 @@ public final class ChangeLogGroupReader implements AutoCloseable {
     budget.entries(entries, kinds.length);
     for (final ChangeLogDirectory.Range range : ranges) {
       try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes(range.offset(), range.length())))) {
+        long previous = 0;
         for (int at = 0; at < range.count(); at++) {
-          final long record = ChangeLogSlab.readUnsigned(in);
+          final long record = ChangeLogSlab.readRecord(in, previous, at == 0);
+          previous = record;
           if (at == 0 && record != range.firstRecord()) {
             throw new IllegalStateException("Invalid change-log range start");
           }

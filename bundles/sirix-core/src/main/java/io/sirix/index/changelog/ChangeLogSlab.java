@@ -17,10 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Format-2 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
+/** Format-3 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
 public final class ChangeLogSlab {
   public static final int MAGIC = 0x53434c47;
-  public static final int FORMAT = 2;
+  public static final int FORMAT = 3;
   public static final byte LONG = 1;
   public static final byte STRING = 2;
   public static final byte BOOLEAN = 3;
@@ -189,16 +189,23 @@ public final class ChangeLogSlab {
       }
       final int metadataLength = bytes.size();
       final ChangeLogDirectory directory = new ChangeLogDirectory(groupings);
+      AddressedEntry previous = null;
       for (final AddressedEntry addressed : orderedEntries()) {
         final Entry entry = addressed.entry();
         final int start = bytes.size();
-        unsigned(out, entry.record);
+        if (previous == null || entry.record <= previous.entry().record || startsRange(previous, addressed)) {
+          unsigned(out, 0);
+          unsigned(out, entry.record);
+        } else {
+          unsigned(out, entry.record - previous.entry().record);
+        }
         for (final long word : entry.changed) {
           out.writeLong(word);
         }
         writeRow(out, entry.before, dictionary);
         writeRow(out, entry.after, dictionary);
         directory.add(addressed, start, bytes.size() - start);
+        previous = addressed;
       }
       final int directoryOffset = bytes.size();
       directory.write(out);
@@ -211,6 +218,31 @@ public final class ChangeLogSlab {
   }
 
   record AddressedEntry(Entry entry, byte[][] before, byte[][] after) {
+  }
+
+  private static boolean startsRange(final AddressedEntry previous, final AddressedEntry current) {
+    for (int index = 0; index < current.before().length; index++) {
+      if (!Arrays.equals(previous.before()[index], current.before()[index])
+          || !Arrays.equals(previous.after()[index], current.after()[index])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static long readRecord(final DataInputStream in, final long previous, final boolean restart) throws IOException {
+    final long delta = readUnsigned(in);
+    if (delta == 0) {
+      final long record = readUnsigned(in);
+      if (record < 0) {
+        throw new IllegalStateException("Invalid change-log record restart");
+      }
+      return record;
+    }
+    if (restart || delta < 0 || delta > Long.MAX_VALUE - previous) {
+      throw new IllegalStateException("Invalid change-log record delta");
+    }
+    return previous + delta;
   }
 
   private AddressedEntry[] orderedEntries() {
@@ -356,8 +388,10 @@ public final class ChangeLogSlab {
         throw new IllegalStateException("Invalid change-log metadata offsets");
       }
       final List<Entry> entries = new ArrayList<>(count);
+      long previous = 0;
       for (int i = 0; i < count; i++) {
-        final long record = readUnsigned(in);
+        final long record = readRecord(in, previous, i == 0);
+        previous = record;
         final long[] changed = new long[(columns + 63) / 64];
         for (int word = 0; word < changed.length; word++) {
           changed[word] = in.readLong();

@@ -2,6 +2,8 @@ package io.sirix.index.changelog;
 
 import org.jspecify.annotations.Nullable;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -115,82 +117,138 @@ public final class ChangeLogDirectory {
     }
   }
 
+  record Section(int index, int offset, int length) {
+  }
+
   void write(final DataOutputStream out) throws IOException {
-    out.writeInt(indexes.size());
+    final List<byte[]> encoded = new ArrayList<>(indexes.size());
     for (final Groups groups : indexes) {
-      out.writeInt(groups.grouping.index());
-      out.writeShort(groups.grouping.columns().size());
-      for (final int column : groups.grouping.columns()) {
-        out.writeShort(column);
+      final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+      writeGroups(new DataOutputStream(bytes), groups);
+      encoded.add(bytes.toByteArray());
+    }
+    out.writeInt(indexes.size());
+    int offset = Math.addExact(4, Math.multiplyExact(12, indexes.size()));
+    for (int index = 0; index < indexes.size(); index++) {
+      final byte[] bytes = encoded.get(index);
+      out.writeInt(indexes.get(index).grouping.index());
+      out.writeInt(offset);
+      out.writeInt(bytes.length);
+      offset = Math.addExact(offset, bytes.length);
+    }
+    for (final byte[] bytes : encoded) {
+      out.write(bytes);
+    }
+  }
+
+  private static void writeGroups(final DataOutputStream out, final Groups groups) throws IOException {
+    out.writeShort(groups.grouping.columns().size());
+    for (final int column : groups.grouping.columns()) {
+      out.writeShort(column);
+    }
+    out.writeBoolean(groups.supported);
+    out.writeInt(groups.groups.size());
+    byte[] previousKey = new byte[0];
+    for (final Map.Entry<byte[], List<Range>> group : groups.groups.entrySet()) {
+      final byte[] key = group.getKey();
+      int prefix = Arrays.mismatch(previousKey, key);
+      if (prefix < 0) {
+        prefix = key.length;
       }
-      out.writeBoolean(groups.supported);
-      out.writeInt(groups.groups.size());
-      for (final Map.Entry<byte[], List<Range>> group : groups.groups.entrySet()) {
-        out.writeShort(group.getKey().length);
-        out.write(group.getKey());
-        ChangeLogSlab.unsigned(out, group.getValue().size());
-        int previous = 0;
-        for (final Range range : group.getValue()) {
-          ChangeLogSlab.unsigned(out, range.offset() - previous);
-          ChangeLogSlab.unsigned(out, range.length());
-          ChangeLogSlab.unsigned(out, range.count());
-          ChangeLogSlab.unsigned(out, range.firstRecord());
-          previous = range.offset() + range.length();
-        }
+      ChangeLogSlab.unsigned(out, prefix);
+      ChangeLogSlab.unsigned(out, key.length - prefix);
+      out.write(key, prefix, key.length - prefix);
+      previousKey = key;
+      ChangeLogSlab.unsigned(out, group.getValue().size());
+      int previous = 0;
+      for (final Range range : group.getValue()) {
+        ChangeLogSlab.unsigned(out, range.offset() - previous);
+        ChangeLogSlab.unsigned(out, range.length());
+        ChangeLogSlab.unsigned(out, range.count());
+        ChangeLogSlab.unsigned(out, range.firstRecord());
+        previous = range.offset() + range.length();
       }
     }
   }
 
+  static List<Section> readSections(final DataInputStream in, final int length) throws IOException {
+    final int count = ChangeLogSlab.bounded(in.readInt(), in.available() / 12);
+    final List<Section> sections = new ArrayList<>(count);
+    int previousIndex = -1;
+    int expectedOffset = 4 + 12 * count;
+    for (int index = 0; index < count; index++) {
+      final int id = in.readInt();
+      final int offset = in.readInt();
+      final int size = ChangeLogSlab.bounded(in.readInt(), length - expectedOffset);
+      if (id <= previousIndex || offset != expectedOffset || size < 9) {
+        throw new IllegalStateException("Invalid change-log grouping section");
+      }
+      sections.add(new Section(id, offset, size));
+      expectedOffset += size;
+      previousIndex = id;
+    }
+    if (expectedOffset != length) {
+      throw new IllegalStateException("Invalid change-log directory length");
+    }
+    return sections;
+  }
+
   static ChangeLogDirectory read(final DataInputStream in, final int columns, final int firstEntry,
       final int directoryOffset) throws IOException {
-    final int size = ChangeLogSlab.bounded(in.readInt(), in.available() / 11);
+    final List<Section> sections = readSections(in, in.available());
     final ChangeLogDirectory result = new ChangeLogDirectory(List.of());
-    int previousIndex = -1;
-    for (int index = 0; index < size; index++) {
-      final int id = in.readInt();
-      if (id <= previousIndex) {
-        throw new IllegalStateException("Unordered change-log groupings");
+    for (final Section section : sections) {
+      try (DataInputStream group = new DataInputStream(new ByteArrayInputStream(in.readNBytes(section.length())))) {
+        result.indexes.add(readGroups(group, section.index(), columns, firstEntry, directoryOffset));
       }
-      previousIndex = id;
-      final int count = ChangeLogSlab.bounded(in.readUnsignedShort(), columns);
-      final List<Integer> selected = new ArrayList<>(count);
-      for (int column = 0; column < count; column++) {
-        selected.add(ChangeLogSlab.bounded(in.readUnsignedShort(), columns - 1));
-      }
-      final Groups groups = new Groups(new Grouping(id, selected));
-      groups.supported = in.readBoolean();
-      final int keys = ChangeLogSlab.bounded(in.readInt(), in.available() / 3);
-      byte[] previousKey = null;
-      for (int key = 0; key < keys; key++) {
-        final int length = ChangeLogSlab.bounded(in.readUnsignedShort(), Math.min(2048, in.available()));
-        final byte[] bytes = in.readNBytes(length);
-        if (!groups.supported || length < 1 || bytes[0] != 1
-            || (previousKey != null && Arrays.compareUnsigned(previousKey, bytes) >= 0)) {
-          throw new IllegalStateException("Invalid change-log group directory order");
-        }
-        previousKey = bytes;
-        final int ranges = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), in.available() / 4);
-        if (ranges == 0) {
-          throw new IllegalStateException("Empty change-log group ranges");
-        }
-        final List<Range> values = new ArrayList<>(ranges);
-        int previous = 0;
-        for (int range = 0; range < ranges; range++) {
-          final int start =
-              Math.addExact(previous, ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), directoryOffset));
-          final int bytesInRange = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), directoryOffset - start);
-          final int entries = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), bytesInRange);
-          final long firstRecord = ChangeLogSlab.readUnsigned(in);
-          if (start < firstEntry) {
-            throw new IllegalStateException("Change-log range overlaps metadata");
-          }
-          values.add(new Range(start, bytesInRange, entries, firstRecord));
-          previous = start + bytesInRange;
-        }
-        groups.groups.put(bytes, List.copyOf(values));
-      }
-      result.indexes.add(groups);
     }
     return result;
+  }
+
+  static Groups readGroups(final DataInputStream in, final int index, final int columns, final int firstEntry,
+      final int directoryOffset) throws IOException {
+    final int count = ChangeLogSlab.bounded(in.readUnsignedShort(), columns);
+    final List<Integer> selected = new ArrayList<>(count);
+    for (int column = 0; column < count; column++) {
+      selected.add(ChangeLogSlab.bounded(in.readUnsignedShort(), columns - 1));
+    }
+    final Groups groups = new Groups(new Grouping(index, selected));
+    groups.supported = in.readBoolean();
+    final int keys = ChangeLogSlab.bounded(in.readInt(), in.available() / 3);
+    byte[] previousKey = new byte[0];
+    for (int key = 0; key < keys; key++) {
+      final int prefix = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), previousKey.length);
+      final int suffix = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), Math.min(2048 - prefix, in.available()));
+      final byte[] bytes = Arrays.copyOf(previousKey, prefix + suffix);
+      in.readFully(bytes, prefix, suffix);
+      if (!groups.supported || bytes.length < 1 || bytes[0] != 1
+          || (key != 0 && Arrays.compareUnsigned(previousKey, bytes) >= 0)) {
+        throw new IllegalStateException("Invalid change-log group directory order");
+      }
+      previousKey = bytes;
+      final int ranges = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), in.available() / 4);
+      if (ranges == 0) {
+        throw new IllegalStateException("Empty change-log group ranges");
+      }
+      final List<Range> values = new ArrayList<>(ranges);
+      int previous = 0;
+      for (int range = 0; range < ranges; range++) {
+        final int start =
+            Math.addExact(previous, ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), directoryOffset));
+        final int bytesInRange = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), directoryOffset - start);
+        final int entries = ChangeLogSlab.bounded(ChangeLogSlab.readUnsigned(in), bytesInRange);
+        final long firstRecord = ChangeLogSlab.readUnsigned(in);
+        if (start < firstEntry) {
+          throw new IllegalStateException("Change-log range overlaps metadata");
+        }
+        values.add(new Range(start, bytesInRange, entries, firstRecord));
+        previous = start + bytesInRange;
+      }
+      groups.groups.put(bytes, List.copyOf(values));
+    }
+    if (in.available() != 0) {
+      throw new IllegalStateException("Trailing change-log grouping bytes");
+    }
+    return groups;
   }
 }

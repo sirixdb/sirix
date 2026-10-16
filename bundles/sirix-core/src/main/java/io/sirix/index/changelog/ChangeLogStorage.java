@@ -127,9 +127,12 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     final int metadataLength = encoded.getInt(24);
     final int directoryOffset = encoded.getInt(28);
     final int directoryLength = bytes.length - directoryOffset;
-    final boolean inline = metadataLength + directoryLength <= CHUNK_BYTES - 28;
+    final boolean inline = metadataLength <= CHUNK_BYTES - 32;
+    final int inlineDirectory = inline
+        ? Math.min(directoryLength, CHUNK_BYTES - 28 - metadataLength)
+        : 0;
     final ByteBuffer extent = ByteBuffer.allocate(inline
-        ? 28 + metadataLength + directoryLength
+        ? 28 + metadataLength + inlineDirectory
         : 28)
                                         .putInt(bytes.length)
                                         .putInt(chunks)
@@ -139,7 +142,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
                                             ? metadataLength
                                             : 0);
     if (inline) {
-      extent.put(bytes, 0, metadataLength).put(bytes, directoryOffset, directoryLength);
+      extent.put(bytes, 0, metadataLength).put(bytes, directoryOffset, inlineDirectory);
     }
     put(slabKey(slab.revision(), -1), extent.array());
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
