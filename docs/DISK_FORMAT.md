@@ -230,21 +230,26 @@ fail-fast lookups, never ordinals.
   [TEMPORAL_AGGREGATE_INDEX.md](TEMPORAL_AGGREGATE_INDEX.md) for declaration, maintenance and admission semantics.
 - **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
   reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
-  `(format i32=1, first revision i32, column count i32, exceptional row count i64)`.
+  `(format i32=2, first revision i32, column count i32, exceptional row count i64)`.
   Prefix 1 `(record key i64, chunk i32)` holds sparse row-local provenance: object/unsupported
   kind byte, then one flag byte per column (without presence), in chunks of at most 2,048 bytes.
   Chunk -1 holds the total length as i32; a zero-length directory removes an exception.
   Prefix 2 `(revision i32, chunk i32)` holds change slabs in chunks of at most 2,048 bytes; chunk
-  -1 is the `(total byte length i32, chunk count i32, identity high i64, identity low i64)` directory.
+  -1 is the `(total byte length i32, chunk count i32, identity high i64, identity low i64,
+  inline metadata length i32)` extent. When metadata plus group directory fit its remaining 2,020 bytes,
+  the extent appends both sections. Otherwise the inline length is zero and readers use slab offsets.
   Its random 128-bit publication identity prevents a derived mapping from matching a truncated and
   replaced revision, even when the replacement uses the same revision number and timestamp.
   Prefix 5 in physical change-log tree zero uses `(5, -1 i32)` for the next aggregate id (i32),
   and `(5, aggregate id i32)` with value `1 u8` for each reserved declaration;
   this keeps declarations from allocating aggregate pages in the source. All roots are revision owned.
-  A slab begins with `SCLG` magic, format 1, projection id, revision, base revision and entry count
-  (all i32), followed by a u16 column count, normalized u8 cell kinds and a slab-local UTF-8
-  dictionary (i32 count, unsigned-varint byte lengths). Entries are sorted by record key and hold
-  unsigned-varint key deltas, big-endian u64 changed-column bitmap words, then old and new rows.
+  A slab begins with `SCLG` magic, format 2, projection id, revision, base revision, entry count,
+  first-entry byte offset and group-directory byte offset (all i32), followed by a u16 column count,
+  normalized u8 cell kinds and a slab-local UTF-8 dictionary (i32 count, unsigned-varint byte lengths).
+  Entries are physically ordered by declared groupings (coarser grouping first), then record key.
+  Each entry holds an absolute unsigned-varint record key, big-endian u64 changed-column bitmap
+  words, then old and new rows; absolute keys permit independent range decoding. The public decoded
+  entry list remains ordered by record key for maintenance consumers.
   Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
   unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
   varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count
@@ -257,7 +262,14 @@ fail-fast lookups, never ordinals.
   the current slab with the coalesced first-old/final-new cells. No-op revisions have empty slabs.
   Slabs are written only while a declared aggregate consumes the projection; the first-revision
   header does not imply gap-free coverage. Redeclaration rebuilds sparse provenance, retaining
-  earlier slabs and historical roots. `ChangeLogSlabTest` pins format 1 with a golden byte fixture.
+  earlier slabs and historical roots. The trailing directory starts with an i32 declaration count.
+  Each declaration stores its id (i32), grouping-column count and ordinals (u16), support flag (u8),
+  and group count (i32). Sorted typed group keys use a u16 byte length. Each key references an
+  unsigned-varint range count followed by `(offset delta from previous range end, byte length,
+  entry count, first absolute record key)`, all unsigned varints. A group move references the same
+  payload in both groups; it does not duplicate the row. Unsupported grouping cells mark the whole
+  declaration directory unsupported. `ChangeLogSlabTest` pins format 2 with a golden byte fixture.
+  Format 1 is rejected; this unreleased layout has no backward-compatibility reader.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

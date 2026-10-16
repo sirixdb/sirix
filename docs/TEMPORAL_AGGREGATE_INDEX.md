@@ -81,7 +81,7 @@ population. The index never enumerates the matching records during a point query
 
 The projection listener coalesces dirty identities and column masks through page flushes. It captures
 old cells from the decoded leaves or column slices before replacement, and new cells from the
-extractor already maintaining the projection. A format-1 `CHANGE_LOG` slab persists the first old
+extractor already maintaining the projection. A format-2 `CHANGE_LOG` slab persists the first old
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
@@ -109,7 +109,7 @@ part allocator while preserving existing revision mappings. Ordinary maintenance
 a catalogue file. Batches process at most eight revisions, stopping between revisions once they
 reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
 mapping at its end. Catalogue changes end a batch so declaring revisions have a snapshot.
-Intermediate revisions use the exact fallback until query-time tail catch-up is available.
+Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
 
 Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
 counts. Groups with more than sixteen parts or delta bytes above half the checkpoint become fold
@@ -131,10 +131,35 @@ Missing snapshots are retried after catch-up.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
 Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.
-Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
-exists, maintenance is poisoned, or the derived snapshot cannot be opened. A previously validated
-snapshot remains exact for its immutable source view. The route never serves a stale summary. Query-time log-tail catch-up
-and a query-language await function are not part of this change.
+When an exact mapping is absent, a bounded durable mapping lookup selects the greatest maintained
+source revision `s <= r` within 16 revisions of the pinned source revision `r`. The query folds
+old rows negatively and new rows positively from `(s, r]` into one immutable, unencoded signed part.
+That part joins the stored parts before counts and extrema are validated. This preserves deleted
+minima/maxima, wide sums, group moves and newly inserted groups. A coordinating query context owns
+the base reader and reuses each declaration's tail across point instants; it does not write either
+resource. Concurrent source or maintainer commits cannot change the pinned answer.
+
+The log's per-declaration typed group directory addresses row ranges without decoding unrelated
+payloads. A group may touch at most two slab chunks per revision, including external metadata and
+directory chunks, and 4,096 entries. Oversized external metadata declines after reading only the
+section-offset chunk. The query-wide budget allows 512 distinct
+chunk fetches, 16,384 entry visits and 262,144 decoded cells, shared across declarations; tail
+builders admit at most 4,096 groups. Exceeding any bound declines the whole aggregate route.
+Admitted tails retain the existing three-part-chunk base bound plus at most two tail
+chunks per changed group per lagging revision. A repeated instant reuses the folded tail.
+
+The exact masked/scan route handles missing coverage, lag above 16, unsupported tail cells,
+revert discontinuities, poisoned maintenance and unavailable derived snapshots. A previously
+validated snapshot remains exact for its immutable source view. The route never serves a stale
+summary. Declaration-free admission remains before any derived lookup.
+
+`jn:await-derived($document, $revision [, $timeoutMillis])` waits for the durable maintained
+frontier to reach or exceed a committed revision. The default timeout is 30,000 milliseconds;
+zero polls without waiting. It returns `true` when reached and `false` on timeout or when no
+maintainer exists. Negative timeouts, unpublished revisions, interruption, shutdown and failed
+maintenance raise a query error. Interruption preserves the Java thread's interrupt flag.
+The function does not request an exact mapping for a historical batch interior: a later query
+still uses the greatest preceding mapping and bounded catch-up, or the exact fallback.
 
 A revert uses the slab's represented base revision, reverts the derived writer to that source
 mapping (replaying slabs from the preceding mapped revision for a batch interior), then applies

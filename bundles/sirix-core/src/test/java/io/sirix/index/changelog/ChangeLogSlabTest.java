@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class ChangeLogSlabTest {
   @Test
-  void formatOneGoldenSlabPreservesBaseAndBothCells() {
+  void formatTwoGoldenSlabPreservesBaseAndBothCells() {
     final Row before = new Row(true, 2);
     before.flags[0] = ChangeLogSlab.PRESENT;
     before.flags[1] = ChangeLogSlab.PRESENT;
@@ -27,9 +27,10 @@ final class ChangeLogSlabTest {
     after.numbers[0] = 42;
     final ChangeLogSlab slab = new ChangeLogSlab(3, 9, 2, new byte[] {ChangeLogSlab.LONG, ChangeLogSlab.STRING},
         List.of(new Entry(11, new long[] {1}, before, after), new Entry(15, new long[] {3}, after, null)));
-    final byte[] golden = HexFormat.of()
-                                   .parseHex("53434c47000000010000000300000009000000020000000200020102000000010178"
-                                       + "0b000000000000000101010d01000101540100" + "040000000000000003010154010000");
+    final byte[] golden =
+        HexFormat.of()
+                 .parseHex(
+                     "53434c4700000002000000030000000900000002000000020000002a0000004c000201020000000101780b000000000000000101010d010001015401000f000000000000000301015401000000000000");
     assertArrayEquals(golden, slab.encode());
     final ChangeLogSlab decoded = ChangeLogSlab.decode(golden);
     assertEquals(2, decoded.baseRevision());
@@ -38,6 +39,27 @@ final class ChangeLogSlabTest {
     assertEquals("x", Objects.requireNonNull(decoded.entries().getFirst().after()).text[1]);
     assertNull(decoded.entries().getLast().after());
     assertArrayEquals(golden, decoded.encode());
+  }
+
+  @Test
+  void typedGroupKeysRetainCanonicalBytesAndEnforceInlineSize() {
+    final byte[] kinds = {ChangeLogSlab.LONG, ChangeLogSlab.STRING, ChangeLogSlab.BOOLEAN, ChangeLogSlab.LONG};
+    final Row row = new Row(true, kinds.length);
+    row.flags[0] = ChangeLogSlab.PRESENT;
+    row.flags[1] = ChangeLogSlab.PRESENT;
+    row.flags[2] = ChangeLogSlab.PRESENT;
+    row.numbers[0] = 42;
+    row.text[1] = "x";
+    row.numbers[2] = 1;
+    assertArrayEquals(HexFormat.of().parseHex("0101000000000000002a020000000178030100"),
+        ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3)));
+    row.text[1] = "x".repeat(2023);
+    assertEquals(2041, Objects.requireNonNull(ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3))).length);
+    row.text[1] = "x".repeat(2031);
+    assertNull(ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3)));
+    row.flags[0] |= ChangeLogSlab.UNREPRESENTABLE;
+    assertNull(ChangeLogGroupKey.encode(row, kinds, List.of(0)));
+    assertThrows(IllegalArgumentException.class, () -> ChangeLogGroupKey.encode(row, kinds, List.of(-1)));
   }
 
   @Test
@@ -98,7 +120,7 @@ final class ChangeLogSlabTest {
     }
     final byte[] extended = Arrays.copyOf(bytes, bytes.length + 1);
     assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(extended));
-    bytes[7] = 2;
+    bytes[7] = 1;
     assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(bytes));
   }
 }

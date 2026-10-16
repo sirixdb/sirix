@@ -84,6 +84,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks; one match in each of 1,000 chunks retains dense candidate bitmaps or scans unoccupied words |
 | `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, or reads a leaf that holds no admitted key (the row source stops pruning); the generic reference over the same decorated cursor is the positive control (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
 | `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion; ordered integral count/min/max after one group-key change, with and without stored child counts, across all versioning types | dictionary admission visits more than current rows plus one, retries a declined primitive dictionary through object output, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
+| `sirix-query` `TemporalAggregateCatchUpWorkBudgetTest` | paused derived frontier with 20 changed rows beside 256/4096 source rows, at lag 0/1/8/16 and over-limit lag 17 | bounded tails stop serving, base reads exceed three chunks, tail reads exceed two chunks per lagging revision or repeat across instants, source columns are loaded on an admitted fold, or excessive lag reads tail payloads before declining |
 | `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
@@ -414,3 +415,10 @@ chunk lookup), and `aggregate.projectionRowGroupsRead` (one projection row group
 aggregate kernel) in `EngineWorkCounters`. The first two use `sirix.hot.mergeDiag`; the latter two
 use `sirix.changelog.workDiag`. Source work is captured with the maintainer paused so background
 maintenance cannot contaminate the process-global counts.
+
+`TemporalAggregateCatchUpWorkBudgetTest` checks lag 0, 1, 8 and 16 against an exact arithmetic
+oracle, requires the aggregate route, and bounds each changed group's tail to two slab chunks per
+revision; repeated points read no tail chunks. Lag 17 must decline before reading the tail.
+Mutation evidence (2026-10-15): disabling catch-up preserved both fixture answers but failed the
+served-route requirement at lag 1 for 256 and 4,096 source rows. The fallback read two/eight
+projection BODY segments instead of zero. The source was restored before full validation.

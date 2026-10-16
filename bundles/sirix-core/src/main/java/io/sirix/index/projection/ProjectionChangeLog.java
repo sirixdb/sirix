@@ -5,6 +5,8 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogDirectory;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.changelog.ChangeLogSlab.Entry;
 import io.sirix.index.changelog.ChangeLogSlab.Row;
 import io.sirix.index.changelog.ChangeLogStorage;
@@ -314,7 +316,18 @@ public final class ProjectionChangeLog implements AutoCloseable {
     for (final long key : keys) {
       ordered.add(entries.get(key));
     }
-    return new ChangeLogSlab(projection, writer.getRevisionNumber(), writer.getRevisionToRepresent(), kinds, ordered);
+    final List<ChangeLogDirectory.Grouping> groupings = new ArrayList<>();
+    final JsonResourceSession session = (JsonResourceSession) writer.getResourceSession();
+    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDefs()) {
+      if (definition.isTemporalAggregateIndex() && definition.getTemporalAggregateSpec().projectionId() == projection) {
+        groupings.add(
+            new ChangeLogDirectory.Grouping(definition.getID(), definition.getTemporalAggregateSpec().groupColumns()));
+      }
+    }
+    return new ChangeLogSlab(projection, writer.getRevisionNumber(), writer.getRevisionToRepresent(), kinds, ordered,
+        groupings);
   }
 
   @Override

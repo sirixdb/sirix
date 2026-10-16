@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongRBTreeMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.ByteBuffer;
@@ -192,6 +193,12 @@ public final class TemporalAggregateParts {
     private long endpointsWritten;
     private long summaryNodesRead;
     private long summaryNodesWritten;
+
+    /** Freeze a query-local signed part without encoding it or writing any storage pages. */
+    public Delta snapshot() {
+      materializeRaw();
+      return new Delta(this);
+    }
 
     public long endpointsRead() {
       return endpointsRead;
@@ -873,7 +880,69 @@ public final class TemporalAggregateParts {
     return new Builder();
   }
 
+  /** Immutable, unencoded tail. Signed counts are validated only after combining stored parts. */
+  public final class Delta {
+    private final long[] coordinates;
+    private final Sums[] prefixes;
+    private final Long2ObjectOpenHashMap<Vector[]> frequencies;
+
+    private Delta(final Builder builder) {
+      coordinates = builder.endpoints.keySet().toLongArray();
+      prefixes = new Sums[coordinates.length];
+      final Sums prefix = new Sums();
+      int offset = 0;
+      for (final Sums change : builder.endpoints.values()) {
+        prefix.add(change, false);
+        prefixes[offset++] = prefix.copy();
+      }
+      frequencies = new Long2ObjectOpenHashMap<>(builder.nodes.size());
+      for (final Node node : builder.nodes.values()) {
+        final Vector[] vectors = new Vector[lanes];
+        for (int lane = 0; lane < lanes; lane++) {
+          final Long2LongRBTreeMap values = node.frequencies[lane];
+          if (values == null || values.isEmpty()) {
+            continue;
+          }
+          final long[] selected = new long[Math.multiplyExact(values.size(), 2)];
+          long count = 0;
+          int at = 0;
+          for (final var entry : values.long2LongEntrySet()) {
+            selected[at++] = entry.getLongKey();
+            count = Math.addExact(count, entry.getLongValue());
+            selected[at++] = count;
+          }
+          vectors[lane] = new Vector(selected, values.size());
+        }
+        frequencies.put(node.id, vectors);
+      }
+    }
+
+    private void point(final long point, final Sums sums, final List<List<Vector>> vectors) {
+      int position = Arrays.binarySearch(coordinates, point);
+      if (position < 0) {
+        position = -position - 2;
+      }
+      if (position >= 0) {
+        sums.add(prefixes[position], false);
+      }
+      for (long node = (1L << height) + point; node != 0; node >>>= 1) {
+        final Vector[] found = frequencies.get(node);
+        if (found != null) {
+          for (int lane = 0; lane < lanes; lane++) {
+            if (found[lane] != null) {
+              vectors.get(lane).add(found[lane]);
+            }
+          }
+        }
+      }
+    }
+  }
+
   public AggregateSummary point(final Store store, final long[] parts, final long point) {
+    return point(store, parts, point, null);
+  }
+
+  public AggregateSummary point(final Store store, final long[] parts, final long point, final @Nullable Delta tail) {
     if (parts.length > MAX_PARTS || point < 0 || point >= (1L << height)) {
       throw new IllegalArgumentException("Invalid aggregate point or part count");
     }
@@ -884,6 +953,9 @@ public final class TemporalAggregateParts {
     }
     for (final long id : parts) {
       new Part(store, id).point(point, sums, vectors);
+    }
+    if (tail != null) {
+      tail.point(point, sums, vectors);
     }
     sums.validate();
     final long[] minimum = new long[lanes];

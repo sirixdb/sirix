@@ -15,6 +15,8 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.settings.VersioningType;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageProvider;
 import io.sirix.io.StorageProviders;
@@ -23,7 +25,8 @@ import io.sirix.io.Writer;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -38,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -49,23 +53,23 @@ final class DerivedIndexCrashRecoveryTest {
   @TempDir
   File directory;
 
+  static Stream<Arguments> boundaries() {
+    return Stream.of("source", "before-beacon", "after-beacon")
+                 .flatMap(boundary -> Stream.of(VersioningType.values())
+                                            .map(versioning -> Arguments.of(boundary, versioning)));
+  }
+
   @ParameterizedTest
-  @ValueSource(strings = {"source", "before-beacon", "after-beacon"})
-  void restartsAtDurableDerivedFrontier(final String boundary) throws Exception {
+  @MethodSource("boundaries")
+  void restartsAtDurableDerivedFrontier(final String boundary, final VersioningType versioning) throws Exception {
     assumeTrue(Boolean.getBoolean("sirix.crash.run"));
     final var databasePath = directory.toPath().resolve("database");
     final var log = directory.toPath().resolve("writer.log");
-    final Process child = new ProcessBuilder(
-        new File(System.getProperty("java.home"),
-            "bin/java").toString(),
+    final Process child = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").toString(),
         "-Xmx512m", "--enable-preview", "--enable-native-access=ALL-UNNAMED", "--add-modules=jdk.incubator.vector",
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED", "--add-opens=java.base/java.nio=ALL-UNNAMED", "-cp",
-        System.getProperty("java.class.path"), WriterMain.class.getName(), databasePath.toString(), boundary)
-                                                                                                             .redirectErrorStream(
-                                                                                                                 true)
-                                                                                                             .redirectOutput(
-                                                                                                                 log.toFile())
-                                                                                                             .start();
+        System.getProperty("java.class.path"), WriterMain.class.getName(), databasePath.toString(), boundary,
+        versioning.name()).redirectErrorStream(true).redirectOutput(log.toFile()).start();
     try {
       assertTrue(child.waitFor(60, TimeUnit.SECONDS), "Crash writer did not reach its boundary");
       assertEquals(87, child.exitValue(), () -> {
@@ -83,29 +87,37 @@ final class DerivedIndexCrashRecoveryTest {
     }
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         JsonResourceSession source = database.beginResourceSession("records")) {
-      assertEquals(2, source.getMostRecentRevisionNumber());
-      DerivedIndexTestSupport.await(source);
-      for (int revision = 1; revision <= 2; revision++) {
-        final int expected = revision * 10;
-        try (StorageEngineReader reader = source.createStorageEngineReader(revision);
-            StorageEngineReader derived = source.openDerivedIndexReader(reader)) {
-          assertNotNull(derived);
-          final IndexDef definition =
-              source.getRtxIndexController(revision).getIndexes().getIndexDef(0, IndexType.TEMPORAL_AGGREGATE);
-          final TemporalAggregateDomain domain = new TemporalAggregateDomain();
-          final TemporalAggregateParts parts =
-              new TemporalAggregateParts(definition.getTemporalAggregateSpec(), domain.height());
-          try (TemporalAggregateStorage.Reader storage = new TemporalAggregateStorage.Reader(derived, 0)) {
-            final int[] groups = {0};
-            storage.groups(1, (key, head) -> {
-              groups[0]++;
-              final AggregateSummary summary =
-                  parts.point(storage.parts(), head.parts(), domain.point(Instant.parse("2024-06-01T00:00:00Z")));
-              assertEquals(1, summary.count());
-              assertEquals(BigInteger.valueOf(expected), summary.sum(0));
-            });
-            assertEquals(1, groups[0]);
-          }
+      assertEquals(4, source.getMostRecentRevisionNumber());
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) source).getDerivedResource());
+      resource.pause();
+      assertHistory(source, resource);
+      resource.drain();
+      assertHistory(source, resource);
+    }
+  }
+
+  private static void assertHistory(final JsonResourceSession source, final DerivedIndexMaintainer.Resource resource) {
+    for (int revision = 1; revision <= 4; revision++) {
+      final int expected = revision * 10;
+      try (StorageEngineReader reader = source.createStorageEngineReader(revision);
+          DerivedIndexSnapshot snapshot = resource.openCatchUpSnapshot(reader)) {
+        assertNotNull(snapshot);
+        final var indexes = source.getRtxIndexController(revision).getIndexes();
+        final IndexDef definition = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.TEMPORAL_AGGREGATE));
+        final IndexDef projection = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.PROJECTION));
+        final TemporalAggregateIndexes.CatchUp tail = TemporalAggregateIndexes.catchUp(reader,
+            snapshot.sourceRevision(), definition, projection, new ChangeLogGroupReader.Budget());
+        try (TemporalAggregateStorage.Reader storage = new TemporalAggregateStorage.Reader(snapshot.reader(), 0)) {
+          final int[] groups = {0};
+          storage.groups(1, (key, head) -> {
+            groups[0]++;
+            final AggregateSummary summary = tail.point(storage.parts(), head.parts(), key,
+                new TemporalAggregateDomain().point(Instant.parse("2024-06-01T00:00:00Z")));
+            assertEquals(1, summary.count());
+            assertEquals(BigInteger.valueOf(expected), summary.sum(0));
+          });
+          assertEquals(1, groups[0]);
         }
       }
     }
@@ -124,6 +136,7 @@ final class DerivedIndexCrashRecoveryTest {
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
         database.createResource(ResourceConfiguration.newBuilder("records")
                                                      .storageType(StorageType.FILE_CHANNEL)
+                                                     .versioningApproach(VersioningType.valueOf(arguments[2]))
                                                      .validTimePaths("lo", "hi")
                                                      .customCommitTimestamps(true)
                                                      .storeDiffs(false)
@@ -152,6 +165,10 @@ final class DerivedIndexCrashRecoveryTest {
           writer.moveToFirstChild();
           writer.setNumberValue(20);
           writer.commit("second", Instant.parse("2024-02-01T00:00:00Z"));
+          for (int revision = 3; revision <= 4; revision++) {
+            writer.setNumberValue(revision * 10);
+            writer.commit("tail " + revision, Instant.parse("2024-0" + revision + "-01T00:00:00Z"));
+          }
           if (boundary.equals("source")) {
             Runtime.getRuntime().halt(87);
           }

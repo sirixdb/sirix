@@ -123,13 +123,25 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
           Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES, Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
     }
     final ThreadLocalRandom random = ThreadLocalRandom.current();
-    put(slabKey(slab.revision(), -1),
-        ByteBuffer.allocate(24)
-                  .putInt(bytes.length)
-                  .putInt(chunks)
-                  .putLong(random.nextLong())
-                  .putLong(random.nextLong())
-                  .array());
+    final ByteBuffer encoded = ByteBuffer.wrap(bytes);
+    final int metadataLength = encoded.getInt(24);
+    final int directoryOffset = encoded.getInt(28);
+    final int directoryLength = bytes.length - directoryOffset;
+    final boolean inline = metadataLength + directoryLength <= CHUNK_BYTES - 28;
+    final ByteBuffer extent = ByteBuffer.allocate(inline
+        ? 28 + metadataLength + directoryLength
+        : 28)
+                                        .putInt(bytes.length)
+                                        .putInt(chunks)
+                                        .putLong(random.nextLong())
+                                        .putLong(random.nextLong())
+                                        .putInt(inline
+                                            ? metadataLength
+                                            : 0);
+    if (inline) {
+      extent.put(bytes, 0, metadataLength).put(bytes, directoryOffset, directoryLength);
+    }
+    put(slabKey(slab.revision(), -1), extent.array());
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
   }
 
@@ -193,7 +205,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     return ByteBuffer.allocate(13).put((byte) 1).putLong(record).putInt(chunk).array();
   }
 
-  private static byte[] slabKey(final int revision, final int chunk) {
+  static byte[] slabKey(final int revision, final int chunk) {
     return ByteBuffer.allocate(9).put((byte) 2).putInt(revision).putInt(chunk).array();
   }
 
@@ -205,13 +217,13 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
     try (HOTTrieReader reader = new HOTTrieReader(storage)) {
       final byte[] header = Objects.requireNonNull(read(reader, root, slabKey(revision, -1)), "Missing change slab");
-      if (header.length != 24) {
+      if (header.length < 28 || header.length > CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log chunk directory");
       }
       final ByteBuffer buffer = ByteBuffer.wrap(header);
       final int length = buffer.getInt();
       final int chunks = buffer.getInt();
-      if (length < 30 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
+      if (length < 42 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log chunk count");
       }
       final byte[] bytes = new byte[length];
@@ -235,6 +247,12 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
   }
 
+  static void recordChunkRead() {
+    if (WORK_DIAGNOSTICS) {
+      CHUNKS_READ.increment();
+    }
+  }
+
   /** A slab directory identifies a publication even if truncate reuses its revision and timestamp. */
   public static byte @Nullable [] identity(final StorageEngineReader storage, final int projection,
       final int revision) {
@@ -248,7 +266,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       if (directory == null) {
         return null;
       }
-      if (directory.length != 24) {
+      if (directory.length < 28 || directory.length > CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log identity");
       }
       return Arrays.copyOfRange(directory, 8, 24);
@@ -294,7 +312,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     return read(reader, rootReference, key);
   }
 
-  private static byte @Nullable [] read(final HOTTrieReader reader, final PageReference root, final byte[] key) {
+  static byte @Nullable [] read(final HOTTrieReader reader, final PageReference root, final byte[] key) {
     for (int attempt = 0; attempt < 16; attempt++) {
       final MemorySegment value = reader.get(root, key);
       if (value == null) {

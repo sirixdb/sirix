@@ -4,6 +4,8 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.page.UberPage;
+import io.sirix.index.changelog.ChangeLogGroupReader;
+import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -15,7 +17,45 @@ final class DerivedAggregateReaders implements AutoCloseable {
   private static final int CAPACITY = 64;
   private final Thread owner = Thread.currentThread();
   private final Snapshot[] snapshots = new Snapshot[CAPACITY];
+  private CatchUpSnapshot @Nullable [] catchups;
+  private ChangeLogGroupReader.@Nullable Budget catchUpBudget;
   private volatile boolean closed;
+
+  private record CatchUpSnapshot(ResourceSession<?, ?> session, UberPage publication, int revision,
+      DerivedAggregateCatchUp view) {
+  }
+
+  @Nullable
+  @SuppressWarnings("ReferenceEquality")
+  DerivedAggregateCatchUp borrowCatchUp(final StorageEngineReader source) {
+    if (closed) {
+      throw new IllegalStateException("Query aggregate readers are closed");
+    }
+    if (Thread.currentThread() != owner || source instanceof StorageEngineWriter || source.hasTrxIntentLog()) {
+      return null;
+    }
+    final int slot =
+        (System.identityHashCode(source.getResourceSession()) + source.getRevisionNumber()) & (CAPACITY - 1);
+    if (catchups == null) {
+      catchups = new CatchUpSnapshot[CAPACITY];
+      catchUpBudget = new ChangeLogGroupReader.Budget();
+    }
+    final CatchUpSnapshot previous = catchups[slot];
+    if (previous != null && !previous.view().reader().isClosed() && previous.session() == source.getResourceSession()
+        && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {
+      return previous.view();
+    }
+    catchups[slot] = null;
+    if (previous != null) {
+      previous.view().close();
+    }
+    final DerivedAggregateCatchUp opened = DerivedAggregateCatchUp.open(source, Objects.requireNonNull(catchUpBudget));
+    if (opened != null) {
+      catchups[slot] =
+          new CatchUpSnapshot(source.getResourceSession(), source.getUberPage(), source.getRevisionNumber(), opened);
+    }
+    return opened;
+  }
 
   private record Snapshot(ResourceSession<?, ?> session, UberPage publication, int revision,
       StorageEngineReader reader) {
@@ -67,6 +107,21 @@ final class DerivedAggregateReaders implements AutoCloseable {
       if (snapshot != null) {
         try {
           snapshot.reader().close();
+        } catch (final RuntimeException closeFailure) {
+          if (failure == null) {
+            failure = closeFailure;
+          } else {
+            failure.addSuppressed(closeFailure);
+          }
+        }
+      }
+    }
+    for (int slot = 0; catchups != null && slot < CAPACITY; slot++) {
+      final CatchUpSnapshot snapshot = catchups[slot];
+      catchups[slot] = null;
+      if (snapshot != null) {
+        try {
+          snapshot.view().close();
         } catch (final RuntimeException closeFailure) {
           if (failure == null) {
             failure = closeFailure;

@@ -1,6 +1,9 @@
 package io.sirix.index.aggregate;
 
 import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogGroupKey;
+import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.index.changelog.ChangeLogDirectory;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -224,6 +227,94 @@ public final class TemporalAggregateIndexes {
     }
   }
 
+  /** A query-owned tail, reusable across all instants of an immutable source view. */
+  public static final class CatchUp {
+    private final TemporalAggregateParts parts;
+    private final TreeMap<byte[], TemporalAggregateParts.Delta> groups = new TreeMap<>(Arrays::compareUnsigned);
+
+    private CatchUp(final TemporalAggregateParts parts) {
+      this.parts = parts;
+    }
+
+    public Iterable<byte[]> keys() {
+      return groups.navigableKeySet();
+    }
+
+    public boolean contains(final byte[] key) {
+      return groups.containsKey(key);
+    }
+
+    public AggregateSummary point(final TemporalAggregateParts.Store store, final long[] stored, final byte[] key,
+        final long coordinate) {
+      return parts.point(store, stored, coordinate, groups.get(key));
+    }
+  }
+
+  /**
+   * Fold only addressed changes. Any missing coverage, discontinuous base, unsupported cell or
+   * exhausted budget aborts the entire route. Nothing is written to either resource.
+   */
+  public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
+      final IndexDef projection, final ChangeLogGroupReader.Budget budget) {
+    final int target = source.getRevisionNumber();
+    if (maintained < 1 || maintained > target || target - maintained > DerivedIndexMaintainer.MAX_QUERY_LAG) {
+      throw new ChangeLogGroupReader.LimitExceeded();
+    }
+    final ValidTimeConfig config =
+        Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
+    validate(definition, projection, config);
+    final int from = endpointColumn(projection, config.getValidFromPath());
+    final int to = endpointColumn(projection, config.getValidToPath());
+    final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
+    final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DOMAIN.height());
+    final TreeMap<byte[], TemporalAggregateParts.Builder> builders = new TreeMap<>(Arrays::compareUnsigned);
+    final Map<String, Long> instants = new HashMap<>();
+    for (int offset = 1; offset <= target - maintained; offset++) {
+      final int revision = maintained + offset;
+      try (ChangeLogGroupReader log = new ChangeLogGroupReader(source, projection.getID(), revision, budget)) {
+        final ChangeLogDirectory.Groups directory = log.groups(definition.getID());
+        if (log.baseRevision() != revision - 1 || directory == null || !directory.supported()
+            || !directory.grouping().columns().equals(spec.groupColumns())) {
+          throw new ChangeLogGroupReader.LimitExceeded();
+        }
+        final byte[] kinds = log.kinds();
+        if (kinds.length != projection.getProjectionFields().size()) {
+          throw new ChangeLogGroupReader.LimitExceeded();
+        }
+        for (final byte[] key : directory.keys()) {
+          if (!builders.containsKey(key) && builders.size() >= 4096) {
+            throw new ChangeLogGroupReader.LimitExceeded();
+          }
+          final TemporalAggregateParts.Builder builder = builders.computeIfAbsent(key, ignored -> parts.builder());
+          log.visit(directory, key, entry -> {
+            final Row previous = fromLog(entry.before(), kinds, from, to, spec, instants);
+            final Row next = fromLog(entry.after(), kinds, from, to, spec, instants);
+            addTailRow(builder, key, previous, -1);
+            addTailRow(builder, key, next, 1);
+          });
+        }
+      }
+    }
+    final CatchUp result = new CatchUp(parts);
+    for (final Map.Entry<byte[], TemporalAggregateParts.Builder> group : builders.entrySet()) {
+      result.groups.put(group.getKey(), group.getValue().snapshot());
+    }
+    return result;
+  }
+
+  private static void addTailRow(final TemporalAggregateParts.Builder builder, final byte[] group,
+      final @Nullable Row row, final int sign) {
+    if (row == null) {
+      return;
+    }
+    if (row.unsupported) {
+      throw new ChangeLogGroupReader.LimitExceeded();
+    }
+    if (Arrays.equals(group, row.group)) {
+      builder.add(row.from, row.to, row.values, row.present, sign);
+    }
+  }
+
   /** Folds only the supplied touched groups, in a separate derived transaction. */
   public static void foldDerived(final StorageEngineWriter writer, final IndexDef definition,
       final Iterable<byte[]> groups) {
@@ -279,35 +370,9 @@ public final class TemporalAggregateIndexes {
       if (from >= to) {
         return Row.EMPTY;
       }
-      final ByteArrayOutputStream bytes = new ByteArrayOutputStream(1 + spec.groupColumns().size() * 9);
-      final DataOutputStream out = new DataOutputStream(bytes);
-      out.writeByte(1);
-      for (final int column : spec.groupColumns()) {
-        requireSupported(row, column);
-        if (!row.present(column)) {
-          out.writeByte(0);
-        } else {
-          switch (kinds[column]) {
-            case ChangeLogSlab.LONG -> {
-              out.writeByte(1);
-              out.writeLong(row.numbers[column]);
-            }
-            case ChangeLogSlab.STRING -> {
-              final byte[] utf8 = ((String) row.text[column]).getBytes(StandardCharsets.UTF_8);
-              out.writeByte(2);
-              out.writeInt(utf8.length);
-              out.write(utf8);
-            }
-            case ChangeLogSlab.BOOLEAN -> {
-              out.writeByte(3);
-              out.writeBoolean(row.numbers[column] != 0);
-            }
-            default -> throw new UnsupportedCell();
-          }
-        }
-        if (bytes.size() > 2048) {
-          return Row.UNSUPPORTED;
-        }
+      final byte[] group = ChangeLogGroupKey.encode(row, kinds, spec.groupColumns());
+      if (group == null) {
+        return Row.UNSUPPORTED;
       }
       final long[] values = new long[spec.lanes().size()];
       long present = 0;
@@ -328,11 +393,9 @@ public final class TemporalAggregateIndexes {
           present |= 1L << at;
         }
       }
-      return new Row(bytes.toByteArray(), from, to, values, present, false);
+      return new Row(group, from, to, values, present, false);
     } catch (final DateTimeException | ArithmeticException | UnsupportedCell decline) {
       return Row.UNSUPPORTED;
-    } catch (final IOException impossible) {
-      throw new AssertionError(impossible);
     }
   }
 

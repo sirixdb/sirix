@@ -229,6 +229,7 @@ test {
     systemProperty 'sirix.hot.mergeDiag', System.getProperty('sirix.hot.mergeDiag', 'true')
     systemProperty 'sirix.validTime.scanDiag', System.getProperty('sirix.validTime.scanDiag', 'true')
     systemProperty 'sirix.json.registryDiag', System.getProperty('sirix.json.registryDiag', 'true')
+    systemProperty 'sirix.changelog.workDiag', System.getProperty('sirix.changelog.workDiag', 'true')
 
     // NativeImageDowncallConfigTest guards the native-image downcall configuration. It is handed what
     // THIS BUILD evaluates, not the text of this script: the argument the opt-in produces and the one
