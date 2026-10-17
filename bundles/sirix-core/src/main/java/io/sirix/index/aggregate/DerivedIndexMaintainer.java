@@ -498,10 +498,16 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private boolean applyBatch(final boolean manual, final int maxRevisions) {
       final int first = maintained + 1;
       final int latest = source.getMostRecentRevisionNumber();
+      // Freeze the high watermark before applying anything. While caught up, publish a
+      // durable mapping for this revision even if another source commit arrives mid-apply.
+      // Only an already-existing backlog may amortize a derived commit across revisions.
+      final int batchLimit = latest == first
+          ? 1
+          : maxRevisions;
       int entries = 0;
       int revision = first;
       int projection = -1;
-      for (int count = 0; count < maxRevisions && entries < 100_000 && !stopped && (!paused || manual)
+      for (int count = 0; count < batchLimit && entries < 100_000 && !stopped && (!paused || manual)
           && revision <= latest; count++, revision++) {
         final AppliedRevision applied = applyRevision(revision);
         entries += applied.entries();

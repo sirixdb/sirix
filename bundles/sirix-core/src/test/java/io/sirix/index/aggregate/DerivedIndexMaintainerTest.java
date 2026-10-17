@@ -292,6 +292,46 @@ final class DerivedIndexMaintainerTest {
   }
 
   @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void caughtUpPublicationsKeepDenseDurableMappings(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("dense-mappings");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        writer.commit();
+        assertTrue(resource.awaitRevision(1, Duration.ofSeconds(30)));
+        for (int revision = 2; revision <= 20; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+          assertTrue(resource.awaitRevision(revision, Duration.ofSeconds(30)));
+          assertSum(session, revision, revision);
+        }
+        assertNull(resource.failure());
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      for (int revision = 1; revision <= 20; revision++) {
+        assertSum(session, revision, revision == 1
+            ? 10
+            : revision);
+      }
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"intact", "unencrypted", "different-key"})
   void encryptedSnapshotsRetainSourceProtectionAcrossFoldsAndReopen(final String storeState) throws Exception {
     final var canonicalDirectory = directory.toPath().toRealPath();

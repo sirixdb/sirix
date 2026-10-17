@@ -108,7 +108,10 @@ catalogues and parts. Rebuilding a declaration after a revert resets its aggrega
 part allocator while preserving existing revision mappings. Ordinary maintenance does not rewrite
 a catalogue file. Batches process at most eight revisions, stopping between revisions once they
 reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
-mapping at its end. Catalogue changes end a batch so declaring revisions have a snapshot.
+mapping at its end. While caught up, every source revision gets its own durable mapping;
+the batch high watermark is frozen before applying a revision, so a concurrent publication
+cannot turn that revision into an unmapped batch interior. Only an existing backlog is batched.
+Catalogue changes end a batch so declaring revisions have a snapshot.
 Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
 
 Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
@@ -127,7 +130,13 @@ on its coordinating thread, reusing them across source cursors from the same pub
 The cache keys include the captured source UberPage's object identity, so commit, truncate and
 reopen require fresh identity validation even when revision numbers and timestamps are reused.
 Eviction and context close release these readers; other threads keep source-owned snapshots.
-Missing snapshots are retried after catch-up.
+Missing snapshots are retried after catch-up. Before raw tail catch-up, the declared route
+allows the maintainer up to `sirix.aggregate.awaitMillis` milliseconds (default 20; zero disables)
+to publish the pinned revision's mapping. It then retries the exact identity-validated lookup.
+A coordinating context waits at most once per retained source publication and revision, so
+repeated groups and instants do not repeatedly pay the timeout. Timeouts, maintenance failure,
+shutdown and interruption leave bounded catch-up or the exact fallback; interruption preserves
+the thread's interrupt flag. A frontier past an unmapped historical batch interior does not wait.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
 Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.

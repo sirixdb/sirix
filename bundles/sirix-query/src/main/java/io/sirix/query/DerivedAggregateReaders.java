@@ -18,6 +18,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   private final Thread owner = Thread.currentThread();
   private final Snapshot[] snapshots = new Snapshot[CAPACITY];
   private CatchUpSnapshot @Nullable [] catchups;
+  private AwaitedPublication @Nullable [] awaited;
   private ChangeLogGroupReader.@Nullable Budget catchUpBudget;
   private volatile boolean closed;
 
@@ -61,6 +62,26 @@ final class DerivedAggregateReaders implements AutoCloseable {
       StorageEngineReader reader) {
   }
 
+  private record AwaitedPublication(ResourceSession<?, ?> session, UberPage publication, int revision) {
+  }
+
+  @SuppressWarnings("ReferenceEquality")
+  private boolean awaitMapping(final StorageEngineReader source, final int slot) {
+    if (awaited == null) {
+      awaited = new AwaitedPublication[CAPACITY];
+    }
+    final AwaitedPublication previous = awaited[slot];
+    if (previous != null && previous.session() == source.getResourceSession()
+        && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {
+      return false;
+    }
+    // A Q11 instant/group loop must not pay the timeout again for the same pinned source.
+    // Exact lookups still retry on every borrow, including after this wait timed out.
+    awaited[slot] =
+        new AwaitedPublication(source.getResourceSession(), source.getUberPage(), source.getRevisionNumber());
+    return DerivedAggregateAwait.awaitMapping(source);
+  }
+
   @Nullable
   @SuppressWarnings("ReferenceEquality") // Thread ownership and publication identity require reference equality.
   StorageEngineReader borrow(final StorageEngineReader source) {
@@ -71,7 +92,10 @@ final class DerivedAggregateReaders implements AutoCloseable {
       return null;
     }
     if (Thread.currentThread() != owner) {
-      return source.getDerivedIndexReader();
+      final StorageEngineReader opened = source.getDerivedIndexReader();
+      return opened == null && DerivedAggregateAwait.awaitMapping(source)
+          ? source.getDerivedIndexReader()
+          : opened;
     }
     final int slot =
         (System.identityHashCode(source.getResourceSession()) + source.getRevisionNumber()) & (CAPACITY - 1);
@@ -87,7 +111,10 @@ final class DerivedAggregateReaders implements AutoCloseable {
     if (snapshot != null) {
       snapshot.reader().close();
     }
-    final StorageEngineReader opened = source.getResourceSession().openDerivedIndexReader(source);
+    StorageEngineReader opened = source.getResourceSession().openDerivedIndexReader(source);
+    if (opened == null && awaitMapping(source, slot)) {
+      opened = source.getResourceSession().openDerivedIndexReader(source);
+    }
     // Lag is retryable: the maintainer may publish a mapping without another source commit.
     if (opened != null) {
       snapshots[slot] =
@@ -100,6 +127,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
+    awaited = null;
     RuntimeException failure = null;
     for (int slot = 0; slot < CAPACITY; slot++) {
       final Snapshot snapshot = snapshots[slot];
