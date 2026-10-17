@@ -200,7 +200,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Prepare a successor's path summary without traversing it until the first path operation. The
    * reader is always rebuilt from the successor's own storage; no predecessor nodes or caches are
-   * retained. Useful when a caller commits and closes without making another edit.
+   * retained. Closing an unused writer releases its storage without constructing a reader.
    */
   public static <R extends NodeCursor & NodeReadOnlyTrx> PathSummaryWriter<R> createLazy(
       final StorageEngineWriter storageEngineWriter, final ResourceSession<R, ? extends NodeTrx> resMgr,
@@ -227,9 +227,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Get the path summary reader.
+   * Get the path summary reader, initializing it on first access for a lazy writer.
    *
    * @return {@link PathSummaryReader} instance
+   * @throws IllegalStateException if initialization is requested after storage has closed
    */
   public PathSummaryReader getPathSummary() {
     PathSummaryReader reader = pathSummaryReader;

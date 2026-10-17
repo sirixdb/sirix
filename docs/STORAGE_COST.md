@@ -1,5 +1,12 @@
 # Per-Revision Storage Cost — Decomposition & Reduction Plan
 
+The measurements and reduction proposals below describe the **2026-06-11 baseline**, not
+current per-commit costs. Container preparation has since changed; its current behavior is owned by
+[`StorageEngineWriterFactory.createStorageEngineWriter`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/StorageEngineWriterFactory.java)
+and
+[`NodeStorageEngineWriter.prepareSecondaryIndexPage`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java).
+Re-run the storage-cost benchmark before using these estimates for current sizing or savings.
+
 **TL;DR.** A 10k-commit history where each commit changes one number field costs **15.94 MB
 (1,671 B/commit)** for an ~8-byte logical change. We instrumented the write path and walked the
 data file structurally: the 1.6 KB decomposes into a **~35% leaf-fragment cost (most of it fixed
@@ -122,13 +129,8 @@ For a 1-slot fragment (26 B of record data, `hashKind=NONE`): payload = 449 B =
 
 ### 3. Unchanged singleton index pages (312 B/commit total, 19% — pure waste (c))
 
-`StorageEngineWriterFactory` (lines ~175–215) pre-stages deep copies of NamePage, CASPage,
-PathPage, ProjectionIndexPage, DeweyIDPage (and PathSummaryPage) into the TransactionIntentLog
-on every transaction (re-)instantiation — needed for mutation isolation — and commit writes
-**everything in the TIL**, dirty or not. The COW design already supports pointing the new
-revision root at the previous offsets of untouched subtrees; these six pages just never take
-that path. NamePage is the worst (136 B: maxNodeKeys/maxHotPageKeys maps + per-dictionary
-Roaring bitmaps re-serialized verbatim).
+For current container preparation rules, see the implementation links above. The baseline's
+page counts and proposal 1 below predate the changes to writer setup.
 
 ### 4. Diff files (155 B logical, 9% — but 4,096 B physical, category (c) at the FS level)
 

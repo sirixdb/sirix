@@ -40,7 +40,6 @@ import io.sirix.settings.Constants;
  * page keys to leaf {@link PageReference}s using bit-decomposition. Handles:
  * </p>
  * <ul>
- * <li>Preparing a new revision root page from the previous revision (CoW)</li>
  * <li>Navigating / growing the trie height when keys exceed the current capacity</li>
  * <li>Copy-on-Write of frozen {@link IndirectPage}s in the transaction intent log</li>
  * </ul>
