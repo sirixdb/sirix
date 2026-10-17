@@ -1141,7 +1141,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void reInstantiateIndexes(final boolean preserveCurrentDefinitions) {
     // Get a new path summary instance.
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
+      pathSummaryWriter = preserveCurrentDefinitions
+          ? PathSummaryWriter.createLazy(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx)
+          : new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
     }
 
     // Recreate index listeners. Clear first: after rollback/revertTo the

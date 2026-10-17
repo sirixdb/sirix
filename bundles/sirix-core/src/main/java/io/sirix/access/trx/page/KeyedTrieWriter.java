@@ -30,7 +30,6 @@ import io.sirix.index.IndexType;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.page.UberPage;
 import io.sirix.settings.Constants;
 
 /**
@@ -41,7 +40,6 @@ import io.sirix.settings.Constants;
  * page keys to leaf {@link PageReference}s using bit-decomposition. Handles:
  * </p>
  * <ul>
- * <li>Preparing a new revision root page from the previous revision (CoW)</li>
  * <li>Navigating / growing the trie height when keys exceed the current capacity</li>
  * <li>Copy-on-Write of frozen {@link IndirectPage}s in the transaction intent log</li>
  * </ul>
@@ -51,46 +49,9 @@ import io.sirix.settings.Constants;
  * is <em>not</em> thread-safe — each write transaction owns its own instance.
  * </p>
  *
- * <p>
- * Note: the factory ({@link StorageEngineWriterFactory}) creates a temporary instance via
- * {@link #preparePreviousRevisionRootPage} before the full {@link NodeStorageEngineWriter} is
- * constructed.
- * </p>
- *
  * @author Johannes Lichtenberger
  */
 final class KeyedTrieWriter {
-
-  /**
-   * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
-   *
-   * @param uberPage the uber page
-   * @param storageEngineReader the storage engine reader
-   * @param log the transaction intent log
-   * @param baseRevision base revision
-   * @param representRevision the revision to represent
-   * @return new {@link RevisionRootPage} instance
-   */
-  RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage,
-      final NodeStorageEngineReader storageEngineReader, final TransactionIntentLog log, final int baseRevision,
-      final int representRevision) {
-    final RevisionRootPage revisionRootPage;
-
-    if (uberPage.isBootstrap()) {
-      revisionRootPage = storageEngineReader.loadRevRoot(baseRevision);
-    } else {
-      // Prepare revision root nodePageReference.
-      revisionRootPage = new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
-
-      // NB: the prepared RevisionRootPage is logged (under the uber-page's revision-root reference)
-      // by StorageEngineWriterFactory, which is the reference the uber-page actually commits. A
-      // second log.put here under a throwaway PageReference only added a TIL entry unreachable from
-      // the uber-page — never serialized, but held (and double-closed on log.clear) until commit.
-    }
-
-    // Return prepared revision root nodePageReference.
-    return revisionRootPage;
-  }
 
   /**
    * Prepare the leaf of the trie, navigating through IndirectPages using bit-decomposition.
