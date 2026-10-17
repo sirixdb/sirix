@@ -2916,7 +2916,7 @@ public enum PageKind {
               // A record that's shorter than kindId+templateId means the in-memory layout
               // is inconsistent. Fall back to inline to avoid corrupting disk bytes.
               writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
-                  fsstDictId);
+                  fsstDictId, indexTypeId);
               if (finerDiag) {
                 PageSectionDiag.recordInlineBodyPage(indexTypeId, PageSectionDiag.INLINE_REASON_SHORT_RECORD);
                 PageSectionDiag.recordEncodedBody(0L, 0L, sink.writePosition() - diagS0);
@@ -3145,7 +3145,7 @@ public enum PageKind {
             final long beforeBody = finerDiag
                 ? sink.writePosition()
                 : 0L;
-            emitSmallestBody(sink, staging, totalStagingBytes);
+            emitSmallestBody(sink, staging, totalStagingBytes, indexTypeId);
             if (finerDiag) {
               // Post-codec attribution, charged under the codec this page actually emitted — which is
               // not always the elected one, since the pages between probes write the smaller of
@@ -3165,7 +3165,7 @@ public enum PageKind {
       }
       // Fallback path (also used when dedup aborts).
       writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
-          fsstDictId);
+          fsstDictId, indexTypeId);
       if (finerDiag) {
         final long diagS3 = sink.writePosition();
         PageSectionDiag.recordEncodedBody(0L, 0L, diagS3 - diagS0);
@@ -3540,7 +3540,7 @@ public enum PageKind {
      */
     private static void writeInlineBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
-        final boolean chunkedBody, final long fsstDictId) {
+        final boolean chunkedBody, final long fsstDictId, final byte indexTypeId) {
       int totalHeapSize = 0;
       for (int i = 0; i < populatedCount; i++) {
         totalHeapSize += slotDataLens[i];
@@ -3580,7 +3580,7 @@ public enum PageKind {
 
       // Smallest-of-codecs bake-off with sticky-winner election — shared with the
       // dedup path, see emitSmallestBody.
-      emitSmallestBody(sink, staging, totalBlobBytes);
+      emitSmallestBody(sink, staging, totalBlobBytes, indexTypeId);
     }
 
     /**
@@ -8150,6 +8150,31 @@ public enum PageKind {
   static boolean CODEC_BAKEOFF_STICKY_ONLY = Boolean.getBoolean("sirix.codecBakeoff.stickyOnly");
 
   /**
+   * Opt-in monolith-body election partitioned by index type and floor(log2(raw bytes)). Each
+   * partition has its own warm-up and probe cadence, preventing a small directory or name page from
+   * electing a codec for an unrelated record body. Between probes only its elected codec runs.
+   * Chunk-framed bodies retain their separate frame policy. Kept opt-in pending paired load, commit
+   * and cold-query acceptance. Mutable for the same test-witness contract as stickyOnly.
+   */
+  static boolean CODEC_BAKEOFF_PARTITIONED = Boolean.getBoolean("sirix.codecBakeoff.partitioned");
+
+  /** Lazily allocated, flat primitive state: three ints per index-type/size-bucket partition. */
+  private static final ThreadLocal<int[]> PARTITIONED_CODEC = new ThreadLocal<>();
+
+  private static int[] partitionedCodecState() {
+    int[] state = PARTITIONED_CODEC.get();
+    if (state == null) {
+      int maxId = 0;
+      for (final IndexType type : IndexType.values()) {
+        maxId = Math.max(maxId, type.getID());
+      }
+      state = new int[(maxId + 1) * Integer.SIZE * 3];
+      PARTITIONED_CODEC.set(state);
+    }
+    return state;
+  }
+
+  /**
    * Test seam: make {@code codec} the current thread's elected body codec with the warm-up spent and
    * the probe cadence reset, so the next page body is a between-probes page under that election.
    */
@@ -8173,6 +8198,10 @@ public enum PageKind {
     sticky[0] = 0;
     sticky[1] = 0;
     sticky[2] = 0;
+    final int[] partitioned = PARTITIONED_CODEC.get();
+    if (partitioned != null) {
+      Arrays.fill(partitioned, 0);
+    }
   }
 
   /** Per-thread scratch for {@link ByteRunCodec} output. */
@@ -8386,6 +8415,12 @@ public enum PageKind {
    * byte keeps the format self-describing, so readers never see the difference.
    *
    * <p>
+   * With {@link #CODEC_BAKEOFF_PARTITIONED}, monolith bodies instead keep independent elections per
+   * index type and raw-body size bucket. Each partition runs the same warm-up and probe cadence;
+   * intervening bodies encode only its elected codec. This separates both index kinds and the
+   * differently sized bodies within one kind without retaining pages or allocating per body.
+   *
+   * <p>
    * <b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a page depends on
    * per-thread serialization history, so stored bytes are no longer a pure function of page content
    * (sizes can differ by a few bytes run to run; content round-trips identically). Golden-file byte
@@ -8399,26 +8434,35 @@ public enum PageKind {
    * bytes. On Chicago-like record heaps LZ77 typically wins because record-header bytes repeat
    * verbatim across slots.
    */
-  private static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging, final int totalBytes) {
+  static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging, final int totalBytes,
+      final byte indexTypeId) {
     final int[] sticky = STICKY_CODEC.get();
-    final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
+    final boolean partitioned = CODEC_BAKEOFF_PARTITIONED;
+    final int[] election = partitioned
+        ? partitionedCodecState()
+        : sticky;
+    // OR 1 maps empty and one-byte bodies to bucket zero without a branch or floating-point log.
+    final int offset = partitioned
+        ? (indexTypeId * Integer.SIZE + Integer.SIZE - 1 - Integer.numberOfLeadingZeros(totalBytes | 1)) * 3
+        : 0;
+    final boolean warmup = election[offset + 1] < STICKY_WARMUP_PAGES;
     if (warmup) {
-      sticky[1]++;
+      election[offset + 1]++;
     }
-    final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
+    final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || election[offset + 2] >= STICKY_PROBE_INTERVAL - 1;
     if (probe) {
-      sticky[2] = 0;
+      election[offset + 2] = 0;
     } else {
-      sticky[2]++;
-      if (CODEC_BAKEOFF_STICKY_ONLY) {
-        emitWithCodec(sticky[0], sink, staging, totalBytes);
+      election[offset + 2]++;
+      if (partitioned || CODEC_BAKEOFF_STICKY_ONLY) {
+        emitWithCodec(election[offset], sink, staging, totalBytes);
         return;
       }
     }
     // Between probes the election decides only whether byte-run is worth encoding: zero-run runs at
     // memcpy speed and LZ77 is what nearly every record page elects anyway, so those two are always
     // encoded and compared. See CODEC_BAKEOFF_STICKY_ONLY for what a stale election used to cost.
-    final boolean tryByteRun = BYTE_RUN_CODEC_ENABLED && (probe || sticky[0] == 2);
+    final boolean tryByteRun = BYTE_RUN_CODEC_ENABLED && (probe || election[offset] == 2);
 
     final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
     final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
@@ -8460,7 +8504,7 @@ public enum PageKind {
     // page in between compared what it encoded and wrote the smallest, which is all the
     // election is for.
     if (probe) {
-      sticky[0] = bestLen == v3Len
+      election[offset] = bestLen == v3Len
           ? 3
           : bestLen == v2Len
               ? 2

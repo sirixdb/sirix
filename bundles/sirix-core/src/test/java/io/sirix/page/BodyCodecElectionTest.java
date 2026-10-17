@@ -47,6 +47,7 @@ final class BodyCodecElectionTest {
 
   private Arena arena;
   private boolean stickyOnlyBefore;
+  private boolean partitionedBefore;
 
   @BeforeAll
   static void requireTheInstrumentIsOn() {
@@ -59,11 +60,14 @@ final class BodyCodecElectionTest {
   void setUp() {
     arena = Arena.ofConfined();
     stickyOnlyBefore = PageKind.CODEC_BAKEOFF_STICKY_ONLY;
+    partitionedBefore = PageKind.CODEC_BAKEOFF_PARTITIONED;
+    PageKind.CODEC_BAKEOFF_PARTITIONED = false;
   }
 
   @AfterEach
   void tearDown() {
     PageKind.CODEC_BAKEOFF_STICKY_ONLY = stickyOnlyBefore;
+    PageKind.CODEC_BAKEOFF_PARTITIONED = partitionedBefore;
     PageKind.resetStickyCodecElectionForCurrentThread();
     if (arena != null) {
       arena.close();
