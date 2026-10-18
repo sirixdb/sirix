@@ -26,13 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The body codec election between probes.
- *
- * <p>
- * A record page serialized on a thread whose last probe elected zero-run must still be written with
- * LZ77 when LZ77 is smaller — the election only decides whether byte-run is encoded as well. The
- * kill switch {@code sirix.codecBakeoff.stickyOnly} is the mutation: under it the stale election is
- * written verbatim, which is what cost 5.1 % of leaf bytes on a 1M-row load.
+ * Regression witness for the legacy shared-election comparison mode, with partitioned elections
+ * disabled. {@link PageKind#emitSmallestBody} owns the selection policy; the sticky-only control
+ * exposes the stale-winner failure guarded here.
  */
 @DisplayName("Body codec election between probes")
 final class BodyCodecElectionTest {
@@ -47,6 +43,7 @@ final class BodyCodecElectionTest {
 
   private Arena arena;
   private boolean stickyOnlyBefore;
+  private boolean partitionedBefore;
 
   @BeforeAll
   static void requireTheInstrumentIsOn() {
@@ -59,11 +56,14 @@ final class BodyCodecElectionTest {
   void setUp() {
     arena = Arena.ofConfined();
     stickyOnlyBefore = PageKind.CODEC_BAKEOFF_STICKY_ONLY;
+    partitionedBefore = PartitionedBodyCodecElection.enabled;
+    PartitionedBodyCodecElection.enabled = false;
   }
 
   @AfterEach
   void tearDown() {
     PageKind.CODEC_BAKEOFF_STICKY_ONLY = stickyOnlyBefore;
+    PartitionedBodyCodecElection.enabled = partitionedBefore;
     PageKind.resetStickyCodecElectionForCurrentThread();
     if (arena != null) {
       arena.close();

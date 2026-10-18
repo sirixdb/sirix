@@ -2916,7 +2916,7 @@ public enum PageKind {
               // A record that's shorter than kindId+templateId means the in-memory layout
               // is inconsistent. Fall back to inline to avoid corrupting disk bytes.
               writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
-                  fsstDictId);
+                  fsstDictId, indexTypeId);
               if (finerDiag) {
                 PageSectionDiag.recordInlineBodyPage(indexTypeId, PageSectionDiag.INLINE_REASON_SHORT_RECORD);
                 PageSectionDiag.recordEncodedBody(0L, 0L, sink.writePosition() - diagS0);
@@ -3145,11 +3145,10 @@ public enum PageKind {
             final long beforeBody = finerDiag
                 ? sink.writePosition()
                 : 0L;
-            emitSmallestBody(sink, staging, totalStagingBytes);
+            emitSmallestBody(sink, staging, totalStagingBytes, indexTypeId);
             if (finerDiag) {
-              // Post-codec attribution, charged under the codec this page actually emitted — which is
-              // not always the elected one, since the pages between probes write the smaller of
-              // zero-run and LZ77 whatever the election says.
+              // Charge attribution to the emitted codec; the legacy comparison path can override
+              // the elected winner (see emitSmallestBody).
               recordPostCodecAttribution(staging, sections, sink.writePosition() - beforeBody - 5, populatedCount,
                   slotKindIds, slotOnDiskLens, slotTemplateIds, STICKY_CODEC.get()[STICKY_LAST_EMITTED]);
             }
@@ -3165,7 +3164,7 @@ public enum PageKind {
       }
       // Fallback path (also used when dedup aborts).
       writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
-          fsstDictId);
+          fsstDictId, indexTypeId);
       if (finerDiag) {
         final long diagS3 = sink.writePosition();
         PageSectionDiag.recordEncodedBody(0L, 0L, diagS3 - diagS0);
@@ -3540,7 +3539,7 @@ public enum PageKind {
      */
     private static void writeInlineBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
-        final boolean chunkedBody, final long fsstDictId) {
+        final boolean chunkedBody, final long fsstDictId, final byte indexTypeId) {
       int totalHeapSize = 0;
       for (int i = 0; i < populatedCount; i++) {
         totalHeapSize += slotDataLens[i];
@@ -3580,7 +3579,7 @@ public enum PageKind {
 
       // Smallest-of-codecs bake-off with sticky-winner election — shared with the
       // dedup path, see emitSmallestBody.
-      emitSmallestBody(sink, staging, totalBlobBytes);
+      emitSmallestBody(sink, staging, totalBlobBytes, indexTypeId);
     }
 
     /**
@@ -3605,10 +3604,9 @@ public enum PageKind {
       planChunks(entryOnDiskLens, populatedCount, heapLen, table);
       final int chunkCount = table.count;
 
-      // One election per page, on the monolith body's probe cadence: a probe page bakes off every
-      // codec per frame and keeps the smallest — which is what makes probeInterval=1 byte-pure — and
-      // elects the winner of its largest frame, the one whose ratio actually decides the page size.
-      // Pages in between encode every frame with that codec outright.
+      // One shared election per chunked page, independent of the partitioned monolith elections.
+      // Probes elect the winner of the largest frame, whose ratio decides the page size; individual
+      // frames still emit their own smallest codec. See emitSmallestBody for cadence and controls.
       final int[] sticky = STICKY_CODEC.get();
       final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
       if (warmup) {
@@ -3819,8 +3817,8 @@ public enum PageKind {
           winnerBuf = zeroRunBuf;
         }
       } else if (!CODEC_BAKEOFF_STICKY_ONLY) {
-        // Same rule as the monolith body between probes: zero-run and LZ77 always compete, byte-run
-        // only while it holds the election. The scratches are per codec, so all three may be live.
+        // Use the legacy comparison policy documented in emitSmallestBody. The scratches are per
+        // codec, so all three may be live.
         final byte[] zeroRunBuf = zeroRunScratch(rawLen);
         final int v0Len = ZeroRunByteCodec.encode(src, srcOff, rawLen, zeroRunBuf, 0);
         final byte[] byteRunBuf = elected == 2 && BYTE_RUN_CODEC_ENABLED
@@ -8082,10 +8080,9 @@ public enum PageKind {
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
 
   /**
-   * Enable / disable the pick-smaller per-page codec choice between {@link ZeroRunByteCodec} and
-   * {@link ByteRunCodec}. Default ON — the reader always accepts both codec bytes, and the writer
-   * picks whichever produces fewer bytes for the current page. Gate off with
-   * {@code -Dsirix.byteRunCodec.disable=true} to force V1 zero-only RLE for A/B comparison.
+   * Whether {@link ByteRunCodec} participates in writer codec selection (see
+   * {@link #emitSmallestBody}). Default ON; {@code -Dsirix.byteRunCodec.disable=true} excludes it
+   * without disabling LZ77. Readers always accept its codec byte.
    */
   private static final boolean BYTE_RUN_CODEC_ENABLED = !Boolean.getBoolean("sirix.byteRunCodec.disable");
 
@@ -8102,56 +8099,46 @@ public enum PageKind {
   private static final boolean LZ77_CODEC_ENABLED = !Boolean.getBoolean("sirix.lz77Codec.disable");
 
   /**
-   * Probe cadence of the sticky-winner codec election ({@code -Dsirix.codecBakeoff.probeInterval},
-   * default 16): every Nth page per serialization thread runs the full bake-off and re-elects the
-   * winner; the pages in between compare zero-run and LZ77 and add byte-run only while it holds the
-   * election (or, under {@link #CODEC_BAKEOFF_STICKY_ONLY}, encode with the elected codec only).
-   * {@code 1} probes every page — the exhaustive pick-smallest behavior, required for byte-identical
-   * golden files (see {@link #emitSmallestBody}).
+   * Probe cadence for each active election; {@link #emitSmallestBody} owns the selection policy and
+   * configuration contract.
    */
   private static final int STICKY_PROBE_INTERVAL = Integer.getInteger("sirix.codecBakeoff.probeInterval", 16);
 
   /**
-   * Pages at the start of each serialization thread that always probe, so the first election rests on
-   * real evidence rather than the zero-initialized default.
+   * Initial bodies in each active election that always probe, so the first election rests on real
+   * evidence rather than the zero-initialized default.
    */
   private static final int STICKY_WARMUP_PAGES = 8;
 
   /**
-   * Sticky-winner election state per serialization thread:
-   * {@code {winnerCodecId, warmupPagesSeen, pagesSinceProbe}}. The winner id matches the wire codec
-   * byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec}, 3 = {@link SirixLZ77Codec}).
+   * Shared election state for chunk frames and legacy monolithic bodies on this thread: the first
+   * three entries are {@code {winnerCodecId, warmupPagesSeen, pagesSinceProbe}}. The winner id
+   * matches the wire codec byte (0 = {@link ZeroRunByteCodec}, 2 = {@link ByteRunCodec}, 3 =
+   * {@link SirixLZ77Codec}). The fourth entry tracks the emitted codec in both modes; partitioned
+   * elections live in {@link PartitionedBodyCodecElection}.
    */
   private static final ThreadLocal<int[]> STICKY_CODEC = ThreadLocal.withInitial(() -> new int[4]);
 
   /**
-   * Index into {@link #STICKY_CODEC} holding the codec the last body emitted on this thread actually
-   * used — which is not always the elected one, since the pages between probes write the smaller of
-   * zero-run and LZ77 whatever the election says. Read only by the post-codec attribution, so it can
-   * charge each section under the codec the page really paid.
+   * Index into {@link #STICKY_CODEC} holding the last emitted body codec for post-codec attribution.
+   * Kept separate from the winner because the legacy comparison path can override the election; see
+   * {@link #emitSmallestBody}.
    */
   private static final int STICKY_LAST_EMITTED = 3;
 
   /**
-   * Whether the pages between probes encode with the elected codec ALONE ({@code true}) instead of
-   * always comparing zero-run and LZ77 ({@code false}, the default).
+   * Shared-election A/B control for chunk frames and legacy monolithic bodies. See
+   * {@link #emitSmallestBody} for its configuration and selection policy.
    *
    * <p>
-   * Measured on a 1M-row ClickBench load (2026-08-30): the elected codec alone wrote the leaf class
-   * at 1,093.3 MB, a bake-off on every page at 1,037.7 MB (−5.1 %), for +1 s on a 30 s load. Always
-   * comparing the two codecs that decide page size recovers that at a fraction of the cost: zero-run
-   * is near memcpy speed and LZ77 already runs on every page that elected it.
-   *
-   * <p>
-   * Kill switch: {@code -Dsirix.codecBakeoff.stickyOnly=true}. Not final: the witness flips it after
-   * this class is loaded, the same contract {@link #STRING_REGION_PER_TAG_COMPLETENESS} documents.
-   * Read once per page body, never per slot.
+   * Not final: the witness flips it after this class is loaded, the same contract
+   * {@link #STRING_REGION_PER_TAG_COMPLETENESS} documents. Read once per page body, never per slot.
    */
   static boolean CODEC_BAKEOFF_STICKY_ONLY = Boolean.getBoolean("sirix.codecBakeoff.stickyOnly");
 
   /**
-   * Test seam: make {@code codec} the current thread's elected body codec with the warm-up spent and
-   * the probe cadence reset, so the next page body is a between-probes page under that election.
+   * Test seam for the legacy shared election: make {@code codec} the current thread's elected body
+   * codec with the warm-up spent and the probe cadence reset. Partitioned state is unaffected.
    */
   static void electBodyCodecForTesting(final int codec) {
     final int[] sticky = STICKY_CODEC.get();
@@ -8161,18 +8148,17 @@ public enum PageKind {
   }
 
   /**
-   * Reset the current thread's sticky-codec election so its next {@link #STICKY_WARMUP_PAGES} page
-   * bodies run the full bake-off (exhaustive pick-smallest). Golden-byte tests MUST call this before
-   * serializing: the election makes stored bytes a function of per-thread serialization history (see
-   * {@link #emitSmallestBody}), so a page serialized after unrelated work on the same thread may be
-   * encoded with the elected codec instead of the smallest one — which is exactly the run-to-run
-   * variance a golden comparison has to neutralize.
+   * Reset the current thread's shared election and all its partitions. Each election's next
+   * {@link #STICKY_WARMUP_PAGES} bodies run the full bake-off. Golden-byte tests must reset before
+   * serializing to remove prior thread history; comparisons extending beyond warm-up must also use
+   * the exhaustive probe cadence documented in {@link #emitSmallestBody}.
    */
   public static void resetStickyCodecElectionForCurrentThread() {
     final int[] sticky = STICKY_CODEC.get();
     sticky[0] = 0;
     sticky[1] = 0;
     sticky[2] = 0;
+    PartitionedBodyCodecElection.reset();
   }
 
   /** Per-thread scratch for {@link ByteRunCodec} output. */
@@ -8375,15 +8361,25 @@ public enum PageKind {
    * writers (template-dedup and inline) share this tail.
    *
    * <p>
-   * <b>Sticky-winner election.</b> Only <i>probe</i> pages — the first {@link #STICKY_WARMUP_PAGES}
-   * pages of a serialization thread, then every {@link #STICKY_PROBE_INTERVAL}-th page — run all
-   * three codecs and (re-)elect the winner. The pages in between still encode zero-run and LZ77 and
-   * write the smaller of the two; the election only decides whether byte-run is encoded as well. The
-   * elected codec ALONE ({@link #CODEC_BAKEOFF_STICKY_ONLY}) rested on the winner being stable within
-   * a workload, and it is not: index pages (NAME, PATH_SUMMARY) share the serialization threads with
-   * record pages, their probes elect zero-run, and the record pages that follow were written up to
-   * 3&times; their LZ77 size — 5.1 % of leaf bytes on a 1M-row ClickBench load. The emitted codec
-   * byte keeps the format self-describing, so readers never see the difference.
+   * <b>Sticky-winner election.</b> By default ({@code sirix.codecBakeoff.partitioned=true}), each
+   * serialization thread keeps independent elections per index type and raw-body size bucket. Buckets
+   * group lengths by {@code floor(log2(max(1, totalBytes)))}; empty and one-byte bodies share bucket
+   * zero. Each election probes its first {@link #STICKY_WARMUP_PAGES} bodies, then every
+   * {@code sirix.codecBakeoff.probeInterval}-th body (default 16). A probe runs every enabled body
+   * codec and re-elects the smallest; intervening bodies encode only the elected codec. Separating
+   * index kinds and body sizes prevents their distributions from sharing a winner, without retaining
+   * pages or allocating per body. This policy applies to monolithic bodies, not chunk frames.
+   *
+   * <p>
+   * <b>Legacy comparison mode.</b> {@code -Dsirix.codecBakeoff.partitioned=false} restores one shared
+   * election per thread. Between probes it compares zero-run and enabled LZ77, adding byte-run only
+   * while byte-run holds the election. Also setting {@code -Dsirix.codecBakeoff.stickyOnly=true}
+   * selects the shared winner alone instead; this flag defaults to false and has no effect on
+   * partitioned monolithic bodies. The chunk-frame writer always uses the shared election and honors
+   * {@code stickyOnly} regardless of the partitioned setting. Shared sticky-only elections can let
+   * index pages' zero-run winner inflate following record pages, which motivated the comparison mode.
+   * The emitted codec byte keeps both modes self-describing; readers need neither the election table
+   * nor these writer settings.
    *
    * <p>
    * <b>Determinism caveat.</b> With {@code probeInterval > 1} the codec picked for a page depends on
@@ -8399,26 +8395,32 @@ public enum PageKind {
    * bytes. On Chicago-like record heaps LZ77 typically wins because record-header bytes repeat
    * verbatim across slots.
    */
-  private static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging, final int totalBytes) {
+  static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging, final int totalBytes,
+      final byte indexTypeId) {
     final int[] sticky = STICKY_CODEC.get();
-    final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
+    final boolean partitioned = PartitionedBodyCodecElection.enabled;
+    final int[] election = partitioned
+        ? PartitionedBodyCodecElection.state()
+        : sticky;
+    final int offset = partitioned
+        ? PartitionedBodyCodecElection.offset(indexTypeId, totalBytes)
+        : 0;
+    final boolean warmup = election[offset + 1] < STICKY_WARMUP_PAGES;
     if (warmup) {
-      sticky[1]++;
+      election[offset + 1]++;
     }
-    final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
+    final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || election[offset + 2] >= STICKY_PROBE_INTERVAL - 1;
     if (probe) {
-      sticky[2] = 0;
+      election[offset + 2] = 0;
     } else {
-      sticky[2]++;
-      if (CODEC_BAKEOFF_STICKY_ONLY) {
-        emitWithCodec(sticky[0], sink, staging, totalBytes);
+      election[offset + 2]++;
+      if (partitioned || CODEC_BAKEOFF_STICKY_ONLY) {
+        emitWithCodec(election[offset], sink, staging, totalBytes);
         return;
       }
     }
-    // Between probes the election decides only whether byte-run is worth encoding: zero-run runs at
-    // memcpy speed and LZ77 is what nearly every record page elects anyway, so those two are always
-    // encoded and compared. See CODEC_BAKEOFF_STICKY_ONLY for what a stale election used to cost.
-    final boolean tryByteRun = BYTE_RUN_CODEC_ENABLED && (probe || sticky[0] == 2);
+    // Only probes and legacy between-probe comparisons reach this bake-off.
+    final boolean tryByteRun = BYTE_RUN_CODEC_ENABLED && (probe || election[offset] == 2);
 
     final int maxV0 = ZeroRunByteCodec.maxEncodedSize(totalBytes);
     final int maxV2 = ByteRunCodec.maxEncodedSize(totalBytes);
@@ -8456,11 +8458,10 @@ public enum PageKind {
     final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
     // Tie order mirrors the emission branches below (LZ77 > ByteRun > ZeroRun), so a
     // probe page emits exactly what the exhaustive pick would have. Disabled codecs
-    // report Integer.MAX_VALUE and can never be elected. Only a probe (re-)elects: a
-    // page in between compared what it encoded and wrote the smallest, which is all the
-    // election is for.
+    // report Integer.MAX_VALUE and can never be elected. Only a probe (re-)elects; a
+    // legacy between-probe comparison can change the emitted codec without changing the winner.
     if (probe) {
-      sticky[0] = bestLen == v3Len
+      election[offset] = bestLen == v3Len
           ? 3
           : bestLen == v2Len
               ? 2
@@ -8599,11 +8600,11 @@ public enum PageKind {
    * Exhaustive pick-smallest over the same three codecs the leaf body uses, plus STORED.
    *
    * <p>
-   * Deliberately NOT the sticky election of {@link #emitSmallestBody}: that election is per
-   * serialization thread and shared across page kinds, and it has already been measured to poison
-   * record pages once a different kind probes on the same thread. An overflow page is large — the
-   * whole class exists for payloads above 1 KB — so the encode cost is amortised over many KB and an
-   * exhaustive comparison is affordable where it would not be for a small page.
+   * Deliberately exhaustive rather than using {@link #emitSmallestBody}'s sticky election: overflow
+   * payloads can have different distributions even within one index type and size bucket, so a prior
+   * winner need not fit the next payload. An overflow page is large — the whole class exists for
+   * payloads above 1 KB — so the encode cost is amortised over many KB and an exhaustive comparison
+   * is affordable where it would not be for a small page.
    * </p>
    *
    * <p>
