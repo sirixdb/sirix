@@ -194,12 +194,14 @@ witness), the mutation that must fail, the acceptance number at 1M, the test cla
   met at 1M (region on 100 % of document pages, stranded 0, elision 99.9 %, descriptor pages 0.2 %) but the leaf
   class grew +58.6 MB: every newly elided slot writes the `appendValueElision` tuple (slot gap, type, width, region
   index ≈ 4–5 B; 3.65 B/record raw — TWICE the heap bytes elision removes). Found alongside: the sticky codec
-  election wrote record pages with index pages' zero-run winner — **fixed by the lead (always compare zero-run and
-  LZ77; kill switch `-Dsirix.codecBakeoff.stickyOnly=true`; `BodyCodecElectionTest`): leaf −5.3 %, file 1,854.3 →
-  1,812.3 MB net, load time unchanged.** Under the fix the cap raise alone is leaf +18.2 MB (string region +13.8,
-  body ≈ +3) against overflow −37.4 MB = file −16.8 MB (the "+110 MB body wire" was the section diag re-counting
-  re-serialized pages; judge by the StorageProfile leaf class), completeness alone leaf +34.7 MB (the tuples).
-  ACCEPTED. Consequence: B3-a starts with DERIVED elision metadata (bitmap + per-tag running rank + canonical
+  election wrote record pages with index pages' zero-run winner — **the historical comparison fix measured
+  leaf −5.3 %, file 1,854.3 → 1,812.3 MB net, load time unchanged.** Under the fix the cap raise alone is
+  leaf +18.2 MB (string region +13.8, body ≈ +3) against overflow −37.4 MB = file −16.8 MB (the "+110 MB body wire"
+  was the section diag re-counting re-serialized pages; judge by the StorageProfile leaf class),
+  completeness alone leaf +34.7 MB (the tuples).
+  ACCEPTED. The current election policy and writer controls are owned by
+  [`PageKind.emitSmallestBody`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java).
+  Consequence: B3-a starts with DERIVED elision metadata (bitmap + per-tag running rank + canonical
   widths) — the largest trie lever measured so far.
 - **B5-d — cap + completeness (original brief).** Files: `settings/Constants.java`, `page/PageLayout.java`, `page/OverflowSlotSidecar.java`,
   `page/PageKind.java` (`stringRegionComplete`), `page/pax/StringRegion.java` (per-tag completeness). Witness: the

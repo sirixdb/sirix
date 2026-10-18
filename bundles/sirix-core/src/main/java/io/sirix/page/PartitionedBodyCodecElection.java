@@ -5,20 +5,22 @@ import java.util.Arrays;
 import io.sirix.index.IndexType;
 
 /**
- * Write-side state for partitioned sticky body-codec elections.
+ * Write-side state for partitioned sticky body-codec elections; {@link PageKind#emitSmallestBody}
+ * owns the selection policy and configuration contract.
  *
- * <p>The reader must not carry the partition table or its configuration branch. Keeping this state
- * in a separate class also delays its class initialization until a body is written.</p>
+ * <p>
+ * The reader must not carry the partition table or its configuration branch. Keeping this state in
+ * a separate class also delays its class initialization until a body is written.
+ * </p>
  */
 final class PartitionedBodyCodecElection {
-  /** Enabled by default after paired cold-read validation; set the property to false to disable. */
-  static boolean enabled = Boolean.parseBoolean(
-      System.getProperty("sirix.codecBakeoff.partitioned", Boolean.TRUE.toString()));
+  /** Mutable for test isolation; production configuration is read once at class initialization. */
+  static boolean enabled =
+      Boolean.parseBoolean(System.getProperty("sirix.codecBakeoff.partitioned", Boolean.TRUE.toString()));
 
   private static final ThreadLocal<int[]> STATE = new ThreadLocal<>();
 
-  private PartitionedBodyCodecElection() {
-  }
+  private PartitionedBodyCodecElection() {}
 
   static int[] state() {
     int[] state = STATE.get();
@@ -34,6 +36,7 @@ final class PartitionedBodyCodecElection {
   }
 
   static int offset(final byte indexTypeId, final int totalBytes) {
+    // OR 1 maps empty and one-byte bodies to bucket zero without a branch or floating-point log.
     final int bucket = Integer.SIZE - 1 - Integer.numberOfLeadingZeros(totalBytes | 1);
     return (indexTypeId * Integer.SIZE + bucket) * 3;
   }

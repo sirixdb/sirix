@@ -2224,10 +2224,9 @@ route=group-aggregate 1.94 s (was NONE 9.8 s). `CompositeStringIdentityDeclineTe
   (**−5.1 %**; B5-d: 1,151.8 → 1,090.5 MB) — for +1 s on a 30 s load (solo timing; file byte-identical between the
   solo and the parallel run). Mechanism: index pages (NAME/PATH_SUMMARY, 13 % of serializations) share the
   serialization threads, their probes elect zero-run, and the record pages that follow are written up to 3× their
-  LZ77 size. Fix (lead, `PageKind.emitSmallestBody` + `encodeChunkedFrame`): between probes always encode zero-run
-  and LZ77 and write the smaller; byte-run only on probes or while it holds the election; kill switch
-  `-Dsirix.codecBakeoff.stickyOnly=true`; seam `electBodyCodecForTesting`; witness `BodyCodecElectionTest` (stale
-  zero-run election → LZ77 written and fewer bytes; kill switch = mutation writes zero-run; probe re-elects).
+  LZ77 size. The historical comparison fix is witnessed by `BodyCodecElectionTest`; current election policy
+  and writer controls are owned by
+  [`PageKind.emitSmallestBody`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java).
 - 18:47 **Codec-election fix confirmed on a 1M reload (B5-d + fix, default cadence): leaf 1,151.8 → 1,090.5 MB
   (1,090,522,658 B vs 1,090,522,653 B under probeInterval=1), file 1,871.1 → 1,812.3 MB (byte-identical to the
   probe-every-page run), load 30 s (unchanged).** Rig: BodyCodecElectionTest 3/3, PageSectionDiagCountersTest 5/5,
