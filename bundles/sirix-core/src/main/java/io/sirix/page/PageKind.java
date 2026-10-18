@@ -8387,7 +8387,7 @@ public enum PageKind {
    * byte keeps the format self-describing, so readers never see the difference.
    *
    * <p>
-   * With {@link PartitionedBodyCodecElection#enabled}, monolith bodies instead keep independent elections per
+   * By default, monolith bodies keep independent elections per
    * index type and raw-body size bucket. Each partition runs the same warm-up and probe cadence;
    * intervening bodies encode only its elected codec. This separates both index kinds and the
    * differently sized bodies within one kind without retaining pages or allocating per body.

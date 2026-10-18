@@ -11,7 +11,9 @@ import io.sirix.index.IndexType;
  * in a separate class also delays its class initialization until a body is written.</p>
  */
 final class PartitionedBodyCodecElection {
-  static boolean enabled = Boolean.getBoolean("sirix.codecBakeoff.partitioned");
+  /** Enabled by default after paired cold-read validation; set the property to false to disable. */
+  static boolean enabled = Boolean.parseBoolean(
+      System.getProperty("sirix.codecBakeoff.partitioned", Boolean.TRUE.toString()));
 
   private static final ThreadLocal<int[]> STATE = new ThreadLocal<>();
 
