@@ -60,14 +60,14 @@ final class BodyCodecElectionTest {
   void setUp() {
     arena = Arena.ofConfined();
     stickyOnlyBefore = PageKind.CODEC_BAKEOFF_STICKY_ONLY;
-    partitionedBefore = PageKind.CODEC_BAKEOFF_PARTITIONED;
-    PageKind.CODEC_BAKEOFF_PARTITIONED = false;
+    partitionedBefore = PartitionedBodyCodecElection.enabled;
+    PartitionedBodyCodecElection.enabled = false;
   }
 
   @AfterEach
   void tearDown() {
     PageKind.CODEC_BAKEOFF_STICKY_ONLY = stickyOnlyBefore;
-    PageKind.CODEC_BAKEOFF_PARTITIONED = partitionedBefore;
+    PartitionedBodyCodecElection.enabled = partitionedBefore;
     PageKind.resetStickyCodecElectionForCurrentThread();
     if (arena != null) {
       arena.close();

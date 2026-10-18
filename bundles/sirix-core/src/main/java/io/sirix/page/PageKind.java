@@ -8150,31 +8150,6 @@ public enum PageKind {
   static boolean CODEC_BAKEOFF_STICKY_ONLY = Boolean.getBoolean("sirix.codecBakeoff.stickyOnly");
 
   /**
-   * Opt-in monolith-body election partitioned by index type and floor(log2(raw bytes)). Each
-   * partition has its own warm-up and probe cadence, preventing a small directory or name page from
-   * electing a codec for an unrelated record body. Between probes only its elected codec runs.
-   * Chunk-framed bodies retain their separate frame policy. Kept opt-in pending paired load, commit
-   * and cold-query acceptance. Mutable for the same test-witness contract as stickyOnly.
-   */
-  static boolean CODEC_BAKEOFF_PARTITIONED = Boolean.getBoolean("sirix.codecBakeoff.partitioned");
-
-  /** Lazily allocated, flat primitive state: three ints per index-type/size-bucket partition. */
-  private static final ThreadLocal<int[]> PARTITIONED_CODEC = new ThreadLocal<>();
-
-  private static int[] partitionedCodecState() {
-    int[] state = PARTITIONED_CODEC.get();
-    if (state == null) {
-      int maxId = 0;
-      for (final IndexType type : IndexType.values()) {
-        maxId = Math.max(maxId, type.getID());
-      }
-      state = new int[(maxId + 1) * Integer.SIZE * 3];
-      PARTITIONED_CODEC.set(state);
-    }
-    return state;
-  }
-
-  /**
    * Test seam: make {@code codec} the current thread's elected body codec with the warm-up spent and
    * the probe cadence reset, so the next page body is a between-probes page under that election.
    */
@@ -8198,10 +8173,7 @@ public enum PageKind {
     sticky[0] = 0;
     sticky[1] = 0;
     sticky[2] = 0;
-    final int[] partitioned = PARTITIONED_CODEC.get();
-    if (partitioned != null) {
-      Arrays.fill(partitioned, 0);
-    }
+    PartitionedBodyCodecElection.reset();
   }
 
   /** Per-thread scratch for {@link ByteRunCodec} output. */
@@ -8415,7 +8387,7 @@ public enum PageKind {
    * byte keeps the format self-describing, so readers never see the difference.
    *
    * <p>
-   * With {@link #CODEC_BAKEOFF_PARTITIONED}, monolith bodies instead keep independent elections per
+   * With {@link PartitionedBodyCodecElection#enabled}, monolith bodies instead keep independent elections per
    * index type and raw-body size bucket. Each partition runs the same warm-up and probe cadence;
    * intervening bodies encode only its elected codec. This separates both index kinds and the
    * differently sized bodies within one kind without retaining pages or allocating per body.
@@ -8437,14 +8409,12 @@ public enum PageKind {
   static void emitSmallestBody(final BytesOut<?> sink, final MemorySegment staging, final int totalBytes,
       final byte indexTypeId) {
     final int[] sticky = STICKY_CODEC.get();
-    final boolean partitioned = CODEC_BAKEOFF_PARTITIONED;
+    final boolean partitioned = PartitionedBodyCodecElection.enabled;
     final int[] election = partitioned
-        ? partitionedCodecState()
+        ? PartitionedBodyCodecElection.state()
         : sticky;
     // OR 1 maps empty and one-byte bodies to bucket zero without a branch or floating-point log.
-    final int offset = partitioned
-        ? (indexTypeId * Integer.SIZE + Integer.SIZE - 1 - Integer.numberOfLeadingZeros(totalBytes | 1)) * 3
-        : 0;
+    final int offset = partitioned ? PartitionedBodyCodecElection.offset(indexTypeId, totalBytes) : 0;
     final boolean warmup = election[offset + 1] < STICKY_WARMUP_PAGES;
     if (warmup) {
       election[offset + 1]++;

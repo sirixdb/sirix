@@ -29,9 +29,9 @@ final class PartitionedBodyCodecElectionTest {
 
   @BeforeEach
   void enablePartitionedElection() {
-    partitionedBefore = PageKind.CODEC_BAKEOFF_PARTITIONED;
+    partitionedBefore = PartitionedBodyCodecElection.enabled;
     stickyOnlyBefore = PageKind.CODEC_BAKEOFF_STICKY_ONLY;
-    PageKind.CODEC_BAKEOFF_PARTITIONED = true;
+    PartitionedBodyCodecElection.enabled = true;
     PageKind.CODEC_BAKEOFF_STICKY_ONLY = false;
     PageKind.resetStickyCodecElectionForCurrentThread();
   }
@@ -39,7 +39,7 @@ final class PartitionedBodyCodecElectionTest {
   @AfterEach
   void restoreElection() {
     PageKind.resetStickyCodecElectionForCurrentThread();
-    PageKind.CODEC_BAKEOFF_PARTITIONED = partitionedBefore;
+    PartitionedBodyCodecElection.enabled = partitionedBefore;
     PageKind.CODEC_BAKEOFF_STICKY_ONLY = stickyOnlyBefore;
   }
 
