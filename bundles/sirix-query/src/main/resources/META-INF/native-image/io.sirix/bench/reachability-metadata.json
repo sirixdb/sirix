@@ -260,6 +260,17 @@
             "boolean"
           ]
         }
+      ],
+      "fields": [
+        {
+          "name": "FACTORY"
+        },
+        {
+          "name": "maximum"
+        },
+        {
+          "name": "weightedSize"
+        }
       ]
     },
     {
@@ -275,6 +286,68 @@
       "fields": [
         {
           "name": "refreshes"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.FS",
+      "fields": [
+        {
+          "name": "key"
+        },
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.FSMW",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSLSMS",
+      "fields": [
+        {
+          "name": "FACTORY"
+        },
+        {
+          "name": "maximum"
+        },
+        {
+          "name": "weightedSize"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSMW",
+      "fields": [
+        {
+          "name": "FACTORY"
+        },
+        {
+          "name": "maximum"
+        },
+        {
+          "name": "weightedSize"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.WSMW",
+      "fields": [
+        {
+          "name": "FACTORY"
+        },
+        {
+          "name": "maximum"
+        },
+        {
+          "name": "weightedSize"
         }
       ]
     },

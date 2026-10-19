@@ -19,6 +19,23 @@ when other agents/suites share the box.
 Override the main class/image name to reuse this recipe for the write smoke:
 `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain -Pnative.imageName=sirix-write-smoke`.
 
+## Query configuration regression guard
+
+Run `./gradlew :sirix-query:nativeSmokeTest` to verify the shipped native-image
+configuration. `NativeImageBitemporalQueryTest` creates a small indexed temporal
+database and executes SH1 Q1–Q12 twice, comparing each result with the generic
+evaluator. Q4 must use the routed masked-column join, which exercises Caffeine's
+generated weak-key weighted cache implementation. The test runs in the existing
+native-image CI job; `nativeImageSmokeTest` runs the same corpus on the JVM.
+
+Generated Caffeine cache and node registrations come from tracing the query
+workload with `native-image-agent`, then retaining the cache factories, node
+constructors and fields needed at runtime. Keep unrelated JVM instrumentation
+and benchmark output resources out of the shipped metadata. Validate changes
+with an actual native smoke image; a passing JVM test cannot detect missing
+native reachability metadata. Both smoke and main image builds accept
+`-Pnative.builderXmx=10g` to cap the compiler heap.
+
 ## PGO (profile-guided optimization)
 
 ```bash

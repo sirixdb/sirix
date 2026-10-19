@@ -839,6 +839,7 @@ graalvmNative {
             buildArgs.add('--add-modules=jdk.incubator.vector')
             buildArgs.add('-H:+ForeignAPISupport')
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add('-H:+VectorAPISupport')
             // Module exports for JNA/JNR/JNI
             buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
             buildArgs.add('--add-exports=java.base/sun.nio.ch=ALL-UNNAMED')
@@ -864,7 +865,12 @@ graalvmNative {
             // Quick build for faster test compilation
             quickBuild = true
             // Allocate memory to the native-image compiler
-            jvmArgs.add('-XX:MaxRAMPercentage=80')
+            def builderXmx = project.findProperty('native.builderXmx')
+            if (builderXmx) {
+                jvmArgs.add("-Xmx${builderXmx}")
+            } else {
+                jvmArgs.add('-XX:MaxRAMPercentage=80')
+            }
         }
         main {
             // imageName/mainClass are overridable so the same fully-tuned binary
