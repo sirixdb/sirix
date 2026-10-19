@@ -890,12 +890,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   /**
-   * Whether the fused-structural record-wrapper {@code {}} of the current start node was suppressed
-   * at emit time. emitNode only opens the start node's {@code {} when
+   * Whether the fused-structural record-wrapper <code>{}</code> of the current start node was
+   * suppressed at emit time. emitNode only opens the start node's <code>{}</code> when
    * {@code serializeStartNodeWithBrackets} is set; when it is not (e.g. {@link JsonRecordSerializer}
-   * wraps each top-level record itself), the opening {@code {} is suppressed, so emitEndNode must
-   * likewise suppress the matching closing {@code }} — otherwise an extra {@code }} corrupts the JSON
-   * (invalid output for {@code ?nextTopLevelNodes=N&withMetaData=…} with no maxLevel).
+   * wraps each top-level record itself), the opening <code>{</code> is suppressed, so emitEndNode
+   * must likewise suppress the matching closing <code>}</code> — otherwise an extra <code>}</code>
+   * corrupts the JSON (invalid output for {@code ?nextTopLevelNodes=N&withMetaData=…} with no
+   * maxLevel).
    */
   private boolean isSuppressedStartNodeWrapper(final JsonNodeReadOnlyTrx rtx) {
     return rtx.getNodeKey() == startNodeKey && !serializeStartNodeWithBrackets;

@@ -16,8 +16,9 @@ import io.sirix.query.function.sdb.SDBFun;
  * Function for retrieving the number of children of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:child-count($doc as xs:structured-item) as xs:int</code></li>
+ * <li><code>sdb:child-count($doc as node()) as xs:integer</code></li>
  * </ul>
+ * Returns an exact count even when persisted counts are disabled; see {@link ChildCounts}.
  *
  * @author Johannes Lichtenberger
  *

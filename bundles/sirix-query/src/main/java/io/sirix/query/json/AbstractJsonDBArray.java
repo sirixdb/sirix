@@ -70,14 +70,14 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private static final long CHILD_COUNT_UNKNOWN = -1L;
 
   /**
-   * This array's element count, captured at construction.
+   * This array's element count, captured at construction when stored or resolved lazily otherwise.
    *
    * <p>
    * brackit's array unbox calls {@code len()} once per element, and answering that from the cursor
    * means {@code moveRtx()} — a jump back to the array node, which lives on a different page from the
    * element being read. That bounced the cursor page N -> array page -> page N for every element and
    * defeated the same-page fast path. It used to be avoided by materializing the whole element list
-   * and reading its size; capturing the count here removes the need for either.
+   * and reading its size; caching the count here removes the need for either.
    *
    * <p>
    * Read-only transactions only, for the reason {@code JsonDBObject#firstChildKey} records: a writer
