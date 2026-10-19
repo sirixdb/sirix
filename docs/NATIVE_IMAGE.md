@@ -1,7 +1,7 @@
 # sirix-bench native image (GraalVM)
 
 The `:sirix-query:nativeCompile` task builds a Graal native image for
-`io.sirix.query.bench.ScaleBenchMain` → `build/native/nativeCompile/sirix-bench`.
+`io.sirix.query.bench.ScaleBenchMain` → `bundles/sirix-query/build/native/nativeCompile/sirix-bench`.
 
 ## Build modes
 
@@ -12,18 +12,35 @@ The `:sirix-query:nativeCompile` task builds a Graal native image for
   both modes finish in ~2 min — the compile phase is only ~70-80 s because the
   reachable method count is modest; peak builder RSS ~6 GB.
 
-The builder heap defaults to `-XX:MaxRAMPercentage=65` (coexists with a live
-Gradle daemon on a 31 GB host). Pass `-Pnative.builderXmx=10g` to hard-cap it
-when other agents/suites share the box.
+The main-image builder heap defaults to `-XX:MaxRAMPercentage=65` (coexists with
+a live Gradle daemon on a 31 GB host); the smoke-test builder defaults to
+`-XX:MaxRAMPercentage=80`. Both accept `-Pnative.builderXmx=10g` to replace the
+percentage with an explicit compiler heap cap when other agents/suites share the box.
 
 Override the main class/image name to reuse this recipe for the write smoke:
 `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain -Pnative.imageName=sirix-write-smoke`.
+
+## Query configuration regression guard
+
+Run `./gradlew :sirix-query:nativeSmokeTest` to verify the shipped native-image
+configuration. `NativeImageBitemporalQueryTest` creates a small indexed temporal
+database and executes SH1 Q1–Q12 twice, comparing each result with the generic
+evaluator. Q4 must use the routed masked-column join, which exercises Caffeine's
+generated weak-key weighted cache implementation. The test runs in the existing
+native-image CI job; `nativeImageSmokeTest` runs the same corpus on the JVM.
+
+Generated Caffeine cache and node registrations come from tracing the query
+workload with `native-image-agent`, then retaining the cache factories, node
+constructors and fields needed at runtime. Keep unrelated JVM instrumentation
+and benchmark output resources out of the shipped metadata. Validate changes
+with an actual native smoke image; a passing JVM test cannot detect missing
+native reachability metadata.
 
 ## PGO (profile-guided optimization)
 
 ```bash
 ./gradlew :sirix-query:nativeCompile -Ppgo-instrument
-./build/native/nativeCompile/sirix-bench 1000000 true 5   # produces default.iprof
+./bundles/sirix-query/build/native/nativeCompile/sirix-bench 1000000 true 5   # produces default.iprof
 ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
 ```
 

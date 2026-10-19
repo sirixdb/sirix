@@ -167,7 +167,7 @@ Build native binaries with GraalVM:
 ```bash
 # Build both CLIs as native binaries (requires GraalVM with native-image)
 ./gradlew :sirix-kotlin-cli:nativeCompile  # produces: sirix-cli
-./gradlew :sirix-query:nativeCompile       # produces: sirix-shell
+./gradlew :sirix-query:nativeCompile -Pnative.mainClass=io.sirix.query.Main -Pnative.imageName=sirix-shell
 
 # Or run via JAR
 ./gradlew :sirix-kotlin-cli:run --args="-l /tmp/mydb create"
@@ -654,9 +654,12 @@ cd sirix
 ```
 
 **Build native binaries** (requires GraalVM):
+
+For the CLI build commands, see [Using the CLI (Native Binaries)](#using-the-cli-native-binaries).
+For benchmark image builds and their options, see
+[`docs/NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md).
+
 ```bash
-./gradlew :sirix-kotlin-cli:nativeCompile  # sirix-cli
-./gradlew :sirix-query:nativeCompile       # sirix-shell
 ./gradlew :sirix-rest-api:nativeCompile    # REST API server
 ```
 
