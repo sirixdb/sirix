@@ -441,7 +441,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                 // Close array-`]`, then outer wrapper `}`.
                 appendArrayEnd(false);
               }
-              appendObjectEnd(true);
+              if (!isSuppressedStartNodeWrapper(rtx)) {
+                appendObjectEnd(true);
+              }
             } else {
               if (isNamedObject) {
                 appendObjectEnd(false);
