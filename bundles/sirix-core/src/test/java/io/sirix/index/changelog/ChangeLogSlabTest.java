@@ -17,12 +17,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class ChangeLogSlabTest {
   @Test
-  void formatThreeGoldenSlabPreservesBaseAndBothCells() {
+  void formatFourGoldenSlabPreservesBaseAndBothCells() {
     final Row before = new Row(true, 2);
     before.flags[0] = ChangeLogSlab.PRESENT;
     before.flags[1] = ChangeLogSlab.PRESENT;
@@ -35,7 +34,7 @@ final class ChangeLogSlabTest {
     final byte[] golden =
         HexFormat.of()
                  .parseHex(
-                     "53434c4700000003000000030000000900000002000000020000002a0000004d00020102000000010178000b000000000000000101010d0100010154010004000000000000000301015401000000000000");
+                     "53434c4700000004000000030000000900000002000000020000002600020102000000010178000b000000000000000101010d01000101540100040000000000000003010154010000");
     assertArrayEquals(golden, slab.encode());
     final ChangeLogSlab decoded = ChangeLogSlab.decode(golden);
     assertEquals(2, decoded.baseRevision());
@@ -47,7 +46,7 @@ final class ChangeLogSlabTest {
   }
 
   @Test
-  void prefixDirectoriesAndRestartLocalRecordsRemainCompactAndReplayable() throws Exception {
+  void recordDeltasRemainCompactAndReplayable() throws Exception {
     final List<Entry> entries = new ArrayList<>(2000);
     for (int record = 0; record < 2000; record++) {
       final Row row = new Row(true, 2);
@@ -56,20 +55,17 @@ final class ChangeLogSlabTest {
       row.numbers[1] = record % 20;
       entries.add(new Entry(1_000_000L + record, new long[] {3}, null, row));
     }
-    final ChangeLogSlab slab =
-        new ChangeLogSlab(0, 1, 0, new byte[] {1, 1}, entries, List.of(new ChangeLogDirectory.Grouping(7, List.of(0))));
+    final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, new byte[] {1, 1}, entries);
     final byte[] encoded = slab.encode();
     final int metadata = ByteBuffer.wrap(encoded).getInt(24);
-    final int directory = ByteBuffer.wrap(encoded).getInt(28);
-    assertTrue(encoded.length - directory < 1300, "One hundred prefix-compressed numeric keys and restarts");
     try (DataInputStream records =
-        new DataInputStream(new ByteArrayInputStream(encoded, metadata, directory - metadata))) {
+        new DataInputStream(new ByteArrayInputStream(encoded, metadata, encoded.length - metadata))) {
       for (int record = 0; record < entries.size(); record++) {
-        final boolean restart = record % 20 == 0;
+        final boolean restart = record == 0;
         assertEquals(restart
             ? 0
             : 1, ChangeLogSlab.readUnsigned(records),
-            "Each group restarts, then consecutive records use a one-byte delta");
+            "The first record restarts, then consecutive records use a one-byte delta");
         if (restart) {
           assertEquals(1_000_000L + record, ChangeLogSlab.readUnsigned(records));
         }
@@ -156,24 +152,19 @@ final class ChangeLogSlabTest {
   }
 
   @Test
-  void rejectsBrokenRoutingOffsetsKeyPrefixesAndRecordRestarts() {
+  void rejectsBrokenMetadataOffsetAndRecordRestart() {
     final Row row = new Row(true, 1);
     row.flags[0] = ChangeLogSlab.PRESENT;
     row.numbers[0] = 7;
-    final byte[] encoded =
-        new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG}, List.of(new Entry(11, new long[] {1}, null, row)),
-            List.of(new ChangeLogDirectory.Grouping(7, List.of(0)))).encode();
+    final byte[] encoded = new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG},
+        List.of(new Entry(11, new long[] {1}, null, row))).encode();
     final int metadata = ByteBuffer.wrap(encoded).getInt(24);
-    final int directory = ByteBuffer.wrap(encoded).getInt(28);
     final byte[] brokenRestart = encoded.clone();
     brokenRestart[metadata] = 1;
     assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(brokenRestart));
     final byte[] brokenOffset = encoded.clone();
-    ByteBuffer.wrap(brokenOffset).putInt(directory + 8, 17);
+    ByteBuffer.wrap(brokenOffset).putInt(24, metadata + 1);
     assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(brokenOffset));
-    final byte[] brokenPrefix = encoded.clone();
-    brokenPrefix[directory + 16 + 9] = 1;
-    assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(brokenPrefix));
   }
 
   @Test
@@ -185,7 +176,9 @@ final class ChangeLogSlabTest {
     }
     final byte[] extended = Arrays.copyOf(bytes, bytes.length + 1);
     assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(extended));
-    bytes[7] = 1;
-    assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(bytes));
+    for (int format = 1; format < ChangeLogSlab.FORMAT; format++) {
+      bytes[7] = (byte) format;
+      assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(bytes));
+    }
   }
 }

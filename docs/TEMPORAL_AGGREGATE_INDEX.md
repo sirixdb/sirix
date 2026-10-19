@@ -81,7 +81,7 @@ population. The index never enumerates the matching records during a point query
 
 The projection listener coalesces dirty identities and column masks through page flushes. It captures
 old cells from the decoded leaves or column slices before replacement, and new cells from the
-extractor already maintaining the projection. A format-3 `CHANGE_LOG` slab persists the first old
+extractor already maintaining the projection. A format-4 `CHANGE_LOG` slab persists the first old
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
@@ -108,10 +108,8 @@ catalogues and parts. Rebuilding a declaration after a revert resets its aggrega
 part allocator while preserving existing revision mappings. Ordinary maintenance does not rewrite
 a catalogue file. Batches process at most eight revisions, stopping between revisions once they
 reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
-mapping at its end. While caught up, every source revision gets its own durable mapping;
-the batch high watermark is frozen before applying a revision, so a concurrent publication
-cannot turn that revision into an unmapped batch interior. Only an existing backlog is batched.
-Catalogue changes end a batch so declaring revisions have a snapshot.
+mapping at its end. The batch reads a fixed published high watermark; catalogue changes end a
+batch so declaring revisions have a snapshot.
 Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
 
 Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
@@ -130,32 +128,43 @@ on its coordinating thread, reusing them across source cursors from the same pub
 The cache keys include the captured source UberPage's object identity, so commit, truncate and
 reopen require fresh identity validation even when revision numbers and timestamps are reused.
 Eviction and context close release these readers; other threads keep source-owned snapshots.
-Missing snapshots are retried after catch-up. Before raw tail catch-up, the declared route
-allows the maintainer up to `sirix.aggregate.awaitMillis` milliseconds (default 20; zero disables)
-to publish the pinned revision's mapping. It then retries the exact identity-validated lookup.
-A coordinating context waits at most once per retained source publication and revision, so
-repeated groups and instants do not repeatedly pay the timeout. Timeouts, maintenance failure,
-shutdown and interruption leave bounded catch-up or the exact fallback; interruption preserves
-the thread's interrupt flag. A frontier past an unmapped historical batch interior does not wait.
+Missing snapshots are retried after catch-up. Query routes do not wait for the maintainer;
+callers may explicitly choose `jn:await-derived` when waiting is preferable.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
 Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.
 When an exact mapping is absent, a bounded durable mapping lookup selects the greatest maintained
 source revision `s <= r` within 16 revisions of the pinned source revision `r`. The query folds
-old rows negatively and new rows positively from `(s, r]` into one immutable, unencoded signed part.
+per-commit signed group operands from `(s, r]` into one immutable, unencoded signed part.
 That part joins the stored parts before counts and extrema are validated. This preserves deleted
 minima/maxima, wide sums, group moves and newly inserted groups. A coordinating query context owns
 the base reader and reuses each declaration's tail across point instants; it does not write either
 resource. Concurrent source or maintainer commits cannot change the pinned answer.
 
-The log's per-declaration typed group directory addresses row ranges without decoding unrelated
-payloads. A group may touch at most two slab chunks per revision, including external metadata and
-directory chunks, and 4,096 entries. Oversized external metadata declines after reading only the
-section-offset chunk. The query-wide budget allows 512 distinct
-chunk fetches, 16,384 entry visits and 262,144 decoded cells, shared across declarations; tail
-builders admit at most 4,096 groups. Exceeding any bound declines the whole aggregate route.
-Admitted tails retain the existing three-part-chunk base bound plus at most two tail
-chunks per changed group per lagging revision. A repeated instant reuses the folded tail.
+The source commit computes each declaration's operands solely from the change log's already
+captured before/after rows. Counts, presence and signed 128-bit sums combine by valid-time endpoint.
+Extrema retain signed multiplicities of every touched `(lane, from, to, value)` tuple, so deleting
+an extremum still exposes the next surviving value. Equal changes cancel. This does not build or
+fold a time-cover tree on the commit path. The asynchronous maintainer continues consuming the raw
+format-4 slabs; the obsolete raw-row group directory and its reader are removed.
+
+Sorted group operands share packed 2,048-byte change-log slots, keyed by their last group. A direct
+lower-bound seek finds a requested group's block without decoding a directory or unrelated rows.
+One group may span at most two chunks; oversized groups have an explicit decline marker. A
+revision/declaration header provides coverage, unsupported-row and arithmetic-overflow markers,
+and the raw slab's publication identity. That generation prevents stale blocks from a previous
+maintenance barrier in the same transaction being read after the operands are replaced. Empty
+revisions retain coverage headers. Historical raw slabs without summary coverage decline safely.
+
+The query-wide budget retains 512 distinct chunk fetches, 16,384 decoded endpoint/frequency units
+and 262,144 primitive cells, shared across declarations. Counts are charged before decoding;
+tail builders admit at most 4,096 groups. No bound is relaxed for a large operand. Repeated points
+reuse the merged tail. Admitted tails retain the existing three-part-chunk base bound plus at most
+two tail chunks per changed group per lagging revision. `TemporalAggregateSummaryLog.lastWrite()`
+reports the last declaration's summary groups, serialized bytes (including its header), and HOT
+slots separately from `ChangeLogStorage.lastWrite()`'s raw slab accounting.
+`TemporalAggregateIndexes.lastSummaryWrite()` sums the declarations for the last logged source
+projection publication, for per-commit byte/slot reporting.
 
 The exact masked/scan route handles missing coverage, lag above 16, unsupported tail cells,
 revert discontinuities, poisoned maintenance and unavailable derived snapshots. A previously

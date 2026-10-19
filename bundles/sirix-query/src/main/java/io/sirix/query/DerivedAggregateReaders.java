@@ -4,7 +4,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.page.UberPage;
-import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
@@ -18,8 +18,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   private final Thread owner = Thread.currentThread();
   private final Snapshot[] snapshots = new Snapshot[CAPACITY];
   private CatchUpSnapshot @Nullable [] catchups;
-  private AwaitedPublication @Nullable [] awaited;
-  private ChangeLogGroupReader.@Nullable Budget catchUpBudget;
+  private TemporalAggregateCatchUpBudget.@Nullable Budget catchUpBudget;
   private volatile boolean closed;
 
   private record CatchUpSnapshot(ResourceSession<?, ?> session, UberPage publication, int revision,
@@ -39,7 +38,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
         (System.identityHashCode(source.getResourceSession()) + source.getRevisionNumber()) & (CAPACITY - 1);
     if (catchups == null) {
       catchups = new CatchUpSnapshot[CAPACITY];
-      catchUpBudget = new ChangeLogGroupReader.Budget();
+      catchUpBudget = new TemporalAggregateCatchUpBudget.Budget();
     }
     final CatchUpSnapshot previous = catchups[slot];
     if (previous != null && !previous.view().reader().isClosed() && previous.session() == source.getResourceSession()
@@ -62,26 +61,6 @@ final class DerivedAggregateReaders implements AutoCloseable {
       StorageEngineReader reader) {
   }
 
-  private record AwaitedPublication(ResourceSession<?, ?> session, UberPage publication, int revision) {
-  }
-
-  @SuppressWarnings("ReferenceEquality")
-  private boolean awaitMapping(final StorageEngineReader source, final int slot) {
-    if (awaited == null) {
-      awaited = new AwaitedPublication[CAPACITY];
-    }
-    final AwaitedPublication previous = awaited[slot];
-    if (previous != null && previous.session() == source.getResourceSession()
-        && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {
-      return false;
-    }
-    // A Q11 instant/group loop must not pay the timeout again for the same pinned source.
-    // Exact lookups still retry on every borrow, including after this wait timed out.
-    awaited[slot] =
-        new AwaitedPublication(source.getResourceSession(), source.getUberPage(), source.getRevisionNumber());
-    return DerivedAggregateAwait.awaitMapping(source);
-  }
-
   @Nullable
   @SuppressWarnings("ReferenceEquality") // Thread ownership and publication identity require reference equality.
   StorageEngineReader borrow(final StorageEngineReader source) {
@@ -92,10 +71,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
       return null;
     }
     if (Thread.currentThread() != owner) {
-      final StorageEngineReader opened = source.getDerivedIndexReader();
-      return opened == null && DerivedAggregateAwait.awaitMapping(source)
-          ? source.getDerivedIndexReader()
-          : opened;
+      return source.getDerivedIndexReader();
     }
     final int slot =
         (System.identityHashCode(source.getResourceSession()) + source.getRevisionNumber()) & (CAPACITY - 1);
@@ -111,10 +87,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
     if (snapshot != null) {
       snapshot.reader().close();
     }
-    StorageEngineReader opened = source.getResourceSession().openDerivedIndexReader(source);
-    if (opened == null && awaitMapping(source, slot)) {
-      opened = source.getResourceSession().openDerivedIndexReader(source);
-    }
+    final StorageEngineReader opened = source.getResourceSession().openDerivedIndexReader(source);
     // Lag is retryable: the maintainer may publish a mapping without another source commit.
     if (opened != null) {
       snapshots[slot] =
@@ -127,7 +100,6 @@ final class DerivedAggregateReaders implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
-    awaited = null;
     RuntimeException failure = null;
     for (int slot = 0; slot < CAPACITY; slot++) {
       final Snapshot snapshot = snapshots[slot];

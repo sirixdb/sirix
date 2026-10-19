@@ -36,7 +36,6 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.DerivedAggregateCatchUp;
 import io.sirix.query.ColumnarRecordSequence;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
-import io.sirix.query.DerivedAggregateAwait;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
@@ -125,7 +124,7 @@ public final class TemporalAggregateRoute {
     try {
       final StorageEngineReader derived = ctx instanceof SirixQueryContext context
           ? context.borrowDerivedAggregateReader(reader)
-          : openAwaitedReader(reader);
+          : reader.getDerivedIndexReader();
       if (derived != null) {
         return serveSnapshot(reader, derived, indexes, array, point, request, order, null);
       }
@@ -145,13 +144,6 @@ public final class TemporalAggregateRoute {
           reader.getRevisionNumber(), unavailable);
       return null;
     }
-  }
-
-  private static @Nullable StorageEngineReader openAwaitedReader(final StorageEngineReader source) {
-    final StorageEngineReader derived = source.getDerivedIndexReader();
-    return derived == null && DerivedAggregateAwait.awaitMapping(source)
-        ? source.getDerivedIndexReader()
-        : derived;
   }
 
   private static SirixVectorizedExecutor.@Nullable ServedGroups serveSnapshot(final StorageEngineReader reader,

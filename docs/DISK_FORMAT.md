@@ -230,29 +230,23 @@ fail-fast lookups, never ordinals.
   [TEMPORAL_AGGREGATE_INDEX.md](TEMPORAL_AGGREGATE_INDEX.md) for declaration, maintenance and admission semantics.
 - **Projection change log** (`IndexType` id 13, container `PageKind` id 19): revision-root
   reference offset 12, one HOT tree per source projection id. The prefix-0 header holds big-endian
-  `(format i32=3, first revision i32, column count i32, exceptional row count i64)`.
+  `(format i32=4, first revision i32, column count i32, exceptional row count i64)`.
   Prefix 1 `(record key i64, chunk i32)` holds sparse row-local provenance: object/unsupported
   kind byte, then one flag byte per column (without presence), in chunks of at most 2,048 bytes.
   Chunk -1 holds the total length as i32; a zero-length directory removes an exception.
   Prefix 2 `(revision i32, chunk i32)` holds change slabs in chunks of at most 2,048 bytes; chunk
-  -1 is the `(total byte length i32, chunk count i32, identity high i64, identity low i64,
-  inline metadata length i32)` extent. When the schema plus at least four directory bytes fit its
-  remaining 2,020 bytes, the extent appends the schema and as much of the directory prefix as fits.
-  Otherwise the inline length is zero and readers use slab offsets. An unrelated large grouping
-  does not prevent a small early grouping directory from being read inline.
+  -1 is the 24-byte `(total byte length i32, chunk count i32, identity high i64, identity low i64)` extent.
   Its random 128-bit publication identity prevents a derived mapping from matching a truncated and
   replaced revision, even when the replacement uses the same revision number and timestamp.
   Prefix 5 in physical change-log tree zero uses `(5, -1 i32)` for the next aggregate id (i32),
   and `(5, aggregate id i32)` with value `1 u8` for each reserved declaration;
   this keeps declarations from allocating aggregate pages in the source. All roots are revision owned.
-  A slab begins with `SCLG` magic, format 3, projection id, revision, base revision, entry count,
-  first-entry byte offset and group-directory byte offset (all i32), followed by a u16 column count,
-  normalized u8 cell kinds and a slab-local UTF-8 dictionary (i32 count, unsigned-varint byte lengths).
-  Entries are physically ordered by declared groupings (coarser grouping first), then record key.
-  Each entry starts with an unsigned-varint positive record-key delta, or zero followed by an
-  absolute unsigned-varint record key. The first entry and every possible group-range start have
-  absolute restarts; further restarts are allowed. Big-endian u64 changed-column bitmap words and
-  old/new rows follow. The public decoded entry list remains ordered by record key for consumers.
+  A slab begins with `SCLG` magic, format 4, projection id, revision, base revision, entry count,
+  and first-entry byte offset (all i32), followed by a u16 column count, normalized u8 cell kinds
+  and a slab-local UTF-8 dictionary (i32 count, unsigned-varint byte lengths).
+  Entries are ordered by record key. Each starts with an unsigned-varint positive record-key
+  delta, or zero followed by an absolute unsigned-varint record key. The first entry restarts.
+  Big-endian u64 changed-column bitmap words and old/new rows follow. There is no raw-row group directory.
   Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
   unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
   varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count
@@ -265,18 +259,24 @@ fail-fast lookups, never ordinals.
   the current slab with the coalesced first-old/final-new cells. No-op revisions have empty slabs.
   Slabs are written only while a declared aggregate consumes the projection; the first-revision
   header does not imply gap-free coverage. Redeclaration rebuilds sparse provenance, retaining
-  earlier slabs and historical roots. The trailing directory starts with an i32 declaration count.
-  A fixed routing table stores each declaration's id, byte offset relative to the directory start,
-  and byte length (all i32). Contiguous declaration bodies hold grouping-column count and ordinals
-  (u16), support flag (u8), and group count (i32). Sorted canonical typed keys use unsigned-varint
-  shared-prefix and suffix lengths followed by suffix bytes. Each key references an
-  unsigned-varint range count followed by `(offset delta from previous range end, byte length,
-  entry count, first absolute record key)`, all unsigned varints. A group move references the same
-  payload in both groups; it does not duplicate the row. Unsupported grouping cells mark the whole
-  declaration directory unsupported. Selective readers load only the requested declaration body,
-  including its external metadata in the unchanged two-chunk group-read bound.
-  `ChangeLogSlabTest` pins format 3 with a golden byte fixture. Formats 1 and 2 are rejected;
+  earlier slabs and historical roots.
+  `ChangeLogSlabTest` pins format 4 with a golden byte fixture. Earlier formats are rejected;
   this unreleased layout has no backward-compatibility reader.
+  Compact temporal operands use prefix 7 `(revision i32, aggregate id i32)` for a 60-byte header:
+  `TAS1` magic, revision, represented base, aggregate id, group count, block count, chunk count,
+  total serialized bytes including the header (all i32), signed unsupported-row delta (i64),
+  unservable/overflow flag (i32, 0 or 1), and the raw slab's 128-bit publication identity.
+  Prefix 6 keys are `(revision i32, aggregate id i32, identity 16 bytes, block upper-fence group,
+  chunk u16)`. The identity isolates replacements within the same revision. A block begins with
+  total block bytes (i32) and group count (u16), then sorted records `(group-key length u16,
+  operand length u16, group bytes, operand bytes)`. Blocks fit one 2,048-byte slot; a single large
+  group can use exactly two consecutive slots, chunks 0 and 1. Operand length zero is an explicit
+  decline marker. A lower-bound lookup by group selects its upper-fence block without a directory.
+  Operands contain unsigned-varint endpoint and multiplicity counts, followed by endpoint-coordinate
+  deltas and zig-zag-varint signed row/presence counts and low/high signed-128 sum halves for SUM
+  lanes. Frequency entries are `(lane, from, length)` unsigned varints and `(value, multiplicity)`
+  zig-zag varints. All touched values are retained; no extrema are approximated. Empty net operands
+  are omitted, but every declared revision retains a coverage header. Missing coverage headers decline catch-up; the asynchronous maintainer reads the raw slabs.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

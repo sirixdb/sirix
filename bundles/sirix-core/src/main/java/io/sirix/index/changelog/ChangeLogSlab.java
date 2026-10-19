@@ -11,16 +11,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Format-3 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
+/** Format-4 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
 public final class ChangeLogSlab {
   public static final int MAGIC = 0x53434c47;
-  public static final int FORMAT = 3;
+  public static final int FORMAT = 4;
   public static final byte LONG = 1;
   public static final byte STRING = 2;
   public static final byte BOOLEAN = 3;
@@ -95,15 +94,9 @@ public final class ChangeLogSlab {
   private final int baseRevision;
   private final byte[] kinds;
   private final List<Entry> entries;
-  private final List<ChangeLogDirectory.Grouping> groupings;
 
   public ChangeLogSlab(final int projection, final int revision, final int baseRevision, final byte[] kinds,
       final List<Entry> entries) {
-    this(projection, revision, baseRevision, kinds, entries, List.of());
-  }
-
-  public ChangeLogSlab(final int projection, final int revision, final int baseRevision, final byte[] kinds,
-      final List<Entry> entries, final List<ChangeLogDirectory.Grouping> groupings) {
     if (projection < 0 || revision < 1 || baseRevision < 0 || baseRevision >= revision || kinds.length < 1
         || kinds.length > 65535) {
       throw new IllegalArgumentException("Invalid change-log header");
@@ -118,19 +111,6 @@ public final class ChangeLogSlab {
     this.baseRevision = baseRevision;
     this.kinds = kinds.clone();
     this.entries = List.copyOf(entries);
-    this.groupings = groupings.stream().sorted(Comparator.comparingInt(ChangeLogDirectory.Grouping::index)).toList();
-    int previousIndex = -1;
-    for (final ChangeLogDirectory.Grouping grouping : this.groupings) {
-      if (grouping.index() <= previousIndex) {
-        throw new IllegalArgumentException("Duplicate change-log grouping");
-      }
-      previousIndex = grouping.index();
-      for (final int column : grouping.columns()) {
-        if (column < 0 || column >= kinds.length) {
-          throw new IllegalArgumentException("Invalid change-log grouping column");
-        }
-      }
-    }
     long previous = -1;
     for (final Entry entry : entries) {
       if (entry.record <= previous || entry.changed.length != (kinds.length + 63) / 64
@@ -178,7 +158,6 @@ public final class ChangeLogSlab {
       out.writeInt(baseRevision);
       out.writeInt(entries.size());
       out.writeInt(0); // First row offset; backfilled after the dictionary.
-      out.writeInt(0); // Trailing group directory offset.
       out.writeShort(kinds.length);
       out.write(kinds);
       out.writeInt(dictionary.size());
@@ -188,46 +167,29 @@ public final class ChangeLogSlab {
         out.write(utf8);
       }
       final int metadataLength = bytes.size();
-      final ChangeLogDirectory directory = new ChangeLogDirectory(groupings);
-      AddressedEntry previous = null;
-      for (final AddressedEntry addressed : orderedEntries()) {
-        final Entry entry = addressed.entry();
-        final int start = bytes.size();
-        if (previous == null || entry.record <= previous.entry().record || startsRange(previous, addressed)) {
+      long previous = 0;
+      boolean first = true;
+      for (final Entry entry : entries) {
+        if (first) {
           unsigned(out, 0);
           unsigned(out, entry.record);
+          first = false;
         } else {
-          unsigned(out, entry.record - previous.entry().record);
+          unsigned(out, entry.record - previous);
         }
         for (final long word : entry.changed) {
           out.writeLong(word);
         }
         writeRow(out, entry.before, dictionary);
         writeRow(out, entry.after, dictionary);
-        directory.add(addressed, start, bytes.size() - start);
-        previous = addressed;
+        previous = entry.record;
       }
-      final int directoryOffset = bytes.size();
-      directory.write(out);
       final byte[] encoded = bytes.toByteArray();
-      ByteBuffer.wrap(encoded).putInt(24, metadataLength).putInt(28, directoryOffset);
+      ByteBuffer.wrap(encoded).putInt(24, metadataLength);
       return encoded;
     } catch (final IOException impossible) {
       throw new AssertionError(impossible);
     }
-  }
-
-  record AddressedEntry(Entry entry, byte[][] before, byte[][] after) {
-  }
-
-  private static boolean startsRange(final AddressedEntry previous, final AddressedEntry current) {
-    for (int index = 0; index < current.before().length; index++) {
-      if (!Arrays.equals(previous.before()[index], current.before()[index])
-          || !Arrays.equals(previous.after()[index], current.after()[index])) {
-        return true;
-      }
-    }
-    return false;
   }
 
   static long readRecord(final DataInputStream in, final long previous, final boolean restart) throws IOException {
@@ -243,68 +205,6 @@ public final class ChangeLogSlab {
       throw new IllegalStateException("Invalid change-log record delta");
     }
     return previous + delta;
-  }
-
-  private AddressedEntry[] orderedEntries() {
-    final AddressedEntry[] selected = new AddressedEntry[entries.size()];
-    for (int at = 0; at < entries.size(); at++) {
-      final Entry entry = entries.get(at);
-      final byte[][] before = new byte[groupings.size()][];
-      final byte[][] after = new byte[groupings.size()][];
-      for (int index = 0; index < groupings.size(); index++) {
-        final List<Integer> columns = groupings.get(index).columns();
-        before[index] = entry.before == null
-            ? null
-            : ChangeLogGroupKey.encode(entry.before, kinds, columns);
-        after[index] = entry.after == null
-            ? null
-            : unchangedGroup(entry, columns)
-                ? before[index]
-                : ChangeLogGroupKey.encode(entry.after, kinds, columns);
-      }
-      selected[at] = new AddressedEntry(entry, before, after);
-    }
-    if (!groupings.isEmpty() && selected.length > 1) {
-      // A coarser grouping comes first so nested declarations share contiguous payload ranges.
-      final int[] order = new int[groupings.size()];
-      for (int index = 0; index < order.length; index++) {
-        int position = index;
-        while (position > 0
-            && groupings.get(order[position - 1]).columns().size() > groupings.get(index).columns().size()) {
-          order[position] = order[position - 1];
-          position--;
-        }
-        order[position] = index;
-      }
-      Arrays.sort(selected, (left, right) -> {
-        for (final int index : order) {
-          final byte[] leftKey = left.entry.before == null
-              ? left.after[index]
-              : left.before[index];
-          final byte[] rightKey = right.entry.before == null
-              ? right.after[index]
-              : right.before[index];
-          final int compared = Arrays.compareUnsigned(leftKey, rightKey);
-          if (compared != 0) {
-            return compared;
-          }
-        }
-        return Long.compare(left.entry.record, right.entry.record);
-      });
-    }
-    return selected;
-  }
-
-  private static boolean unchangedGroup(final Entry entry, final List<Integer> columns) {
-    if (entry.before == null || entry.after == null || entry.before.object != entry.after.object) {
-      return false;
-    }
-    for (final int column : columns) {
-      if ((entry.changed[column >>> 6] & (1L << (column & 63))) != 0) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private void collect(final Map<String, Integer> dictionary, final @Nullable Row row) {
@@ -372,7 +272,6 @@ public final class ChangeLogSlab {
       final int base = in.readInt();
       final int count = bounded(in.readInt(), in.available());
       final int metadataLength = bounded(in.readInt(), bytes.length);
-      final int directoryOffset = bounded(in.readInt(), bytes.length);
       final int columns = in.readUnsignedShort();
       final byte[] kinds = in.readNBytes(columns);
       if (kinds.length != columns) {
@@ -384,7 +283,7 @@ public final class ChangeLogSlab {
         final int length = bounded(readUnsigned(in), in.available());
         dictionary[i] = new String(in.readNBytes(length), StandardCharsets.UTF_8);
       }
-      if (bytes.length - in.available() != metadataLength || directoryOffset < metadataLength) {
+      if (bytes.length - in.available() != metadataLength) {
         throw new IllegalStateException("Invalid change-log metadata offsets");
       }
       final List<Entry> entries = new ArrayList<>(count);
@@ -398,15 +297,10 @@ public final class ChangeLogSlab {
         }
         entries.add(new Entry(record, changed, readRow(in, kinds, dictionary), readRow(in, kinds, dictionary)));
       }
-      if (bytes.length - in.available() != directoryOffset) {
-        throw new IllegalStateException("Invalid change-log directory offset");
-      }
-      final ChangeLogDirectory directory = ChangeLogDirectory.read(in, columns, metadataLength, directoryOffset);
       if (in.available() != 0) {
         throw new IllegalStateException("Trailing change-log bytes");
       }
-      entries.sort(Comparator.comparingLong(Entry::record));
-      return new ChangeLogSlab(projection, revision, base, kinds, entries, directory.groupings());
+      return new ChangeLogSlab(projection, revision, base, kinds, entries);
     } catch (final IOException | IllegalArgumentException | ArithmeticException malformed) {
       throw new IllegalStateException("Malformed change-log slab", malformed);
     }

@@ -1,5 +1,8 @@
 package io.sirix.index.aggregate;
 
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import java.io.ByteArrayOutputStream;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongRBTreeMap;
@@ -182,6 +185,223 @@ public final class TemporalAggregateParts {
       }
       return false;
     }
+  }
+
+  private record SignedInterval(int lane, long from, long to, long value) {
+  }
+
+  /**
+   * Small commit operand: endpoint sums and coalesced value/interval multiplicities, no time tree.
+   */
+  public final class SummaryBuilder {
+    private final Long2ObjectRBTreeMap<Sums> endpoints = new Long2ObjectRBTreeMap<>();
+    private final Object2LongOpenHashMap<SignedInterval> intervals = new Object2LongOpenHashMap<>();
+    private boolean oversized;
+
+    public void add(final long from, final long to, final long[] values, final long mask, final int sign) {
+      if (from < 0 || from >= to || to > (1L << height) || values.length != lanes || (mask >>> lanes) != 0
+          || (sign != -1 && sign != 1)) {
+        throw new IllegalArgumentException("Invalid temporal summary interval");
+      }
+      if (oversized) {
+        return;
+      }
+      endpoint(from).row(values, mask, sign);
+      endpoint(to).row(values, mask, -sign);
+      for (int lane = 0; lane < lanes; lane++) {
+        if (frequencyOffsets[lane] >= 0 && (mask & (1L << lane)) != 0) {
+          frequency(new SignedInterval(lane, from, to, values[lane]), sign);
+        }
+      }
+      if ((long) endpoints.size() + intervals.size() > 4096) {
+        oversized = true;
+        endpoints.clear();
+        intervals.clear();
+      }
+    }
+
+    private Sums endpoint(final long coordinate) {
+      Sums sums = endpoints.get(coordinate);
+      if (sums == null) {
+        sums = new Sums();
+        endpoints.put(coordinate, sums);
+      }
+      return sums;
+    }
+
+    private void frequency(final SignedInterval interval, final long delta) {
+      final long count = Math.addExact(intervals.getLong(interval), delta);
+      if (count == 0) {
+        intervals.removeLong(interval);
+      } else {
+        intervals.put(interval, count);
+      }
+    }
+
+    /** Null is a persisted oversized-operand marker; never allocate an unbounded encoding. */
+    public byte @Nullable [] encode(final int limit) {
+      if (limit < 16 || limit > 4096) {
+        throw new IllegalArgumentException("Invalid summary byte limit");
+      }
+      if (oversized) {
+        return null;
+      }
+      endpoints.values().removeIf(sums -> allZero(sums.data));
+      if (endpoints.isEmpty() && intervals.isEmpty()) {
+        return new byte[0];
+      }
+      if ((long) endpoints.size() + intervals.size() > limit) {
+        return null;
+      }
+      final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(limit, 256));
+      unsigned(out, endpoints.size());
+      unsigned(out, intervals.size());
+      long previous = 0;
+      for (final var entry : endpoints.long2ObjectEntrySet()) {
+        unsigned(out, entry.getLongKey() - previous);
+        previous = entry.getLongKey();
+        writeSums(out, entry.getValue());
+        if (out.size() > limit) {
+          return null;
+        }
+      }
+      for (final var entry : intervals.object2LongEntrySet()) {
+        final SignedInterval interval = entry.getKey();
+        unsigned(out, interval.lane());
+        unsigned(out, interval.from());
+        unsigned(out, interval.to() - interval.from());
+        signed(out, interval.value());
+        signed(out, entry.getLongValue());
+        if (out.size() > limit) {
+          return null;
+        }
+      }
+      return out.toByteArray();
+    }
+
+    /** Merge already-aggregated values; never reconstruct rows or canonical time-cover nodes. */
+    public void merge(final byte[] encoded, final TemporalAggregateCatchUpBudget.Budget budget) {
+      if (encoded.length == 0 || encoded.length > 4096) {
+        throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+      }
+      final ByteBuffer in = ByteBuffer.wrap(encoded);
+      final int points = boundedUnsigned(in, encoded.length);
+      final int values = boundedUnsigned(in, encoded.length);
+      budget.summary(points, values, lanes);
+      long coordinate = 0;
+      for (int at = 0; at < points; at++) {
+        final long delta = unsigned(in);
+        if (delta < 0 || (at > 0 && delta == 0) || delta > (1L << height) - coordinate) {
+          throw new IllegalStateException("Invalid temporal summary coordinate");
+        }
+        coordinate += delta;
+        endpoint(coordinate).add(readSums(in), false);
+      }
+      for (int at = 0; at < values; at++) {
+        final int lane = boundedUnsigned(in, lanes - 1);
+        final long from = unsigned(in);
+        final long length = unsigned(in);
+        final long value = signed(in);
+        final long count = signed(in);
+        if (frequencyOffsets[lane] < 0 || from < 0 || length <= 0 || from >= (1L << height)
+            || length > (1L << height) - from || count == 0) {
+          throw new IllegalStateException("Invalid temporal summary multiplicity");
+        }
+        frequency(new SignedInterval(lane, from, from + length, value), count);
+      }
+      if (in.hasRemaining()) {
+        throw new IllegalStateException("Trailing temporal summary bytes");
+      }
+    }
+
+    public Delta snapshot() {
+      if (oversized) {
+        throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+      }
+      return new Delta(this);
+    }
+  }
+
+  public SummaryBuilder summaryBuilder() {
+    return new SummaryBuilder();
+  }
+
+  private static boolean allZero(final long[] data) {
+    for (final long value : data) {
+      if (value != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void writeSums(final ByteArrayOutputStream out, final Sums sums) {
+    signed(out, sums.data[0]);
+    for (int lane = 0; lane < lanes; lane++) {
+      final int offset = 1 + 3 * lane;
+      signed(out, sums.data[offset]);
+      if (hasSum(lane)) {
+        signed(out, sums.data[offset + 1]);
+        signed(out, sums.data[offset + 2]);
+      }
+    }
+  }
+
+  private Sums readSums(final ByteBuffer in) {
+    final Sums sums = new Sums();
+    sums.data[0] = signed(in);
+    for (int lane = 0; lane < lanes; lane++) {
+      final int offset = 1 + 3 * lane;
+      sums.data[offset] = signed(in);
+      if (hasSum(lane)) {
+        sums.data[offset + 1] = signed(in);
+        sums.data[offset + 2] = signed(in);
+      }
+    }
+    return sums;
+  }
+
+  private static void signed(final ByteArrayOutputStream out, final long value) {
+    unsigned(out, (value << 1) ^ (value >> 63));
+  }
+
+  private static void unsigned(final ByteArrayOutputStream out, long value) {
+    while ((value & ~127L) != 0) {
+      out.write(((int) value & 127) | 128);
+      value >>>= 7;
+    }
+    out.write((int) value);
+  }
+
+  private static long signed(final ByteBuffer in) {
+    final long value = unsigned(in);
+    return (value >>> 1) ^ -(value & 1);
+  }
+
+  private static int boundedUnsigned(final ByteBuffer in, final int maximum) {
+    final long value = unsigned(in);
+    if (value < 0 || value > maximum) {
+      throw new IllegalStateException("Invalid temporal summary length");
+    }
+    return (int) value;
+  }
+
+  private static long unsigned(final ByteBuffer in) {
+    long value = 0;
+    for (int shift = 0; shift < 64; shift += 7) {
+      final int next = Byte.toUnsignedInt(in.get());
+      if (shift == 63 && (next & ~1) != 0) {
+        throw new IllegalStateException("Temporal summary varint overflow");
+      }
+      value |= (long) (next & 127) << shift;
+      if ((next & 128) == 0) {
+        if (shift != 0 && next == 0) {
+          throw new IllegalStateException("Noncanonical temporal summary varint");
+        }
+        return value;
+      }
+    }
+    throw new IllegalStateException("Truncated temporal summary varint");
   }
 
   /** Commit-local builder. All row changes are combined before any part is persisted. */
@@ -885,8 +1105,10 @@ public final class TemporalAggregateParts {
     private final long[] coordinates;
     private final Sums[] prefixes;
     private final Long2ObjectOpenHashMap<Vector[]> frequencies;
+    private final long @Nullable [][] intervals;
 
     private Delta(final Builder builder) {
+      intervals = null;
       coordinates = builder.endpoints.keySet().toLongArray();
       prefixes = new Sums[coordinates.length];
       final Sums prefix = new Sums();
@@ -917,6 +1139,66 @@ public final class TemporalAggregateParts {
       }
     }
 
+    private Delta(final SummaryBuilder builder) {
+      coordinates = builder.endpoints.keySet().toLongArray();
+      prefixes = new Sums[coordinates.length];
+      final Sums prefix = new Sums();
+      int offset = 0;
+      for (final Sums change : builder.endpoints.values()) {
+        prefix.add(change, false);
+        prefixes[offset++] = prefix.copy();
+      }
+      frequencies = new Long2ObjectOpenHashMap<>(0);
+      intervals = new long[lanes][];
+      final SignedInterval[] ordered = builder.intervals.keySet().toArray(SignedInterval[]::new);
+      Arrays.sort(ordered, Comparator.comparingInt(SignedInterval::lane).thenComparingLong(SignedInterval::value));
+      for (int start = 0; start < ordered.length;) {
+        final int lane = ordered[start].lane();
+        int end = start + 1;
+        while (end < ordered.length && ordered[end].lane() == lane) {
+          end++;
+        }
+        final long[] values = new long[4 * (end - start)];
+        int at = 0;
+        for (int i = start; i < end; i++) {
+          final SignedInterval interval = ordered[i];
+          values[at++] = interval.from();
+          values[at++] = interval.to();
+          values[at++] = interval.value();
+          values[at++] = builder.intervals.getLong(interval);
+        }
+        intervals[lane] = values;
+        start = end;
+      }
+    }
+
+    private void intervalPoint(final long point, final List<List<Vector>> vectors) {
+      for (int lane = 0; lane < lanes; lane++) {
+        final long[] values = Objects.requireNonNull(intervals)[lane];
+        if (values == null) {
+          continue;
+        }
+        final long[] selected = new long[values.length / 2];
+        int size = 0;
+        long count = 0;
+        for (int at = 0; at < values.length; at += 4) {
+          if (values[at] <= point && point < values[at + 1]) {
+            count = Math.addExact(count, values[at + 3]);
+            if (size > 0 && selected[2 * size - 2] == values[at + 2]) {
+              selected[2 * size - 1] = count;
+            } else {
+              selected[2 * size] = values[at + 2];
+              selected[2 * size + 1] = count;
+              size++;
+            }
+          }
+        }
+        if (size != 0) {
+          vectors.get(lane).add(new Vector(selected, size));
+        }
+      }
+    }
+
     private void point(final long point, final Sums sums, final List<List<Vector>> vectors) {
       int position = Arrays.binarySearch(coordinates, point);
       if (position < 0) {
@@ -924,6 +1206,10 @@ public final class TemporalAggregateParts {
       }
       if (position >= 0) {
         sums.add(prefixes[position], false);
+      }
+      if (intervals != null) {
+        intervalPoint(point, vectors);
+        return;
       }
       for (long node = (1L << height) + point; node != 0; node >>>= 1) {
         final Vector[] found = frequencies.get(node);

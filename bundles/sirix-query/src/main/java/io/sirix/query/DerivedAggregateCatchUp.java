@@ -12,7 +12,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.DerivedIndexSnapshot;
 import io.sirix.index.aggregate.TemporalAggregateIndexes;
-import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jspecify.annotations.Nullable;
@@ -23,12 +23,12 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
   private final ResourceSession<?, ?> sourceSession;
   private final UberPage publication;
   private final int sourceRevision;
-  private final ChangeLogGroupReader.Budget budget;
+  private final TemporalAggregateCatchUpBudget.Budget budget;
   private final Int2ObjectOpenHashMap<TemporalAggregateIndexes.CatchUp> tails = new Int2ObjectOpenHashMap<>();
   private final IntOpenHashSet declined = new IntOpenHashSet();
 
   private DerivedAggregateCatchUp(final StorageEngineReader source, final DerivedIndexSnapshot snapshot,
-      final ChangeLogGroupReader.Budget budget) {
+      final TemporalAggregateCatchUpBudget.Budget budget) {
     this.snapshot = snapshot;
     this.budget = budget;
     sourceSession = source.getResourceSession();
@@ -37,11 +37,11 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
   }
 
   public static @Nullable DerivedAggregateCatchUp open(final StorageEngineReader source) {
-    return open(source, new ChangeLogGroupReader.Budget());
+    return open(source, new TemporalAggregateCatchUpBudget.Budget());
   }
 
   static @Nullable DerivedAggregateCatchUp open(final StorageEngineReader source,
-      final ChangeLogGroupReader.Budget budget) {
+      final TemporalAggregateCatchUpBudget.Budget budget) {
     Objects.requireNonNull(source);
     Objects.requireNonNull(budget);
     if (source instanceof StorageEngineWriter || source.hasTrxIntentLog()) {
@@ -88,7 +88,7 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
       try {
         result = TemporalAggregateIndexes.catchUp(source, snapshot.sourceRevision(), definition, projection, budget);
         tails.put(id, result);
-      } catch (final ChangeLogGroupReader.LimitExceeded exceeded) {
+      } catch (final TemporalAggregateCatchUpBudget.LimitExceeded exceeded) {
         declined.add(id);
         return null;
       }

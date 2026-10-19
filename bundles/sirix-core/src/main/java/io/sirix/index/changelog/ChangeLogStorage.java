@@ -36,6 +36,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   private byte[] keyBuffer = new byte[16];
   private final HOTTrieReader reader;
   private long slotsWritten;
+  private byte @Nullable [] publicationIdentity;
   private byte @Nullable [] header;
   private long exceptionalRows;
   private boolean headerDirty;
@@ -123,28 +124,13 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
           Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES, Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
     }
     final ThreadLocalRandom random = ThreadLocalRandom.current();
-    final ByteBuffer encoded = ByteBuffer.wrap(bytes);
-    final int metadataLength = encoded.getInt(24);
-    final int directoryOffset = encoded.getInt(28);
-    final int directoryLength = bytes.length - directoryOffset;
-    final boolean inline = metadataLength <= CHUNK_BYTES - 32;
-    final int inlineDirectory = inline
-        ? Math.min(directoryLength, CHUNK_BYTES - 28 - metadataLength)
-        : 0;
-    final ByteBuffer extent = ByteBuffer.allocate(inline
-        ? 28 + metadataLength + inlineDirectory
-        : 28)
+    final ByteBuffer extent = ByteBuffer.allocate(24)
                                         .putInt(bytes.length)
                                         .putInt(chunks)
                                         .putLong(random.nextLong())
-                                        .putLong(random.nextLong())
-                                        .putInt(inline
-                                            ? metadataLength
-                                            : 0);
-    if (inline) {
-      extent.put(bytes, 0, metadataLength).put(bytes, directoryOffset, inlineDirectory);
-    }
+                                        .putLong(random.nextLong());
     put(slabKey(slab.revision(), -1), extent.array());
+    publicationIdentity = Arrays.copyOfRange(extent.array(), 8, 24);
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
   }
 
@@ -220,13 +206,13 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     }
     try (HOTTrieReader reader = new HOTTrieReader(storage)) {
       final byte[] header = Objects.requireNonNull(read(reader, root, slabKey(revision, -1)), "Missing change slab");
-      if (header.length < 28 || header.length > CHUNK_BYTES) {
+      if (header.length != 24) {
         throw new IllegalStateException("Invalid change-log chunk directory");
       }
       final ByteBuffer buffer = ByteBuffer.wrap(header);
       final int length = buffer.getInt();
       final int chunks = buffer.getInt();
-      if (length < 42 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
+      if (length < 35 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log chunk count");
       }
       final byte[] bytes = new byte[length];
@@ -269,7 +255,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       if (directory == null) {
         return null;
       }
-      if (directory.length < 28 || directory.length > CHUNK_BYTES) {
+      if (directory.length != 24) {
         throw new IllegalStateException("Invalid change-log identity");
       }
       return Arrays.copyOfRange(directory, 8, 24);
@@ -337,7 +323,11 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     throw new IllegalStateException("Change-log leaf did not stabilize");
   }
 
-  private void put(final byte[] key, final byte[] value) {
+  byte[] publicationIdentity() {
+    return Objects.requireNonNull(publicationIdentity, "Write the raw slab before its summaries");
+  }
+
+  void put(final byte[] key, final byte[] value) {
     if (value.length > CHUNK_BYTES) {
       throw new IllegalArgumentException("Change-log slot exceeds inline bound");
     }

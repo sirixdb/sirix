@@ -15,7 +15,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
-import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import io.sirix.settings.VersioningType;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageProvider;
@@ -107,7 +107,7 @@ final class DerivedIndexCrashRecoveryTest {
         final IndexDef definition = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.TEMPORAL_AGGREGATE));
         final IndexDef projection = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.PROJECTION));
         final TemporalAggregateIndexes.CatchUp tail = TemporalAggregateIndexes.catchUp(reader,
-            snapshot.sourceRevision(), definition, projection, new ChangeLogGroupReader.Budget());
+            snapshot.sourceRevision(), definition, projection, new TemporalAggregateCatchUpBudget.Budget());
         try (TemporalAggregateStorage.Reader storage = new TemporalAggregateStorage.Reader(snapshot.reader(), 0)) {
           final int[] groups = {0};
           storage.groups(1, (key, head) -> {

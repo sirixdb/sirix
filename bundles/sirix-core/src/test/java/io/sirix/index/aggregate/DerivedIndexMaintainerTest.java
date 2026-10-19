@@ -20,7 +20,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
-import io.sirix.index.changelog.ChangeLogGroupReader;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -214,7 +214,7 @@ final class DerivedIndexMaintainerTest {
     final IndexDef definition = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.TEMPORAL_AGGREGATE));
     final IndexDef projection = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.PROJECTION));
     final TemporalAggregateIndexes.CatchUp tail = TemporalAggregateIndexes.catchUp(source, snapshot.sourceRevision(),
-        definition, projection, new ChangeLogGroupReader.Budget());
+        definition, projection, new TemporalAggregateCatchUpBudget.Budget());
     try (var storage = new TemporalAggregateStorage.Reader(snapshot.reader(), 0)) {
       final int[] groups = {0};
       storage.groups(1, (key, head) -> {
@@ -293,8 +293,8 @@ final class DerivedIndexMaintainerTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void caughtUpPublicationsKeepDenseDurableMappings(final VersioningType versioning) throws Exception {
-    final var path = directory.toPath().resolve("dense-mappings");
+  void caughtUpPublicationsKeepTheirDurableMappings(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("caught-up-mappings");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
       database.createResource(ResourceConfiguration.newBuilder("records")

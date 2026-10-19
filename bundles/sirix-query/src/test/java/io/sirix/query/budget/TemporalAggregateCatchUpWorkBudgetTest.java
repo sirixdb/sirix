@@ -29,6 +29,8 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -124,7 +126,54 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void largeRepeatedPublicationFitsTheOriginalTwoChunkBudget(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+    }
+    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).build();
+        JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
+      build(session, 1250, 1250, true, 1);
+      final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
+      doNothing().when(borrowed).close();
+      try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+          var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
+        final Query query = new Query(chain, query(2));
+        for (int repeat = 0; repeat < 2; repeat++) {
+          final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+              EngineWorkCounters.PROJECTION_BODY_SEGMENTS, EngineWorkCounters.AGGREGATE_PROJECTION_ROW_GROUPS_READ)
+                                         .call(() -> run(query, context));
+          assertEquals("{\"g\":1,\"c\":1250,\"s\":133750,\"l\":107,\"h\":107}", capture.result());
+          capture.work()
+                 .assertExactly(SERVED, 1, "Compact summaries must serve a large raw-row publication")
+                 .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, repeat == 0
+                     ? 1
+                     : 0,
+                     repeat == 0
+                         ? 2
+                         : 0,
+                     "The existing per-group chunk bound is unchanged")
+                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns in a tail fold")
+                 .assertExactly(EngineWorkCounters.AGGREGATE_PROJECTION_ROW_GROUPS_READ, 0, "No projection rebuild");
+        }
+      }
+    }
+  }
+
   private static void build(final JsonResourceSession session, final int rows) {
+    build(session, rows, 20, false, DerivedIndexMaintainer.MAX_QUERY_LAG + 1);
+  }
+
+  private static void build(final JsonResourceSession session, final int rows, final int changed,
+      final boolean repeated, final int maximumLag) {
     try (JsonNodeTrx writer = session.beginNodeTrx()) {
       final StringBuilder json = new StringBuilder(rows * 110).append('[');
       for (int row = 0; row < rows; row++) {
@@ -132,7 +181,9 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
           json.append(',');
         }
         json.append("{\"g\":1,\"n\":")
-            .append(row)
+            .append(repeated
+                ? 7
+                : row)
             .append(",\"lo\":\"1970-01-01T00:00:00.001Z\",\"hi\":\"1970-01-01T00:00:00.002Z\"}");
       }
       writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.append(']').toString()),
@@ -152,16 +203,18 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
       resource.pause();
       writer.commit();
       resource.drain();
-      for (int lag = 1; lag <= DerivedIndexMaintainer.MAX_QUERY_LAG + 1; lag++) {
+      for (int lag = 1; lag <= maximumLag; lag++) {
         writer.moveToDocumentRoot();
         writer.moveToFirstChild();
         writer.moveToFirstChild();
-        for (int row = 0; row < 20; row++) {
+        for (int row = 0; row < changed; row++) {
           final long record = writer.getNodeKey();
           writer.moveToFirstChild();
           writer.moveToRightSibling();
           writer.moveToFirstChild();
-          writer.setNumberValue(row + 100L * lag);
+          writer.setNumberValue((repeated
+              ? 7
+              : row) + 100L * lag);
           writer.moveTo(record);
           writer.moveToRightSibling();
         }

@@ -2151,6 +2151,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             Objects.requireNonNull(changeLogEntries));
         try (ChangeLogStorage log = new ChangeLogStorage(storageEngineWriter, indexDef.getID())) {
           log.write(slab);
+          TemporalAggregateIndexes.writeSummaries(storageEngineWriter, indexDef, slab, log);
         }
         TemporalAggregateIndexes.maintain(storageEngineWriter, indexDef, slab);
         changeLogPending = false;
