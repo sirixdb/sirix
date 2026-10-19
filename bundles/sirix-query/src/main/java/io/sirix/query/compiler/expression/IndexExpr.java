@@ -1,5 +1,7 @@
 package io.sirix.query.compiler.expression;
 
+import io.sirix.utils.ChildCounts;
+
 import io.sirix.query.compiler.optimizer.walker.json.Paths;
 import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
@@ -239,7 +241,7 @@ public final class IndexExpr implements Expr {
           } else {
             var index = arrayIndexes.getFirst();
             index = index < 0
-                ? (int) (rtx.getChildCount() + index)
+                ? (int) (ChildCounts.get(rtx) + index)
                 : index;
             if (!rtx.moveToFirstChild()) {
               throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
@@ -510,7 +512,7 @@ public final class IndexExpr implements Expr {
     rtx.moveTo(arrayKey);
     for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
       if (definition.isValidTimeIndex() && controller.isExactValidTimeArray(rtx.getStorageEngineReader(), definition,
-          arrayKey, (int) rtx.getChildCount())) {
+          arrayKey, (int) ChildCounts.get(rtx))) {
         return true;
       }
     }
@@ -630,7 +632,7 @@ public final class IndexExpr implements Expr {
 
                     if (index != Integer.MIN_VALUE) {
                       index = index < 0
-                          ? (int) (rtx.getChildCount() + index)
+                          ? (int) (ChildCounts.get(rtx) + index)
                           : index;
                       if (currentIndex == steps.size() - 1) {
                         boolean hasMoved = rtx.moveToFirstChild();

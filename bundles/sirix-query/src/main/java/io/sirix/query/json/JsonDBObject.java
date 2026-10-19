@@ -1,5 +1,6 @@
 package io.sirix.query.json;
 
+import io.sirix.utils.ChildCounts;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.NullValue;
@@ -143,6 +144,9 @@ public final class JsonDBObject extends AbstractItem
    * Read-only keys are reset by mutating methods. The writer marker survives every mutation.
    */
   private long firstChildKey;
+
+  /** Lazily resolved omitted count; only immutable objects may retain it. */
+  private long childCount = -1L;
 
   /**
    * Constructor.
@@ -669,6 +673,7 @@ public final class JsonDBObject extends AbstractItem
    * keeps answering with the pre-write value.
    */
   private void clearMemo() {
+    childCount = -1L;
     if (fields != null) {
       fields.clear();
     }
@@ -918,17 +923,30 @@ public final class JsonDBObject extends AbstractItem
     }
   }
 
+  private long childCount() {
+    if (rtx.getResourceSession().getResourceConfig().storeChildCount()) {
+      return rtx.getChildCount();
+    }
+    if (firstChildKey == MUTABLE_FIRST_CHILD) {
+      return ChildCounts.get(rtx);
+    }
+    if (childCount < 0) {
+      childCount = ChildCounts.get(rtx);
+    }
+    return childCount;
+  }
+
   @Override
   public IntNumeric length() {
     moveRtx();
 
-    return new Int64(rtx.getChildCount());
+    return new Int64(childCount());
   }
 
   @Override
   public int len() {
     moveRtx();
 
-    return (int) rtx.getChildCount();
+    return (int) childCount();
   }
 }

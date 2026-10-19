@@ -21,6 +21,7 @@
 
 package io.sirix.service.json.serialize;
 
+import io.sirix.utils.ChildCounts;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -109,9 +110,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private final boolean withNodeKeyAndChildNodeKeyMetaData;
 
   /**
-   * {@code withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData}, decided
-   * once. All three are immutable per serializer, and the disjunction is re-read up to eight times
-   * per emitted node.
+   * {@code withMetaData || withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData}, decided once.
+   * All three are immutable per serializer, and the disjunction is re-read up to eight times per
+   * emitted node.
    */
   private final boolean withMetaDataField;
 
@@ -191,62 +192,59 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   public Void call() {
     final Void result;
     try {
-        // Delegate to JsonLimitedSerializer if any limit is set
-        boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
-        boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
-        boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
+      // Delegate to JsonLimitedSerializer if any limit is set
+      boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
+      boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
+      boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
 
-        if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
-          // JsonLimitedSerializer has no wrapRevisionResultInObject step, so a LIMITED XQuery-result
-          // serialization would emit invalid JSON for single fused named-member results. No caller
-          // combines the two today — fail fast here (the delegation chokepoint) instead of silently
-          // producing an invalid document if one ever does.
-          if (emitXQueryResultSequence) {
-            throw new IllegalStateException(
-                "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
-                    + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
-          }
-          // Expand the "serialize all revisions" convention (revisions[0] < 0) into an explicit
-          // 1..mostRecentRevision list, mirroring AbstractSerializer.call(). JsonLimitedSerializer
-          // opens the revision numbers verbatim (no < 0 handling), so without this it would attempt
-          // beginNodeReadOnlyTrx(-1) and fail.
-          int[] effectiveRevisions = revisions;
-          if (revisions.length == 1 && revisions[0] < 0) {
-            final int mostRecent = resourceSession.getMostRecentRevisionNumber();
-            effectiveRevisions = new int[mostRecent];
-            for (int r = 0; r < mostRecent; r++) {
-              effectiveRevisions[r] = r + 1;
-            }
-          }
-          // Use JsonLimitedSerializer for proper limit handling
-          JsonLimitedSerializer.Builder limitedBuilder =
-              new JsonLimitedSerializer.Builder(resourceSession, out, effectiveRevisions).startNodeKey(startNodeKey)
-                                                                                .maxLevel(hasLevelLimit
-                                                                                    ? (int) maxLevelLimit
-                                                                                    : 0)
-                                                                                .maxChildren(hasChildLimit
-                                                                                    ? (int) maxChildNodesLimit
-                                                                                    : 0)
-                                                                                .maxNodes(hasNodeLimit
-                                                                                    ? maxNodesLimit
-                                                                                    : 0)
-                                                                                .prettyPrintIf(indent)
-                                                                                .indentSpaces(indentSpaces)
-                                                                                .withMetaData(withMetaData)
-                                                                                .withNodeKeyMetaData(withNodeKeyMetaData)
-                                                                                .withNodeKeyAndChildCountMetaData(
-                                                                                    withNodeKeyAndChildNodeKeyMetaData)
-                                                                                .serializeTimestamp(serializeTimestamp)
-                                                                                .serializeStartNodeWithBrackets(
-                                                                                    serializeStartNodeWithBrackets)
-                                                                                .isXQueryResultSequenceIf(
-                                                                                    emitXQueryResultSequence);
-
-          result = limitedBuilder.build().call();
-        } else {
-          // Fall back to original AbstractSerializer behavior
-          result = super.call();
+      if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
+        // JsonLimitedSerializer has no wrapRevisionResultInObject step, so a LIMITED XQuery-result
+        // serialization would emit invalid JSON for single fused named-member results. No caller
+        // combines the two today — fail fast here (the delegation chokepoint) instead of silently
+        // producing an invalid document if one ever does.
+        if (emitXQueryResultSequence) {
+          throw new IllegalStateException(
+              "XQuery-result serialization with maxLevel/maxChildren/maxNodes limits is not supported: "
+                  + "JsonLimitedSerializer lacks the named-member result wrap (see emitRevisionStartNode).");
         }
+        // Expand the "serialize all revisions" convention (revisions[0] < 0) into an explicit
+        // 1..mostRecentRevision list, mirroring AbstractSerializer.call(). JsonLimitedSerializer
+        // opens the revision numbers verbatim (no < 0 handling), so without this it would attempt
+        // beginNodeReadOnlyTrx(-1) and fail.
+        int[] effectiveRevisions = revisions;
+        if (revisions.length == 1 && revisions[0] < 0) {
+          final int mostRecent = resourceSession.getMostRecentRevisionNumber();
+          effectiveRevisions = new int[mostRecent];
+          for (int r = 0; r < mostRecent; r++) {
+            effectiveRevisions[r] = r + 1;
+          }
+        }
+        // Use JsonLimitedSerializer for proper limit handling
+        JsonLimitedSerializer.Builder limitedBuilder = new JsonLimitedSerializer.Builder(resourceSession, out,
+            effectiveRevisions).startNodeKey(startNodeKey)
+                               .maxLevel(hasLevelLimit
+                                   ? (int) maxLevelLimit
+                                   : 0)
+                               .maxChildren(hasChildLimit
+                                   ? (int) maxChildNodesLimit
+                                   : 0)
+                               .maxNodes(hasNodeLimit
+                                   ? maxNodesLimit
+                                   : 0)
+                               .prettyPrintIf(indent)
+                               .indentSpaces(indentSpaces)
+                               .withMetaData(withMetaData)
+                               .withNodeKeyMetaData(withNodeKeyMetaData)
+                               .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
+                               .serializeTimestamp(serializeTimestamp)
+                               .serializeStartNodeWithBrackets(serializeStartNodeWithBrackets)
+                               .isXQueryResultSequenceIf(emitXQueryResultSequence);
+
+        result = limitedBuilder.build().call();
+      } else {
+        // Fall back to original AbstractSerializer behavior
+        result = super.call();
+      }
     } catch (final RuntimeException | Error e) {
       // Flush what was buffered, but never let a flush failure REPLACE the primary exception.
       try {
@@ -262,7 +260,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       throw new UncheckedIOException(e);
     }
     return result;
-}
+  }
 
   /**
    * Emit node.
@@ -318,7 +316,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         // (Phase 4: legacy OBJECT_KEY case removed — fused OBJECT_NAMED_* records emit
-        //  through the dedicated cases below.)
+        // through the dedicated cases below.)
         case BOOLEAN_VALUE:
           emitMetaData(rtx);
           appendObjectValue(rtx.getValue());
@@ -355,8 +353,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT_NAMED_ARRAY: {
           // P2 fused-structural emission: a single OBJECT_NAMED_OBJECT/ARRAY record carries both
           // the field name and the start of the structural value. Mirror the legacy two-emit path:
-          //   - OBJECT_KEY pre-emit:   "<name>":
-          //   - OBJECT pre-emit:       {  (or [ for ARRAY)
+          // - OBJECT_KEY pre-emit: "<name>":
+          // - OBJECT pre-emit: { (or [ for ARRAY)
           // On emitEndNode this same record emits the corresponding `}` / `]`.
           final boolean innerHasChildren = hasChildren;
           final boolean innerEmitChildren = shouldEmitChildren(innerHasChildren);
@@ -373,14 +371,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           if (withMetaDataField) {
             if (rtx.hasLeftSibling()
-                && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-                     && rtx.getNodeKey() == startNodeKey)) {
+                && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
             appendObjectKey(JsonLiterals.QUOTED_KEY);
             appendQuotedObjectKey(rtx);
-            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA)
-                             .appendObjectStart(true);
+            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA).appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
               appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
               // A fused structural node is object/array-like, so childCount always follows in
@@ -407,15 +403,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               if (withMetaData) {
                 appendSeparator();
               }
-              appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+              appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(ChildCounts.get(rtx)));
             }
             appendObjectEnd(innerHasChildren).appendSeparator();
             appendObjectKey(JsonLiterals.QUOTED_VALUE);
             // iter#32 P2 metadata-mode shape — match legacy OBJECT/ARRAY body behavior:
-            //   OBJECT_NAMED_OBJECT (parent of OBJECT_KEY-shaped children) emits `[{` so the
-            //     first OBJECT_KEY-shaped child does NOT open its own wrapper (matches legacy OBJECT).
-            //   OBJECT_NAMED_ARRAY  (parent of STRING_VALUE/etc array elements) emits `[`, and
-            //     each child element opens its own `{` via emitMetaData (matches legacy ARRAY).
+            // OBJECT_NAMED_OBJECT (parent of OBJECT_KEY-shaped children) emits `[{` so the
+            // first OBJECT_KEY-shaped child does NOT open its own wrapper (matches legacy OBJECT).
+            // OBJECT_NAMED_ARRAY (parent of STRING_VALUE/etc array elements) emits `[`, and
+            // each child element opens its own `{` via emitMetaData (matches legacy ARRAY).
             appendArrayStart(innerEmitChildren);
             if (isNamedObject) {
               appendObjectStart(innerEmitChildren);
@@ -486,8 +482,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             }
             appendObjectKey(JsonLiterals.QUOTED_KEY);
             appendQuotedObjectKey(rtx);
-            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA)
-                             .appendObjectStart(true);
+            appendSeparator().appendObjectKey(JsonLiterals.QUOTED_METADATA).appendObjectStart(true);
             if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
               appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
             }
@@ -535,30 +530,33 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   /**
    * Quoted+escaped lexical form per dictionary nameKey, for keys the raw-bytes path in
-   * {@link #appendQuotedObjectKey} cannot take (a name carrying an escapable or non-ASCII
-   * character). Created on first such key and usually never — plain-ASCII field names are the
-   * overwhelming norm, and for them the cache would only trade one dictionary lookup for another
-   * while costing a map, its rehashes and a quoted String per distinct name.
+   * {@link #appendQuotedObjectKey} cannot take (a name carrying an escapable or non-ASCII character).
+   * Created on first such key and usually never — plain-ASCII field names are the overwhelming norm,
+   * and for them the cache would only trade one dictionary lookup for another while costing a map,
+   * its rehashes and a quoted String per distinct name.
    *
-   * <p>The mapping is only stable WITHIN one revision: {@code Names.removeName} frees a dictionary
-   * slot at refcount 0 and a later revision's {@code setName} may reassign it to a different
-   * (hash-colliding) name — so a multi-revision serialization must clear the cache per revision
-   * (see {@link #emitRevisionStartNode}) or it prints a prior revision's key text.
+   * <p>
+   * The mapping is only stable WITHIN one revision: {@code Names.removeName} frees a dictionary slot
+   * at refcount 0 and a later revision's {@code setName} may reassign it to a different
+   * (hash-colliding) name — so a multi-revision serialization must clear the cache per revision (see
+   * {@link #emitRevisionStartNode}) or it prints a prior revision's key text.
    */
   private Int2ObjectOpenHashMap<String> quotedKeyCache;
 
   /**
    * Emit the current node's object key as a quoted JSON string.
    *
-   * <p>Field names live in the name dictionary as UTF-8 bytes, and are almost always emittable
-   * verbatim. Handing those bytes to the sink ({@link JsonOutputSink#tryEmitQuoted}) skips the
-   * whole {@code getName() → new QNm(new String(bytes)) → escape → "\"" + name + "\""} chain —
-   * four allocations per named node, of which the serializer used to keep only the last, in a
-   * per-call hash map that never hits on a document whose field names are distinct.
+   * <p>
+   * Field names live in the name dictionary as UTF-8 bytes, and are almost always emittable verbatim.
+   * Handing those bytes to the sink ({@link JsonOutputSink#tryEmitQuoted}) skips the whole
+   * {@code getName() → new QNm(new String(bytes)) → escape → "\"" + name + "\""} chain — four
+   * allocations per named node, of which the serializer used to keep only the last, in a per-call
+   * hash map that never hits on a document whose field names are distinct.
    *
-   * <p>Keys the sink declines (escapable, or non-ASCII on the char pipeline) are the rare case;
-   * for them the quoted form is built from the bytes already in hand — not via a second dictionary
-   * lookup through {@code getName()} — and cached per dictionary nameKey so repeats pay a map hit.
+   * <p>
+   * Keys the sink declines (escapable, or non-ASCII on the char pipeline) are the rare case; for them
+   * the quoted form is built from the bytes already in hand — not via a second dictionary lookup
+   * through {@code getName()} — and cached per dictionary nameKey so repeats pay a map hit.
    */
   private void appendQuotedObjectKey(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final byte[] rawName = rtx.getNameBytes();
@@ -612,7 +610,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
         appendObjectKeyValue(JsonLiterals.QUOTED_TYPE, JsonLiterals.quotedKind(kind));
         if (hash != 0L && isStructural) {
-          appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
+          appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT,
+              String.valueOf(rtx.getDescendantCount()));
         }
       }
 
@@ -620,7 +619,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         if (withMetaData) {
           appendSeparator();
         }
-        appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+        appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(ChildCounts.get(rtx)));
       }
 
       appendObjectEnd(true).appendSeparator().appendObjectKey(JsonLiterals.QUOTED_VALUE);
@@ -721,10 +720,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
         case OBJECT_NAMED_OBJECT -> {
           // iter#32 P2 fused-structural close. Pre-emit shape (with metadata):
-          //   {"key":"<n>","metadata":{...},"value":[{ <last-child-content> }
+          // {"key":"<n>","metadata":{...},"value":[{ <last-child-content> }
           // Match the close: `]}` (close last-child `}` already done by the child-leaf case
           // / nested OBJECT_NAMED_*-end; we must close the array `]` and outer wrapper `}`).
-          // Bare:   "<n>":{ ... }   →  emit `}`.
+          // Bare: "<n>":{ ... } → emit `}`.
           if (withMetaDataField) {
             appendArrayEnd(true);
             if (!isSuppressedStartNodeWrapper(rtx)) {
@@ -874,17 +873,18 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   /**
    * Fused records that serialize as a bare {@code "name":value} (or {@code "name":{…}} /
-   * {@code "name":[…]}) fragment with no enclosing object — these must be wrapped in {@code {}}
-   * when they are a single query result, else the fragment is emitted straight after
-   * {@code "revision":} and yields invalid JSON ({@code "revision":"id":"A"} — two colons — for a
-   * leaf, or a bare member for a structural node). Wrapping is the SOLE wrap mechanism for these in
-   * the XQuery-result path: the {@code serializeStartNodeWithBrackets} start-node bracket is
-   * suppressed for them (see {@link #emitNode}) so structural nodes are not double-braced.
+   * {@code "name":[…]}) fragment with no enclosing object — these must be wrapped in {@code {}} when
+   * they are a single query result, else the fragment is emitted straight after {@code "revision":}
+   * and yields invalid JSON ({@code "revision":"id":"A"} — two colons — for a leaf, or a bare member
+   * for a structural node). Wrapping is the SOLE wrap mechanism for these in the XQuery-result path:
+   * the {@code serializeStartNodeWithBrackets} start-node bracket is suppressed for them (see
+   * {@link #emitNode}) so structural nodes are not double-braced.
    */
   private static boolean isFusedNamedMember(final NodeKind kind) {
     return switch (kind) {
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
-           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> true;
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT,
+          OBJECT_NAMED_ARRAY ->
+        true;
       default -> false;
     };
   }
@@ -894,8 +894,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * at emit time. emitNode only opens the start node's {@code {} when
    * {@code serializeStartNodeWithBrackets} is set; when it is not (e.g. {@link JsonRecordSerializer}
    * wraps each top-level record itself), the opening {@code {} is suppressed, so emitEndNode must
-   * likewise suppress the matching closing {@code }} — otherwise an extra {@code }} corrupts the
-   * JSON (invalid output for {@code ?nextTopLevelNodes=N&withMetaData=…} with no maxLevel).
+   * likewise suppress the matching closing {@code }} — otherwise an extra {@code }} corrupts the JSON
+   * (invalid output for {@code ?nextTopLevelNodes=N&withMetaData=…} with no maxLevel).
    */
   private boolean isSuppressedStartNodeWrapper(final JsonNodeReadOnlyTrx rtx) {
     return rtx.getNodeKey() == startNodeKey && !serializeStartNodeWithBrackets;
@@ -1004,9 +1004,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * Emit a string value straight from the bytes the node stores, when the sink can prove that safe
    * ({@link JsonOutputSink#tryEmitQuoted} — each pipeline applies its own pre-scan, vectorized for
-   * long values). A declined value falls back to the exact escaping path, decoding the bytes
-   * already in hand rather than re-fetching them through {@code getValue()} (a second cursor
-   * dispatch over the same array).
+   * long values). A declined value falls back to the exact escaping path, decoding the bytes already
+   * in hand rather than re-fetching them through {@code getValue()} (a second cursor dispatch over
+   * the same array).
    */
   private void appendStringValue(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final byte[] raw = rtx.getValueBytes();
@@ -1091,8 +1091,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param revisions revisions to serialize
    */
   /**
-   * Byte-pipeline builder: serializes UTF-8 straight to the stream — stored string values that
-   * need no escaping are bulk-copied without String construction or char→byte re-encoding.
+   * Byte-pipeline builder: serializes UTF-8 straight to the stream — stored string values that need
+   * no escaping are bulk-copied without String construction or char→byte re-encoding.
    */
   public static Builder newBuilder(final JsonResourceSession resMgr, final OutputStream stream,
       final int... revisions) {
@@ -1112,8 +1112,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceSession resMgr, final long nodeKey,
-      final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
+  public static Builder newBuilder(final JsonResourceSession resMgr, final long nodeKey, final Writer stream,
+      final JsonSerializerProperties properties, final int... revisions) {
     return new Builder(resMgr, nodeKey, stream, properties, revisions);
   }
 
@@ -1216,11 +1216,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Constructor that serializes through a CLIENT-OWNED read cursor instead of opening one.
      *
-     * <p>Use this when the caller already holds an open transaction: the serializer then costs the
-     * traversal alone, instead of a transaction open and close (revision-root load, buffer-pool
-     * borrow, epoch registration) on top of it. Exactly the cursor's own revision is serialized —
-     * a borrowed cursor cannot time-travel — and the serializer neither closes the transaction nor
-     * leaves the cursor moved.
+     * <p>
+     * Use this when the caller already holds an open transaction: the serializer then costs the
+     * traversal alone, instead of a transaction open and close (revision-root load, buffer-pool borrow,
+     * epoch registration) on top of it. Exactly the cursor's own revision is serialized — a borrowed
+     * cursor cannot time-travel — and the serializer neither closes the transaction nor leaves the
+     * cursor moved.
      *
      * @param clientTrx the caller's open read cursor; stays owned by the caller
      * @param stream {@link Appendable} to write to

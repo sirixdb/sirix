@@ -178,6 +178,7 @@ public final class ProjectionBulkLoad {
   /** The append-only record-set array currently receiving children. */
   private long activeArrayRootKey = -1L;
   private long activeArrayRootCountedChildren;
+  private long activeArrayRootCountedLastChild = -1L;
   private long expectedArrayRecords;
   private long arrayRootInstanceCount;
 
@@ -572,6 +573,7 @@ public final class ProjectionBulkLoad {
     }
     activeArrayRootKey = nodeKey;
     activeArrayRootCountedChildren = 0L;
+    activeArrayRootCountedLastChild = -1L;
     arrayRootInstanceCount++;
   }
 
@@ -994,9 +996,9 @@ public final class ProjectionBulkLoad {
    * This is the invariant that makes per-notification record attribution safe to rely on. Attribution
    * decides which node belongs to which record from change notifications alone; if it ever missed a
    * record root, the index would simply be short a row — no exception, no wrong-looking output, just
-   * a query that quietly answers over fewer records than the resource holds. An array node already
-   * knows its child count, so the check costs one node read per record set and turns that class of
-   * bug from silent into loud.
+   * a query that quietly answers over fewer records than the resource holds. With persisted child
+   * counts, the check costs one array-node read. Otherwise bounded drains count only the sibling
+   * links appended since the previous tail. The check turns that class of bug from silent into loud.
    *
    * <p>
    * Only the array-rooted shape is checkable this way, which is also the only shape whose attribution
@@ -1048,7 +1050,29 @@ public final class ProjectionBulkLoad {
       throw new IllegalStateException("Projection bulk load for " + key + " cannot read record-set array " + arrayKey
           + " during its bounded drain");
     }
-    return rtx.getChildCount();
+    if (rtx.getResourceSession().getResourceConfig().storeChildCount()) {
+      return rtx.getChildCount();
+    }
+    // A load is append-only. Resume after the counted tail, so repeated bounded drains never
+    // rewalk the unchanged prefix when the resource omits persisted child counts.
+    final NodeCursor cursor = (NodeCursor) rtx;
+    long count = activeArrayRootCountedChildren;
+    final boolean hasNext;
+    if (activeArrayRootCountedLastChild < 0) {
+      hasNext = cursor.moveToFirstChild();
+    } else {
+      if (!rtx.moveTo(activeArrayRootCountedLastChild) || cursor.getParentKey() != arrayKey) {
+        throw new IllegalStateException("Projection bulk load lost its counted array tail for " + key);
+      }
+      hasNext = cursor.moveToRightSibling();
+    }
+    if (hasNext) {
+      do {
+        count++;
+        activeArrayRootCountedLastChild = rtx.getNodeKey();
+      } while (cursor.moveToRightSibling());
+    }
+    return count;
   }
 
   /**

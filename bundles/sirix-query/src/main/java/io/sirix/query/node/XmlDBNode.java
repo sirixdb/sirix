@@ -643,7 +643,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean hasChildren() {
     moveRtx();
-    return rtx.getChildCount() > 0;
+    return rtx.hasFirstChild();
   }
 
   @Override

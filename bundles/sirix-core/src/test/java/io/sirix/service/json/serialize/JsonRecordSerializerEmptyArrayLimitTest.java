@@ -28,12 +28,16 @@ final class JsonRecordSerializerEmptyArrayLimitTest {
     final Path databasePath = directory.resolve("counts");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("stored").storageType(StorageType.FILE_CHANNEL)
-          .versioningApproach(versioning).storeChildCount(true).build());
+      database.createResource(ResourceConfiguration.newBuilder("stored")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .storeChildCount(true)
+                                                   .build());
       try (var session = database.beginResourceSession("stored")) {
         try (var writer = session.beginNodeTrx()) {
-          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-              "{\"array\":[0,1,2],\"empty\":[],\"object\":{\"x\":1}}"), JsonNodeTrx.Commit.NO);
+          writer.insertSubtreeAsFirstChild(
+              JsonShredder.createStringReader("{\"array\":[0,1,2],\"empty\":[],\"object\":{\"x\":1}}"),
+              JsonNodeTrx.Commit.NO);
           writer.commit();
         }
         final StringWriter output = new StringWriter();

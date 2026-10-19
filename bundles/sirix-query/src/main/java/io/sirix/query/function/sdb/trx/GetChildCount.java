@@ -1,5 +1,6 @@
 package io.sirix.query.function.sdb.trx;
 
+import io.sirix.utils.ChildCounts;
 import io.brackit.query.QueryContext;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
@@ -40,6 +41,6 @@ public final class GetChildCount extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(document.getTrx().getChildCount());
+    return new Int64(ChildCounts.get(document.getTrx()));
   }
 }

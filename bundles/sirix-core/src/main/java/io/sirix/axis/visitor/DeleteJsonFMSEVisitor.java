@@ -29,15 +29,13 @@ import static java.util.Objects.requireNonNull;
  */
 public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
 
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(DeleteJsonFMSEVisitor.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DeleteJsonFMSEVisitor.class));
 
   private final JsonMatching matching;
   private final JsonNodeTrx wtx;
   private final long startKey;
 
-  public DeleteJsonFMSEVisitor(final JsonNodeTrx wtx, final JsonMatching matching,
-      final long startKey) {
+  public DeleteJsonFMSEVisitor(final JsonNodeTrx wtx, final JsonMatching matching, final long startKey) {
     this.wtx = requireNonNull(wtx);
     this.matching = requireNonNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");
@@ -121,12 +119,13 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
     try {
       wtx.moveTo(node.getNodeKey());
       final long nodeKey = wtx.getNodeKey();
+      final boolean onlyChild = !wtx.hasLeftSibling() && !wtx.hasRightSibling();
 
       // Case: Has no right and no left sibl. but the parent has a right sibl.
       final boolean movedToParent = wtx.moveToParent();
       assert movedToParent;
       final long parentNodeKey = wtx.getNodeKey();
-      if (wtx.getChildCount() == 1 && wtx.hasRightSibling()) {
+      if (onlyChild && wtx.hasRightSibling()) {
         wtx.moveTo(nodeKey);
         wtx.remove();
         assert wtx.getNodeKey() == parentNodeKey;

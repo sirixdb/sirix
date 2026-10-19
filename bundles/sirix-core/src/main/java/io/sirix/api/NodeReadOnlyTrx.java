@@ -125,6 +125,11 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   /**
    * Get the number of children of the current node.
    *
+   * <p>
+   * When the resource omits child counts ({@code storeChildCount=false}), this metadata may be zero
+   * even for a nonempty node. Use the first-child and sibling links to establish emptiness or count
+   * children in that case.
+   *
    * @return the number of children of the current node
    */
   long getChildCount();
