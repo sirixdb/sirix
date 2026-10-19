@@ -263,9 +263,6 @@
       ],
       "fields": [
         {
-          "name": "FACTORY"
-        },
-        {
           "name": "maximum"
         },
         {
@@ -313,9 +310,6 @@
       "type": "com.github.benmanes.caffeine.cache.SSLSMS",
       "fields": [
         {
-          "name": "FACTORY"
-        },
-        {
           "name": "maximum"
         },
         {
@@ -326,9 +320,6 @@
     {
       "type": "com.github.benmanes.caffeine.cache.SSMW",
       "fields": [
-        {
-          "name": "FACTORY"
-        },
         {
           "name": "maximum"
         },
