@@ -30,11 +30,11 @@ package io.sirix.node.json;
 import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
@@ -59,12 +59,16 @@ import java.util.Objects;
 /**
  * Fused JSON node representing an object key bound to a BOOLEAN value in a single slot.
  *
- * <p>Replaces the legacy pair {@code OBJECT_KEY + OBJECT_BOOLEAN_VALUE} for the common
+ * <p>
+ * Replaces the legacy pair {@code OBJECT_KEY + OBJECT_BOOLEAN_VALUE} for the common
  * {@code {"fieldname": true|false}} pattern, eliminating one record per such field.
  *
- * <h2>Wire layout</h2>
+ * <p>
+ * Leaf hashes are computed from the current fields. Hash arguments to constructors and direct
+ * record writers are ignored; no leaf hash is cached or serialized.
+ *
  * <pre>
- * [kindByte=44][offsetTable: FIELD_COUNT × 1 byte][data region]
+ * [kindByte=48][offsetTable: FIELD_COUNT × 1 byte][data region]
  *
  * Field order (offset table indices):
  *   0 parentKey (delta-varint, base=nodeKey)
@@ -74,14 +78,15 @@ import java.util.Objects;
  *   4 pathNodeKey (delta-varint)
  *   5 previousRevision (signed varint)
  *   6 lastModifiedRevision (signed varint)
- *   7 hash (fixed 8 bytes)
- *   8 value (1 byte: 0 = false, 1 = true)
+ *   7 value (1 byte: 0 = false, 1 = true)
  * </pre>
  *
- * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
- * bind/unbind, offset-table lookups in O(1).
+ * <p>
+ * HFT contract: primitive fields only, {@code final} where possible, zero-alloc bind/unbind,
+ * offset-table lookups in O(1).
  */
-public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNamedBooleanNode extends AbstractFlyweightNode
+    implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
   private long parentKey;
@@ -91,7 +96,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   private long pathNodeKey;
   private int previousRevision;
   private int lastModifiedRevision;
-  private long hash;
   private boolean value;
   private LongHashFunction hashFunction;
 
@@ -106,7 +110,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   private Object lazySource;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
-  private boolean hasHash;
 
   // ==================== FLYWEIGHT BINDING ====================
 
@@ -123,8 +126,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.hashFunction = hashFunction;
   }
 
-  public ObjectNamedBooleanNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, boolean value,
+  public ObjectNamedBooleanNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, boolean value,
       LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -134,15 +137,14 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
   }
 
-  public ObjectNamedBooleanNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, boolean value,
+  public ObjectNamedBooleanNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, boolean value,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -152,7 +154,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
@@ -183,7 +184,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJNAMEDBOOL_PATH_NODE_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJNAMEDBOOL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJNAMEDBOOL_HASH);
     this.value = readByteField(NodeFieldLayout.OBJNAMEDBOOL_VALUE) != 0;
     this.page = null;
     this.ownerPage = null;
@@ -211,8 +211,9 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   @Override
   public int estimateSerializedSize() {
-    // 1 (nodeKind) + 9 (offset table) + ~35 (varint fields avg incl. pathNodeKey & nameKey) + 8 (hash) + 1 (bool payload) = ~54
-    return 64;
+    // 1 (nodeKind) + 8 (offset table) + ~35 (varint fields avg incl. pathNodeKey & nameKey) + 1 (bool
+    // payload) = ~45
+    return 55;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -225,11 +226,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   private byte readByteField(final int fieldIndex) {
@@ -251,11 +247,9 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   // ==================== SERIALIZE TO HEAP ====================
 
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash, final boolean value) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash, final boolean value) {
     long pos = offset;
 
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_NAMED_BOOLEAN.getId());
@@ -287,12 +281,10 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     heapOffsets[NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    heapOffsets[NodeFieldLayout.OBJNAMEDBOOL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
     heapOffsets[NodeFieldLayout.OBJNAMEDBOOL_VALUE] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) (value ? 1 : 0));
+    target.set(ValueLayout.JAVA_BYTE, pos, (byte) (value
+        ? 1
+        : 0));
     pos++;
 
     for (int i = 0; i < FIELD_COUNT; i++) {
@@ -306,10 +298,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey,
-        previousRevision, lastModifiedRevision, hash, value);
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L, value);
   }
 
   @Override
@@ -342,8 +332,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PARENT_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PARENT_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
@@ -351,8 +341,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_PARENT_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_PARENT_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
       return;
     }
@@ -399,8 +388,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PREV_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PREV_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -408,8 +397,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_PREV_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_PREV_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -419,8 +407,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -428,8 +416,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_LAST_MOD_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -438,24 +425,14 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJNAMEDBOOL_HASH);
-    }
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
-    }
-    return hash;
+    return hashFunction == null
+        ? 0L
+        : computeHash(Bytes.threadLocalHashBuffer());
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
-    this.hash = hash;
+    // Leaf hashes are derived from the current fields; only containers persist subtree hashes.
   }
 
   @Override
@@ -483,8 +460,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setNameKey(final int nameKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_NAME_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_NAME_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(nameKey);
@@ -492,8 +469,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, nameKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_NAME_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_NAME_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, nameKey));
       return;
     }
@@ -544,8 +520,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PATH_NODE_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_PATH_NODE_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
@@ -553,8 +529,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_PATH_NODE_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_PATH_NODE_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
       return;
     }
@@ -571,8 +546,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_RIGHT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_RIGHT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
@@ -580,8 +555,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_RIGHT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_RIGHT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
       return;
     }
@@ -598,8 +572,8 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_LEFT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_LEFT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
@@ -607,8 +581,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDBOOL_LEFT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDBOOL_LEFT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
       return;
     }
@@ -696,9 +669,10 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
 
   public void setValue(final boolean value) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_VALUE) & 0xFF;
-      page.set(ValueLayout.JAVA_BYTE, dataRegionStart + fieldOff, (byte) (value ? 1 : 0));
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_VALUE) & 0xFF;
+      page.set(ValueLayout.JAVA_BYTE, dataRegionStart + fieldOff, (byte) (value
+          ? 1
+          : 0));
       return;
     }
     this.value = value;
@@ -769,7 +743,7 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
@@ -784,13 +758,11 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
 
     this.nameKey = 0;
     this.pathNodeKey = 0;
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
-    this.hash = 0;
     this.value = false;
   }
 
@@ -818,38 +790,31 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.value = bytesIn.readBoolean();
     this.lazyFieldsParsed = true;
   }
 
   public ObjectNamedBooleanNode toSnapshot() {
     if (page != null) {
-      return new ObjectNamedBooleanNode(nodeKey,
-          getParentKey(), getRightSiblingKey(), getLeftSiblingKey(),
-          getNameKey(), getPathNodeKey(),
-          getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(), getValue(),
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+      return new ObjectNamedBooleanNode(nodeKey, getParentKey(), getRightSiblingKey(), getLeftSiblingKey(),
+          getNameKey(), getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), 0L, getValue(),
+          hashFunction, getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new ObjectNamedBooleanNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+    return new ObjectNamedBooleanNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+        previousRevision, lastModifiedRevision, 0L, value, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null);
   }
 
   @Override
   public String toString() {
-    return "ObjectNamedBooleanNode{" +
-        "nodeKey=" + nodeKey +
-        ", parentKey=" + parentKey +
-        ", nameKey=" + nameKey +
-        ", value=" + value +
-        '}';
+    return "ObjectNamedBooleanNode{" + "nodeKey=" + nodeKey + ", parentKey=" + parentKey + ", nameKey=" + nameKey
+        + ", value=" + value + '}';
   }
 
   @Override
@@ -862,9 +827,6 @@ public final class ObjectNamedBooleanNode extends AbstractFlyweightNode implemen
     if (!(obj instanceof final ObjectNamedBooleanNode other)) {
       return false;
     }
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && nameKey == other.nameKey
-        && value == other.value;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && nameKey == other.nameKey && value == other.value;
   }
 }

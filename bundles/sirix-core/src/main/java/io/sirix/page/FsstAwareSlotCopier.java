@@ -34,7 +34,7 @@ import java.lang.foreign.ValueLayout;
  * <p>
  * <b>Wire formats handled.</b>
  * <ul>
- * <li>Flyweight format (dir {@code nodeKindId} in {@code {30, 40}}): slot is
+ * <li>Flyweight format (dir {@code nodeKindId} in {@code {30, 50}}): slot is
  * {@code [kindByte][offsetTable: fieldCount bytes][data region]}. We locate the payload via the
  * offset-table byte and do not touch the structural varints.</li>
  * <li>Legacy format (dir {@code nodeKindId == 0}): slot is
@@ -55,8 +55,8 @@ public final class FsstAwareSlotCopier {
   private static final int OBJECT_NAMED_STRING_KIND_ID = 50;
 
   /** Field count / payload index of the fused OBJECT_NAMED_STRING offset table. */
-  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = 9;
-  private static final int OBJECT_NAMED_STRING_PAYLOAD_FIELD = 8;
+  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
+  private static final int OBJECT_NAMED_STRING_PAYLOAD_FIELD = NodeFieldLayout.OBJNAMEDSTR_PAYLOAD;
 
   /** Field count of the STRING_VALUE flyweight offset table. */
   private static final int STRING_VALUE_FIELD_COUNT = 6;

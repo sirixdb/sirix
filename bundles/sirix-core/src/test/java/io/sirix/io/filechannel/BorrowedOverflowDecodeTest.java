@@ -1,5 +1,7 @@
 package io.sirix.io.filechannel;
 
+import io.sirix.BinaryEncodingVersion;
+
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -153,7 +155,7 @@ final class BorrowedOverflowDecodeTest {
     // Explicit wire frames cover both formats independently of the writer's codec election.
     try (MemorySegmentBytesOut out = new MemorySegmentBytesOut(payload.length + 128)) {
       out.writeByte(PageKind.OVERFLOWPAGE.getID());
-      out.writeByte((byte) 0); // BinaryEncodingVersion.V0.
+      out.writeByte(BinaryEncodingVersion.V1.byteVersion());
       out.writeByte((byte) (compressed
           ? 1
           : 0));

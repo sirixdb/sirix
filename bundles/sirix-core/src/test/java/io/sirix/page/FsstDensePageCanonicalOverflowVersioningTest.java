@@ -19,6 +19,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.io.StorageType;
 import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -66,9 +68,12 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
   private static final String DENSE_FILLER_VALUE = "界".repeat(110);
   private static final int TARGET_RECORD_PAGE_KEY = 1;
   private static final int MAX_DENSE_FILLERS = 900;
-  private static final int MERGE_FILLER_COUNT = 700;
   private static final String MERGE_FILLER_VALUE = FSST_TOKEN.repeat(10);
-  private static final String MERGE_TAIL_VALUE = "x".repeat(210);
+  private static final int MERGE_HEAP_BYTES = KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY - PageLayout.HEAP_START;
+  // Even the payload bytes alone must exceed the target heap. Each decoded filler remains below
+  // the record-size ceiling, so rejected fillers acquire complete side images and consume no tail.
+  private static final int MERGE_FILLER_COUNT =
+      MERGE_HEAP_BYTES / MERGE_FILLER_VALUE.getBytes(StandardCharsets.UTF_8).length + 1;
   private static final String OLDER_TARGET_VALUE = FSST_TOKEN.repeat(72) + "older";
   private static final String NEWER_TARGET_VALUE = FSST_TOKEN.repeat(72) + "newer";
 
@@ -214,6 +219,9 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
       assertTrue(wtx.moveTo(objectNodeKey));
       final long touchNodeKey = wtx.insertObjectRecordAsFirstChild("merge-touch", BooleanValue.FALSE).getNodeKey();
       assertEquals(TARGET_RECORD_PAGE_KEY, touchNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
+      assertTrue(MERGE_FILLER_COUNT + 2 <= Constants.NDP_NODE_COUNT,
+          "the calculated fillers, touch field and target must fit one logical record page");
+      long firstFillerNodeKey = Constants.NULL_ID_LONG;
 
       for (int i = 0; i < MERGE_FILLER_COUNT; i++) {
         assertTrue(wtx.moveTo(objectNodeKey));
@@ -221,29 +229,79 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
             wtx.insertObjectRecordAsFirstChild("merge-filler-" + i, new StringValue(MERGE_FILLER_VALUE)).getNodeKey();
         assertEquals(TARGET_RECORD_PAGE_KEY, fillerNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
             "merge fixture exhausted its target record page");
+        if (i == 0) {
+          firstFillerNodeKey = fillerNodeKey;
+        }
       }
 
-      // The large reconstructed fillers leave a small tail which still fits the target's 33-byte
-      // metadata descriptor. Consume that tail immediately before the target so the target itself,
-      // not merely earlier fillers, must publish a side image plus a newly created reference.
-      assertTrue(wtx.moveTo(objectNodeKey));
-      final long tailNodeKey =
-          wtx.insertObjectRecordAsFirstChild("merge-tail", new StringValue(MERGE_TAIL_VALUE)).getNodeKey();
-      assertEquals(TARGET_RECORD_PAGE_KEY, tailNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
+      // Calculate the residual heap from the actual decoded records, including their current
+      // offset tables, links, names and varint widths. Enlarge the first filler by exactly that
+      // residual (accounting for its payload-length varint), while keeping it intrinsically inline.
+      // It is copied before every other filler, so this consumes the final gap instead of adding
+      // another record that could itself spill without consuming any heap.
+      final KeyValueLeafPage page = wtx.getStorageEngineWriter().getAllocKvl();
+      final int remaining = remainingAfterDecodedInlineCopies(page, Constants.NDP_NODE_COUNT);
+      final ObjectNamedStringNode firstFiller =
+          wtx.getStorageEngineWriter()
+             .<ObjectNamedStringNode>prepareRecordForModificationDocument(firstFillerNodeKey)
+             .toSnapshot();
+      final int payloadBytes = firstFiller.getRawValue().length;
+      firstFiller.setRawValue(firstFiller.getRawValue());
+      final int oldLengthWidth = DeltaVarIntCodec.computeSignedEncodedWidth(payloadBytes);
+      int extraBytes = remaining;
+      while (extraBytes + DeltaVarIntCodec.computeSignedEncodedWidth(payloadBytes + extraBytes)
+          - oldLengthWidth > remaining) {
+        extraBytes--;
+      }
+      assertEquals(remaining,
+          extraBytes + DeltaVarIntCodec.computeSignedEncodedWidth(payloadBytes + extraBytes) - oldLengthWidth,
+          "the calculated payload must consume the exact residual heap");
+      final MemorySegment scratch = MemorySegment.ofArray(new byte[PageConstants.MAX_RECORD_SIZE]);
+      final int originalBytes = firstFiller.serializeToHeap(scratch, 0);
+      assertTrue(originalBytes + remaining <= PageConstants.MAX_RECORD_SIZE,
+          "the enlarged filler must stay intrinsically inline after FSST decoding");
+      assertTrue(wtx.moveTo(firstFillerNodeKey));
+      wtx.setStringValue(MERGE_FILLER_VALUE + "x".repeat(extraBytes));
+      assertEquals(0, remainingAfterDecodedInlineCopies(page, Constants.NDP_NODE_COUNT),
+          "decoded fillers must consume the entire target heap before the target is copied");
 
       assertTrue(wtx.moveTo(objectNodeKey));
       final long targetNodeKey =
           wtx.insertObjectRecordAsFirstChild("merge-target", new StringValue(OLDER_TARGET_VALUE)).getNodeKey();
       assertEquals(TARGET_RECORD_PAGE_KEY, targetNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT);
 
-      final KeyValueLeafPage page = wtx.getStorageEngineWriter().getAllocKvl();
       final int targetSlot = StorageEngineReader.recordPageOffset(targetNodeKey);
+      assertEquals(0, remainingAfterDecodedInlineCopies(page, targetSlot),
+          "inserting the target must preserve the calculated zero-tail precondition");
       assertTrue(page.isFusedObjectNamedStringValueCompressed(targetSlot),
           "the inherited FSST table must keep the newest source slot inline");
       assertTrue(page.referenceEntrySet().isEmpty(), "the source fragment must not already own an overflow reference");
       wtx.commit();
       return new LatestShadowFixture(targetNodeKey, touchNodeKey);
     }
+  }
+
+  private static int remainingAfterDecodedInlineCopies(final KeyValueLeafPage page, final int beforeSlot) {
+    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(page.getFsstSymbolTable());
+    assertTrue(copier.active(), "fixture sizing must use the actual FSST table");
+    int remaining = MERGE_HEAP_BYTES;
+    for (final int slot : page.populatedSlots()) {
+      if (slot >= beforeSlot) {
+        break;
+      }
+      final MemorySegment encoded = page.getSlot(slot);
+      assertNotNull(encoded);
+      final byte[] decoded = copier.decompressSlot(encoded, page.getSlotNodeKindId(slot));
+      final int bytes = decoded == null
+          ? Math.toIntExact(encoded.byteSize())
+          : decoded.length;
+      assertTrue(bytes <= PageConstants.MAX_RECORD_SIZE,
+          "each preceding record must fit intrinsically inline; only frame capacity may spill it");
+      if (bytes <= remaining) {
+        remaining -= bytes;
+      }
+    }
+    return remaining;
   }
 
   private static void updateTarget(final JsonResourceSession session, final long targetNodeKey, final String value) {
@@ -287,6 +345,11 @@ final class FsstDensePageCanonicalOverflowVersioningTest {
         assertTrue(physicalPage.isFusedObjectNamedStringValueCompressed(targetSlot));
         assertTrue(physicalPage.referenceEntrySet().isEmpty(),
             "the regression requires the newest physical fragment to have no source reference");
+        reader.ensureFsstSymbolTable(physicalPage);
+        assertEquals(MERGE_FILLER_COUNT + 2, physicalPage.populatedSlots().length,
+            "the physical source must include every calculated filler before the target");
+        assertEquals(0, remainingAfterDecodedInlineCopies(physicalPage, targetSlot),
+            "the persisted source must exhaust the decoded target heap before its target record");
       } finally {
         physicalPage.close();
       }

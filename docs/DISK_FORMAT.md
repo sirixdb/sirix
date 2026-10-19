@@ -1,7 +1,7 @@
-# SirixDB On-Disk Format (V0)
+# SirixDB On-Disk Format (V1)
 
-Status: **V0 record contract.** We are at
-`BinaryEncodingVersion.V0` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
+Status: **V1 record contract.** We are at
+`BinaryEncodingVersion.V1` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
 pre-freeze checklist item has been resolved (implemented or explicitly decided — see §5's
 decisions log), and the byte-level contract is pinned by golden tests
 (`io.sirix.format.GoldenFormatTest`, `io.sirix.format.GoldenCompositePageTest`): an accidental
@@ -12,6 +12,13 @@ byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to 
 and a format note here. SirixDB has no released consumers; format changes may reject earlier
 structures without a reader bridge or migration. The golden pins make changes to pinned
 structures deliberate (see §2, "PathStats trailer").
+
+V1 removes the eight-byte hash and its offset-table entry from fused JSON primitive leaves
+(`OBJECT_NAMED_BOOLEAN`, `OBJECT_NAMED_NUMBER`, `OBJECT_NAMED_STRING`, `OBJECT_NAMED_NULL`).
+Their hashes are computed on demand from the existing node identity, links, name, and typed
+payload inputs. Objects, arrays, and document roots retain stored subtree hashes. The page
+version byte is now 1; V0 pages and resource configurations are rejected, with no migration
+reader. File superblocks and independently versioned projection structures retain their versions.
 
 ## 1. Files
 

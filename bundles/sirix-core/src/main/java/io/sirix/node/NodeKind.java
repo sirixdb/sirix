@@ -872,13 +872,9 @@ public enum NodeKind implements DeweyIdSerializer {
       long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = 0;
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        hash = source.readLong();
-      }
       boolean value = source.readBoolean();
       return new ObjectNamedBooleanNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+          prevRev, lastModRev, 0L, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -893,9 +889,6 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(node.getHash());
-      }
       sink.writeBoolean(node.getValue());
     }
 
@@ -925,13 +918,9 @@ public enum NodeKind implements DeweyIdSerializer {
       long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = 0;
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        hash = source.readLong();
-      }
       Number value = deserializeNumber(source);
       return new ObjectNamedNumberNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+          prevRev, lastModRev, 0L, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -946,9 +935,6 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(node.getHash());
-      }
       serializeNumber(node.getValue(), sink);
     }
 
@@ -978,16 +964,12 @@ public enum NodeKind implements DeweyIdSerializer {
       long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = 0;
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        hash = source.readLong();
-      }
       boolean isCompressed = source.readByte() == 1;
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
       return new ObjectNamedStringNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-          prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
+          prevRev, lastModRev, 0L, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1002,9 +984,6 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(node.getHash());
-      }
       sink.writeByte(node.isCompressed()
           ? (byte) 1
           : (byte) 0);
@@ -1042,12 +1021,8 @@ public enum NodeKind implements DeweyIdSerializer {
       long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = 0;
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        hash = source.readLong();
-      }
       return new ObjectNamedNullNode(recordID, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-          prevRev, lastModRev, hash, resourceConfiguration.nodeHashFunction, deweyID);
+          prevRev, lastModRev, 0L, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1062,9 +1037,6 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(node.getHash());
-      }
     }
 
     @Override
