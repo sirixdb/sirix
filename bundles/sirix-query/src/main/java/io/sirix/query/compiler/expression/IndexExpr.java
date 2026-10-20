@@ -7,6 +7,7 @@ import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntArrays;
+import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -542,8 +543,11 @@ public final class IndexExpr implements Expr {
         // positive nodes
         if (numberOfArrayIndexes != 0 || checkPathBecauseOfFieldNameChecks) {
           final var nodeKeyIter = currentNodeReferences.nodeKeyIterator();
+          long checkedArrayKey = -1;
+          long checkedArrayLength = 0;
           while (nodeKeyIter.hasNext()) {
             final var nodeKey = nodeKeyIter.next();
+            long invalidArrayIndex = 0;
             final var currentPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
             pathSegmentNamesToArrayIndexes.forEach(pathSegmentNameToArrayIndex -> {
               final var currentIndexes = new ArrayDeque<>(pathSegmentNameToArrayIndex.arrayIndexes());
@@ -631,10 +635,10 @@ public final class IndexExpr implements Expr {
                     int index = indexes.pop();
 
                     if (index != Integer.MIN_VALUE) {
-                      index = index < 0
-                          ? (int) (ChildCounts.get(rtx) + index)
-                          : index;
                       if (currentIndex == steps.size() - 1) {
+                        index = index < 0
+                            ? (int) (ChildCounts.get(rtx) + index)
+                            : index;
                         boolean hasMoved = rtx.moveToFirstChild();
                         int k = 0;
                         for (; k <= index && hasMoved; k++) {
@@ -645,11 +649,44 @@ public final class IndexExpr implements Expr {
                           break outer;
                         }
                       } else {
-                        boolean hasMoved = true;
-                        for (int k = 0; k < index && hasMoved; k++) {
-                          hasMoved = rtx.moveToLeftSibling();
+                        // The cursor is on an element. Keep [-1] count-free; for other
+                        // negatives, count its containing array once and use the nearer edge.
+                        boolean fromEnd = index < 0;
+                        if (index < -1) {
+                          final long arrayKey = rtx.getParentKey();
+                          if (arrayKey != checkedArrayKey) {
+                            final long elementKey = rtx.getNodeKey();
+                            rtx.moveToParent();
+                            checkedArrayKey = arrayKey;
+                            checkedArrayLength = ChildCounts.get(rtx);
+                            rtx.moveTo(elementKey);
+                          }
+                          final long normalizedIndex = checkedArrayLength + index;
+                          if (normalizedIndex < 0) {
+                            // An outer position may still exclude this array. Preserve the
+                            // error until all ancestor constraints have accepted the candidate.
+                            invalidArrayIndex = normalizedIndex;
+                            rtx.moveToParent();
+                            continue;
+                          }
+                          if (normalizedIndex < -(long) index - 1) {
+                            index = (int) normalizedIndex;
+                            fromEnd = false;
+                          }
                         }
-                        if (!hasMoved || rtx.hasLeftSibling()) {
+                        boolean hasMoved = true;
+                        if (fromEnd) {
+                          for (int k = -1; k > index && hasMoved; k--) {
+                            hasMoved = rtx.moveToRightSibling();
+                          }
+                        } else {
+                          for (int k = 0; k < index && hasMoved; k++) {
+                            hasMoved = rtx.moveToLeftSibling();
+                          }
+                        }
+                        if (!hasMoved || (fromEnd
+                            ? rtx.hasRightSibling()
+                            : rtx.hasLeftSibling())) {
                           currNodeKeys.remove(nodeKey);
                           break outer;
                         }
@@ -688,6 +725,10 @@ public final class IndexExpr implements Expr {
                   && steps.get(i - 1).getAxis() == Path.Axis.CHILD_OBJECT_FIELD) {
                 rtx.moveToParent();
               }
+            }
+            if (invalidArrayIndex < 0 && currNodeKeys.contains(nodeKey)) {
+              throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE,
+                  "Illegal negative index: " + invalidArrayIndex);
             }
           }
         }
