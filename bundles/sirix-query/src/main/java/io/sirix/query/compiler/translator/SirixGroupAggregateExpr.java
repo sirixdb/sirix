@@ -254,11 +254,11 @@ public final class SirixGroupAggregateExpr implements Expr {
     if (membership == null && keyOffsets == null && keySubstr == null && keyCondFields == null && keyCondLits == null
         && keyCondElse == null && keyRegexPattern == null && keyRegexRepl == null && keyDivMod == null
         && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups()) {
-      final SirixVectorizedExecutor.ServedGroups aggregate =
-          TemporalAggregateRoute.serve(ctx, tuple, source.point(), new RoutedGroupRequest(sourcePath, predicateOrNull,
-              groupFields, keyNames, funcs, aggFields, outNames, computedLanes),
-              new TemporalAggregateRoute.OutputOrder(Objects.requireNonNull(orderIndexes),
-                  Objects.requireNonNull(orderAsc), Objects.requireNonNull(orderEmptyLeast)));
+      final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, source.point(),
+          new RoutedGroupRequest(sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
+              computedLanes),
+          new TemporalAggregateRoute.OutputOrder(Objects.requireNonNull(orderIndexes), Objects.requireNonNull(orderAsc),
+              Objects.requireNonNull(orderEmptyLeast)));
       if (aggregate != null) {
         return aggregate;
       }

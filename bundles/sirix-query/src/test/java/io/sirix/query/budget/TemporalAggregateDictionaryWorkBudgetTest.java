@@ -128,10 +128,10 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"16,FULL,true", "256,FULL,true", "16,DIFFERENTIAL,true", "256,DIFFERENTIAL,true",
-      "16,INCREMENTAL,true", "256,INCREMENTAL,true", "16,SLIDING_SNAPSHOT,true", "256,SLIDING_SNAPSHOT,true",
-      "16,FULL,false", "256,FULL,false", "16,DIFFERENTIAL,false", "256,DIFFERENTIAL,false",
-      "16,INCREMENTAL,false", "256,INCREMENTAL,false", "16,SLIDING_SNAPSHOT,false", "256,SLIDING_SNAPSHOT,false"})
+  @CsvSource({"16,FULL,true", "256,FULL,true", "16,DIFFERENTIAL,true", "256,DIFFERENTIAL,true", "16,INCREMENTAL,true",
+      "256,INCREMENTAL,true", "16,SLIDING_SNAPSHOT,true", "256,SLIDING_SNAPSHOT,true", "16,FULL,false",
+      "256,FULL,false", "16,DIFFERENTIAL,false", "256,DIFFERENTIAL,false", "16,INCREMENTAL,false",
+      "256,INCREMENTAL,false", "16,SLIDING_SNAPSHOT,false", "256,SLIDING_SNAPSHOT,false"})
   void integralOutputDeclinesOversizedDictionaryOnce(final int rows, final VersioningType versioning,
       final boolean storeChildCount) throws Exception {
     build(rows, versioning, storeChildCount, true);
@@ -154,13 +154,24 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
               order by $g DIRECTION
               return {"g":$g,"count":$count,"min":$min,"max":$max}
               """.replace("TX", publicationInstant(publication).toString())
-                 .replace("DIRECTION", ascending ? "ascending" : "descending");
+                 .replace("DIRECTION", ascending
+                     ? "ascending"
+                     : "descending");
           final StringBuilder expected = new StringBuilder();
           for (int position = 0; position < rows; position++) {
-            final int group = (ascending ? position : rows - position - 1) + publication;
-            final int value = group == rows ? 1 : group + 1;
-            expected.append("{\"g\":").append(group).append(",\"count\":1,\"min\":").append(value)
-                    .append(",\"max\":").append(value).append('}');
+            final int group = (ascending
+                ? position
+                : rows - position - 1) + publication;
+            final int value = group == rows
+                ? 1
+                : group + 1;
+            expected.append("{\"g\":")
+                    .append(group)
+                    .append(",\"count\":1,\"min\":")
+                    .append(value)
+                    .append(",\"max\":")
+                    .append(value)
+                    .append('}');
           }
           final String answer = expected.toString();
           for (int temperature = 0; temperature < 2; temperature++) {
@@ -169,13 +180,16 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
             captured.work()
                     .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_VISITED, rows + publication,
                         "dictionary admission walks at most the current population plus one once")
-                    .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_DECODED, publication == 0 ? rows : 0,
-                        "a declined primitive dictionary decodes no heads")
-                    .assertExactly(SERVED, publication == 0 ? 1 : 0,
-                        "the initial integral dictionary is served and the changed dictionary declines");
+                    .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_DECODED, publication == 0
+                        ? rows
+                        : 0, "a declined primitive dictionary decodes no heads")
+                    .assertExactly(SERVED, publication == 0
+                        ? 1
+                        : 0, "the initial integral dictionary is served and the changed dictionary declines");
             if (publication == 1) {
-              captured.work().assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1,
-                  "dictionary decline retains the masked projection fallback");
+              captured.work()
+                      .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1,
+                          "dictionary decline retains the masked projection fallback");
             }
           }
           assertEquals(answer, run(oracle, context, query));

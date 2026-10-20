@@ -452,14 +452,18 @@ public final class ColumnarRecordSequence extends AbstractSequence {
           final boolean rightPresent = present[field][right];
           if (leftPresent != rightPresent) {
             // Ordering applies EMPTY_LEAST directly, independently of ASC.
-            return leftPresent == emptyLeast[key] ? 1 : -1;
+            return leftPresent == emptyLeast[key]
+                ? 1
+                : -1;
           }
           if (!leftPresent) {
             continue;
           }
           final int compared = Long.compare(longs[field][left], longs[field][right]);
           if (compared != 0) {
-            return ascending[key] ? compared : -compared;
+            return ascending[key]
+                ? compared
+                : -compared;
           }
         }
         return 0;

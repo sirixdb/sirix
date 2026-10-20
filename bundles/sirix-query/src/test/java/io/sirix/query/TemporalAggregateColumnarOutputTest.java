@@ -62,12 +62,15 @@ final class TemporalAggregateColumnarOutputTest {
   private void assertIntegralGroups(final VersioningType versioning, final boolean storeChildCount) throws Exception {
     build(versioning, storeChildCount);
     final Item retained;
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         var context = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       TemporalAggregateTestSupport.await(context);
-      for (final String order : List.of("$h descending, $g ascending empty greatest", "$g descending, $h", "$n, $g, $h")) {
+      for (final String order : List.of("$h descending, $g ascending empty greatest", "$g descending, $h",
+          "$n, $g, $h")) {
         final String query = query("$g,$h", order, false);
         final String expected = serialize(new Query(generic, query).execute(context));
         final long served = TemporalAggregateRoute.servedCount();
@@ -88,7 +91,8 @@ final class TemporalAggregateColumnarOutputTest {
       assertEquals(new Str("owned"), first.get(new QNm("min_cost")));
       // Projecting fewer maintained keys must coalesce groups; overflowing sums keep big integers.
       for (final String query : List.of(query("$g", "$g", false), query("$g,$h", "$g,$h", true))) {
-        assertEquals(serialize(new Query(generic, query).execute(context)), serialize(new Query(chain, query).execute(context)));
+        assertEquals(serialize(new Query(generic, query).execute(context)),
+            serialize(new Query(chain, query).execute(context)));
       }
     }
     assertEquals(new Str("owned"), assertInstanceOf(Object.class, retained).get(new QNm("min_cost")));
@@ -103,11 +107,18 @@ final class TemporalAggregateColumnarOutputTest {
         SUM_BINDING
         order by ORDER
         return {"g":$g,H_FIELD"n":$n,"min_cost":$min,"max_cost":$max SUM_FIELD}
-        """.replace("GROUPS", groups)
+        """.replace(
+        "GROUPS", groups)
            .replace("ORDER", order)
-           .replace("H_FIELD", groups.contains("$h") ? "\"h\":$h," : "")
-           .replace("SUM_BINDING", sum ? "let $sum := sum($cost)" : "")
-           .replace("SUM_FIELD", sum ? ",\"sum\":$sum" : "");
+           .replace("H_FIELD", groups.contains("$h")
+               ? "\"h\":$h,"
+               : "")
+           .replace("SUM_BINDING", sum
+               ? "let $sum := sum($cost)"
+               : "")
+           .replace("SUM_FIELD", sum
+               ? ",\"sum\":$sum"
+               : "");
   }
 
   private void build(final VersioningType versioning, final boolean storeChildCount) {

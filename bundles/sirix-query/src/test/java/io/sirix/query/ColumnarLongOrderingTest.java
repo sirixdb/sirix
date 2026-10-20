@@ -36,11 +36,11 @@ final class ColumnarLongOrderingTest {
     for (int modifiers = 0; modifiers < 16; modifiers++) {
       final boolean[] ascending = {(modifiers & 1) != 0, (modifiers & 2) != 0};
       final boolean[] emptyLeast = {(modifiers & 4) != 0, (modifiers & 8) != 0};
-      final ColumnarRecordSequence.Builder builder = new ColumnarRecordSequence.Builder(
-          new QNm[] {new QNm("a"), new QNm("b")}, new boolean[2], 1);
-      final Ordering ordering = new Ordering(new Expr[0], new Ordering.OrderModifier[] {
-          new Ordering.OrderModifier(ascending[0], emptyLeast[0], null),
-          new Ordering.OrderModifier(ascending[1], emptyLeast[1], null)});
+      final ColumnarRecordSequence.Builder builder =
+          new ColumnarRecordSequence.Builder(new QNm[] {new QNm("a"), new QNm("b")}, new boolean[2], 1);
+      final Ordering ordering = new Ordering(new Expr[0],
+          new Ordering.OrderModifier[] {new Ordering.OrderModifier(ascending[0], emptyLeast[0], null),
+              new Ordering.OrderModifier(ascending[1], emptyLeast[1], null)});
       for (int row = 0; row < count; row++) {
         builder.addRow();
         final Sequence[] keys = new Sequence[2];
@@ -65,13 +65,13 @@ final class ColumnarLongOrderingTest {
 
   @Test
   void emptyAndUnsupportedOrderInputsAreChecked() {
-    final ColumnarRecordSequence.Builder empty = new ColumnarRecordSequence.Builder(
-        new QNm[] {new QNm("v")}, new boolean[1], 0);
+    final ColumnarRecordSequence.Builder empty =
+        new ColumnarRecordSequence.Builder(new QNm[] {new QNm("v")}, new boolean[1], 0);
     assertArrayEquals(new int[0], empty.orderByLongs(new int[] {0}, new boolean[] {true}, new boolean[] {true}));
     assertThrows(IllegalArgumentException.class,
         () -> empty.orderByLongs(new int[] {0}, new boolean[0], new boolean[] {true}));
-    final ColumnarRecordSequence.Builder text = new ColumnarRecordSequence.Builder(
-        new QNm[] {new QNm("v")}, new boolean[] {true}, 0);
+    final ColumnarRecordSequence.Builder text =
+        new ColumnarRecordSequence.Builder(new QNm[] {new QNm("v")}, new boolean[] {true}, 0);
     assertThrows(IllegalArgumentException.class,
         () -> text.orderByLongs(new int[] {0}, new boolean[] {true}, new boolean[] {true}));
     empty.addRow();

@@ -79,7 +79,16 @@ public final class TemporalAggregateRoute {
     return serve(ctx, tuple, point, request, null);
   }
 
-  record OutputOrder(int[] indexes, boolean[] ascending, boolean[] emptyLeast) {
+  static final class OutputOrder {
+    private final int[] indexes;
+    private final boolean[] ascending;
+    private final boolean[] emptyLeast;
+
+    OutputOrder(final int[] indexes, final boolean[] ascending, final boolean[] emptyLeast) {
+      this.indexes = indexes;
+      this.ascending = ascending;
+      this.emptyLeast = emptyLeast;
+    }
   }
 
   static SirixVectorizedExecutor.@Nullable ServedGroups serve(final QueryContext ctx, final Tuple tuple,
@@ -147,9 +156,10 @@ public final class TemporalAggregateRoute {
       if (groups == null || lanes == null) {
         continue;
       }
-      final SirixVectorizedExecutor.ServedGroups served =
-          serveGroups(aggregateReader, definition, array, point, request, groups, lanes,
-              primitiveGroups(metadata, spec, groups, request) ? order : null);
+      final SirixVectorizedExecutor.ServedGroups served = serveGroups(aggregateReader, definition, array, point,
+          request, groups, lanes, primitiveGroups(metadata, spec, groups, request)
+              ? order
+              : null);
       if (served != null) {
         return served;
       }
@@ -196,26 +206,25 @@ public final class TemporalAggregateRoute {
     final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
     final long coordinate = DomainHolder.DOMAIN.point(point.instant());
     final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-    final boolean admitted =
-        storage.groups(sourceRows, (key, group) -> {
-          if (group.rows() == 0) {
-            return;
-          }
-          final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
-          if (summary.count() == 0) {
-            return;
-          }
-          final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
-          final Sequence[] selected = new Sequence[groups.length];
-          for (int i = 0; i < groups.length; i++) {
-            selected[i] = allKeys[groups[i]];
-          }
-          final List<Sequence> groupKey = Arrays.asList(selected);
-          final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
-          if (previous != null) {
-            previous.add(summary);
-          }
-        });
+    final boolean admitted = storage.groups(sourceRows, (key, group) -> {
+      if (group.rows() == 0) {
+        return;
+      }
+      final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+      if (summary.count() == 0) {
+        return;
+      }
+      final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
+      final Sequence[] selected = new Sequence[groups.length];
+      for (int i = 0; i < groups.length; i++) {
+        selected[i] = allKeys[groups[i]];
+      }
+      final List<Sequence> groupKey = Arrays.asList(selected);
+      final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
+      if (previous != null) {
+        previous.add(summary);
+      }
+    });
     if (!admitted) {
       return null;
     }
@@ -236,7 +245,8 @@ public final class TemporalAggregateRoute {
     final boolean[] seen = new boolean[groups.length];
     final byte[] kinds = metadata.columnKinds();
     for (final int group : groups) {
-      if (seen[group] || kinds[spec.groupColumns().get(group)] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      if (seen[group]
+          || kinds[spec.groupColumns().get(group)] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         return false;
       }
       seen[group] = true;
@@ -275,7 +285,9 @@ public final class TemporalAggregateRoute {
           return;
         }
         present[index] = kind == 1;
-        keys[index] = kind == 1 ? buffer.getLong() : 0;
+        keys[index] = kind == 1
+            ? buffer.getLong()
+            : 0;
       }
       if (buffer.hasRemaining()) {
         throw new IllegalStateException("Trailing temporal group key bytes");
@@ -293,7 +305,9 @@ public final class TemporalAggregateRoute {
           continue;
         }
         final long value = switch (function) {
-          case "count" -> lane < 0 ? summary.count() : summary.present(lane);
+          case "count" -> lane < 0
+              ? summary.count()
+              : summary.present(lane);
           case "min" -> summary.min(lane);
           case "max" -> summary.max(lane);
           default -> throw new IllegalStateException("Unadmitted aggregate function");
@@ -307,7 +321,7 @@ public final class TemporalAggregateRoute {
     if (!supported[0]) {
       return objectGroups(storage, spec, sourceRows, point, request, groups, lanes);
     }
-    final int[] rows = columns.orderByLongs(order.indexes(), order.ascending(), order.emptyLeast());
+    final int[] rows = columns.orderByLongs(order.indexes, order.ascending, order.emptyLeast);
     SERVED.increment();
     return new SirixVectorizedExecutor.ServedGroups(columns.build(rows), true);
   }
