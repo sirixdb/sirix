@@ -172,8 +172,9 @@ unsupported row restores eligibility in the next revision.
 
 Group dictionary admission counts at most the current root array's row population plus one,
 without copying keys or decoding heads. A dictionary larger than that population declines to
-the masked projection route before fetching aggregate parts. This bounds admission after group
-churn or deletion even though empty heads remain in the versioned dictionary. Both ordinary and
+the masked projection route before fetching aggregate parts. Failed primitive-path dictionary
+admission is not retried through object output. This bounds admission after group churn or
+deletion even though empty heads remain in the versioned dictionary. Both ordinary and
 correlated grouped routes use this check against their selected revision; populated historical
 revisions can still serve their aggregates.
 
@@ -186,6 +187,13 @@ membership filters, transformed grouping keys and unsupported aggregate function
 existing execution path. Ordinary grouped queries must order by every group key; otherwise the
 existing path preserves first-seen group order. Correlated grouped admission already requires a
 total order over its group keys.
+
+Ordinary grouped queries use primitive columnar output when their keys are a full permutation of
+the maintained grouping, every grouping column is projected as an integral long, and all requested
+aggregates are `count`, `min` or `max`. The output is already stably ordered by the query's keys and
+aggregate fields, with missing-value placement independent of ascending or descending direction.
+An unsupported encoded key representation uses the object-output route instead. Grouping rollups,
+other key types, sums and correlated groups retain object output.
 
 Only exact millisecond instants inside the configured domain are admitted. Endpoint columns may
 contain timestamp strings or typed timestamps. Typed endpoints follow the projection's
@@ -213,8 +221,12 @@ own the switches that omit these declarations.
 both interval boundaries and deletion of extrema, and preserves prior snapshots.
 `TemporalAggregateIndexTest` exercises a non-SH1 resource, persistent historical roots, updates,
 deletes, insertion, rollback, grouping rollup and exact-instant admission under all four versioning
-types. `DerivedIndexMaintainerTest` covers lag, batching, declaration changes, revert and truncate,
-mapping-cache eviction, encryption, resource aliases, poisoned maintenance and rebuilding missing
+types. `TemporalAggregateColumnarOutputTest` checks ordered integral output, missing operands,
+mutable retained results, rollups and large sums, with and without stored child counts.
+`ColumnarLongOrderingTest` compares primitive stable ordering with Brackit across ordering modifiers,
+missing values, ties and long extrema. `DerivedIndexMaintainerTest` covers lag, batching,
+declaration changes, revert and truncate, mapping-cache eviction, encryption, resource aliases,
+poisoned maintenance and rebuilding missing
 or damaged derived resources. `TemporalAggregateDerivedLagTest` checks query answers against an
 independent `BigInteger` model before, during and after replay under all four versioning types.
 `DerivedIndexCrashRecoveryTest` injects process death after source publication and before or after
