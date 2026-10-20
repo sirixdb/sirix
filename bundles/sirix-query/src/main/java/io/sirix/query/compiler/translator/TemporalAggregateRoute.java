@@ -274,23 +274,9 @@ public final class TemporalAggregateRoute {
       if (summary.count() == 0) {
         return;
       }
-      final ByteBuffer buffer = ByteBuffer.wrap(key);
-      if (buffer.get() != 1) {
-        throw new IllegalStateException("Invalid temporal group key");
-      }
-      for (int index = 0; index < keys.length; index++) {
-        final byte kind = buffer.get();
-        if (kind != 0 && kind != 1) {
-          supported[0] = false;
-          return;
-        }
-        present[index] = kind == 1;
-        keys[index] = kind == 1
-            ? buffer.getLong()
-            : 0;
-      }
-      if (buffer.hasRemaining()) {
-        throw new IllegalStateException("Trailing temporal group key bytes");
+      if (!readIntegralGroupKeys(key, keys, present)) {
+        supported[0] = false;
+        return;
       }
       final int row = columns.addRow();
       for (int index = 0; index < groups.length; index++) {
@@ -324,6 +310,27 @@ public final class TemporalAggregateRoute {
     final int[] rows = columns.orderByLongs(order.indexes, order.ascending, order.emptyLeast);
     SERVED.increment();
     return new SirixVectorizedExecutor.ServedGroups(columns.build(rows), true);
+  }
+
+  private static boolean readIntegralGroupKeys(final byte[] key, final long[] keys, final boolean[] present) {
+    final ByteBuffer buffer = ByteBuffer.wrap(key);
+    if (buffer.get() != 1) {
+      throw new IllegalStateException("Invalid temporal group key");
+    }
+    for (int index = 0; index < keys.length; index++) {
+      final byte kind = buffer.get();
+      if (kind != 0 && kind != 1) {
+        return false;
+      }
+      present[index] = kind == 1;
+      keys[index] = kind == 1
+          ? buffer.getLong()
+          : 0;
+    }
+    if (buffer.hasRemaining()) {
+      throw new IllegalStateException("Trailing temporal group key bytes");
+    }
+    return true;
   }
 
   private static QNm[] outputNames(final RoutedGroupRequest request) {
