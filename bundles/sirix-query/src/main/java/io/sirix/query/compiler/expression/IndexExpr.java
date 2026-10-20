@@ -693,7 +693,15 @@ public final class IndexExpr implements Expr {
           rtx.moveTo(elementKey);
         } while (rtx.moveToRightSibling());
       }
-    } else if (position == -1) {
+    } else {
+      validateSelectedArrayBounds(rtx, fields, positions, step, lengths);
+    }
+  }
+
+  private static void validateSelectedArrayBounds(final JsonNodeReadOnlyTrx rtx, final byte[][] fields,
+      final int[] positions, final int step, final Long2IntOpenHashMap lengths) {
+    final int position = positions[step];
+    if (position == -1) {
       if (!rtx.moveToLastChild()) {
         requireValidNegativeIndex(-1);
       }
