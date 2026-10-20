@@ -186,6 +186,13 @@ sirix-cli -l /tmp/mydb resource-history myresource
 `sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
 multi-line queries, empty line executes, Control-D exits).
 
+JSONiq array access uses zero-based positions. Negative positions count from the end of
+each containing array: `jn:doc('mydb','myresource').numbers[-1].v` reads the last
+element's `v` field. A position below minus the array length raises `FORG0006`, including
+negative access on an empty array; a nonnegative position at or beyond the length returns
+an empty sequence. Indexed queries follow the same rules, including consecutive accesses
+such as `.root.numbers[-2][-1]`.
+
 XML imports from constructed nodes preserve element and attribute namespace URIs and local
 namespace declarations:
 

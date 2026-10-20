@@ -158,6 +158,7 @@ public final class IndexExpr implements Expr {
       final var pathSegmentNamesToArrayIndexes =
           (Deque<QueryPathSegment>) requiredProperty("pathSegmentNamesToArrayIndexes", Deque.class);
 
+      // Share omitted-count resolutions across every posting list, regardless of posting order.
       final Long2IntOpenHashMap arrayLengths = validateNegativeBounds(rtx);
 
       for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
@@ -613,6 +614,7 @@ public final class IndexExpr implements Expr {
       lengths = new Long2IntOpenHashMap();
       lengths.defaultReturnValue(-1);
     }
+    // Selected empty arrays have no leaf postings; validate their bounds before reading the index.
     final long originalKey = rtx.getNodeKey();
     rtx.moveToDocumentRoot();
     if (rtx.moveToFirstChild()) {
@@ -785,6 +787,7 @@ public final class IndexExpr implements Expr {
                       continue;
                     }
                     if (index != Integer.MIN_VALUE) {
+                      // Only the terminal step selects a child; outer steps check its containing arrays.
                       if (l == steps.size() - 1) {
                         if (index < -1) {
                           index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
