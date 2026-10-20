@@ -559,6 +559,46 @@ public final class IndexExpr implements Expr {
     return length;
   }
 
+  private static boolean matchesArrayPosition(final JsonNodeReadOnlyTrx rtx, int index, final boolean terminal,
+      final Long2IntOpenHashMap arrayLengths) {
+    if (terminal) {
+      if (index < -1) {
+        index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
+        if (index < 0) {
+          return false;
+        }
+      }
+      return moveToArrayPosition(rtx, index);
+    }
+    boolean fromEnd = index < 0;
+    if (index < -1) {
+      final long elementKey = rtx.getNodeKey();
+      rtx.moveToParent();
+      final long normalizedIndex = (long) arrayLength(rtx, arrayLengths) + index;
+      rtx.moveTo(elementKey);
+      if (normalizedIndex < 0) {
+        return false;
+      }
+      if (normalizedIndex < -(long) index - 1) {
+        index = (int) normalizedIndex;
+        fromEnd = false;
+      }
+    }
+    boolean hasMoved = true;
+    if (fromEnd) {
+      for (int k = -1; k > index && hasMoved; k--) {
+        hasMoved = rtx.moveToRightSibling();
+      }
+    } else {
+      for (int k = 0; k < index && hasMoved; k++) {
+        hasMoved = rtx.moveToLeftSibling();
+      }
+    }
+    return hasMoved && (fromEnd
+        ? !rtx.hasRightSibling()
+        : !rtx.hasLeftSibling());
+  }
+
   private static void requireValidNegativeIndex(final long index) {
     if (index < 0) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Illegal negative index: " + index);
@@ -781,58 +821,16 @@ public final class IndexExpr implements Expr {
                   }
                   for (int l = currentIndex, length = j + y; l > length; l--) {
                     // remaining with array numberOfArrayIndexes specified
-                    int index = indexes.pop();
+                    final int index = indexes.pop();
 
                     if (index == Integer.MIN_VALUE && l == steps.size() - 1) {
                       continue;
                     }
-                    if (index != Integer.MIN_VALUE) {
-                      // Only the terminal step selects a child; outer steps check its containing arrays.
-                      if (l == steps.size() - 1) {
-                        if (index < -1) {
-                          index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
-                          if (index < 0) {
-                            currNodeKeys.remove(nodeKey);
-                            break outer;
-                          }
-                        }
-                        if (!moveToArrayPosition(rtx, index)) {
-                          currNodeKeys.remove(nodeKey);
-                          break outer;
-                        }
-                      } else {
-                        boolean fromEnd = index < 0;
-                        if (index < -1) {
-                          final long elementKey = rtx.getNodeKey();
-                          rtx.moveToParent();
-                          final long normalizedIndex = (long) arrayLength(rtx, arrayLengths) + index;
-                          rtx.moveTo(elementKey);
-                          if (normalizedIndex < 0) {
-                            currNodeKeys.remove(nodeKey);
-                            break outer;
-                          }
-                          if (normalizedIndex < -(long) index - 1) {
-                            index = (int) normalizedIndex;
-                            fromEnd = false;
-                          }
-                        }
-                        boolean hasMoved = true;
-                        if (fromEnd) {
-                          for (int k = -1; k > index && hasMoved; k--) {
-                            hasMoved = rtx.moveToRightSibling();
-                          }
-                        } else {
-                          for (int k = 0; k < index && hasMoved; k++) {
-                            hasMoved = rtx.moveToLeftSibling();
-                          }
-                        }
-                        if (!hasMoved || (fromEnd
-                            ? rtx.hasRightSibling()
-                            : rtx.hasLeftSibling())) {
-                          currNodeKeys.remove(nodeKey);
-                          break outer;
-                        }
-                      }
+                    // Only the terminal step selects a child; outer steps check its containing arrays.
+                    if (index != Integer.MIN_VALUE
+                        && !matchesArrayPosition(rtx, index, l == steps.size() - 1, arrayLengths)) {
+                      currNodeKeys.remove(nodeKey);
+                      break outer;
                     }
                     rtx.moveToParent();
                   }
