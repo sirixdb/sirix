@@ -1,5 +1,6 @@
 package io.sirix.service.json.serialize;
 
+import io.sirix.utils.ChildCounts;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -69,8 +70,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  private JsonRecordSerializer(final JsonResourceSession resourceMgr, final Builder builder,
-      final int revision, final int... revisions) {
+  private JsonRecordSerializer(final JsonResourceSession resourceMgr, final Builder builder, final int revision,
+      final int... revisions) {
     this.numberOfRecords = builder.numberOfRecords;
     this.revisions = revisions == null
         ? new int[1]
@@ -116,8 +117,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   /**
    * Byte-pipeline builder: serializes UTF-8 straight to the stream. The record serializer's own
-   * envelope/wrapper writes go through the sink's Appendable bridge (ASCII fast path), and the
-   * inner per-record {@link JsonSerializer}s receive the SAME sink (see the sink pass-through in
+   * envelope/wrapper writes go through the sink's Appendable bridge (ASCII fast path), and the inner
+   * per-record {@link JsonSerializer}s receive the SAME sink (see the sink pass-through in
    * {@code JsonSerializer}'s constructor), so escape-free stored string values bulk-copy to the
    * output without String construction or char→byte re-encoding.
    *
@@ -141,9 +142,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords,
-      final long nodeKey, final Writer writer, final JsonSerializerProperties properties,
-      final int... revisions) {
+  public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords, final long nodeKey,
+      final Writer writer, final JsonSerializerProperties properties, final int... revisions) {
     return new Builder(resMgr, numberOfRecords, nodeKey, writer, properties, revisions);
   }
 
@@ -414,11 +414,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * <li>Pagination Mode (startNodeKey > 0): Serialize right siblings of startNodeKey as array</li>
    * </ul>
    *
-   * <p>A single revision serializes as the bare record payload (the wire shape paginating
-   * clients consume). Multiple revisions get the same {@code {"sirix":[{"revisionNumber":N,
-   * "revision":…},…]}} envelope {@link JsonSerializer} emits — the previous code concatenated
-   * one full payload per revision with no separator (invalid JSON) and handed ALL revisions to
-   * every inner per-record serializer (which then re-serialized every revision per record).
+   * <p>
+   * A single revision serializes as the bare record payload (the wire shape paginating clients
+   * consume). Multiple revisions get the same {@code {"sirix":[{"revisionNumber":N,
+   * "revision":…},…]}} envelope {@link JsonSerializer} emits — the previous code concatenated one
+   * full payload per revision with no separator (invalid JSON) and handed ALL revisions to every
+   * inner per-record serializer (which then re-serialized every revision per record).
    */
   public Void call() {
     try {
@@ -443,9 +444,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   /**
    * Flushes the byte sink once after the final emit — covers every path out of
-   * {@link #serializeRecords()}, including its early returns. Writer/Appendable-based builders
-   * are unaffected: their writes were never buffered here (the inner serializers flush their own
-   * private buffers at the end of each call).
+   * {@link #serializeRecords()}, including its early returns. Writer/Appendable-based builders are
+   * unaffected: their writes were never buffered here (the inner serializers flush their own private
+   * buffers at the end of each call).
    */
   private void flushSink() throws IOException {
     if (out instanceof JsonOutputSink sink) {
@@ -550,14 +551,14 @@ public final class JsonRecordSerializer implements Callable<Void> {
     // revisions array made every record re-serialize every requested revision.
     final JsonSerializer.Builder builder =
         new JsonSerializer.Builder(rtx.getResourceSession(), out, revision).serializeStartNodeWithBrackets(false)
-                                                                            .maxLevel(maxLevel)
-                                                                            .maxChildren(maxChildNodes)
-                                                                            .serializeTimestamp(serializeTimestamp)
-                                                                            .withMetaData(withMetaData)
-                                                                            .withNodeKeyAndChildCountMetaData(
-                                                                                withNodeKeyAndChildNodeKeyMetaData)
-                                                                            .withNodeKeyMetaData(withNodeKeyMetaData)
-                                                                            .numberOfNodes(numberOfNodes);
+                                                                           .maxLevel(maxLevel)
+                                                                           .maxChildren(maxChildNodes)
+                                                                           .serializeTimestamp(serializeTimestamp)
+                                                                           .withMetaData(withMetaData)
+                                                                           .withNodeKeyAndChildCountMetaData(
+                                                                               withNodeKeyAndChildNodeKeyMetaData)
+                                                                           .withNodeKeyMetaData(withNodeKeyMetaData)
+                                                                           .numberOfNodes(numberOfNodes);
 
     int count = 0;
     do {
@@ -640,14 +641,14 @@ public final class JsonRecordSerializer implements Callable<Void> {
     // Create builder for serialization (single revision — see serializeSiblingsAfter)
     final JsonSerializer.Builder builder =
         new JsonSerializer.Builder(rtx.getResourceSession(), out, revision).serializeStartNodeWithBrackets(false)
-                                                                            .maxLevel(maxLevel)
-                                                                            .maxChildren(maxChildNodes)
-                                                                            .serializeTimestamp(serializeTimestamp)
-                                                                            .withMetaData(withMetaData)
-                                                                            .withNodeKeyAndChildCountMetaData(
-                                                                                withNodeKeyAndChildNodeKeyMetaData)
-                                                                            .withNodeKeyMetaData(withNodeKeyMetaData)
-                                                                            .numberOfNodes(numberOfNodes);
+                                                                           .maxLevel(maxLevel)
+                                                                           .maxChildren(maxChildNodes)
+                                                                           .serializeTimestamp(serializeTimestamp)
+                                                                           .withMetaData(withMetaData)
+                                                                           .withNodeKeyAndChildCountMetaData(
+                                                                               withNodeKeyAndChildNodeKeyMetaData)
+                                                                           .withNodeKeyMetaData(withNodeKeyMetaData)
+                                                                           .numberOfNodes(numberOfNodes);
 
     // For primitives, serialize the node itself (not children, which don't exist)
     if (state == State.IS_PRIMITIVE) {
@@ -743,7 +744,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     // When withNodeKeyAndChildNodeKeyMetaData is true, nodeKey was already output above,
     // so we always need a comma before childCount
     if (withNodeKeyAndChildNodeKeyMetaData) {
-      out.append(",\"childCount\":").append(String.valueOf(rtx.getChildCount()));
+      out.append(",\"childCount\":").append(String.valueOf(ChildCounts.get(rtx)));
     }
 
     out.append("},\"value\":[");

@@ -18,15 +18,15 @@ import io.sirix.query.json.AbstractJsonDBArray;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Returns an array's stored cardinality and records successful O(1) Sirix-array answers.
+ * Returns an array's exact cardinality and records successful Sirix-backed array answers.
  *
  * <p>
- * The O(1) arm is deliberately restricted to a direct Sirix-backed array. Every other operand is
- * evaluated by Brackit's own {@link ArrayAccessExpr} and counted through its
- * {@link Sequence#size()} contract. That preserves ArrayAccessExpr's runtime dispatch and lazy
- * sequence behavior, including skipping non-arrays and continuing past empty array members. Literal
- * and other in-memory arrays therefore receive the ordinary Brackit answer and never move the
- * serving counter.
+ * Direct Sirix-backed arrays use {@link AbstractJsonDBArray#length()}; its count cache is described
+ * in {@link AbstractJsonDBArray}. Every other operand is evaluated by Brackit's own
+ * {@link ArrayAccessExpr} and counted through its {@link Sequence#size()} contract. That preserves
+ * ArrayAccessExpr's runtime dispatch and lazy sequence behavior, including skipping non-arrays and
+ * continuing past empty array members. Literal and other in-memory arrays therefore receive the
+ * ordinary Brackit answer and never move the serving counter.
  */
 public final class SirixArraySize extends AbstractFunction {
 

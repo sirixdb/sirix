@@ -13,20 +13,16 @@ import io.sirix.query.function.jn.SirixArraySize;
  * {@code jn:sirix-array-size(E)}.
  *
  * <p>
- * Counting an array by unboxing it walks every member: on the 3.48 M-record comparison corpus that
- * is a 325–360 ms full scan, against <b>0.2 ms</b> for the stored-size accessor, because a JSON
- * array node stores its child count and the answer is a single node read. PostgreSQL cannot do this
- * — an MVCC heap has no O(1) row count, which is why {@code SELECT count(*)} scans there too — so
- * this is a structural advantage that was simply not being reached.
+ * Uses the array-size accessor instead of unboxing every member; see {@link SirixArraySize} for
+ * runtime dispatch and count resolution.
  *
  * <p>
  * <b>Why the rewrite is sound.</b> The {@code return} clause must be exactly the loop variable and
  * the pipeline must carry no other clause: a {@code where}, {@code let}, {@code group by},
  * {@code order by}, {@code count}, positional {@code at $p}, or {@code allowing empty} changes
  * either the count or the binding, and every one is rejected below. At runtime
- * {@link SirixArraySize} takes the O(1) child-count arm only for a direct Sirix-backed array; every
- * other operand is delegated to Brackit's own array-access implementation before it is counted.
- * This preserves Brackit's runtime sequence dispatch and error behavior for the general case.
+ * {@link SirixArraySize} preserves Brackit's runtime sequence dispatch and error behavior for the
+ * general case.
  */
 public final class ArrayCountToSizeStage implements Stage {
 

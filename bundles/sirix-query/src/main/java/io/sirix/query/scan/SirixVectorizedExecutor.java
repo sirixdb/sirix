@@ -6,6 +6,7 @@
  */
 package io.sirix.query.scan;
 
+import io.sirix.utils.ChildCounts;
 import static io.sirix.utils.StringComparisons.compareCodePoints;
 
 import it.unimi.dsi.fastutil.HashCommon;
@@ -564,6 +565,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private final JsonResourceSession session;
   private final int revision;
+
+  /** Omitted root count, resolved only when a route needs exact cardinality. */
+  private volatile long unstoredTopLevelRecordCount = -1L;
   private final ExecutionLifecycle executionLifecycle;
   private final boolean ownsExecutionLifecycle;
 
@@ -4541,7 +4545,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (rtx.getKind() != NodeKind.ARRAY) {
         return -1L;
       }
-      return rtx.getChildCount();
+      if (session.getResourceConfig().storeChildCount()) {
+        return rtx.getChildCount();
+      }
+      if (wtx != null) {
+        return ChildCounts.get(rtx);
+      }
+      long count = unstoredTopLevelRecordCount;
+      if (count < 0) {
+        count = ChildCounts.get(rtx);
+        unstoredTopLevelRecordCount = count;
+      }
+      return count;
     } catch (final Exception e) {
       return -1L;
     }

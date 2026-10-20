@@ -1,5 +1,6 @@
 package io.sirix.query.json;
 
+import io.sirix.utils.ChildCounts;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
@@ -69,19 +70,21 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private static final long CHILD_COUNT_UNKNOWN = -1L;
 
   /**
-   * This array's element count, captured at construction.
+   * This array's element count, captured at construction when stored or resolved lazily otherwise.
    *
    * <p>
    * brackit's array unbox calls {@code len()} once per element, and answering that from the cursor
    * means {@code moveRtx()} — a jump back to the array node, which lives on a different page from the
    * element being read. That bounced the cursor page N -> array page -> page N for every element and
    * defeated the same-page fast path. It used to be avoided by materializing the whole element list
-   * and reading its size; capturing the count here removes the need for either.
+   * and reading its size; caching the count here removes the need for either.
    *
    * <p>
    * Read-only transactions only, for the reason {@code JsonDBObject#firstChildKey} records: a writer
    * can change the child count through a different item or through the transaction directly, and this
-   * object would not see it. A writer leaves this {@link #CHILD_COUNT_UNKNOWN}.
+   * object would not see it. A writer leaves this {@link #CHILD_COUNT_UNKNOWN}. Resources that omit
+   * child counts also start unknown and resolve the count lazily from structural links when size is
+   * requested.
    */
   private long childCount;
 
@@ -242,7 +245,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     observedStructuralMutationSequence = cursorMayMutate
         ? ((JsonNodeTrx) rtx).getStructuralMutationSequence()
         : 0L;
-    childCount = cursorMayMutate
+    childCount = cursorMayMutate || !rtx.getResourceSession().getResourceConfig().storeChildCount()
         ? CHILD_COUNT_UNKNOWN
         : rtx.getChildCount();
   }
@@ -300,7 +303,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   private void modify(final int index, final Sequence value, final Op op) {
     final JsonNodeTrx trx = getReadWriteTrx();
-    final long childCount = trx.getChildCount();
+    final long childCount = ChildCounts.get(trx);
     // The session may return a shared writer with pending edits. Reject invalid insertion and
     // replacement indexes before mutation without closing that writer or losing other updates.
     if (index < 0 || index > childCount || (op == Op.Replace && index == childCount)) {
@@ -388,8 +391,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   public Array remove(int index) {
     final JsonNodeTrx trx = getReadWriteTrx();
 
-    if (index >= trx.getChildCount()) {
-      throw new QueryException(new QNm("Index " + index + " is out of bounds (" + trx.getChildCount() + ")."));
+    final long count = ChildCounts.get(trx);
+    if (index < 0 || index >= count) {
+      throw new QueryException(new QNm("Index " + index + " is out of bounds (" + count + ")."));
     }
 
     moveToIndex(index, trx);
@@ -640,7 +644,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       return 1;
     }
     moveRtx();
-    if (rtx.getChildCount() < SPLIT_MIN_ELEMENTS) {
+    if (getArrayChildCount() < SPLIT_MIN_ELEMENTS) {
       return 1;
     }
     final long byPages = documentPageCount() / SPLIT_MIN_PAGES;
@@ -1034,8 +1038,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (childCount != CHILD_COUNT_UNKNOWN) {
       return new Int64(childCount);
     }
-    moveRtx();
-    return new Int64(rtx.getChildCount());
+    return new Int64(getArrayChildCount());
   }
 
   @Override
@@ -1060,8 +1063,20 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (childCount != CHILD_COUNT_UNKNOWN) {
       return (int) childCount;
     }
+    return (int) getArrayChildCount();
+  }
+
+  /** Resolve an omitted count once per immutable array; writers always read their current shape. */
+  protected final long getArrayChildCount() {
+    if (childCount != CHILD_COUNT_UNKNOWN) {
+      return childCount;
+    }
     moveRtx();
-    return (int) rtx.getChildCount();
+    final long count = ChildCounts.get(rtx);
+    if (!cursorMayMutate) {
+      childCount = count;
+    }
+    return count;
   }
 
   @Override

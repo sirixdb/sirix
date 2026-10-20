@@ -21,6 +21,7 @@
 
 package io.sirix.service.json.serialize;
 
+import io.sirix.utils.ChildCounts;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.PageHasher;
@@ -330,21 +331,21 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   }
 
   /**
-   * Check if the current node is the value child of a legacy OBJECT_KEY. ObjectKey values don't
-   * count as separate children for maxChildren and don't increment level.
+   * Check if the current node is the value child of a legacy OBJECT_KEY. ObjectKey values don't count
+   * as separate children for maxChildren and don't increment level.
    * <p>
-   * iter#32 P2 / Phase 4: legacy OBJECT_KEY has been DELETED (see {@link NodeKind} comments).
-   * Under structural fusion, a record can no longer be a "single value of an OBJECT_KEY":
+   * iter#32 P2 / Phase 4: legacy OBJECT_KEY has been DELETED (see {@link NodeKind} comments). Under
+   * structural fusion, a record can no longer be a "single value of an OBJECT_KEY":
    * <ul>
-   *   <li>Fused OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY parents are structural containers; their
-   *       children are ARRAY elements or OBJECT_KEY-shaped fused siblings. Commas MUST be emitted
-   *       between them, and they DO occupy a deeper level slot.</li>
-   *   <li>Fused OBJECT_NAMED_BOOLEAN/NUMBER/STRING/NULL records carry both the field name and the
-   *       inline primitive — they ARE leaves, no separate value child exists.</li>
+   * <li>Fused OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY parents are structural containers; their
+   * children are ARRAY elements or OBJECT_KEY-shaped fused siblings. Commas MUST be emitted between
+   * them, and they DO occupy a deeper level slot.</li>
+   * <li>Fused OBJECT_NAMED_BOOLEAN/NUMBER/STRING/NULL records carry both the field name and the
+   * inline primitive — they ARE leaves, no separate value child exists.</li>
    * </ul>
-   * The legacy OBJECT_KEY → primitive-VALUE pair simply does not occur on disk anymore, so this
-   * check can never fire and we keep the predicate as a hard {@code false} sentinel rather than
-   * a stale {@code OBJECT_NAMED_OBJECT}-based path that produced the nested-object collapse bug.
+   * The legacy OBJECT_KEY → primitive-VALUE pair simply does not occur on disk anymore, so this check
+   * can never fire and we keep the predicate as a hard {@code false} sentinel rather than a stale
+   * {@code OBJECT_NAMED_OBJECT}-based path that produced the nested-object collapse bug.
    */
   private boolean isObjectKeyValue(JsonNodeReadOnlyTrx rtx) {
     return false;
@@ -353,16 +354,17 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   /**
    * Determine if we should visit the children of the current node.
    *
-   * <p>iter#32 P2 / Phase 4: legacy OBJECT_KEY (whose single VALUE_* child sat at the same level
-   * as the key) has been deleted. The remaining containers — OBJECT, ARRAY, OBJECT_NAMED_OBJECT,
+   * <p>
+   * iter#32 P2 / Phase 4: legacy OBJECT_KEY (whose single VALUE_* child sat at the same level as the
+   * key) has been deleted. The remaining containers — OBJECT, ARRAY, OBJECT_NAMED_OBJECT,
    * OBJECT_NAMED_ARRAY — all hold children at {@code currentLevel + 1}, so the rule is uniform:
    *
    * <ul>
-   *   <li>No children → false</li>
-   *   <li>{@code maxLevel} unset (== 0) → visit</li>
-   *   <li>Children fit within the limit ({@code currentLevel < maxLevel}) → visit</li>
-   *   <li>Otherwise → suppress descent (the structural close-branch in {@link #emitNode} will
-   *       have already collapsed the bracket pair to {@code {}} / {@code []}).</li>
+   * <li>No children → false</li>
+   * <li>{@code maxLevel} unset (== 0) → visit</li>
+   * <li>Children fit within the limit ({@code currentLevel < maxLevel}) → visit</li>
+   * <li>Otherwise → suppress descent (the structural close-branch in {@link #emitNode} will have
+   * already collapsed the bracket pair to {@code {}} / {@code []}).</li>
    * </ul>
    */
   private boolean shouldVisitChildren(JsonNodeReadOnlyTrx rtx) {
@@ -447,8 +449,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       case OBJECT_NAMED_ARRAY: {
         // P2 fused-structural emission: a single OBJECT_NAMED_OBJECT/ARRAY record carries both
         // the field name and the start of the structural value. Mirror the legacy two-emit path:
-        //   - OBJECT_KEY pre-emit:   "<name>":
-        //   - OBJECT pre-emit:       {  (or [ for ARRAY)
+        // - OBJECT_KEY pre-emit: "<name>":
+        // - OBJECT pre-emit: { (or [ for ARRAY)
         // On emitEndNode this same record emits the corresponding `}` / `]`.
         final boolean innerHasChildren = rtx.hasFirstChild();
         final boolean isNamedObject = rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT;
@@ -464,9 +466,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(JsonLiterals.QUOTED_KEY, quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
-              .appendObjectKey(JsonLiterals.QUOTED_METADATA)
-              .appendObjectStart(true);
+          appendObjectKeyValue(JsonLiterals.QUOTED_KEY,
+              quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
+                                                                     .appendObjectKey(JsonLiterals.QUOTED_METADATA)
+                                                                     .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
             appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
             // Mirror legacy OBJECT/ARRAY emitMetaData: emit the comma after nodeKey if any
@@ -502,7 +505,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
             if (withMetaData) {
               appendSeparator();
             }
-            appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+            appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(ChildCounts.get(rtx)));
           }
           appendObjectEnd(innerHasChildren).appendSeparator();
           appendObjectKey(JsonLiterals.QUOTED_VALUE);
@@ -572,9 +575,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           if (rtx.hasLeftSibling() && !isStartNode) {
             appendObjectStart(true);
           }
-          appendObjectKeyValue(JsonLiterals.QUOTED_KEY, quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
-              .appendObjectKey(JsonLiterals.QUOTED_METADATA)
-              .appendObjectStart(true);
+          appendObjectKeyValue(JsonLiterals.QUOTED_KEY,
+              quote(StringValue.escape(rtx.getName().stringValue()))).appendSeparator()
+                                                                     .appendObjectKey(JsonLiterals.QUOTED_METADATA)
+                                                                     .appendObjectStart(true);
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
             appendObjectKeyValue(JsonLiterals.QUOTED_NODE_KEY, String.valueOf(rtx.getNodeKey()));
           }
@@ -616,7 +620,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       }
 
       // (Phase 4: legacy OBJECT_KEY case removed — fused OBJECT_NAMED_* records emit
-      //  through the dedicated cases below.)
+      // through the dedicated cases below.)
 
       case BOOLEAN_VALUE:
         emitMetaData(rtx);
@@ -687,11 +691,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       case OBJECT_NAMED_OBJECT -> {
         // P2 fused-structural close: same record emitted `<name>:{` on enter; emit matching `}`.
         // Close shape (with metadata):
-        //   - non-startNode: close `}` (record body) then `}` (outer metadata wrapper).
-        //   - startNode w/o serializeStartNodeWithBrackets: only close `}` (record body) —
-        //     the outer wrapper was supplied by the caller (e.g. JsonRecordSerializer).
-        //   - startNode with serializeStartNodeWithBrackets (hadToAddBracket): close `}` (body)
-        //     then `}` (the start-node bracket itself, which doubles as the metadata wrapper).
+        // - non-startNode: close `}` (record body) then `}` (outer metadata wrapper).
+        // - startNode w/o serializeStartNodeWithBrackets: only close `}` (record body) —
+        // the outer wrapper was supplied by the caller (e.g. JsonRecordSerializer).
+        // - startNode with serializeStartNodeWithBrackets (hadToAddBracket): close `}` (body)
+        // then `}` (the start-node bracket itself, which doubles as the metadata wrapper).
         final boolean isStartNode =
             startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
         if (withMetaDataField()) {
@@ -755,7 +759,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         appendObjectKeyValue(JsonLiterals.QUOTED_TYPE, JsonLiterals.quotedKind(kind));
         if (hash != 0L && isStructural) {
-          appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT, String.valueOf(rtx.getDescendantCount()));
+          appendSeparator().appendObjectKeyValue(JsonLiterals.QUOTED_DESCENDANT_COUNT,
+              String.valueOf(rtx.getDescendantCount()));
         }
       }
 
@@ -763,7 +768,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaData) {
           appendSeparator();
         }
-        appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(rtx.getChildCount()));
+        appendObjectKeyValue(JsonLiterals.QUOTED_CHILD_COUNT, String.valueOf(ChildCounts.get(rtx)));
       }
 
       appendObjectEnd(true).appendSeparator().appendObjectKey(JsonLiterals.QUOTED_VALUE);

@@ -6,6 +6,7 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.exception.SirixException;
+import io.sirix.utils.ChildCounts;
 import io.brackit.query.atomic.QNm;
 
 import java.nio.charset.StandardCharsets;
@@ -124,6 +125,12 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
 
   /**
    * Get the number of children of the current node.
+   *
+   * <p>
+   * When the resource omits child counts ({@code storeChildCount=false}), this metadata may be zero
+   * even for a nonempty node. Use the first-child and sibling links to establish emptiness or count
+   * children in that case, or use {@link ChildCounts#get(NodeReadOnlyTrx)} for an exact count that
+   * preserves the cursor position.
    *
    * @return the number of children of the current node
    */

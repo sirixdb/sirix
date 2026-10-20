@@ -85,7 +85,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
     jsonUtil = getJsonItemFactory();
 
-    final long childCount = this.rtx.getChildCount();
+    final long childCount = getArrayChildCount();
     if ((fromIndex < 0) || (fromIndex > toIndex) || (fromIndex >= childCount)) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array start index: %s", fromIndex);
     }

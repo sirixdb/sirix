@@ -181,8 +181,10 @@ sample window, whatever the epoch size.
 - With a projection armed, THREE independent derivations of the record roots must agree: the
   feeder's per-member node counts, the range arithmetic that names the chunk's last member, and the
   build worker's own parent-key record detection (checked per row at feed time). The build's
-  end-of-load check additionally compares rows emitted against the record-set array's child count —
-  so a load that mis-attributes records refuses instead of publishing a short index.
+  end-of-load check additionally compares rows emitted against the record-set array's actual number
+  of children, including when persisted child counts are disabled — so a load that mis-attributes
+  records refuses instead of publishing a short index. The counting strategy is documented in
+  [`ProjectionBulkLoad.assertEveryRecordEmitted`](../bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionBulkLoad.java).
 - The equivalence oracle compares parallel imports against sequential loads field-by-field,
   including path-summary reference counts, across adversarial chunkings (one-member chunks,
   boundaries mid-page, names first appearing in late chunks).

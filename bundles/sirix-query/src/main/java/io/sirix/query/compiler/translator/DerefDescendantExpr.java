@@ -96,15 +96,17 @@ class DerefDescendantExpr implements Expr {
     return getLazySequence(recordFieldAsString, jsonDBItem, rtx);
   }
 
-  /** gate: re-enabled. The path-summary-driven descendant-deref fast-path
-   *  walks path-summary candidates and reuses the same {@link FilterAxis}+{@link FieldValueAxis}
-   *  pattern that powers {@link DerefExpr}. Under structural fusion every path-summary level
-   *  still maps to exactly one data-tree level on the corresponding axis chain — the legacy
-   *  {@code OBJECT_KEY → OBJECT/ARRAY} pair collapses into a single fused {@code
-   *  OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY} record whose {@code FieldValueAxis} step
-   *  is a self-emit, so the legacy axis topology continues to land on the right node. The
-   *  fallback ({@code DescendantAxis + JsonNameFilter + FieldValueAxis}) is kept for resources
-   *  built without a path summary and for empty cursors. */
+  /**
+   * gate: re-enabled. The path-summary-driven descendant-deref fast-path walks path-summary
+   * candidates and reuses the same {@link FilterAxis}+{@link FieldValueAxis} pattern that powers
+   * {@link DerefExpr}. Under structural fusion every path-summary level still maps to exactly one
+   * data-tree level on the corresponding axis chain — the legacy {@code OBJECT_KEY → OBJECT/ARRAY}
+   * pair collapses into a single fused {@code
+   *  OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY} record whose {@code FieldValueAxis} step is a
+   * self-emit, so the legacy axis topology continues to land on the right node. The fallback
+   * ({@code DescendantAxis + JsonNameFilter + FieldValueAxis}) is kept for resources built without a
+   * path summary and for empty cursors.
+   */
   private static final boolean USE_PATH_SUMMARY_DESCENDANT_DEREF = true;
 
   @Nullable
@@ -332,12 +334,13 @@ class DerefDescendantExpr implements Expr {
       } catch (final SirixException e) {
         throw new QueryException(new QNm(e.getMessage()), e);
       }
-    } else if (rtx.getChildCount() == 0) {
+    } else if (!rtx.hasFirstChild()) {
       return null;
     } else {
       // iter#31 Option B: fallback descendant-deref path — FieldValueAxis unifies legacy + fused.
-      final var filterAxis = new NestedAxis(
-          new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
+      final var filterAxis =
+          new NestedAxis(new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)),
+              new FieldValueAxis(rtx));
       return getLazySequence(new SirixJsonStream(filterAxis, jsonDBItem.getCollection()));
     }
   }
@@ -371,8 +374,7 @@ class DerefDescendantExpr implements Expr {
     // the same descend-into-elements topology — anonymous OBJECT children carrying the field
     // records — so the path-summary axis builder has to treat them identically.
     final NodeKind cursorKind = concurrentRtx.getKind();
-    final boolean cursorIsArrayLike =
-        cursorKind == NodeKind.ARRAY || cursorKind == NodeKind.OBJECT_NAMED_ARRAY;
+    final boolean cursorIsArrayLike = cursorKind == NodeKind.ARRAY || cursorKind == NodeKind.OBJECT_NAMED_ARRAY;
     var pathSegment = pathSegments.pop();
     var lastPathSegmentIsArray = pathSegment.isArray();
     Axis axis;

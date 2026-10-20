@@ -33,6 +33,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.io.HashAlgorithm;
@@ -46,6 +47,7 @@ import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.settings.RegionCompressionType;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
+import io.sirix.utils.ChildCounts;
 import net.openhft.hashing.LongHashFunction;
 
 import java.io.FileReader;
@@ -1271,6 +1273,12 @@ public final class ResourceConfiguration {
 
     /**
      * Determines if the child count of a node should be stored or not.
+     *
+     * <p>
+     * Disabling storage preserves JSON array access, container lengths, and serialized child-count
+     * metadata. Exact counts are then derived from structural links as needed; see
+     * {@link ChildCounts#get(NodeReadOnlyTrx)} for the work involved and
+     * {@link NodeReadOnlyTrx#getChildCount()} for the raw metadata contract.
      *
      * @param storeChildCount store child count or not
      * @return reference to the builder object

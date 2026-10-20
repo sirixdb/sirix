@@ -173,25 +173,28 @@ public final class TemporalAggregateRoute {
       final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
       final long coordinate = DomainHolder.DOMAIN.point(point.instant());
       final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-      final boolean admitted = storage.groups(array.getChildCount(), (key, group) -> {
-        if (group.rows() == 0) {
-          return;
-        }
-        final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
-        if (summary.count() == 0) {
-          return;
-        }
-        final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
-        final Sequence[] selected = new Sequence[groups.length];
-        for (int i = 0; i < groups.length; i++) {
-          selected[i] = allKeys[groups[i]];
-        }
-        final List<Sequence> groupKey = Arrays.asList(selected);
-        final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
-        if (previous != null) {
-          previous.add(summary);
-        }
-      });
+      final boolean admitted =
+          storage.groups(point.document().getResourceSession().getResourceConfig().storeChildCount()
+              ? array.getChildCount()
+              : ((JsonDBArray) point.document()).length().longValue(), (key, group) -> {
+                if (group.rows() == 0) {
+                  return;
+                }
+                final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+                if (summary.count() == 0) {
+                  return;
+                }
+                final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
+                final Sequence[] selected = new Sequence[groups.length];
+                for (int i = 0; i < groups.length; i++) {
+                  selected[i] = allKeys[groups[i]];
+                }
+                final List<Sequence> groupKey = Arrays.asList(selected);
+                final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
+                if (previous != null) {
+                  previous.add(summary);
+                }
+              });
       if (!admitted) {
         return null;
       }
