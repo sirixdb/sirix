@@ -252,16 +252,12 @@ public final class IndexExpr implements Expr {
               } while (rtx.moveToRightSibling());
             }
           } else {
-            var index = arrayIndexes.getFirst();
-            index = index < 0
-                ? (int) (arrayLength(rtx, arrayLengths) + index)
-                : index;
-            requireValidNegativeIndex(index);
-            boolean found = rtx.moveToFirstChild();
-            for (int k = 0; k < index && found; k++) {
-              found = rtx.moveToRightSibling();
+            int index = arrayIndexes.getFirst();
+            if (index < -1) {
+              index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
+              requireValidNegativeIndex(index);
             }
-            if (found) {
+            if (moveToArrayPosition(rtx, index)) {
               sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
             }
           }
@@ -538,6 +534,17 @@ public final class IndexExpr implements Expr {
     };
   }
 
+  private static boolean moveToArrayPosition(final JsonNodeReadOnlyTrx rtx, final int index) {
+    if (index == -1) {
+      return rtx.moveToLastChild();
+    }
+    boolean found = rtx.moveToFirstChild();
+    for (int k = 0; k < index && found; k++) {
+      found = rtx.moveToRightSibling();
+    }
+    return found;
+  }
+
   private static int arrayLength(final JsonNodeReadOnlyTrx rtx, final Long2IntOpenHashMap lengths) {
     if (rtx.getResourceSession().getResourceConfig().storeChildCount()) {
       return (int) rtx.getChildCount();
@@ -733,7 +740,6 @@ public final class IndexExpr implements Expr {
             outer: for (int i = startIdx; i >= 0; i--) {
               final var step = steps.get(i);
 
-              boolean moveToParent = true;
               final int currentIndex = i;
 
               if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
@@ -775,21 +781,19 @@ public final class IndexExpr implements Expr {
                     // remaining with array numberOfArrayIndexes specified
                     int index = indexes.pop();
 
+                    if (index == Integer.MIN_VALUE && l == steps.size() - 1) {
+                      continue;
+                    }
                     if (index != Integer.MIN_VALUE) {
-                      if (currentIndex == steps.size() - 1) {
-                        index = index < 0
-                            ? (int) (arrayLength(rtx, arrayLengths) + index)
-                            : index;
-                        if (index < 0) {
-                          currNodeKeys.remove(nodeKey);
-                          break outer;
+                      if (l == steps.size() - 1) {
+                        if (index < -1) {
+                          index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
+                          if (index < 0) {
+                            currNodeKeys.remove(nodeKey);
+                            break outer;
+                          }
                         }
-                        boolean hasMoved = rtx.moveToFirstChild();
-                        int k = 0;
-                        for (; k <= index && hasMoved; k++) {
-                          hasMoved = rtx.moveToRightSibling();
-                        }
-                        if (k - 1 != index) {
+                        if (!moveToArrayPosition(rtx, index)) {
                           currNodeKeys.remove(nodeKey);
                           break outer;
                         }
@@ -826,8 +830,6 @@ public final class IndexExpr implements Expr {
                           break outer;
                         }
                       }
-                    } else if (l == steps.size() - 1) {
-                      moveToParent = false;
                     }
                     rtx.moveToParent();
                   }
@@ -836,19 +838,16 @@ public final class IndexExpr implements Expr {
                 currentPathSegmentNamesToArrayIndexes.removeLast();
               }
 
-              // if not the last step is an array unboxing
-              if (moveToParent) {
-                // OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
-                // pair into one record. After a CHILD_ARRAY step's inner-loop landed
-                // on the ARRAY-equivalent (the fused record itself), the outer
-                // moveToParent here would skip over the OBJECT_KEY layer too — but under
-                // fusion that layer is already part of the same record. Skip ONLY for
-                // the CHILD_ARRAY follow-up, not for FIELD steps.
-                final boolean fusedSkip =
-                    step.getAxis() == Path.Axis.CHILD_ARRAY && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
-                if (!fusedSkip) {
-                  rtx.moveToParent();
-                }
+              // OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
+              // pair into one record. After a CHILD_ARRAY step's inner-loop landed
+              // on the ARRAY-equivalent (the fused record itself), the outer
+              // moveToParent here would skip over the OBJECT_KEY layer too — but under
+              // fusion that layer is already part of the same record. Skip ONLY for
+              // the CHILD_ARRAY follow-up, not for FIELD steps.
+              final boolean fusedSkip =
+                  step.getAxis() == Path.Axis.CHILD_ARRAY && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
+              if (!fusedSkip) {
+                rtx.moveToParent();
               }
 
               // Legacy two-record OBJECT_KEY+OBJECT pair needs an extra moveToParent here

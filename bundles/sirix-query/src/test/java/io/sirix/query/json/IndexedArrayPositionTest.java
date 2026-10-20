@@ -191,6 +191,80 @@ final class IndexedArrayPositionTest {
   }
 
   @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void consecutiveTerminalPositionsUseTheirContainingArrays(final VersioningType versioning) {
+    create(versioning, "{\"root\":{\"numbers\":[[0],[1]]}}", "/root/numbers/[]/[]");
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      for (final String resource : new String[] {"stored-indexed", "stored-unindexed", "omitted-indexed",
+          "omitted-unindexed"}) {
+        final String numbers = "jn:doc('counts','" + resource + "').root.numbers";
+        for (int outer = -2; outer <= 2; outer++) {
+          for (int inner = -1; inner <= 1; inner++) {
+            final String expected = outer == 2 || inner == 1
+                ? ""
+                : Integer.toString(outer < 0
+                    ? 2 + outer
+                    : outer);
+            assertTerminalPosition(chain, context, resource, numbers + "[" + outer + "][" + inner + "]", expected);
+          }
+          assertTerminalPosition(chain, context, resource, numbers + "[" + outer + "][]", outer == 2
+              ? ""
+              : Integer.toString(outer < 0
+                  ? 2 + outer
+                  : outer));
+        }
+        assertTerminalPosition(chain, context, resource, numbers + "[][-1]", "0 1");
+        assertTerminalPosition(chain, context, resource, numbers + "[][]", "0 1");
+        assertTerminalPosition(chain, context, resource, numbers + "[2][-2]", "");
+        for (final String suffix : new String[] {"[-3][-1]", "[-2][-2]", "[0][-2]", "[][-2]"}) {
+          final QueryException exception =
+              assertThrows(QueryException.class, () -> query(chain, context, numbers + suffix), resource + suffix);
+          assertEquals(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, exception.getCode());
+          assertEquals(resource.endsWith("-indexed"), containsIndex(chain.getOptimizedAST()));
+        }
+        if (resource.endsWith("-indexed")) {
+          final Query compiled = new Query(chain, numbers + "[-1][-1]");
+          try (var counts = mockStatic(ChildCounts.class, CALLS_REAL_METHODS)) {
+            assertEquals("1", query(context, compiled));
+            counts.verifyNoInteractions();
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void consecutiveTerminalPositionsHandleThreeArrayLevels(final VersioningType versioning) {
+    create(versioning, "{\"root\":{\"numbers\":[[[0,10],[1]],[[2],[3,13,23]]]}}", "/root/numbers/[]/[]/[]");
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      for (final String resource : new String[] {"stored-indexed", "stored-unindexed", "omitted-indexed",
+          "omitted-unindexed"}) {
+        final String numbers = "jn:doc('counts','" + resource + "').root.numbers";
+        final String[] suffixes = {"[-2][-1][-1]", "[-1][-1][-2]", "[1][1][1]", "[-1][][-1]", "[-2][-1][]", "[-1][][]",
+            "[][][-1]", "[2][-3][-2]", "[-2][2][-2]"};
+        final String[] expected = {"1", "13", "13", "2 23", "1", "2 3 13 23", "10 1 2 23", "", ""};
+        for (int i = 0; i < suffixes.length; i++) {
+          assertTerminalPosition(chain, context, resource, numbers + suffixes[i], expected[i]);
+        }
+        final QueryException exception =
+            assertThrows(QueryException.class, () -> query(chain, context, numbers + "[-2][-1][-2]"), resource);
+        assertEquals(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, exception.getCode());
+      }
+    }
+  }
+
+  private static void assertTerminalPosition(final SirixCompileChain chain, final SirixQueryContext context,
+      final String resource, final String expression, final String expected) {
+    assertEquals(expected, query(chain, context, expression), resource + " at " + expression);
+    assertEquals(resource.endsWith("-indexed"), containsIndex(chain.getOptimizedAST()), expression);
+  }
+
+  @ParameterizedTest
   @MethodSource("postingSources")
   void interleavedPostingsResolveEachOmittedArrayLengthOnce(final VersioningType versioning,
       final IndexType indexType) {
