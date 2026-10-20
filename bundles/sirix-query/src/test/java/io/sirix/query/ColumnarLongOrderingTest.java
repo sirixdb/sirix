@@ -23,7 +23,6 @@ final class ColumnarLongOrderingTest {
     final int count = 600;
     final long[][] values = new long[2][count];
     final boolean[][] present = new boolean[2][count];
-    final long[][] sourceKeys = new long[2][count];
     for (int row = 0; row < count; row++) {
       for (int field = 0; field < 2; field++) {
         values[field][row] = switch (row % 7) {
@@ -32,7 +31,6 @@ final class ColumnarLongOrderingTest {
           default -> random.nextInt(4) - 2;
         };
         present[field][row] = random.nextInt(4) != 0;
-        sourceKeys[field][row] = random.nextInt(40);
       }
     }
     for (int modifiers = 0; modifiers < 16; modifiers++) {
@@ -42,17 +40,15 @@ final class ColumnarLongOrderingTest {
           new QNm[] {new QNm("a"), new QNm("b")}, new boolean[2], 1);
       final Ordering ordering = new Ordering(new Expr[0], new Ordering.OrderModifier[] {
           new Ordering.OrderModifier(ascending[0], emptyLeast[0], null),
-          new Ordering.OrderModifier(ascending[1], emptyLeast[1], null),
-          new Ordering.OrderModifier(true, true, null), new Ordering.OrderModifier(true, true, null)});
+          new Ordering.OrderModifier(ascending[1], emptyLeast[1], null)});
       for (int row = 0; row < count; row++) {
         builder.addRow();
-        final Sequence[] keys = new Sequence[4];
+        final Sequence[] keys = new Sequence[2];
         for (int field = 0; field < 2; field++) {
           if (present[field][row]) {
             builder.setLong(field, row, values[field][row]);
             keys[field] = new Int64(values[field][row]);
           }
-          keys[field + 2] = new Int64(sourceKeys[field][row]);
         }
         ordering.add(keys, new TupleImpl(new Int64(row)));
       }
@@ -62,7 +58,7 @@ final class ColumnarLongOrderingTest {
           expected[row] = ((IntNumeric) sorted.next().get(0)).intValue();
         }
       }
-      assertArrayEquals(expected, builder.orderByLongs(new int[] {0, 1}, ascending, emptyLeast, sourceKeys),
+      assertArrayEquals(expected, builder.orderByLongs(new int[] {0, 1}, ascending, emptyLeast),
           "order modifier bits " + modifiers);
     }
   }
@@ -79,7 +75,8 @@ final class ColumnarLongOrderingTest {
     assertThrows(IllegalArgumentException.class,
         () -> text.orderByLongs(new int[] {0}, new boolean[] {true}, new boolean[] {true}));
     empty.addRow();
-    assertThrows(IllegalArgumentException.class,
-        () -> empty.orderByLongs(new int[0], new boolean[0], new boolean[0], new long[0]));
+    empty.addRow();
+    empty.addRow();
+    assertArrayEquals(new int[] {0, 1, 2}, empty.orderByLongs(new int[0], new boolean[0], new boolean[0]));
   }
 }

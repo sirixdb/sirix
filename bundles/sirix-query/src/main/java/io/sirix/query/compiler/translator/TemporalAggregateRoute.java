@@ -184,41 +184,42 @@ public final class TemporalAggregateRoute {
       final long sourceRows = point.document().getResourceSession().getResourceConfig().storeChildCount()
           ? array.getChildCount()
           : ((JsonDBArray) point.document()).length().longValue();
-      if (order != null) {
-        final SirixVectorizedExecutor.ServedGroups primitive =
-            primitiveGroups(storage, spec, sourceRows, point, request, groups, lanes, order);
-        if (primitive != null) {
-          return primitive;
-        }
-      }
-      final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
-      final long coordinate = DomainHolder.DOMAIN.point(point.instant());
-      final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-      final boolean admitted =
-          storage.groups(sourceRows, (key, group) -> {
-            if (group.rows() == 0) {
-              return;
-            }
-            final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
-            if (summary.count() == 0) {
-              return;
-            }
-            final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
-            final Sequence[] selected = new Sequence[groups.length];
-            for (int i = 0; i < groups.length; i++) {
-              selected[i] = allKeys[groups[i]];
-            }
-            final List<Sequence> groupKey = Arrays.asList(selected);
-            final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
-            if (previous != null) {
-              previous.add(summary);
-            }
-          });
-      if (!admitted) {
-        return null;
-      }
-      return servedGroups(request, groups, lanes, results);
+      return order != null
+          ? primitiveGroups(storage, spec, sourceRows, point, request, groups, lanes, order)
+          : objectGroups(storage, spec, sourceRows, point, request, groups, lanes);
     }
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups objectGroups(
+      final TemporalAggregateStorage.Reader storage, final TemporalAggregateSpec spec, final long sourceRows,
+      final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes) {
+    final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
+    final long coordinate = DomainHolder.DOMAIN.point(point.instant());
+    final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
+    final boolean admitted =
+        storage.groups(sourceRows, (key, group) -> {
+          if (group.rows() == 0) {
+            return;
+          }
+          final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+          if (summary.count() == 0) {
+            return;
+          }
+          final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
+          final Sequence[] selected = new Sequence[groups.length];
+          for (int i = 0; i < groups.length; i++) {
+            selected[i] = allKeys[groups[i]];
+          }
+          final List<Sequence> groupKey = Arrays.asList(selected);
+          final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
+          if (previous != null) {
+            previous.add(summary);
+          }
+        });
+    if (!admitted) {
+      return null;
+    }
+    return servedGroups(request, groups, lanes, results);
   }
 
   /** A full permutation of integral maintained keys needs neither key objects nor coalescing. */
@@ -300,8 +301,11 @@ public final class TemporalAggregateRoute {
         columns.setLong(groups.length + index, row, value);
       }
     });
-    if (!admitted || !supported[0]) {
+    if (!admitted) {
       return null;
+    }
+    if (!supported[0]) {
+      return objectGroups(storage, spec, sourceRows, point, request, groups, lanes);
     }
     final int[] rows = columns.orderByLongs(order.indexes(), order.ascending(), order.emptyLeast());
     SERVED.increment();

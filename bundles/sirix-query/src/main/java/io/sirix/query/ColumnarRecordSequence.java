@@ -426,15 +426,12 @@ public final class ColumnarRecordSequence extends AbstractSequence {
 
     /**
      * Stable primitive ordering for integral output fields. Missing values follow the same
-     * empty-least/ascending rules as Brackit's Ordering. Optional source-key columns break ties in
-     * original source order, independently of which join side built the lookup.
+     * empty-least/ascending rules as Brackit's Ordering.
      */
-    public int[] orderByLongs(final int[] fields, final boolean[] ascending, final boolean[] emptyLeast,
-        final long[]... tieBreakers) {
+    public int[] orderByLongs(final int[] fields, final boolean[] ascending, final boolean[] emptyLeast) {
       Objects.requireNonNull(fields);
       Objects.requireNonNull(ascending);
       Objects.requireNonNull(emptyLeast);
-      Objects.requireNonNull(tieBreakers);
       if (fields.length != ascending.length || fields.length != emptyLeast.length) {
         throw new IllegalArgumentException("Order field and modifier counts differ");
       }
@@ -442,11 +439,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
         Objects.checkIndex(field, names.length);
         if (stringColumns[field]) {
           throw new IllegalArgumentException("Primitive ordering requires integral fields");
-        }
-      }
-      for (final long[] keys : tieBreakers) {
-        if (Objects.requireNonNull(keys).length < size) {
-          throw new IllegalArgumentException("Tie breaker does not cover all rows");
         }
       }
       final int[] rows = new int[size];
@@ -468,12 +460,6 @@ public final class ColumnarRecordSequence extends AbstractSequence {
           final int compared = Long.compare(longs[field][left], longs[field][right]);
           if (compared != 0) {
             return ascending[key] ? compared : -compared;
-          }
-        }
-        for (final long[] keys : tieBreakers) {
-          final int compared = Long.compare(keys[left], keys[right]);
-          if (compared != 0) {
-            return compared;
           }
         }
         return 0;
