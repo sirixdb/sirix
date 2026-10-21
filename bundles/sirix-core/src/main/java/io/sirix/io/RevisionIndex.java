@@ -351,6 +351,7 @@ public final class RevisionIndex {
    * @param revision revision number (0-indexed)
    * @return file offset in bytes
    * @throws IndexOutOfBoundsException if revision < 0 or revision >= size
+   * @throws SirixRevisionPrunedException if retention has pruned the revision
    */
   public long getOffset(int revision) {
     if (revision < 0 || revision >= size) {

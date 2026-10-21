@@ -48,6 +48,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @param revision the given revision
    * @return this storage engine writer instance
+   * @see NodeTrx#truncateTo(int) for pruned-target behavior
    */
   StorageEngineWriter truncateTo(int revision);
 

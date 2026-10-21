@@ -202,12 +202,12 @@ public abstract class AbstractReader implements Reader {
    *
    * <p>
    * This is the single place both readers (FileChannel + MemoryMapped) build the reference, so the
-   * byte-order contract can never diverge between them. A {@code storedPageHash} of {@code 0} (legacy
-   * beta1 record, or a backend that does not persist page bytes) yields a reference with no hash,
-   * which {@link #verifyChecksumIfNeeded} treats as "nothing to verify".
+   * byte-order contract can never diverge between them. A {@code storedPageHash} of {@code 0} yields
+   * a reference with no hash, which {@link #verifyChecksumIfNeeded} treats as "nothing to verify".
+   * Persisted records reject that value at {@link IOStorage#decodeRevisionRecord}.
    *
    * @param dataFileOffset the RevisionRootPage offset (becomes the reference key, for error msgs)
-   * @param storedPageHash the record's hash field ({@code 0} = no hash / legacy)
+   * @param storedPageHash the payload hash ({@code 0} = no hash in nonpersisted metadata)
    * @return a reference carrying the primitive hash, or no hash when {@code storedPageHash == 0}
    */
   protected static PageReference revisionRootReference(final long dataFileOffset, final long storedPageHash) {

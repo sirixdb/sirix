@@ -62,8 +62,8 @@ public interface IOStorage {
   // ===== V0 file layout (superblock + spaced beacons), see docs/DISK_FORMAT.md =====
 
   /**
-   * Each uber-page beacon slot reserves one filesystem block. The two copies live in DIFFERENT
-   * 4 KiB blocks so block-granular torn writes / firmware corruption can no longer kill both.
+   * Each uber-page beacon slot reserves one filesystem block. The two copies live in DIFFERENT 4 KiB
+   * blocks so block-granular torn writes / firmware corruption can no longer kill both.
    */
   int BEACON_SLOT_BYTES = 4096;
 
@@ -88,28 +88,34 @@ public interface IOStorage {
   /** Tombstone type/version, covered by the record checksum. */
   long PRUNED_REVISION_TAG = 0x5052554E45440001L;
 
-  /** Nonzero representation of the exceptionally rare all-zero payload hash. */
+  /**
+   * Nonzero representation of the exceptionally rare all-zero payload hash. Readers do not undo the
+   * remap: such a payload fails verification rather than bypassing it. A payload whose hash already
+   * equals the sentinel verifies unchanged.
+   */
   long ZERO_HASH_SENTINEL = 0xFFFF_FFFF_FFFF_FFFFL;
 
   /**
    * Normalize a RevisionRootPage hash for storage: an all-zero hash is remapped to
    * {@link #ZERO_HASH_SENTINEL} so the stored field is never {@code 0} when a hash IS present
-   * ({@code 0} is invalid in persisted records). Any non-zero hash is stored unchanged. The
-   * remap is one-way (readers never reverse it) — see {@link #ZERO_HASH_SENTINEL} for the
-   * fail-closed rationale.
+   * ({@code 0} is invalid in persisted records). Any non-zero hash is stored unchanged. The remap is
+   * one-way (readers never reverse it) — see {@link #ZERO_HASH_SENTINEL} for the fail-closed
+   * rationale.
    *
    * @param pageHash the page hash as a long (canonical, as produced from {@code PageHasher})
    * @return the value to store in the record's hash field (never {@code 0} for a present hash)
    */
   static long normalizeRevisionRootPageHash(final long pageHash) {
-    return pageHash == 0L ? ZERO_HASH_SENTINEL : pageHash;
+    return pageHash == 0L
+        ? ZERO_HASH_SENTINEL
+        : pageHash;
   }
 
   /**
-   * The revisions file is a fixed-slot array: record for {@code revision} lives at this offset.
-   * The SINGLE definition of the on-disk layout — every reader and writer must use it; a
-   * diverging hand-expanded formula is exactly the slot-shift corruption class the deterministic
-   * slots were introduced to prevent.
+   * The revisions file is a fixed-slot array: record for {@code revision} lives at this offset. The
+   * SINGLE definition of the on-disk layout — every reader and writer must use it; a diverging
+   * hand-expanded formula is exactly the slot-shift corruption class the deterministic slots were
+   * introduced to prevent.
    *
    * @param revision revision number (0-based)
    * @return byte offset of the revision's record in the revisions file
@@ -138,7 +144,8 @@ public interface IOStorage {
    * Whether the lazy-revision-record profile is on ({@code -Dsirix.commit.lazyRevisionRecord},
    * default {@code true}, and only meaningful together with {@link #preallocatedCommitsEnabled()}).
    *
-   * <p>The OWNING STORAGE derives both flags ONCE per writer and passes them down: the revisions
+   * <p>
+   * The OWNING STORAGE derives both flags ONCE per writer and passes them down: the revisions
    * channel's open mode and the writer's durability protocol must agree, and re-reading the
    * properties later could pair a buffered channel with a writer that stages no tail-log — silent
    * committed-data loss after a crash.
@@ -162,8 +169,7 @@ public interface IOStorage {
   int REVISION_RECORD_TAIL_LOG_CAPACITY = 16;
 
   /** Bytes the ring occupies at the END of each beacon slot's zero pad. */
-  int REVISION_RECORD_TAIL_LOG_BYTES =
-      REVISION_RECORD_TAIL_LOG_ENTRY_BYTES * REVISION_RECORD_TAIL_LOG_CAPACITY;
+  int REVISION_RECORD_TAIL_LOG_BYTES = REVISION_RECORD_TAIL_LOG_ENTRY_BYTES * REVISION_RECORD_TAIL_LOG_CAPACITY;
 
   /** Offset of the ring within a {@link #BEACON_SLOT_BYTES} slot image. */
   int REVISION_RECORD_TAIL_LOG_SLOT_OFFSET = BEACON_SLOT_BYTES - REVISION_RECORD_TAIL_LOG_BYTES;
@@ -185,9 +191,9 @@ public interface IOStorage {
 
   /**
    * Byte offset of the entry at the given RING INDEX — the index-keyed twin of
-   * {@link #tailLogEntryOffsetInSlot(int)} for the merge/scan loops that walk the ring
-   * positionally. Both derive the layout HERE, so a layout change cannot leave one call site
-   * reading the wrong 48 bytes.
+   * {@link #tailLogEntryOffsetInSlot(int)} for the merge/scan loops that walk the ring positionally.
+   * Both derive the layout HERE, so a layout change cannot leave one call site reading the wrong 48
+   * bytes.
    *
    * @param ringIndex ring slot index in {@code [0, REVISION_RECORD_TAIL_LOG_CAPACITY)}
    * @return absolute offset of the entry within the slot image
@@ -201,7 +207,8 @@ public interface IOStorage {
    * recordChecksum, pageHash}), little-endian — the entry's own integrity trailer, covering the
    * revision number as well so an entry can never be mistaken for a different revision's.
    *
-   * <p>Zero-allocation: a thread-local 40-byte scratch buffer, no per-call array.
+   * <p>
+   * Zero-allocation: a thread-local 40-byte scratch buffer, no per-call array.
    */
   static long tailLogEntryChecksum(final int revision, final long offset, final long timestampMillis,
       final long recordChecksum, final long pageHash) {
@@ -216,10 +223,10 @@ public interface IOStorage {
   }
 
   /**
-   * THE canonical tail-log entry decoder: an entry is valid only when its reserved word is zero,
-   * its own checksum matches, AND the 32-byte record it carries passes the record checksum. Both
-   * recovery paths (the reader's salvage and the writer's ring merge) go through this method, so
-   * they can never diverge on what counts as a valid entry.
+   * THE canonical tail-log entry decoder: an entry is valid only when its reserved word is zero, its
+   * own checksum matches, AND the 32-byte record it carries passes the record checksum. Both recovery
+   * paths (the reader's salvage and the writer's ring merge) go through this method, so they can
+   * never diverge on what counts as a valid entry.
    *
    * @param slot a little-endian buffer holding at least {@code base + ENTRY_BYTES} bytes
    * @param base offset of the entry within {@code slot}
@@ -234,14 +241,13 @@ public interface IOStorage {
     final long timestampMillis = slot.getLong(base + 16);
     final long recordChecksum = slot.getLong(base + 24);
     final long pageHash = slot.getLong(base + 32);
-    return slot.getLong(base + 40)
-        == tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash)
+    return slot.getLong(base + 40) == tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash)
         && recordChecksum == expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
   }
 
   /**
-   * XXH3-64 over (offset, timestamp, hash-or-tag), each little-endian. Reuses thread-local
-   * scratch: validating a bulk history adds no per-record checksum allocation.
+   * XXH3-64 over (offset, timestamp, hash-or-tag), each little-endian. Reuses thread-local scratch:
+   * validating a bulk history adds no per-record checksum allocation.
    */
   static long revisionRecordChecksum(final long offset, final long timestampMillis, final long tagOrHash) {
     final ByteBuffer scratch = RevisionRecordScratch.BUFFER.get();
@@ -257,8 +263,8 @@ public interface IOStorage {
   }
 
   /**
-   * Decode one complete disk record. Checksum verification precedes tombstone recognition.
-   * The revision is supplied by the slot position; corrupt records never become tombstones.
+   * Decode one complete disk record. Checksum verification precedes tombstone recognition. The
+   * revision is supplied by the slot position; corrupt records never become tombstones.
    */
   static RevisionFileData decodeRevisionRecord(final int revision, final long offset, final long timestampMillis,
       final long checksum, final long tagOrHash) {
@@ -278,9 +284,9 @@ public interface IOStorage {
   }
 
   /**
-   * Encode a complete tombstone into caller-owned reusable storage at its current position.
-   * Advances the position by 32 bytes and writes little-endian independently of the buffer's order.
-   * A MemorySegment caller can reuse its asByteBuffer() view.
+   * Encode a complete tombstone into caller-owned reusable storage at its current position. Advances
+   * the position by 32 bytes and writes little-endian independently of the buffer's order. A
+   * MemorySegment caller can reuse its asByteBuffer() view.
    */
   static void writePrunedRevisionRecord(final ByteBuffer target, final long timestampMillis) {
     if (target.remaining() < REVISIONS_FILE_RECORD_SIZE) {
@@ -450,9 +456,10 @@ public interface IOStorage {
   }
 }
 
+
 /**
- * Thread-local scratch for {@link IOStorage#tailLogEntryChecksum} — the checksum is computed on
- * the commit path and once per ring entry during recovery, so it must not allocate.
+ * Thread-local scratch for {@link IOStorage#tailLogEntryChecksum} — the checksum is computed on the
+ * commit path and once per ring entry during recovery, so it must not allocate.
  */
 final class TailLogScratch {
 
@@ -461,15 +468,14 @@ final class TailLogScratch {
   static final ThreadLocal<ByteBuffer> BUFFER =
       ThreadLocal.withInitial(() -> ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN));
 
-  private TailLogScratch() {
-  }
+  private TailLogScratch() {}
 }
+
 
 /** Scratch shared by disk record encoders and decoders on the calling thread. */
 final class RevisionRecordScratch {
   static final ThreadLocal<ByteBuffer> BUFFER =
       ThreadLocal.withInitial(() -> ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN));
 
-  private RevisionRecordScratch() {
-  }
+  private RevisionRecordScratch() {}
 }

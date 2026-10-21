@@ -18,6 +18,10 @@ public record RevisionFileData(long offset, Instant timestamp, long pageHash) {
     this(offset, timestamp, 0L);
   }
 
+  /**
+   * Construct tombstone metadata. This factory does not validate disk bytes; persisted records must
+   * pass through {@link IOStorage#decodeRevisionRecord} first.
+   */
   public static RevisionFileData pruned(final Instant timestamp) {
     return new RevisionFileData(IOStorage.PRUNED_REVISION_OFFSET, timestamp, IOStorage.PRUNED_REVISION_TAG);
   }

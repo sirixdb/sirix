@@ -4,6 +4,7 @@ import io.sirix.access.User;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 import org.jspecify.annotations.Nullable;
@@ -60,6 +61,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    *
    * @param revision revert to the revision
    * @return NodeTrx return current instance
+   * @throws SirixRevisionPrunedException if retention has pruned the target revision
    */
   NodeTrx revertTo(int revision);
 
@@ -119,6 +121,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    *
    * @param revision the revision to truncate to
    * @return NodeTrx return current instance
+   * @throws SirixRevisionPrunedException if retention has pruned the target revision
    */
   NodeTrx truncateTo(int revision);
 

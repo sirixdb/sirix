@@ -25,8 +25,9 @@ import java.nio.file.StandardOpenOption;
  * Open-time bootstrap-vs-load decision for a resource's storage, including the conservative
  * auto-heal for a crash during the resource's FIRST commit (layout-F5 gap).
  *
- * <p><b>The gap, variant one (interrupted header write):</b> the superblock and both uber-page
- * beacon slots of {@code sirix.data} are only written at the END of the first commit (by
+ * <p>
+ * <b>The gap, variant one (interrupted header write):</b> the superblock and both uber-page beacon
+ * slots of {@code sirix.data} are only written at the END of the first commit (by
  * {@code Writer.writeUberPageReference}); until then the header region
  * {@code [0, DATA_REGION_START)} is a sparse hole while the buffered page writer may already have
  * flushed &ge; 64 KiB of data pages past {@link IOStorage#DATA_REGION_START}. A process crash in
@@ -36,26 +37,26 @@ import java.nio.file.StandardOpenOption;
  * superblock/beacon validation — permanently, although nothing was ever committed and a fresh
  * bootstrap is provably safe.
  *
- * <p><b>The gap, variant two (lost revision record of the bootstrap commit):</b> resource
- * creation itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record is
- * the ONLY path from the (durably written) uber beacons to the revision's root page, and the
- * record lives in a DIFFERENT, just-created file — an environment-level loss (e.g. the new
- * {@code sirix.revisions} directory entry dropped by a power cut, or the file truncated by
- * filesystem repair) leaves checksum-valid beacons advertising revision 0 with no record to
- * dereference. The next open then fails with "Truncated revisions record for revision 0" —
- * permanently, although the only revision ever acknowledged is the empty bootstrap one and
- * nothing on disk is reachable.
+ * <p>
+ * <b>The gap, variant two (lost revision record of the bootstrap commit):</b> resource creation
+ * itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record is the ONLY path
+ * from the (durably written) uber beacons to the revision's root page, and the record lives in a
+ * DIFFERENT, just-created file — an environment-level loss (e.g. the new {@code sirix.revisions}
+ * directory entry dropped by a power cut, or the file truncated by filesystem repair) leaves
+ * checksum-valid beacons advertising revision 0 with no record to dereference. The next open then
+ * fails with "Truncated revisions record for revision 0" — permanently, although the only revision
+ * ever acknowledged is the empty bootstrap one and nothing on disk is reachable.
  *
- * <p><b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if
- * the on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
+ * <p>
+ * <b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if the
+ * on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
  * checksum-valid revision record survives — i.e. nothing recoverable exists (see
- * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files
- * are truncated to zero and the open is retried — which then runs the EXACT fresh-resource
- * bootstrap path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it.
- * When the state is not provable — any beacon advertising a revision past the bootstrap one, any
- * torn/garbage beacon bytes, any checksum-valid revision record, any foreign superblock bytes —
- * data may exist and the original exception (with its existing actionable message) is rethrown
- * unchanged.
+ * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files are
+ * truncated to zero and the open is retried — which then runs the EXACT fresh-resource bootstrap
+ * path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state
+ * is not provable — any beacon advertising a revision past the bootstrap one, any torn/garbage
+ * beacon bytes, any checksum-valid revision record, any foreign superblock bytes — data may exist
+ * and the original exception (with its existing actionable message) is rethrown unchanged.
  *
  * @author Johannes Lichtenberger
  */
@@ -72,16 +73,17 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * Creates the {@link IOStorage} for the resource and loads its {@link UberPage} (or bootstraps
-   * a fresh one if the storage holds no data yet) — the single open path shared by the JSON and
-   * XML resource-session factories.
+   * Creates the {@link IOStorage} for the resource and loads its {@link UberPage} (or bootstraps a
+   * fresh one if the storage holds no data yet) — the single open path shared by the JSON and XML
+   * resource-session factories.
    *
-   * <p>Any step of the open can surface the interrupted-first-commit state: storage creation
-   * pre-loads revision metadata (reading the uber page reference AND every revision record),
-   * and the uber-page load re-reads the beacons. On failure the on-disk bytes are probed; a
-   * resource provably holding nothing but (at most) the unreachable empty bootstrap revision is
-   * re-initialized empty (with a WARN log) and the open retried through the fresh-bootstrap
-   * path, everything else rethrows the original failure.
+   * <p>
+   * Any step of the open can surface the interrupted-first-commit state: storage creation pre-loads
+   * revision metadata (reading the uber page reference AND every revision record), and the uber-page
+   * load re-reads the beacons. On failure the on-disk bytes are probed; a resource provably holding
+   * nothing but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a
+   * WARN log) and the open retried through the fresh-bootstrap path, everything else rethrows the
+   * original failure.
    *
    * @param resourceConfig the resource configuration
    * @return the storage and the uber page to start from
@@ -98,10 +100,9 @@ public final class InterruptedFirstCommitRecovery {
         throw openFailure;
       }
       LOGGER.warn("Interrupted FIRST commit detected for {}: the data file is non-empty but its uber-page "
-              + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
-              + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
-              + "durable and nothing on disk is reachable. Re-initializing the resource empty.",
-          dataFile, openFailure);
+          + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
+          + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
+          + "durable and nothing on disk is reachable. Re-initializing the resource empty.", dataFile, openFailure);
       reinitializeEmpty(resourceConfig, dataFile, revisionsFile);
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
@@ -111,9 +112,9 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * Loads the {@link UberPage} from storage, or bootstraps a new one if the storage does not
-   * hold data yet. This replaces {@code ResourceSessionModule.rootPage()} and was previously
-   * duplicated in the JSON and XML database factories.
+   * Loads the {@link UberPage} from storage, or bootstraps a new one if the storage does not hold
+   * data yet. This replaces {@code ResourceSessionModule.rootPage()} and was previously duplicated in
+   * the JSON and XML database factories.
    */
   private static UberPage loadUberPage(final IOStorage storage) {
     if (storage.exists()) {
@@ -132,32 +133,30 @@ public final class InterruptedFirstCommitRecovery {
 
   /**
    * Probes the raw on-disk bytes for PROOF that at most the EMPTY bootstrap revision was ever
-   * committed and that nothing on disk is reachable. All of the following must hold (anything
-   * else — including any probe I/O error — is "not provable" and the open failure must be
-   * rethrown):
+   * committed and that nothing on disk is reachable. All of the following must hold (anything else —
+   * including any probe I/O error — is "not provable" and the open failure must be rethrown):
    *
    * <ol>
-   *   <li>{@code sirix.data} is non-empty (otherwise the open would have bootstrapped anyway —
-   *       the failure has another cause) and its superblock block
-   *       {@code [0, PRIMARY_BEACON_OFFSET)} is either ALL zero (crash before
-   *       {@code writeUberPageReference} wrote anything) or a checksum-valid
-   *       {@link Superblock#ROLE_DATA} superblock followed by zeros (crash between the
-   *       superblock write and the beacon writes);</li>
-   *   <li>EACH beacon slot in {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} is either
-   *       entirely zero (never written — no commit was ever acknowledged) or a checksum-valid
-   *       uber beacon advertising the BOOTSTRAP revision (revision number 0 — only the empty
-   *       commit that resource creation itself runs was ever acknowledged). Torn/garbage slot
-   *       bytes or any slot advertising a later revision mean data may exist;</li>
-   *   <li>{@code sirix.revisions} holds no checksum-valid revision record in any slot (the
-   *       bootstrap commit writes revision 0's record at slot 0 — and the first user commit
-   *       revision 1's at slot 1 — BEFORE the beacons go out; a valid record means a commit got
-   *       far enough that data may exist, and it also means whatever failed the open was not
-   *       the missing-record gap this recovery is for).</li>
+   * <li>{@code sirix.data} is non-empty (otherwise the open would have bootstrapped anyway — the
+   * failure has another cause) and its superblock block {@code [0, PRIMARY_BEACON_OFFSET)} is either
+   * ALL zero (crash before {@code writeUberPageReference} wrote anything) or a checksum-valid
+   * {@link Superblock#ROLE_DATA} superblock followed by zeros (crash between the superblock write and
+   * the beacon writes);</li>
+   * <li>EACH beacon slot in {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} is either entirely
+   * zero (never written — no commit was ever acknowledged) or a checksum-valid uber beacon
+   * advertising the BOOTSTRAP revision (revision number 0 — only the empty commit that resource
+   * creation itself runs was ever acknowledged). Torn/garbage slot bytes or any slot advertising a
+   * later revision mean data may exist;</li>
+   * <li>{@code sirix.revisions} holds no checksum-valid revision record in any slot (the bootstrap
+   * commit writes revision 0's record at slot 0 — and the first user commit revision 1's at slot 1 —
+   * BEFORE the beacons go out; a valid record means a commit got far enough that data may exist, and
+   * it also means whatever failed the open was not the missing-record gap this recovery is for).</li>
    * </ol>
    *
-   * <p>Under these conditions the only acknowledged state is (at most) the empty bootstrap
-   * revision whose record is gone — every byte past the header is unreachable, so re-running
-   * the fresh bootstrap loses nothing.
+   * <p>
+   * Under these conditions the only acknowledged state is (at most) the empty bootstrap revision
+   * whose record is gone — every byte past the header is unreachable, so re-running the fresh
+   * bootstrap loses nothing.
    */
   static boolean provesAtMostEmptyBootstrapCommitted(final ResourceConfiguration resourceConfig, final Path dataFile,
       final Path revisionsFile) {
@@ -181,15 +180,14 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * Each beacon slot must be entirely zero (a file ending before {@code DATA_REGION_START}
-   * reads as zeros — never written) or a checksum-valid beacon advertising revision number 0,
-   * the empty bootstrap revision committed by resource creation itself. The slot is parsed by
-   * the canonical verifier ({@code AbstractReader#beaconRevisionOrMinusOne}); the beacon-slot
-   * format is identical across the file-based storage backends, so the {@link FileChannelReader}
-   * parser is authoritative for all of them. The reader's revisions-channel parameter is only
-   * used for revision-record reads, which the beacon parse never performs — the data channel is
-   * passed in both positions so the probe cannot require {@code sirix.revisions} to exist (its
-   * loss may be exactly what is being probed).
+   * Each beacon slot must be entirely zero (a file ending before {@code DATA_REGION_START} reads as
+   * zeros — never written) or a checksum-valid beacon advertising revision number 0, the empty
+   * bootstrap revision committed by resource creation itself. The slot is parsed by the canonical
+   * verifier ({@code AbstractReader#beaconRevisionOrMinusOne}); the beacon-slot format is identical
+   * across the file-based storage backends, so the {@link FileChannelReader} parser is authoritative
+   * for all of them. The reader's revisions-channel parameter is only used for revision-record reads,
+   * which the beacon parse never performs — the data channel is passed in both positions so the probe
+   * cannot require {@code sirix.revisions} to exist (its loss may be exactly what is being probed).
    */
   private static boolean beaconSlotsProveAtMostBootstrapRevision(final ResourceConfiguration resourceConfig,
       final byte[] header, final Path dataFile) throws IOException {
@@ -201,9 +199,9 @@ public final class InterruptedFirstCommitRecovery {
       return true;
     }
     try (final FileChannel dataChannel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
-      final FileChannelReader reader = new FileChannelReader(dataChannel, dataChannel,
-          new ByteHandlerPipeline(resourceConfig.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
-          Caffeine.newBuilder().build());
+      final FileChannelReader reader =
+          new FileChannelReader(dataChannel, dataChannel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
+              SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
       if (!primaryAllZero && reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET) != 0) {
         return false;
       }
@@ -238,9 +236,9 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * The superblock block {@code [0, PRIMARY_BEACON_OFFSET)} proves an interrupted first commit
-   * when it is all zeros, or when it is a checksum-valid {@code ROLE_DATA} superblock followed
-   * by nothing but zeros. Any other content is unexplained corruption — not provable.
+   * The superblock block {@code [0, PRIMARY_BEACON_OFFSET)} proves an interrupted first commit when
+   * it is all zeros, or when it is a checksum-valid {@code ROLE_DATA} superblock followed by nothing
+   * but zeros. Any other content is unexplained corruption — not provable.
    */
   private static boolean superblockRegionProvesNoCommit(final byte[] header, final Path dataFile) {
     boolean allZero = true;
@@ -271,10 +269,10 @@ public final class InterruptedFirstCommitRecovery {
   /**
    * Scans every revisions-file slot (deterministic layout, see
    * {@link IOStorage#revisionsFileOffset(int)}) for a checksum-valid record, reusing the
-   * writer/reader checksum contract {@link IOStorage#expectedRevisionRecordChecksum(long, long, long)}
-   * (which selects the 16- or 24-byte variant by the record's hash field). An all-zero slot never
-   * matches — the legacy checksum of {@code (0, 0)} is a nonzero constant, so a zeroed slot's stored
-   * checksum of 0 cannot equal it.
+   * writer/reader checksum contract
+   * {@link IOStorage#expectedRevisionRecordChecksum(long, long, long)} for both live records and
+   * tombstones. An all-zero slot never matches: the checksum of the three zero identity fields is
+   * nonzero, unlike the slot's stored checksum.
    */
   private static boolean hasNoChecksumValidRevisionRecord(final Path revisionsFile) throws IOException {
     if (!Files.isRegularFile(revisionsFile)) {
@@ -284,8 +282,8 @@ public final class InterruptedFirstCommitRecovery {
     try (final FileChannel channel = FileChannel.open(revisionsFile, StandardOpenOption.READ)) {
       final ByteBuffer record =
           ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-      for (long offset = IOStorage.REVISIONS_RECORDS_START; offset < size;
-          offset += IOStorage.REVISIONS_FILE_RECORD_SIZE) {
+      for (long offset = IOStorage.REVISIONS_RECORDS_START; offset < size; offset +=
+          IOStorage.REVISIONS_FILE_RECORD_SIZE) {
         record.clear();
         int position = 0;
         while (record.hasRemaining()) {
@@ -305,8 +303,7 @@ public final class InterruptedFirstCommitRecovery {
         // Both live records and retention tombstones prove that this is not an interrupted
         // first commit. Never reinitialize a resource with a checksum-valid tombstone.
         final long pageHash = record.getLong();
-        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis,
-            pageHash)) {
+        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis, pageHash)) {
           return false;
         }
       }
@@ -316,8 +313,8 @@ public final class InterruptedFirstCommitRecovery {
 
   /**
    * Truncates both files back to the pre-first-commit state (size 0) and drops every piece of
-   * per-resource metadata a same-process predecessor may have registered for the old bytes, so
-   * the retried open and the subsequent first commit behave exactly like a brand-new resource.
+   * per-resource metadata a same-process predecessor may have registered for the old bytes, so the
+   * retried open and the subsequent first commit behave exactly like a brand-new resource.
    */
   private static void reinitializeEmpty(final ResourceConfiguration resourceConfig, final Path dataFile,
       final Path revisionsFile) {
@@ -325,8 +322,7 @@ public final class InterruptedFirstCommitRecovery {
       truncateToZero(dataFile);
       truncateToZero(revisionsFile);
     } catch (final IOException e) {
-      throw new SirixIOException(
-          "Failed to re-initialize the interrupted-first-commit resource at " + dataFile, e);
+      throw new SirixIOException("Failed to re-initialize the interrupted-first-commit resource at " + dataFile, e);
     }
     // The valid-superblock variant may already have registered the data file as validated; the
     // header the first commit re-creates must be validated again (same contract as removal).

@@ -373,7 +373,7 @@ public final class MMFileReader extends AbstractReader {
       // its body was historically NOT integrity-checked here. The hash recorded alongside the
       // record (the same XXH3 the writer set on the page's reference) lets us verify the compressed
       // payload BEFORE deserialization — mirroring read(reference, config) exactly. Gated on
-      // verifyChecksumsOnRead and skipped for legacy/RAM records that carry no hash (pageHash == 0).
+      // verifyChecksumsOnRead; persisted records have a nonzero hash validated by the decoder.
       final PageReference reference = revisionRootReference(dataFileOffset, revisionFileData.pageHash());
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
@@ -438,8 +438,8 @@ public final class MMFileReader extends AbstractReader {
       final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
       final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 16);
       final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 24);
-      result[i] = IOStorage.decodeRevisionRecord(fromRevision + i, revisionOffset, timestampMillis,
-          storedChecksum, pageHash);
+      result[i] =
+          IOStorage.decodeRevisionRecord(fromRevision + i, revisionOffset, timestampMillis, storedChecksum, pageHash);
     }
     return result;
   }

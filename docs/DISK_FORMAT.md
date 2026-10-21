@@ -83,7 +83,8 @@ when its beacon is — the ordering guarantee the old force provided, at zero ex
   revisions file first. Losing the entire ring therefore costs no committed revision.
 - **Salvage on read, not second opinion.** `FileChannelReader.getRevisionFileData` consults the
   ring ONLY when the file record is missing or fails its checksum; an intact record is never
-  second-guessed. A salvaged record is written back into the revisions file (self-heal), so the
+  second-guessed. The [tombstone safeguards below](#sirixrevisions) further restrict salvage and
+  healing. A salvaged record is written back into the revisions file (self-heal), so the
   next open needs no salvage. A record that is neither intact in the file nor recoverable from an
   entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
   silently-served garbage offset.
@@ -117,8 +118,8 @@ and the next commit is no longer an unopenable state (regression-tested by
 0      : SUPERBLOCK (64 B, role = revisions; slot-size field = 32, the record stride —
          persisted geometry, validated at open against this build's record size)
 64     : reserved (sparse zeros) up to 4096
-4096 + 32*revision : [u64 dataFileOffsetOfRevisionRootPage][u64 epochMillis]
-                     [u64 recordChecksum][u64 revisionRootPageHash]      (little-endian)
+4096 + 32*revision : [u64 rootOffsetOrPrunedSentinel][u64 epochMillis]
+                     [u64 recordChecksum][u64 pageHashOrPrunedTag]      (little-endian)
 ```
 
 This file is **load-bearing**: the serialized UberPage holds only `revisionCount`, so every
@@ -144,11 +145,12 @@ hash remains a live record. `IOStorage.decodeRevisionRecord` is the shared decod
 `IOStorage.writePrunedRevisionRecord(ByteBuffer, long)` writes tombstones into reusable storage.
 
 The in-memory `RevisionIndex` retains every original number and timestamp, with the sentinel in
-its offsets array. Metadata reads and floor timestamp resolution include tombstones. Opening the
-selected pruned revision throws `SirixRevisionPrunedException`; it never substitutes another live
-revision. The existing exact-match tie behavior is preserved (bounded timestamp lookup selects the
-last equal timestamp). Bootstrap and latest revisions must remain live. Root reads, reverts, and
-truncate targets reject tombstones before mutation. A valid tombstone bypasses tail-log recovery;
+its offsets array. Metadata and root-read contracts are documented by
+[`Reader`](../bundles/sirix-core/src/main/java/io/sirix/io/Reader.java); timestamp selection and
+transaction-open behavior by
+[`ResourceSession`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java), and
+revert/truncate targets by [`NodeTrx`](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java).
+Bootstrap and latest revisions must remain live. A valid tombstone bypasses tail-log recovery;
 a damaged recognizable tombstone cannot be healed from an obsolete live entry. Compactors must
 publish fresh beacons without obsolete tail-log entries and clear caches/reload the index after swap.
 
@@ -387,11 +389,8 @@ there are no old-format readers, migrations, or compatibility switches.
   persist offsets without hashes; their integrity limits are specified in
   [HOT index specification §3.6](HOT_INDEX_SPECIFICATION.md#36-hot-format-and-integrity).
 - The roots are covered too: both files' superblocks carry a CRC, both uber beacon
-  slots carry an XXH3 trailer, and every revision record embeds an XXH3 of its offset+timestamp
-  (+ the RevisionRootPage hash when present — 24-byte coverage; see §1).
-- **RevisionRootPages are covered now too**: the one page reached without a parent reference
-  (via `readRevisionRootPage`) carries its XXH3 in the 4th field of its revisions record, verified
-  on read before deserialization exactly like a normal page (legacy `hash==0` records skip this).
+  slots carry an XXH3 trailer, and revision records and readable RevisionRootPages follow the
+  integrity contract in [§1, sirix.revisions](#sirixrevisions).
 - **Still not covered**: record/page length prefixes.
 
 ## 4. Storage backends

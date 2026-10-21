@@ -40,14 +40,16 @@ final class SparseRevisionIndexWorkBudgetTest {
   @ParameterizedTest
   @ValueSource(ints = {16, 4096})
   void coldLoadUsesOneBulkReadAndWarmLoadUsesNone(final int count) throws Exception {
-    final ByteBuffer records = ByteBuffer.allocate(count * IOStorage.REVISIONS_FILE_RECORD_SIZE)
-        .order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer records =
+        ByteBuffer.allocate(count * IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
     for (int revision = 0; revision < count; revision++) {
       if (revision > 0 && revision < count - 1) {
         IOStorage.writePrunedRevisionRecord(records, revision);
       } else {
-        records.putLong(IOStorage.DATA_REGION_START).putLong(revision)
-            .putLong(IOStorage.revisionRecordChecksum(IOStorage.DATA_REGION_START, revision, 42)).putLong(42);
+        records.putLong(IOStorage.DATA_REGION_START)
+               .putLong(revision)
+               .putLong(IOStorage.revisionRecordChecksum(IOStorage.DATA_REGION_START, revision, 42))
+               .putLong(42);
       }
     }
     final AtomicInteger reads = new AtomicInteger();
@@ -82,8 +84,8 @@ final class SparseRevisionIndexWorkBudgetTest {
     storage.loadRevisionIndex(holder);
     assertEquals(1, reads.get(), "Warm load must not read history again");
     if (Boolean.getBoolean("sirix.workBudget.print")) {
-      System.out.printf("SPARSE_HISTORY_BUDGET slots=%d coldReads=%d bytes=%d warmReads=0%n",
-          count, reads.get(), bytes.get());
+      System.out.printf("SPARSE_HISTORY_BUDGET slots=%d coldReads=%d bytes=%d warmReads=0%n", count, reads.get(),
+          bytes.get());
     }
   }
 }
