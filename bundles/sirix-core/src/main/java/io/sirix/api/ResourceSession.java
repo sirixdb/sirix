@@ -27,6 +27,7 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
+import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.node.interfaces.DataRecord;
@@ -260,6 +261,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Begin a read-only transaction on the given revision number.
    *
    * @param revision revision to read from denoted by the revision number.
+   * @throws SirixRevisionPrunedException if retention has pruned this revision
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
@@ -269,6 +271,9 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
 
   /**
    * Begin a read-only transaction at the revision selected by {@link #getRevisionNumber(Instant)}.
+   * A pruned selection fails without substituting a retained revision.
+   *
+   * @throws SirixRevisionPrunedException if retention has pruned the selected revision
    *
    * @param pointInTime the point in time
    * @return a read-only transaction at the selected revision
@@ -404,7 +409,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * matched timestamp, the selected revision is unspecified; use
    * {@link #getRevisionNumber(Instant, int)} for deterministic tie selection. A timestamp before all
    * revisions selects the bootstrap revision 0, and one after all revisions selects the most recent
-   * revision.
+   * revision. Pruned revisions participate in this metadata lookup and may be returned; opening
+   * such a revision throws {@link SirixRevisionPrunedException}.
    *
    * @param pointInTime the point in time
    * @return the revision number valid at that time
@@ -421,6 +427,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * revisions share that timestamp. Returns the bootstrap revision 0 if no revision qualifies. Later
    * commits cannot change the result for the same point in time and ceiling; capture
    * {@link #getMostRecentRevisionNumber()} once and reuse it when resolving related timestamps.
+   * Pruned revisions participate, both as the ceiling and as the result.
    *
    * @param pointInTime the point in time
    * @param revisionCeiling the inclusive upper bound on committed revision numbers

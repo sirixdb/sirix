@@ -26,6 +26,8 @@
 package io.sirix.io;
 
 
+import io.sirix.exception.SirixRevisionPrunedException;
+
 import java.time.Instant;
 import java.util.Arrays;
 
@@ -332,6 +334,9 @@ public final class RevisionIndex {
     if (revision < 0) {
       throw new IllegalArgumentException("Negative revision frontier");
     }
+    if (revision < size) {
+      requireReadable(revision);
+    }
     if (revision >= size - 1) {
       return this;
     }
@@ -351,7 +356,23 @@ public final class RevisionIndex {
     if (revision < 0 || revision >= size) {
       throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
     }
+    requireReadable(revision);
     return offsets[revision];
+  }
+
+  /** Whether this original revision number has been pruned. */
+  public boolean isPruned(final int revision) {
+    if (revision < 0 || revision >= size) {
+      throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
+    }
+    return offsets[revision] == IOStorage.PRUNED_REVISION_OFFSET;
+  }
+
+  /** Reject a pruned root without allocating metadata on the live path. */
+  public void requireReadable(final int revision) {
+    if (isPruned(revision)) {
+      throw new SirixRevisionPrunedException(revision, Instant.ofEpochMilli(timestamps[revision]));
+    }
   }
 
   /**
@@ -425,7 +446,9 @@ public final class RevisionIndex {
     if (revision < 0 || revision >= size) {
       throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
     }
-    return new RevisionFileData(offsets[revision], Instant.ofEpochMilli(timestamps[revision]));
+    return isPruned(revision)
+        ? RevisionFileData.pruned(Instant.ofEpochMilli(timestamps[revision]))
+        : new RevisionFileData(offsets[revision], Instant.ofEpochMilli(timestamps[revision]));
   }
 
   /**

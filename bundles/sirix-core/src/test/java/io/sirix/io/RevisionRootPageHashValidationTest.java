@@ -52,8 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>The fix stores the RevisionRootPage's own page hash in the revisions record's former
  * "reserved" 4th field and verifies the body against it on read. The record checksum is widened to
- * cover that field (24 bytes) when it is present; a record whose hash field is {@code 0} is a
- * LEGACY (beta1-and-earlier) record and keeps the 16-byte checksum, so old resources still open.
+ * cover that field (24 bytes). Disk records without a hash are rejected.
  *
  * <p>Each corruption case is paired with a "demonstrates the pre-fix gap" assertion: the same
  * corrupted body, read through a reader with verification DISABLED, deserializes to a non-null
@@ -384,55 +383,22 @@ final class RevisionRootPageHashValidationTest {
     assertNoCorruptionDetection(withVerificationDisabled(loadConfig(dbPath)), rev);
   }
 
-  // ----------------------------------------------------------------------------------------------
-  // (d) Backward compat: a legacy record (hash field == 0, 16-byte checksum) opens cleanly
-  // ----------------------------------------------------------------------------------------------
-
   @Test
-  @DisplayName("(d) legacy record (hash==0, 16-byte checksum) opens cleanly — beta1 resources still work")
-  void legacyRecord_opensCleanly() throws Exception {
-    final Path dbPath = PATHS.PATH1.getFile();
-    final int rev = createResourceWithRevisions(dbPath, StorageType.FILE_CHANNEL, 1);
-
-    // Downgrade the record to the LEGACY format beta1 wrote: hash field 0, checksum over 16 bytes.
-    final long[] r = readRecord(dbPath, rev);
-    writeRecordField(dbPath, rev, 3, 0L);                                   // hash field -> legacy 0
-    writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(r[0], r[1])); // 16-byte checksum
-    Databases.clearGlobalCaches();
-
-    // Opens and reads with NO false-positive corruption error (default verification ON).
-    final RevisionRootPage page = readRevisionRoot(loadConfig(dbPath), rev);
-    assertNotNull(page, "a legacy (hash==0) record must open cleanly under this build");
-
-    // And because a legacy record carries no page hash, the body is (correctly) NOT verified:
-    // corrupting it is NOT cleanly flagged — there is simply nothing to check against. This proves
-    // the hash==0 disambiguation: present-hash => verify, absent-hash (legacy) => skip.
-    corruptRevisionRootBody(dbPath, rev, 3);
-    Databases.clearGlobalCaches();
-    assertNoCorruptionDetection(loadConfig(dbPath), rev);
-  }
-
-  @Test
-  @DisplayName("(d) bulk getRevisionFileData over a legacy record opens cleanly (mmap + filechannel)")
-  void legacyRecord_bulkRead_opensCleanly() throws Exception {
+  @DisplayName("Disk records without a root hash are rejected by both readers")
+  void missingHashIsCorruption() throws Exception {
     for (final StorageType type : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
       JsonTestHelper.deleteEverything();
       Databases.clearGlobalCaches();
       final Path dbPath = PATHS.PATH1.getFile();
       final int rev = createResourceWithRevisions(dbPath, type, 2);
-
-      // Downgrade revision `rev` to legacy.
-      final long[] r = readRecord(dbPath, rev);
+      final long[] record = readRecord(dbPath, rev);
       writeRecordField(dbPath, rev, 3, 0L);
-      writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(r[0], r[1]));
+      writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(record[0], record[1], 0L));
       Databases.clearGlobalCaches();
-
-      final ResourceConfiguration config = loadConfig(dbPath);
-      final IOStorage storage = storageFor(config);
+      final IOStorage storage = storageFor(loadConfig(dbPath));
       try (final Reader reader = storage.createReader()) {
-        final RevisionFileData[] all = reader.getRevisionFileData(0, rev + 1);
-        assertEquals(rev + 1, all.length, type + ": bulk read returns all records");
-        assertEquals(0L, all[rev].pageHash(), type + ": downgraded record reports a 0 (legacy) hash");
+        assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(rev));
+        assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(0, rev + 1));
       } finally {
         storage.close();
       }
@@ -479,30 +445,25 @@ final class RevisionRootPageHashValidationTest {
   // ----------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("(f) expectedRevisionRecordChecksum dispatches 16-byte (legacy) vs 24-byte (present)")
-  void checksumDispatch_legacyVsPresent() {
-    final long off = 0x1122334455667788L;
-    final long ts = 0x0000017F_ABCDEF01L;
-    final long hash = 0xDEADBEEFCAFEBABEL;
-
-    // Present hash -> 24-byte variant; legacy (0) -> 16-byte variant.
-    assertEquals(IOStorage.revisionRecordChecksum(off, ts, hash),
-        IOStorage.expectedRevisionRecordChecksum(off, ts, hash), "present hash -> 24-byte checksum");
-    assertEquals(IOStorage.revisionRecordChecksum(off, ts),
-        IOStorage.expectedRevisionRecordChecksum(off, ts, 0L), "hash==0 -> legacy 16-byte checksum");
-    // The two variants must differ for the same (off,ts) — otherwise the hash field would be
-    // unprotected and a present record indistinguishable from a legacy one by checksum alone.
-    assertTrue(IOStorage.revisionRecordChecksum(off, ts) != IOStorage.revisionRecordChecksum(off, ts, hash),
-        "16- and 24-byte checksums must differ so the hash field is genuinely covered");
+  void checksumAlwaysCoversHashField() {
+    final long offset = IOStorage.DATA_REGION_START;
+    final long timestamp = 12345L;
+    final long hash = 42L;
+    assertEquals(IOStorage.revisionRecordChecksum(offset, timestamp, hash),
+        IOStorage.expectedRevisionRecordChecksum(offset, timestamp, hash));
+    assertEquals(IOStorage.revisionRecordChecksum(offset, timestamp, 0L),
+        IOStorage.expectedRevisionRecordChecksum(offset, timestamp, 0L));
+    assertTrue(IOStorage.revisionRecordChecksum(offset, timestamp, 0L)
+        != IOStorage.revisionRecordChecksum(offset, timestamp, hash));
   }
 
   @Test
-  @DisplayName("(f) an all-zero slot never matches the legacy checksum (recovery scan safety)")
-  void allZeroSlot_neverMatchesLegacyChecksum() {
+  @DisplayName("(f) an all-zero slot never matches the record checksum (recovery scan safety)")
+  void allZeroSlot_neverMatchesChecksum() {
     // hasNoChecksumValidRevisionRecord relies on this: a zeroed slot has storedChecksum==0, which
-    // must not equal the checksum of (offset=0, timestamp=0, hash=0/legacy).
+    // must not equal the checksum of (offset=0, timestamp=0, hash=0).
     assertTrue(IOStorage.expectedRevisionRecordChecksum(0L, 0L, 0L) != 0L,
-        "checksum of an all-zero legacy record must be non-zero");
+        "checksum of an all-zero record must be non-zero");
   }
 
   @Test

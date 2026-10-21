@@ -646,6 +646,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     requireNonNull(channel, "channel");
     requireNonNull(revisionFileData, "revisionFileData");
     requireNonNull(context, "context");
+    revisionFileData.requireReadable(revision);
     final long frameOffset = revisionFileData.offset();
     if (revision < 0 || fileSize < IOStorage.DATA_REGION_START || frameOffset < IOStorage.DATA_REGION_START
         || frameOffset > fileSize - IOStorage.OTHER_BEACON || revisionFileData.pageHash() == 0L) {
@@ -1290,6 +1291,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           throw new SirixIOException("cannot publish a data frontier without an uber-page revision identity");
         }
         durableRevisionFileData = reader.getRevisionFileData(uberPage.getRevisionNumber());
+        durableRevisionFileData.requireReadable(uberPage.getRevisionNumber());
       } else {
         durableRevisionFileData = null;
       }
@@ -1658,11 +1660,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
       final int base = (int) (entryRevision - minRevision) * IOStorage.REVISIONS_FILE_RECORD_SIZE;
       boolean intact = false;
+      if (base + Long.BYTES <= rangeRead && base + IOStorage.REVISIONS_FILE_RECORD_SIZE > rangeRead
+          && rangeBuffer.getLong(base) == IOStorage.PRUNED_REVISION_OFFSET) {
+        throw new SirixIOException("Truncated tombstone record for revision " + entryRevision);
+      }
       if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= rangeRead) {
         final long offset = rangeBuffer.getLong(base);
         final long timestampMillis = rangeBuffer.getLong(base + 8);
         final long storedChecksum = rangeBuffer.getLong(base + 16);
         final long pageHash = rangeBuffer.getLong(base + 24);
+        if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG) {
+          // Compaction must discard old tail-log entries. Never use one to resurrect a pruned slot.
+          IOStorage.decodeRevisionRecord((int) entryRevision, offset, timestampMillis, storedChecksum, pageHash);
+        }
         intact = storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
       }
       if (!intact) {

@@ -132,14 +132,26 @@ The 4th field (formerly `reserved`, zero) now stores the **XXH3-64 of the Revisi
 compressed on-disk payload** — the same hash the writer puts on every other page's parent
 PageReference. It closes the one gap where a page was reached without a parent reference: the
 `readRevisionRootPage` path now verifies the body against this hash before deserializing (gated on
-`verifyChecksumsOnRead`). The **record checksum covers 24 bytes** (offset + timestamp + hash) when
-the hash field is present, so a torn write or bit-rot in the hash itself is also caught.
-**Backward-compat rule:** a record whose hash field is `0` is a *legacy* (beta1-and-earlier)
-record — its checksum covers only the first **16 bytes** and its RevisionRootPage body is not
-hash-verified (there is nothing to check against). The hash field thus doubles as the
-format-version discriminator, so older resources open under this build with no false-positive
-corruption error. (An all-zero real hash is remapped to a non-zero sentinel before storage so `0`
-unambiguously means "legacy".)
+`verifyChecksumsOnRead`). The **record checksum always covers 24 bytes** (offset + timestamp +
+hash-or-tag). Zero hashes and old 16-byte-checksum records are not supported. An all-zero real
+payload hash is remapped to a nonzero sentinel before storage.
+
+Retention preserves a dense original revision timeline. A pruned revision's slot stores
+`[Long.MIN_VALUE][original epochMillis][recordChecksum][0x5052554E45440001]`. The last word is a
+record-type tag, not a root hash. Both the sentinel/tag pair and the checksum must match; invalid
+offsets, tags, checksums, zero holes, and partial slots are corruption. A live offset with this
+hash remains a live record. `IOStorage.decodeRevisionRecord` is the shared decoding boundary;
+`IOStorage.writePrunedRevisionRecord(ByteBuffer, long)` writes tombstones into reusable storage.
+
+The in-memory `RevisionIndex` retains every original number and timestamp, with the sentinel in
+its offsets array. Metadata reads and floor timestamp resolution include tombstones. Opening the
+selected pruned revision throws `SirixRevisionPrunedException`; it never substitutes another live
+revision. The existing exact-match tie behavior is preserved (bounded timestamp lookup selects the
+last equal timestamp). Bootstrap and latest revisions must remain live. Root reads, reverts, and
+truncate targets reject tombstones before mutation. A valid tombstone bypasses tail-log recovery;
+a damaged recognizable tombstone cannot be healed from an obsolete live entry. Compactors must
+publish fresh beacons without obsolete tail-log entries and clear caches/reload the index after swap.
+
 
 ### Endianness
 

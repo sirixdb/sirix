@@ -1055,6 +1055,7 @@ public final class FileChannelReader extends AbstractReader {
       // The cached record carries (offset, timestamp, pageHash) — reuse it so we neither re-read
       // the revisions record nor lose the page hash needed to integrity-check the body below.
       final RevisionFileData revisionFileData = cache.get(revision, (unused) -> getRevisionFileData(revision));
+      revisionFileData.requireReadable(revision);
       final long dataFileOffset = revisionFileData.offset();
 
       buffer.clear().limit(4);
@@ -1160,18 +1161,25 @@ public final class FileChannelReader extends AbstractReader {
       for (int i = 0; i < count; i++) {
         final int revision = fromRevision + i;
         final int base = i * IOStorage.REVISIONS_FILE_RECORD_SIZE;
+        if (base + Long.BYTES <= bytesRead && base + IOStorage.REVISIONS_FILE_RECORD_SIZE > bytesRead
+            && buffer.getLong(base) == IOStorage.PRUNED_REVISION_OFFSET) {
+          throw new SirixIOException("Truncated tombstone record for revision " + revision);
+        }
         if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead) {
           final long offset = buffer.getLong(base);
           final long timestamp = buffer.getLong(base + 8);
           final long storedChecksum = buffer.getLong(base + 16);
-          // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
           final long pageHash = buffer.getLong(base + 24);
-          // These bytes are the ONLY file-resident path to the revision's root page — verify
-          // them. The checksum covers 24 bytes when a page hash is present, 16 when legacy
-          // (hash == 0), so beta1 resources still open cleanly.
-          if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestamp, pageHash)) {
-            result[i] = new RevisionFileData(offset, Instant.ofEpochMilli(timestamp), pageHash);
+          try {
+            result[i] = IOStorage.decodeRevisionRecord(revision, offset, timestamp, storedChecksum, pageHash);
             continue;
+          } catch (final SirixIOException corruption) {
+            // Never resurrect a tombstone (even a torn one) from an obsolete beacon tail-log.
+            // A checksum-valid invalid identity is corruption, not a recoverable torn write.
+            if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG
+                || storedChecksum == IOStorage.revisionRecordChecksum(offset, timestamp, pageHash)) {
+              throw corruption;
+            }
           }
         }
         if (slots == null) {
@@ -1221,8 +1229,8 @@ public final class FileChannelReader extends AbstractReader {
       if (slot.getInt(base) != revision || !IOStorage.tailLogEntryValidAt(slot, base)) {
         continue;
       }
-      return new RevisionFileData(slot.getLong(base + 8), Instant.ofEpochMilli(slot.getLong(base + 16)),
-          slot.getLong(base + 32));
+      return IOStorage.decodeRevisionRecord(revision, slot.getLong(base + 8), slot.getLong(base + 16),
+          slot.getLong(base + 24), slot.getLong(base + 32));
     }
     return null;
   }
@@ -1270,7 +1278,14 @@ public final class FileChannelReader extends AbstractReader {
         }
         currentRead += n;
       }
+      if (currentRead >= Long.BYTES && current.getLong(0) == IOStorage.PRUNED_REVISION_OFFSET) {
+        return;
+      }
       if (currentRead == IOStorage.REVISIONS_FILE_RECORD_SIZE) {
+        if (current.getLong(0) == IOStorage.PRUNED_REVISION_OFFSET
+            || current.getLong(24) == IOStorage.PRUNED_REVISION_TAG) {
+          return; // Even a damaged tombstone must never be overwritten by a stale live tail-log copy.
+        }
         final boolean nowValid = current.getLong(16) == IOStorage.expectedRevisionRecordChecksum(current.getLong(0),
             current.getLong(8), current.getLong(24));
         if (nowValid && (current.getLong(0) != offset || current.getLong(8) != timestampMillis

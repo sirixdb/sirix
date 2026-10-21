@@ -1728,7 +1728,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (pendingRevisionRoot != null) {
       return pendingRevisionRoot;
     }
-    assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
+    resourceSession.assertAccess(revisionKey);
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
       final var cacheKey = new RevisionRootPageCacheKey(databaseId, resourceId, revisionKey);

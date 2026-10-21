@@ -30,6 +30,7 @@ import net.openhft.hashing.LongHashFunction;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -78,43 +79,22 @@ public interface IOStorage {
   /** First revision-record offset in {@code sirix.revisions} (superblock + reserved before it). */
   long REVISIONS_RECORDS_START = 4096;
 
-  /**
-   * Size in bytes of one revisions-file record:
-   * {@code [u64 revisionRootOffset][u64 epochMillis][u64 recordChecksum][u64 revisionRootPageHash]}
-   * (little-endian). The 4th field carries the XXH3-64 of the RevisionRootPage's compressed
-   * payload (the same hash the writer puts on every page's PageReference) so the page body can be
-   * integrity-checked on the {@code readRevisionRootPage} path, which carries no parent reference.
-   * <p>
-   * The record checksum self-protects this 4th field: when the hash field is non-zero it covers
-   * all 24 leading bytes; when it is zero (a LEGACY beta1-and-earlier record, whose reserved field
-   * was {@code putLong(0L)}) it covers only the first 16 bytes. The hash field thus doubles as the
-   * format-version discriminator, so older resources open under this build with no false-positive
-   * corruption error. See {@link #expectedRevisionRecordChecksum(long, long, long)}.
-   * <p>
-   * The checksum exists because these records are the ONLY path to any RevisionRootPage and used
-   * to be the least-protected bytes in the system.
-   */
+  /** Size of a little-endian (offset, timestamp, checksum, hash-or-tag) record. */
   int REVISIONS_FILE_RECORD_SIZE = 32;
 
-  /**
-   * Sentinel substituted for an all-zero RevisionRootPage hash before it is stored in a record, so
-   * that "hash field == {@code 0}" unambiguously means "legacy record, no hash recorded".
-   * <p>
-   * XXH3-64 producing exactly {@code 0} for a real page payload is a ~1-in-2^64 event. Remapping it
-   * to this sentinel means the stored field is NEVER {@code 0} when a hash is genuinely present, so
-   * "present" can never be misread as "legacy" — which is the safety-critical direction, because
-   * misreading present-as-legacy would SILENTLY SKIP verification (a fail-open miss). The readers
-   * do NOT reverse the remap: a real {@code 0}-hash page is verified against the sentinel and so
-   * fails the check (a fail-CLOSED false positive on that one astronomically-rare page) rather than
-   * going unverified. A page whose real hash happens to equal the sentinel itself is stored and
-   * verified as the sentinel unchanged — no false positive there. The value is otherwise arbitrary.
-   */
+  /** A tombstone has no data-file address. Only the exact sentinel/tag pair is valid. */
+  long PRUNED_REVISION_OFFSET = Long.MIN_VALUE;
+
+  /** Tombstone type/version, covered by the record checksum. */
+  long PRUNED_REVISION_TAG = 0x5052554E45440001L;
+
+  /** Nonzero representation of the exceptionally rare all-zero payload hash. */
   long ZERO_HASH_SENTINEL = 0xFFFF_FFFF_FFFF_FFFFL;
 
   /**
    * Normalize a RevisionRootPage hash for storage: an all-zero hash is remapped to
    * {@link #ZERO_HASH_SENTINEL} so the stored field is never {@code 0} when a hash IS present
-   * ({@code 0} is reserved to mean "legacy / no hash"). Any non-zero hash is stored unchanged. The
+   * ({@code 0} is invalid in persisted records). Any non-zero hash is stored unchanged. The
    * remap is one-way (readers never reverse it) — see {@link #ZERO_HASH_SENTINEL} for the
    * fail-closed rationale.
    *
@@ -135,6 +115,9 @@ public interface IOStorage {
    * @return byte offset of the revision's record in the revisions file
    */
   static long revisionsFileOffset(final int revision) {
+    if (revision < 0) {
+      throw new IllegalArgumentException("Revision must not be negative");
+    }
     return REVISIONS_RECORDS_START + (long) revision * REVISIONS_FILE_RECORD_SIZE;
   }
 
@@ -257,54 +240,62 @@ public interface IOStorage {
   }
 
   /**
-   * XXH3-64 of a LEGACY revisions record's first 16 bytes (offset + timestamp), little-endian.
-   * Used to verify records whose hash field is {@code 0} (beta1 and earlier), and to compute the
-   * checksum a legacy record would carry.
+   * XXH3-64 over (offset, timestamp, hash-or-tag), each little-endian. Reuses thread-local
+   * scratch: validating a bulk history adds no per-record checksum allocation.
    */
-  static long revisionRecordChecksum(final long offset, final long timestampMillis) {
-    final byte[] first16 = new byte[16];
-    final java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(first16).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-    bb.putLong(offset);
-    bb.putLong(timestampMillis);
-    return net.openhft.hashing.LongHashFunction.xx3().hashBytes(first16);
+  static long revisionRecordChecksum(final long offset, final long timestampMillis, final long tagOrHash) {
+    final ByteBuffer scratch = RevisionRecordScratch.BUFFER.get();
+    scratch.putLong(0, offset);
+    scratch.putLong(8, timestampMillis);
+    scratch.putLong(16, tagOrHash);
+    return TailLogScratch.XX3.hashBytes(scratch.array());
+  }
+
+  /** The current format always protects all three identity fields. */
+  static long expectedRevisionRecordChecksum(final long offset, final long timestampMillis, final long tagOrHash) {
+    return revisionRecordChecksum(offset, timestampMillis, tagOrHash);
   }
 
   /**
-   * XXH3-64 of a revisions record's first 24 bytes (offset + timestamp + RevisionRootPage hash),
-   * little-endian — the integrity check writers and readers agree on when a page hash is present.
-   * The hash field is folded into the checksum so a torn write or bit-rot in the hash itself is
-   * detected by the same record check, not silently used to (mis)verify the page body.
-   *
-   * @param offset           the RevisionRootPage offset in the data file
-   * @param timestampMillis  the revision commit timestamp
-   * @param storedPageHash   the (already-normalized, non-zero) page-hash field as stored
-   * @return the XXH3-64 of the 24-byte prefix
+   * Decode one complete disk record. Checksum verification precedes tombstone recognition.
+   * The revision is supplied by the slot position; corrupt records never become tombstones.
    */
-  static long revisionRecordChecksum(final long offset, final long timestampMillis, final long storedPageHash) {
-    final byte[] first24 = new byte[24];
-    final java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(first24).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-    bb.putLong(offset);
-    bb.putLong(timestampMillis);
-    bb.putLong(storedPageHash);
-    return net.openhft.hashing.LongHashFunction.xx3().hashBytes(first24);
+  static RevisionFileData decodeRevisionRecord(final int revision, final long offset, final long timestampMillis,
+      final long checksum, final long tagOrHash) {
+    if (revision < 0) {
+      throw new IllegalArgumentException("Revision must not be negative");
+    }
+    if (checksum != revisionRecordChecksum(offset, timestampMillis, tagOrHash)) {
+      throw new SirixIOException("Corrupt revisions record for revision " + revision + " (checksum mismatch)");
+    }
+    if (offset == PRUNED_REVISION_OFFSET && tagOrHash == PRUNED_REVISION_TAG) {
+      return RevisionFileData.pruned(Instant.ofEpochMilli(timestampMillis));
+    }
+    if (offset < DATA_REGION_START || offset > Long.MAX_VALUE - OTHER_BEACON || tagOrHash == 0L) {
+      throw new SirixIOException("Corrupt revisions record for revision " + revision + " (invalid offset or tag/hash)");
+    }
+    return new RevisionFileData(offset, Instant.ofEpochMilli(timestampMillis), tagOrHash);
   }
 
   /**
-   * The checksum a record is EXPECTED to carry, dispatching on its hash field — the single place
-   * the legacy-vs-present rule lives, so every reader (FileChannel, MemoryMapped, recovery scan)
-   * applies it identically. {@code storedPageHash == 0} ⇒ legacy 16-byte checksum (offset +
-   * timestamp only); otherwise the 24-byte checksum that also covers the hash field.
-   *
-   * @param offset          the RevisionRootPage offset
-   * @param timestampMillis the revision commit timestamp
-   * @param storedPageHash  the record's 4th field exactly as read from disk ({@code 0} = legacy)
-   * @return the checksum the record's 3rd field must equal to be considered intact
+   * Encode a complete tombstone into caller-owned reusable storage at its current position.
+   * Advances the position by 32 bytes and writes little-endian independently of the buffer's order.
+   * A MemorySegment caller can reuse its asByteBuffer() view.
    */
-  static long expectedRevisionRecordChecksum(final long offset, final long timestampMillis,
-      final long storedPageHash) {
-    return storedPageHash == 0L
-        ? revisionRecordChecksum(offset, timestampMillis)
-        : revisionRecordChecksum(offset, timestampMillis, storedPageHash);
+  static void writePrunedRevisionRecord(final ByteBuffer target, final long timestampMillis) {
+    if (target.remaining() < REVISIONS_FILE_RECORD_SIZE) {
+      throw new IllegalArgumentException("A revision record requires 32 remaining bytes");
+    }
+    final ByteOrder originalOrder = target.order();
+    try {
+      target.order(ByteOrder.LITTLE_ENDIAN);
+      target.putLong(PRUNED_REVISION_OFFSET);
+      target.putLong(timestampMillis);
+      target.putLong(revisionRecordChecksum(PRUNED_REVISION_OFFSET, timestampMillis, PRUNED_REVISION_TAG));
+      target.putLong(PRUNED_REVISION_TAG);
+    } finally {
+      target.order(originalOrder);
+    }
   }
 
   /**
@@ -431,7 +422,10 @@ public interface IOStorage {
       // revisions accumulated. Reload only when the in-memory index disagrees with the
       // on-disk revision count (fewer = fresh process or foreign growth; more = out-of-band
       // truncation — both directions must resync).
-      if (holder.get().size() == revisionCount) {
+      final RevisionIndex currentIndex = holder.get();
+      if (currentIndex.size() == revisionCount) {
+        currentIndex.requireReadable(0);
+        currentIndex.requireReadable(lastRevisionNumber);
         return;
       }
 
@@ -448,6 +442,8 @@ public interface IOStorage {
         offsets[i] = data[i].offset();
       }
 
+      data[0].requireReadable(0);
+      data[lastRevisionNumber].requireReadable(lastRevisionNumber);
       final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
       holder.update(index);
     }
@@ -466,5 +462,14 @@ final class TailLogScratch {
       ThreadLocal.withInitial(() -> ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN));
 
   private TailLogScratch() {
+  }
+}
+
+/** Scratch shared by disk record encoders and decoders on the calling thread. */
+final class RevisionRecordScratch {
+  static final ThreadLocal<ByteBuffer> BUFFER =
+      ThreadLocal.withInitial(() -> ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN));
+
+  private RevisionRecordScratch() {
   }
 }

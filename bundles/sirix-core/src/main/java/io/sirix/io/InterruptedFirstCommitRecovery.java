@@ -302,9 +302,8 @@ public final class InterruptedFirstCommitRecovery {
         final long revisionRootOffset = record.getLong();
         final long timestampMillis = record.getLong();
         final long storedChecksum = record.getLong();
-        // 4th field: the RevisionRootPage hash (0 = legacy). It selects the 16- vs 24-byte
-        // checksum variant, exactly as the readers do — so a hash-carrying record written by
-        // this build is recognized as valid here too.
+        // Both live records and retention tombstones prove that this is not an interrupted
+        // first commit. Never reinitialize a resource with a checksum-valid tombstone.
         final long pageHash = record.getLong();
         if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis,
             pageHash)) {

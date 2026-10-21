@@ -1362,6 +1362,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
         revision, currentRevision);
 
+    resourceSession.assertAccess(revision);
     indexController.notifyTransactionAbort();
     storageEngineWriter.truncateTo(revision);
 
