@@ -603,7 +603,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean hasChildren() {
     assertNotClosed();
-    return getStructuralNode().getChildCount() > 0;
+    return getStructuralNode().hasFirstChild();
   }
 
   /**
