@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
@@ -197,10 +198,30 @@ public final class ProjectionIndexScan {
       final long[] keepWords = kept == store.leafCount()
           ? null
           : keep;
-      final ProjectionColumnStore.ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keepWords);
+      final ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keepWords);
       final long[][] keys = store.recordKeysMasked(fetcher, keepWords);
+      final long[][] rowMasks = new long[keys.length][];
+      for (int leaf = 0; leaf < keys.length; leaf++) {
+        if (keys[leaf].length != 0) {
+          rowMasks[leaf] = source.byFirstKey().get(keys[leaf][0]);
+        }
+      }
       final ProjectionRecordKeySet.Masks filtered =
-          ProjectionRecordKeySet.filterMembership(source, keys, slices, store::physicalSlot, values, anti);
+          ProjectionRecordKeySet.filterMembership(rowMasks, keys, slices, store::physicalSlot, values, anti);
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
+          sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
+    }
+
+    public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
+        final long[][] rowMasks, final long[][] keys, final ColumnSlice[] slices,
+        final LongOpenHashSet values, final boolean anti) {
+      ProjectionRecordKeySet.requireSorted(sortedKeys);
+      if (store == null || rowMasks == null || keys == null || slices == null || values == null
+          || rowMasks.length != store.leafCount() || keys.length != rowMasks.length || slices.length != rowMasks.length) {
+        throw new IllegalArgumentException("membership requires aligned masks, keys and numeric slices");
+      }
+      final ProjectionRecordKeySet.Masks filtered =
+          ProjectionRecordKeySet.filterMembership(rowMasks, keys, slices, store::physicalSlot, values, anti);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
           sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
     }

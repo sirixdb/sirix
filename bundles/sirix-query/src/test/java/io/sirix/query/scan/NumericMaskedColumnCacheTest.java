@@ -6,6 +6,8 @@ import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -92,6 +94,25 @@ final class NumericMaskedColumnCacheTest {
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException(e);
+    }
+  }
+
+  @Test
+  void membershipPredicatesFilterCachedMasksWithoutChangingTheSnapshot() {
+    final ProjectionColumnStore store = store();
+    final String[] fields = {"value"};
+    final long[] keys = {10, 11};
+    NumericMaskedColumnCache.put(store, fields, keys, columns(store));
+    for (final boolean anti : new boolean[] {false, true}) {
+      final MaskedColumns cached = NumericMaskedColumnCache.get(store, fields, keys);
+      assertNotNull(cached);
+      final ColumnPredicate predicate =
+          cached.recordKeyPredicateByMembership(0, keys, new LongOpenHashSet(new long[] {1}), anti);
+      assertEquals(anti ? 2L : 1L, Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10)[0]);
+      assertEquals(3L, Objects.requireNonNull(cached.rowMask(0))[0]);
+      final MaskedColumns repeated = NumericMaskedColumnCache.get(store, fields, keys);
+      assertNotNull(repeated);
+      assertEquals(3L, Objects.requireNonNull(repeated.rowMask(0))[0]);
     }
   }
 

@@ -16003,8 +16003,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               || !membershipStore.columnsFitWithinBudget(new int[] {column, ProjectionColumnStore.KEYS_COLUMN}, -1)) {
             return declineGroupAgg("membership requires a clean resident integral column");
           }
-          rowSource = ProjectionIndexScan.ColumnPredicate.recordKeysByMembership(routing.rowKeys(), membershipStore,
-              fetcher, column, membership.values(), membership.anti());
+          final MaskedColumns columns = readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(),
+              new String[] {membership.field()}, new int[] {column},
+              new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+          if (columns == null) {
+            return declineGroupAgg("membership columns do not fit the residency budget");
+          }
+          rowSource = columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
         }
         if (predTree != null) {
           predTree = andTreeWith(predTree, rowSource);

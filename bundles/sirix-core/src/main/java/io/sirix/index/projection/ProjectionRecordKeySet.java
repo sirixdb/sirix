@@ -121,16 +121,22 @@ public final class ProjectionRecordKeySet {
     return new Masks(masks, slots);
   }
 
-  static Masks filterMembership(final Masks source, final long[][] keys, final ColumnSlice[] slices,
+  static Masks filterMembership(final long[][] sourceMasks, final long[][] keys, final ColumnSlice[] slices,
       final IntToLongFunction physicalSlot, final LongOpenHashSet values, final boolean anti) {
     Objects.requireNonNull(values);
-    final Long2ObjectOpenHashMap<long[]> byFirstKey = new Long2ObjectOpenHashMap<>(source.byFirstKey().size());
-    final LongOpenHashSet slots = new LongOpenHashSet(source.physicalSlots().size());
+    int keptLeaves = 0;
+    for (final long[] mask : sourceMasks) {
+      if (mask != null) {
+        keptLeaves++;
+      }
+    }
+    final Long2ObjectOpenHashMap<long[]> byFirstKey = new Long2ObjectOpenHashMap<>(keptLeaves);
+    final LongOpenHashSet slots = new LongOpenHashSet(keptLeaves);
     for (int leaf = 0; leaf < keys.length; leaf++) {
       if (keys[leaf].length == 0) {
         continue;
       }
-      final long[] selected = source.byFirstKey().get(keys[leaf][0]);
+      final long[] selected = sourceMasks[leaf];
       if (selected == null) {
         continue;
       }

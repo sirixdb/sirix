@@ -262,6 +262,87 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void denseSelectiveMembershipReusesBoundedSnapshots(final VersioningType versioning) throws Exception {
+    final int selectedRows = 3 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    final int totalRows = 4 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    build(false, totalRows, versioning, selectedRows);
+    for (final boolean anti : new boolean[] {false, true}) {
+      clearColdProjectionState();
+      try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+          var ctx = SirixQueryContext.createWithJsonStore(store);
+          var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        final var document = store.lookup(DB).getDocument(RES);
+        final var session = document.getResourceSession();
+        final int revision = document.getTrx().getRevisionNumber();
+        final long[] keys = ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
+        Arrays.sort(keys);
+        assertEquals(selectedRows, keys.length);
+        final var handle = ProjectionIndexCatalog.lookupCovering(session,
+            session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+            new String[] {"id", "grade", "cost"});
+        assertNotNull(handle);
+        final var columns = requireNonNull(handle.columnStoreOrNull());
+        assertEquals(4, columns.leafCount());
+        final int membershipColumn = handle.columnOf("id");
+        assertFalse(columns.columnFilled(membershipColumn));
+        final var executor = new SirixVectorizedExecutor(session, revision, 1);
+        try {
+          for (int repeat = 0; repeat < 4; repeat++) {
+            final boolean narrowed = repeat == 2;
+            final LongOpenHashSet values = new LongOpenHashSet();
+            if (narrowed) {
+              values.add(1);
+              values.add(1025);
+              values.add(2049);
+              values.add(4096);
+            } else if (anti) {
+              values.add(999999);
+            } else {
+              for (int value = 1; value <= selectedRows; value++) {
+                values.add(value);
+              }
+            }
+            final String condition = narrowed
+                ? (anti ? "not($c.id = (1,1025,2049,4096))" : "$c.id = (1,1025,2049,4096)")
+                : (anti ? "$c.id ne 999999" : "$c.id le " + selectedRows);
+            final String expected = run(generic, ctx,
+                "for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
+                    + "xs:dateTime('2024-06-01T00:00:00Z')) where " + condition
+                    + " let $grade := $c.grade, $cost := $c.cost group by $grade let $total := sum($cost)"
+                    + " order by $grade return {'grade':$grade,'total':$total}");
+            final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, anti));
+            final WorkCapture.Captured<ServedGroups> served =
+                WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                           .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                           .and(QueryWorkCounters.GROUP_AGGREGATES)
+                           .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null,
+                               new String[] {"grade"}, new String[] {"grade"}, new String[] {"sum"},
+                               new String[] {"cost"}, new String[] {"total"}, new int[] {0}, new boolean[] {true},
+                               new boolean[] {true}, -1L, null, null, null, null, null, null, null, null, null, null,
+                               routing));
+            assertNotNull(served.result());
+            final ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+              serializer.serialize(served.result().groups());
+            }
+            assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+            served.work()
+                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0 ? 9 : 6,
+                      "three selected leaves fill membership once and group/aggregate columns on each execution")
+                  .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, repeat == 0 ? totalRows : 0,
+                      "cached source masks never remap selected keys")
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "selective membership stays fused");
+            assertFalse(columns.columnFilled(membershipColumn), "selective reuse never fills the excluded leaf");
+          }
+        } finally {
+          executor.close();
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void membershipMapsTheOuterSourceOnce(final VersioningType versioning) throws Exception {
     build(false, ROWS, versioning);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
@@ -1064,6 +1145,11 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   private void build(final boolean orderException, final int rowCount, final VersioningType versioning) {
+    build(orderException, rowCount, versioning, VALID_ROWS);
+  }
+
+  private void build(final boolean orderException, final int rowCount, final VersioningType versioning,
+      final int validRows) {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -1076,7 +1162,7 @@ final class IndexRoutedGroupWorkBudgetTest {
                                                    .storeDiffs(false)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException, rowCount)),
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException, rowCount, validRows)),
             JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
@@ -1097,14 +1183,18 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   private static String rows(final boolean orderException, final int rowCount) {
+    return rows(orderException, rowCount, VALID_ROWS);
+  }
+
+  private static String rows(final boolean orderException, final int rowCount, final int validRows) {
     final StringBuilder json = new StringBuilder(rowCount * 110).append('[');
     for (int i = 0; i < rowCount; i++) {
       if (i > 0) {
         json.append(',');
       }
       final String vt = (orderException
-          ? i == VALID_ROWS
-          : i < VALID_ROWS)
+          ? i == validRows
+          : i < validRows)
               ? "2025-01-01T00:00:00Z"
               : "2024-02-01T00:00:00Z";
       json.append("{\"id\":")
