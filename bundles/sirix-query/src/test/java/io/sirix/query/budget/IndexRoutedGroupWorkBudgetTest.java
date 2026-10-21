@@ -89,6 +89,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -203,7 +204,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       Arrays.sort(keys);
       final var handle = ProjectionIndexCatalog.lookupCovering(session,
           session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-          new String[] {"id", groupField, "cost"});
+          new String[] {"id", groupField, "cost"}, true);
       assertNotNull(handle);
       final var columns = requireNonNull(handle.columnStoreOrNull());
       assertEquals(1, columns.leafCount());
@@ -279,7 +280,7 @@ final class IndexRoutedGroupWorkBudgetTest {
         assertEquals(selectedRows, keys.length);
         final var handle = ProjectionIndexCatalog.lookupCovering(session,
             session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-            new String[] {"id", "grade", "cost"});
+            new String[] {"id", "grade", "cost"}, true);
         assertNotNull(handle);
         final var columns = requireNonNull(handle.columnStoreOrNull());
         assertEquals(4, columns.leafCount());
@@ -336,6 +337,95 @@ final class IndexRoutedGroupWorkBudgetTest {
           }
         } finally {
           executor.close();
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void refusedMembershipReusesEvaluationColumnsAndSkipsEmptyAntiReads(final VersioningType versioning)
+      throws Exception {
+    build(false, ROWS, versioning);
+    buildMembershipInner(versioning);
+    for (final boolean lateRefusal : new boolean[] {false, true}) {
+      for (int mode = 0; mode < 3; mode++) {
+        final boolean empty = mode == 2;
+        final boolean anti = mode != 1;
+        clearColdProjectionState();
+        try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+            var ctx = SirixQueryContext.createWithJsonStore(store);
+            var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final String inner = tailSource("suppliers", empty ? "2030-01-01T00:00:00Z" : "2024-06-01T00:00:00Z");
+          final String query = "let $new := " + inner + " for $a in " + tailSource(RES, "2024-06-01T00:00:00Z")
+              + " where " + (anti ? "empty" : "exists") + "(for $b in $new where $b."
+              + (anti ? "id" : "tier") + " eq $a.id return $b)"
+              + " let $grade := $a.grade, $cost := $a.cost group by $grade let $total := sum($cost)"
+              + " order by $grade return {'grade':$grade,'total':$total}";
+          final String expected = run(generic, ctx, query);
+          assertFalse(expected.isEmpty());
+          final var innerDocument = store.lookup(DB).getDocument("suppliers");
+          final long[] innerKeys = ValidTimeIntervalIndex.keys(innerDocument, Instant.parse("2024-06-01T00:00:00Z"), true);
+          Arrays.sort(innerKeys);
+          assertEquals(1, innerKeys.length);
+          final var innerExecutor = new SirixVectorizedExecutor(innerDocument.getResourceSession(),
+              innerDocument.getTrx().getRevisionNumber(), 1);
+          try {
+            assertNotNull(innerExecutor.maskedColumns(new String[] {"[]"}, innerKeys, new String[] {"id", "tier"}));
+          } finally {
+            innerExecutor.close();
+          }
+          final var document = store.lookup(DB).getDocument(RES);
+          final var session = document.getResourceSession();
+          final int revision = document.getTrx().getRevisionNumber();
+          final String resourceKey = session.getResourceConfig().getResource().toString();
+          final var handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey, revision, new String[] {"[]"},
+              new String[] {"id", "grade", "cost"}, true);
+          assertNotNull(handle);
+          final var columns = requireNonNull(handle.columnStoreOrNull());
+          assertEquals(3, columns.leafCount());
+          final int id = handle.columnOf("id");
+          final int grade = handle.columnOf("grade");
+          final int cost = handle.columnOf("cost");
+          assertFalse(columns.columnFilled(id));
+          final var observedColumns = spy(columns);
+          final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
+          doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
+          if (lateRefusal) {
+            doThrow(mock(FillBudgetExceededException.class)).when(observedColumns)
+                                                         .columnMaskedView(eq(grade), any(), any());
+          }
+          final long budget = columns.retainedFillBytes()
+              + (columns.recordKeysFilled() ? 0L : columns.projectedRecordKeysFillBytes())
+              + columns.projectedColumnFillBytes(id)
+              + (lateRefusal ? columns.projectedColumnFillBytes(grade) + columns.projectedColumnFillBytes(cost) : 0L);
+          final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(budget);
+          try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
+            catalog.when(() -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any()))
+                   .thenReturn(observedHandle);
+            catalog.when(() -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any(),
+                eq(true))).thenReturn(observedHandle);
+            assertTrue(observedColumns.columnsFitWithinBudget(new int[] {id, ProjectionColumnStore.KEYS_COLUMN}, -1));
+            assertEquals(lateRefusal,
+                observedColumns.columnsFitWithinBudget(new int[] {grade, cost, ProjectionColumnStore.KEYS_COLUMN}, -1));
+            final WorkCapture.Captured<String> actual = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                                                  .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                                                                  .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                                                                  .call(() -> run(chain, ctx, query));
+            assertEquals(expected, actual.result());
+            actual.work()
+                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, empty ? 0 : 1,
+                      "a sparse membership column loads once across refusal and fallback, or never for empty anti")
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, empty ? 1 : 2,
+                      "normalized empty anti skips membership fallback; nonempty membership tries both routed stages")
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusal is an ordinary decline");
+            verify(observedColumns, empty ? never() : times(1))
+                .columnMaskedView(eq(id), any(), any());
+            assertFalse(observedColumns.columnFilled(id), "the sparse source never fills excluded membership leaves");
+          } finally {
+            ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
+          }
         }
       }
     }
@@ -1053,6 +1143,31 @@ final class IndexRoutedGroupWorkBudgetTest {
     ProjectionIndexCatalog.clearCache();
     ProjectionIndexRegistry.clear();
     Databases.clearGlobalCaches();
+  }
+
+  private void buildMembershipInner(final VersioningType versioning) {
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(directory.resolve(DB))) {
+      database.createResource(ResourceConfiguration.newBuilder("suppliers")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("vf", "vt")
+                                                   .customCommitTimestamps(true)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("suppliers");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"id":999999,"region":0,"tier":1,
+              "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+            """), JsonNodeTrx.Commit.NO);
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, DB);
+        StringBoundProjection.declare(session, writer, "suppliers");
+        writer.commit("membership", Instant.parse("2024-01-15T00:00:00Z"));
+      }
+    }
   }
 
   private long buildOpenTail(final VersioningType versioning) {

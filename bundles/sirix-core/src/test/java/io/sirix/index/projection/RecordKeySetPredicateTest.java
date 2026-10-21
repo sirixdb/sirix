@@ -230,6 +230,14 @@ final class RecordKeySetPredicateTest {
     for (final boolean exceptions : new boolean[] {false, true}) {
       final Fixture fixture = buildFixture(1937, 6, exceptions);
       final long[] source = keySet(fixture, new Random(813), 3, true);
+      final ProjectionRecordKeySet.Masks sourceMasks = ProjectionRecordKeySet.map(source, fixture.keys());
+      final long[][] rowMasks = new long[fixture.keys().length][];
+      for (int leaf = 0; leaf < rowMasks.length; leaf++) {
+        if (fixture.keys()[leaf].length != 0) {
+          rowMasks[leaf] = sourceMasks.byFirstKey().get(fixture.keys()[leaf][0]);
+        }
+      }
+      final ColumnSlice[] slices = fixture.store().column(0, fixture.fetcher());
       final LongOpenHashSet values = new LongOpenHashSet();
       for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
         for (int row = 0; row < fixture.keys()[leaf].length; row += 3) {
@@ -244,7 +252,8 @@ final class RecordKeySetPredicateTest {
             : values;
         for (final boolean anti : new boolean[] {false, true}) {
           final ColumnPredicate predicate =
-              ColumnPredicate.recordKeysByMembership(source, fixture.store(), fixture.fetcher(), 0, inner, anti);
+              ColumnPredicate.recordKeysByMembership(source, fixture.store(), rowMasks, fixture.keys(), slices, inner,
+                  anti);
           long expected = 0;
           for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
             for (int row = 0; row < fixture.keys()[leaf].length; row++) {

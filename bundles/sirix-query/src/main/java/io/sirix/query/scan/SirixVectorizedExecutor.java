@@ -165,6 +165,7 @@ import java.util.Objects;
 import java.util.Set;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.IntConsumer;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15063,9 +15064,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
   public record GroupRouting(long @Nullable [] rowKeys, ComputedLane @Nullable [] computed,
-      @Nullable GroupMembership membership) {
+      @Nullable GroupMembership membership, @Nullable Consumer<MaskedColumns> membershipPrepared) {
     public GroupRouting(final long @Nullable [] rowKeys, final ComputedLane @Nullable [] computed) {
-      this(rowKeys, computed, null);
+      this(rowKeys, computed, null, null);
+    }
+
+    public GroupRouting(final long @Nullable [] rowKeys, final ComputedLane @Nullable [] computed,
+        final @Nullable GroupMembership membership) {
+      this(rowKeys, computed, membership, null);
     }
 
     public GroupRouting {
@@ -16008,6 +16014,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
           if (columns == null) {
             return declineGroupAgg("membership columns do not fit the residency budget");
+          }
+          if (routing.membershipPrepared() != null) {
+            routing.membershipPrepared().accept(columns);
           }
           rowSource = columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
         }
@@ -18084,8 +18093,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (wholeLeafOnly) {
         return declineGroupAgg("column fill over budget on the whole-leaf route too");
       }
-      if (budgetRefused && routing != null && routing.rowKeys() != null) {
-        return declineGroupAgg("column fill over budget on the masked windowed route");
+      if (routing != null && routing.rowKeys() != null) {
+        return declineGroupAgg("column fill over budget on the masked route");
       }
       return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
           orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,

@@ -176,43 +176,6 @@ public final class ProjectionIndexScan {
      * content fingerprint belong to this evaluation; no shared mask is modified.
      */
     public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
-        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int column, final LongOpenHashSet values,
-        final boolean anti) {
-      ProjectionRecordKeySet.requireSorted(sortedKeys);
-      if (values == null || store == null || fetcher == null) {
-        throw new IllegalArgumentException("membership requires a store, fetcher and values");
-      }
-      if (column < 0 || column >= store.columnCount()
-          || store.columnKind(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-        throw new IllegalArgumentException("membership requires a numeric column");
-      }
-      final ProjectionRecordKeySet.Masks source = store.recordKeyMasks(sortedKeys, fetcher);
-      final long[] keep = new long[(store.leafCount() + 63) >>> 6];
-      int kept = 0;
-      for (int leaf = 0; leaf < store.leafCount(); leaf++) {
-        if (source.physicalSlots().contains(store.physicalSlot(leaf))) {
-          keep[leaf >>> 6] |= 1L << (leaf & 63);
-          kept++;
-        }
-      }
-      final long[] keepWords = kept == store.leafCount()
-          ? null
-          : keep;
-      final ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keepWords);
-      final long[][] keys = store.recordKeysMasked(fetcher, keepWords);
-      final long[][] rowMasks = new long[keys.length][];
-      for (int leaf = 0; leaf < keys.length; leaf++) {
-        if (keys[leaf].length != 0) {
-          rowMasks[leaf] = source.byFirstKey().get(keys[leaf][0]);
-        }
-      }
-      final ProjectionRecordKeySet.Masks filtered =
-          ProjectionRecordKeySet.filterMembership(rowMasks, keys, slices, store::physicalSlot, values, anti);
-      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
-          sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
-    }
-
-    public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
         final long[][] rowMasks, final long[][] keys, final ColumnSlice[] slices,
         final LongOpenHashSet values, final boolean anti) {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
