@@ -9,8 +9,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -157,7 +155,6 @@ public final class ChangeLogSlab {
       out.writeInt(revision);
       out.writeInt(baseRevision);
       out.writeInt(entries.size());
-      out.writeInt(0); // First row offset; backfilled after the dictionary.
       out.writeShort(kinds.length);
       out.write(kinds);
       out.writeInt(dictionary.size());
@@ -166,17 +163,9 @@ public final class ChangeLogSlab {
         unsigned(out, utf8.length);
         out.write(utf8);
       }
-      final int metadataLength = bytes.size();
       long previous = 0;
-      boolean first = true;
       for (final Entry entry : entries) {
-        if (first) {
-          unsigned(out, 0);
-          unsigned(out, entry.record);
-          first = false;
-        } else {
-          unsigned(out, entry.record - previous);
-        }
+        unsigned(out, entry.record - previous);
         for (final long word : entry.changed) {
           out.writeLong(word);
         }
@@ -184,27 +173,10 @@ public final class ChangeLogSlab {
         writeRow(out, entry.after, dictionary);
         previous = entry.record;
       }
-      final byte[] encoded = bytes.toByteArray();
-      ByteBuffer.wrap(encoded).putInt(24, metadataLength);
-      return encoded;
+      return bytes.toByteArray();
     } catch (final IOException impossible) {
       throw new AssertionError(impossible);
     }
-  }
-
-  static long readRecord(final DataInputStream in, final long previous, final boolean restart) throws IOException {
-    final long delta = readUnsigned(in);
-    if (delta == 0) {
-      final long record = readUnsigned(in);
-      if (record < 0) {
-        throw new IllegalStateException("Invalid change-log record restart");
-      }
-      return record;
-    }
-    if (restart || delta < 0 || delta > Long.MAX_VALUE - previous) {
-      throw new IllegalStateException("Invalid change-log record delta");
-    }
-    return previous + delta;
   }
 
   private void collect(final Map<String, Integer> dictionary, final @Nullable Row row) {
@@ -271,7 +243,6 @@ public final class ChangeLogSlab {
       final int revision = in.readInt();
       final int base = in.readInt();
       final int count = bounded(in.readInt(), in.available());
-      final int metadataLength = bounded(in.readInt(), bytes.length);
       final int columns = in.readUnsignedShort();
       final byte[] kinds = in.readNBytes(columns);
       if (kinds.length != columns) {
@@ -283,14 +254,10 @@ public final class ChangeLogSlab {
         final int length = bounded(readUnsigned(in), in.available());
         dictionary[i] = new String(in.readNBytes(length), StandardCharsets.UTF_8);
       }
-      if (bytes.length - in.available() != metadataLength) {
-        throw new IllegalStateException("Invalid change-log metadata offsets");
-      }
       final List<Entry> entries = new ArrayList<>(count);
-      long previous = 0;
+      long record = 0;
       for (int i = 0; i < count; i++) {
-        final long record = readRecord(in, previous, i == 0);
-        previous = record;
+        record = Math.addExact(record, readUnsigned(in));
         final long[] changed = new long[(columns + 63) / 64];
         for (int word = 0; word < changed.length; word++) {
           changed[word] = in.readLong();
@@ -306,7 +273,7 @@ public final class ChangeLogSlab {
     }
   }
 
-  static @Nullable Row readRow(final DataInputStream in, final byte[] kinds, final String[] dictionary)
+  private static @Nullable Row readRow(final DataInputStream in, final byte[] kinds, final String[] dictionary)
       throws IOException {
     final int kind = in.readUnsignedByte();
     if (kind == 0) {
@@ -343,14 +310,14 @@ public final class ChangeLogSlab {
     return row;
   }
 
-  static int bounded(final long value, final int limit) {
+  private static int bounded(final long value, final int limit) {
     if (value < 0 || value > limit) {
       throw new IllegalStateException("Invalid change-log length or reference");
     }
     return (int) value;
   }
 
-  static void unsigned(final DataOutputStream out, long value) throws IOException {
+  private static void unsigned(final DataOutputStream out, long value) throws IOException {
     while ((value & ~127L) != 0) {
       out.writeByte(((int) value & 127) | 128);
       value >>>= 7;
@@ -358,7 +325,7 @@ public final class ChangeLogSlab {
     out.writeByte((int) value);
   }
 
-  static long readUnsigned(final DataInputStream in) throws IOException {
+  private static long readUnsigned(final DataInputStream in) throws IOException {
     long value = 0;
     for (int shift = 0; shift < 64; shift += 7) {
       final int next = in.readUnsignedByte();

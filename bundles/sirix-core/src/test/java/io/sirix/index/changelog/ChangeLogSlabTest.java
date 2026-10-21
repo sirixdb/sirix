@@ -4,11 +4,8 @@ import io.sirix.index.changelog.ChangeLogSlab.Entry;
 import io.sirix.index.changelog.ChangeLogSlab.Row;
 import org.junit.jupiter.api.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.HexFormat;
 import java.util.List;
@@ -31,10 +28,9 @@ final class ChangeLogSlabTest {
     after.numbers[0] = 42;
     final ChangeLogSlab slab = new ChangeLogSlab(3, 9, 2, new byte[] {ChangeLogSlab.LONG, ChangeLogSlab.STRING},
         List.of(new Entry(11, new long[] {1}, before, after), new Entry(15, new long[] {3}, after, null)));
-    final byte[] golden =
-        HexFormat.of()
-                 .parseHex(
-                     "53434c4700000004000000030000000900000002000000020000002600020102000000010178000b000000000000000101010d01000101540100040000000000000003010154010000");
+    final byte[] golden = HexFormat.of()
+                                   .parseHex("53434c47000000040000000300000009000000020000000200020102000000010178"
+                                       + "0b000000000000000101010d01000101540100" + "040000000000000003010154010000");
     assertArrayEquals(golden, slab.encode());
     final ChangeLogSlab decoded = ChangeLogSlab.decode(golden);
     assertEquals(2, decoded.baseRevision());
@@ -46,7 +42,7 @@ final class ChangeLogSlabTest {
   }
 
   @Test
-  void recordDeltasRemainCompactAndReplayable() throws Exception {
+  void recordDeltasRemainCompactAndReplayable() {
     final List<Entry> entries = new ArrayList<>(2000);
     for (int record = 0; record < 2000; record++) {
       final Row row = new Row(true, 2);
@@ -57,27 +53,18 @@ final class ChangeLogSlabTest {
     }
     final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, new byte[] {1, 1}, entries);
     final byte[] encoded = slab.encode();
-    final int metadata = ByteBuffer.wrap(encoded).getInt(24);
-    try (DataInputStream records =
-        new DataInputStream(new ByteArrayInputStream(encoded, metadata, encoded.length - metadata))) {
-      for (int record = 0; record < entries.size(); record++) {
-        final boolean restart = record == 0;
-        assertEquals(restart
-            ? 0
-            : 1, ChangeLogSlab.readUnsigned(records),
-            "The first record restarts, then consecutive records use a one-byte delta");
-        if (restart) {
-          assertEquals(1_000_000L + record, ChangeLogSlab.readUnsigned(records));
-        }
-        assertEquals(3, records.readLong());
-        assertNull(ChangeLogSlab.readRow(records, slab.kinds(), new String[0]));
-        assertEquals(record / 20,
-            Objects.requireNonNull(ChangeLogSlab.readRow(records, slab.kinds(), new String[0])).numbers[0]);
-      }
-      assertEquals(0, records.available());
-    }
+    assertEquals(30_754, encoded.length, "One initial record-key varint followed by one-byte deltas");
     final ChangeLogSlab decoded = ChangeLogSlab.decode(encoded);
-    assertEquals(entries.stream().map(Entry::record).toList(), decoded.entries().stream().map(Entry::record).toList());
+    assertEquals(entries.size(), decoded.entries().size());
+    for (int record = 0; record < entries.size(); record++) {
+      final Entry entry = decoded.entries().get(record);
+      assertEquals(1_000_000L + record, entry.record());
+      assertArrayEquals(new long[] {3}, entry.changed());
+      assertNull(entry.before());
+      final Row row = Objects.requireNonNull(entry.after());
+      assertArrayEquals(new long[] {record / 20, record % 20}, row.numbers);
+      assertArrayEquals(new byte[] {ChangeLogSlab.PRESENT, ChangeLogSlab.PRESENT}, row.flags);
+    }
     assertArrayEquals(encoded, decoded.encode());
   }
 
@@ -152,19 +139,20 @@ final class ChangeLogSlabTest {
   }
 
   @Test
-  void rejectsBrokenMetadataOffsetAndRecordRestart() {
+  void zeroAndExtremeRecordKeysUseTheSameDeltaEncoding() {
     final Row row = new Row(true, 1);
     row.flags[0] = ChangeLogSlab.PRESENT;
     row.numbers[0] = 7;
-    final byte[] encoded = new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG},
-        List.of(new Entry(11, new long[] {1}, null, row))).encode();
-    final int metadata = ByteBuffer.wrap(encoded).getInt(24);
-    final byte[] brokenRestart = encoded.clone();
-    brokenRestart[metadata] = 1;
-    assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(brokenRestart));
-    final byte[] brokenOffset = encoded.clone();
-    ByteBuffer.wrap(brokenOffset).putInt(24, metadata + 1);
-    assertThrows(IllegalStateException.class, () -> ChangeLogSlab.decode(brokenOffset));
+    final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG},
+        List.of(new Entry(0, new long[] {1}, null, row), new Entry(1, new long[] {1}, row, null),
+            new Entry(Long.MAX_VALUE, new long[] {1}, null, row)));
+    final byte[] encoded = slab.encode();
+    final ChangeLogSlab decoded = ChangeLogSlab.decode(encoded);
+    assertEquals(List.of(0L, 1L, Long.MAX_VALUE), decoded.entries().stream().map(Entry::record).toList());
+    assertEquals(7, Objects.requireNonNull(decoded.entries().getFirst().after()).numbers[0]);
+    assertNull(decoded.entries().get(1).after());
+    assertEquals(7, Objects.requireNonNull(decoded.entries().getLast().after()).numbers[0]);
+    assertArrayEquals(encoded, decoded.encode());
   }
 
   @Test

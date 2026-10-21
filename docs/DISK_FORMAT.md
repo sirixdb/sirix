@@ -241,12 +241,11 @@ fail-fast lookups, never ordinals.
   Prefix 5 in physical change-log tree zero uses `(5, -1 i32)` for the next aggregate id (i32),
   and `(5, aggregate id i32)` with value `1 u8` for each reserved declaration;
   this keeps declarations from allocating aggregate pages in the source. All roots are revision owned.
-  A slab begins with `SCLG` magic, format 4, projection id, revision, base revision, entry count,
-  and first-entry byte offset (all i32), followed by a u16 column count, normalized u8 cell kinds
-  and a slab-local UTF-8 dictionary (i32 count, unsigned-varint byte lengths).
-  Entries are ordered by record key. Each starts with an unsigned-varint positive record-key
-  delta, or zero followed by an absolute unsigned-varint record key. The first entry restarts.
-  Big-endian u64 changed-column bitmap words and old/new rows follow. There is no raw-row group directory.
+  A slab begins with `SCLG` magic, format 4, projection id, revision, base revision and entry count
+  (all i32), followed by a u16 column count, normalized u8 cell kinds and a slab-local UTF-8
+  dictionary (i32 count, unsigned-varint byte lengths). Entries are sorted by record key and hold
+  unsigned-varint key deltas accumulated from zero, big-endian u64 changed-column bitmap words,
+  then old and new rows. An empty slab occupies 30 bytes plus one byte per column.
   Row kind 0 is absent, 1 object, 2 unsupported; present rows carry per-cell flag bytes (presence,
   unrepresentable, non-integral, non-double-source). Representable present cells carry zig-zag
   varint primitive lanes or unsigned-varint dictionary ids; sets carry an unsigned-varint count

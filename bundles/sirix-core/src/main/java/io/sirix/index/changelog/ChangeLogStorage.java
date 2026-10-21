@@ -212,7 +212,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       final ByteBuffer buffer = ByteBuffer.wrap(header);
       final int length = buffer.getInt();
       final int chunks = buffer.getInt();
-      if (length < 35 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
+      if (length < 31 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log chunk count");
       }
       final byte[] bytes = new byte[length];
