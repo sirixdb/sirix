@@ -77,7 +77,7 @@ public final class TemporalAggregateRoute {
 
   static SirixVectorizedExecutor.@Nullable ServedGroups serve(final QueryContext ctx, final Tuple tuple,
       final @Nullable Point point, final RoutedGroupRequest request) {
-    return serve(ctx, tuple, point, request, order, null);
+    return serve(ctx, tuple, point, request, null);
   }
 
   static final class OutputOrder {
@@ -171,7 +171,9 @@ public final class TemporalAggregateRoute {
       }
       final SirixVectorizedExecutor.ServedGroups served = catchUp == null
           ? serveGroups(aggregateReader, definition, array, point, request, groups, lanes,
-              primitiveGroups(metadata, spec, groups, request) ? order : null)
+              primitiveGroups(metadata, spec, groups, request)
+                  ? order
+                  : null)
           : serveCatchUpGroups(reader, aggregateReader, definition,
               indexes.getIndexDef(spec.projectionId(), IndexType.PROJECTION), array, point, request, groups, lanes,
               catchUp);
@@ -362,7 +364,7 @@ public final class TemporalAggregateRoute {
   private static SirixVectorizedExecutor.@Nullable ServedGroups serveCatchUpGroups(final StorageEngineReader source,
       final StorageEngineReader aggregateReader, final IndexDef definition, final IndexDef projection,
       final ArrayNode array, final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes,
-      final @Nullable DerivedAggregateCatchUp catchUp) {
+      final DerivedAggregateCatchUp catchUp) {
     final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
     try (TemporalAggregateStorage.Reader storage =
         new TemporalAggregateStorage.Reader(aggregateReader, definition.getID())) {
@@ -370,34 +372,28 @@ public final class TemporalAggregateRoute {
       if (header == null || TemporalAggregateIndexes.header(header).unsupportedRows() != 0) {
         return null;
       }
-      final TemporalAggregateIndexes.CatchUp tail = catchUp == null
-          ? null
-          : catchUp.tail(source, definition, projection);
-      if (catchUp != null && tail == null) {
+      final TemporalAggregateIndexes.CatchUp tail = catchUp.tail(source, definition, projection);
+      if (tail == null) {
         return null;
       }
       final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
       final long coordinate = DomainHolder.DOMAIN.point(point.instant());
-      final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-      final boolean admitted = storage.groups(point.document().getResourceSession().getResourceConfig().storeChildCount()
+      final long sourceRows = point.document().getResourceSession().getResourceConfig().storeChildCount()
           ? array.getChildCount()
-          : ((JsonDBArray) point.document()).length().longValue(), (key, group) -> {
-        if (group.rows() == 0 && (tail == null || !tail.contains(key))) {
+          : ((JsonDBArray) point.document()).length().longValue();
+      final boolean admitted = storage.groups(sourceRows, (key, group) -> {
+        if (group.rows() == 0 && !tail.contains(key)) {
           return;
         }
-        final AggregateSummary summary = tail == null
-            ? parts.point(storage.parts(), group.parts(), coordinate)
-            : tail.point(storage.parts(), group.parts(), key, coordinate);
+        final AggregateSummary summary = tail.point(storage.parts(), group.parts(), key, coordinate);
         collectGroup(results, summary, key, spec, groups);
       });
       if (!admitted) {
         return null;
       }
-      if (tail != null) {
-        for (final byte[] key : tail.keys()) {
-          if (storage.get(key) == null) {
-            collectGroup(results, tail.point(storage.parts(), new long[0], key, coordinate), key, spec, groups);
-          }
+      for (final byte[] key : tail.keys()) {
+        if (storage.get(key) == null) {
+          collectGroup(results, tail.point(storage.parts(), new long[0], key, coordinate), key, spec, groups);
         }
       }
       return servedGroups(request, groups, lanes, results);

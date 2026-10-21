@@ -172,6 +172,18 @@ final class TemporalAggregateDerivedLagTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void randomPublicationsStayExactAtEveryMaintainedFrontier(final VersioningType versioning) throws Exception {
+    assertRandomPublications(versioning, true);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void randomPublicationsWithoutStoredChildCountsStayExactAtEveryFrontier(final VersioningType versioning)
+      throws Exception {
+    assertRandomPublications(versioning, false);
+  }
+
+  private void assertRandomPublications(final VersioningType versioning, final boolean storeChildCount)
+      throws Exception {
     final var databasePath = directory.toPath().resolve("lag");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     final List<List<Row>> history = new ArrayList<>();
@@ -181,6 +193,7 @@ final class TemporalAggregateDerivedLagTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .versioningApproach(versioning)
                                                    .validTimePaths("lo", "hi")
+                                                   .storeChildCount(storeChildCount)
                                                    .storeDiffs(false)
                                                    .build());
     }
@@ -328,10 +341,21 @@ final class TemporalAggregateDerivedLagTest {
               "An exact mapping or bounded tail must serve at revision=" + revision + ", frontier=" + frontier);
         }
       }
+      final long servedDelta = TemporalAggregateRoute.servedCount() - served;
+      final long integralServed = TemporalAggregateRoute.servedCount();
+      final String integralQuery = query.replace(", $s := sum($r.n)", "").replace(",\"s\":$s", "");
+      assertEquals(oracle(history.get(revision), false), evaluate(chain, context, integralQuery).replaceAll("\\s+", ""),
+          "Ordered count/min/max at revision=" + revision);
+      assertEquals(integralServed + servedDelta, TemporalAggregateRoute.servedCount(),
+          "Ordered count/min/max must retain the aggregate route at revision=" + revision);
     }
   }
 
   private static String oracle(final List<Row> rows) {
+    return oracle(rows, true);
+  }
+
+  private static String oracle(final List<Row> rows, final boolean includeSum) {
     final StringBuilder result = new StringBuilder();
     for (int group = 0; group < 4; group++) {
       int count = 0;
@@ -347,17 +371,11 @@ final class TemporalAggregateDerivedLagTest {
         }
       }
       if (count != 0) {
-        result.append("{\"g\":")
-              .append(group)
-              .append(",\"c\":")
-              .append(count)
-              .append(",\"s\":")
-              .append(sum)
-              .append(",\"l\":")
-              .append(minimum)
-              .append(",\"h\":")
-              .append(maximum)
-              .append('}');
+        result.append("{\"g\":").append(group).append(",\"c\":").append(count);
+        if (includeSum) {
+          result.append(",\"s\":").append(sum);
+        }
+        result.append(",\"l\":").append(minimum).append(",\"h\":").append(maximum).append('}');
       }
     }
     return result.toString();
