@@ -231,12 +231,7 @@ final class IndexRoutedGroupWorkBudgetTest {
                              new String[] {"cost"}, new String[] {"total"}, new int[] {0}, new boolean[] {true},
                              new boolean[] {true}, -1L, null, null, null, null, null, null, null, null, null, null,
                              routing));
-          assertNotNull(served.result());
-          final ByteArrayOutputStream out = new ByteArrayOutputStream();
-          try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
-            serializer.serialize(served.result().groups());
-          }
-          assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+          assertGroups(expected, served.result());
           served.work()
                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
                     ? groupField.equals("id")
@@ -325,13 +320,7 @@ final class IndexRoutedGroupWorkBudgetTest {
                                new String[] {"cost"}, new String[] {"total"}, new int[] {0}, new boolean[] {true},
                                new boolean[] {true}, -1L, null, null, null, null, null, null, null, null, null, null,
                                routing));
-            assertNotNull(served.result());
-            final ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (
-                final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
-              serializer.serialize(served.result().groups());
-            }
-            assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+            assertGroups(expected, served.result());
             served.work()
                   .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
                       ? 9
@@ -492,12 +481,7 @@ final class IndexRoutedGroupWorkBudgetTest {
                            new String[] {"qty", "cost"}, new String[] {"n", "total"}, new int[] {0},
                            new boolean[] {true}, new boolean[] {true}, -1L, null, null, null, null, null, null, null,
                            null, null, null, routing));
-        assertNotNull(served.result());
-        final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
-          serializer.serialize(served.result().groups());
-        }
-        assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+        assertGroups(expected, served.result());
         served.work()
               .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, ROWS,
                   "membership reuses one outer source mapping, without mapping a selected-key array")
@@ -1266,6 +1250,15 @@ final class IndexRoutedGroupWorkBudgetTest {
     } else {
       System.setProperty(name, previous);
     }
+  }
+
+  private static void assertGroups(final String expected, final @Nullable ServedGroups served) {
+    assertNotNull(served);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+      serializer.serialize(served.groups());
+    }
+    assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
   }
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
