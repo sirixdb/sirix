@@ -292,8 +292,7 @@ public final class SirixGroupAggregateExpr implements Expr {
       }
       final MaskedColumns[] prepared = new MaskedColumns[1];
       final SirixVectorizedExecutor.GroupRouting routing =
-          new SirixVectorizedExecutor.GroupRouting(keys, computedLanes, values,
-              columns -> prepared[0] = columns);
+          new SirixVectorizedExecutor.GroupRouting(keys, computedLanes, values, columns -> prepared[0] = columns);
       final SirixVectorizedExecutor.GroupMembership normalizedMembership = routing.membership();
       final SirixVectorizedExecutor.ServedGroups served = serveRoutedGroup(executor, ctx, routing);
       if (served != null || normalizedMembership == null) {
@@ -308,7 +307,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       if (columns == null || !columns.isLong(0)) {
         return null;
       }
-      final long[] selected = columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
+      final long[] selected =
+          columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
       return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(selected, computedLanes));
     }
   }

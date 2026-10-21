@@ -15060,6 +15060,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * leaves holding one are read; a {@code null} set means every row. {@code computed}: the pre-group
    * programs ({@code let $v := $r.a * $r.b}) the aggregate lanes named {@code prog:<i>} fold —
    * evaluated once per kept leaf into a query-local derived column the ordinary kernels sum.
+   * {@code membership} narrows those candidate rows through evaluation-owned masks; an empty
+   * anti-join set is normalized away. {@code membershipPrepared}, when supplied, receives the
+   * prepared columns so this evaluation's two-stage fallback can reuse them after a fused decline
+   * without loading membership again. The callback must not retain them beyond the evaluation.
    * </p>
    */
   @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
@@ -16009,16 +16013,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               || !membershipStore.columnsFitWithinBudget(new int[] {column, ProjectionColumnStore.KEYS_COLUMN}, -1)) {
             return declineGroupAgg("membership requires a clean resident integral column");
           }
-          final MaskedColumns columns = readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(),
-              new String[] {membership.field()}, new int[] {column},
-              new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+          final MaskedColumns columns =
+              readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(), new String[] {membership.field()},
+                  new int[] {column}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
           if (columns == null) {
             return declineGroupAgg("membership columns do not fit the residency budget");
           }
           if (routing.membershipPrepared() != null) {
             routing.membershipPrepared().accept(columns);
           }
-          rowSource = columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
+          rowSource =
+              columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
         }
         if (predTree != null) {
           predTree = andTreeWith(predTree, rowSource);

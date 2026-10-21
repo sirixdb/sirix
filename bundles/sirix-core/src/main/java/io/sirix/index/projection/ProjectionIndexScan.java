@@ -176,11 +176,12 @@ public final class ProjectionIndexScan {
      * content fingerprint belong to this evaluation; no shared mask is modified.
      */
     public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
-        final long[][] rowMasks, final long[][] keys, final ColumnSlice[] slices,
-        final LongOpenHashSet values, final boolean anti) {
+        final long[][] rowMasks, final long[][] keys, final ColumnSlice[] slices, final LongOpenHashSet values,
+        final boolean anti) {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
       if (store == null || rowMasks == null || keys == null || slices == null || values == null
-          || rowMasks.length != store.leafCount() || keys.length != rowMasks.length || slices.length != rowMasks.length) {
+          || rowMasks.length != store.leafCount() || keys.length != rowMasks.length
+          || slices.length != rowMasks.length) {
         throw new IllegalArgumentException("membership requires aligned masks, keys and numeric slices");
       }
       final ProjectionRecordKeySet.Masks filtered =
@@ -443,12 +444,13 @@ public final class ProjectionIndexScan {
      */
     STR_CONTAINS,
     /**
-     * Record-key membership {@code recordKey(row) ∈ sortedKeys} — the index-routed row source. The
-     * predicate's {@link ColumnPredicate#column} is the virtual KEYS column
+     * Record-key membership — the index-routed row source. The predicate's
+     * {@link ColumnPredicate#column} is the virtual KEYS column
      * ({@link ProjectionColumnStore#KEYS_COLUMN}) and its literal is
-     * {@link ColumnPredicate#sortedKeys}; no stored column is read for it. Every row carries a key, so
-     * there is no presence to AND. Its own op so that each exhaustive switch fails to compile rather
-     * than compare a key set as a number, and so that a kernel not taught this form throws by name.
+     * {@link ColumnPredicate#sortedKeys}, narrowed by {@link ColumnPredicate#keyMasks} when supplied;
+     * no stored column is read to evaluate it. Every row carries a key, so there is no presence to AND.
+     * Its own op so that each exhaustive switch fails to compile rather than compare a key set as a
+     * number, and so that a kernel not taught this form throws by name.
      */
     KEY_IN
   }

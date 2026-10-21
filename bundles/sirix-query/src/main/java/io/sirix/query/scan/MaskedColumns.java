@@ -336,8 +336,8 @@ public final class MaskedColumns {
     return sorted;
   }
 
-  ColumnPredicate recordKeyPredicateByMembership(final int field, final long[] sortedKeys,
-      final LongOpenHashSet values, final boolean anti) {
+  ColumnPredicate recordKeyPredicateByMembership(final int field, final long[] sortedKeys, final LongOpenHashSet values,
+      final boolean anti) {
     if (field < 0 || field >= kinds.length || !isLong(field)) {
       throw new IllegalArgumentException("membership requires a numeric field");
     }
