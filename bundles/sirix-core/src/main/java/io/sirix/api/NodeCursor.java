@@ -121,21 +121,21 @@ public interface NodeCursor extends AutoCloseable {
   /**
    * Determines if the node located at the current cursor position has a first child.
    *
-   * @return {@code true} if the node has a parent, {@code false} otherwise
+   * @return {@code true} if the node has a first child, {@code false} otherwise
    */
   boolean hasFirstChild();
 
   /**
    * Determines if the node located at the current cursor position has a last child.
    *
-   * @return {@code true} if the node has a parent, {@code false} otherwise
+   * @return {@code true} if the node has a last child, {@code false} otherwise
    */
   boolean hasLastChild();
 
   /**
    * Determines if the node located at the current cursor position has a left sibling.
    *
-   * @return {@code true} if the node has a parent, {@code false} otherwise
+   * @return {@code true} if the node has a left sibling, {@code false} otherwise
    */
   boolean hasLeftSibling();
 
