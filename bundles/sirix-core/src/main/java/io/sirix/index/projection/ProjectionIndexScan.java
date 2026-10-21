@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
 
@@ -122,15 +124,16 @@ public final class ProjectionIndexScan {
     public final @Nullable SegmentCellVerdicts segmentCellVerdicts;
 
     /**
-     * For {@link Op#KEY_IN}: the record keys the row source admits, strictly ascending; {@code null}
-     * for every other predicate. Shared read-only by every worker of a scan.
+     * For {@link Op#KEY_IN}: candidate record keys, strictly ascending; {@code keyMasks}, when present,
+     * gives the exact admitted subset. {@code null} for every other predicate. Shared read-only by
+     * every worker of a scan.
      */
     public final long @Nullable [] sortedKeys;
 
     /**
-     * Content hash of {@link #sortedKeys} (0 for every other predicate) — the part of this predicate's
-     * identity a plan memo keyed by predicate shape must fold in: two scans over different key sets
-     * must never share a shape fingerprint.
+     * Content hash of the admitted keys or exact row masks (0 for every other predicate) — the part of
+     * this predicate's identity a plan memo keyed by predicate shape must fold in: two scans over
+     * different key sets must never share a shape fingerprint.
      */
     public final long keySetHash;
     public final ProjectionRecordKeySet.@Nullable Masks keyMasks;
@@ -164,6 +167,37 @@ public final class ProjectionIndexScan {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
           sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys), store.recordKeyMasks(sortedKeys, fetcher));
+    }
+
+    /**
+     * Intersect a routed source with integral value membership in its existing row masks. This avoids
+     * producing, sorting and mapping another record-key array for semi/anti joins. The masks and their
+     * content fingerprint belong to this evaluation; no shared mask is modified.
+     */
+    public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int column, final LongOpenHashSet values,
+        final boolean anti) {
+      ProjectionRecordKeySet.requireSorted(sortedKeys);
+      if (values == null || store == null || fetcher == null) {
+        throw new IllegalArgumentException("membership requires a store, fetcher and values");
+      }
+      if (column < 0 || column >= store.columnCount()
+          || store.columnKind(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalArgumentException("membership requires a numeric column");
+      }
+      final ProjectionRecordKeySet.Masks source = store.recordKeyMasks(sortedKeys, fetcher);
+      final long[] keep = new long[(store.leafCount() + 63) >>> 6];
+      for (int leaf = 0; leaf < store.leafCount(); leaf++) {
+        if (source.physicalSlots().contains(store.physicalSlot(leaf))) {
+          keep[leaf >>> 6] |= 1L << (leaf & 63);
+        }
+      }
+      final ProjectionColumnStore.ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keep);
+      final long[][] keys = store.recordKeysMasked(fetcher, keep);
+      final ProjectionRecordKeySet.Masks filtered =
+          ProjectionRecordKeySet.filterMembership(source, keys, slices, store::physicalSlot, values, anti);
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
+          sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
     }
 
     /** Whether this is the index-routed row source ({@link Op#KEY_IN}). */

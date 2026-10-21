@@ -31,7 +31,9 @@ import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.StringBoundProjection;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
@@ -40,6 +42,8 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.query.scan.SirixVectorizedExecutor.ComputedLane;
 import io.sirix.query.scan.SirixVectorizedExecutor.GroupRouting;
+import io.sirix.query.scan.SirixVectorizedExecutor.GroupMembership;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.query.scan.SirixVectorizedExecutor.ServedGroups;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -108,7 +112,7 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   private static final String DB = "budgetrt";
   private static final String RES = BitemporalSchema.CONTRACTS;
-  private static final int VALID_ROWS = 1_000; // exactly the first projection leaf
+  private static final int VALID_ROWS = 1_000; // fits within the first 1,024-row projection leaf
   private static final int ROWS = 2_600;
 
   @TempDir
@@ -178,6 +182,59 @@ final class IndexRoutedGroupWorkBudgetTest {
         // Zero objects: no cursor move and no child-pointer read on the document the opener returns.
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void membershipMapsTheOuterSourceOnce(final VersioningType versioning) throws Exception {
+    build(false, ROWS, versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final long[] keys = ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
+      assertEquals(VALID_ROWS, keys.length, "route exactly the reference query's valid-time slice");
+      Arrays.sort(keys);
+      final LongOpenHashSet values = new LongOpenHashSet(1);
+      values.add(1L);
+      final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, true));
+      final String query =
+          """
+              for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),xs:dateTime('2024-06-01T00:00:00Z'))
+              where $c.id ne 1
+              let $grade := $c.grade, $qty := $c.qty, $cost := $c.cost
+              group by $grade
+              let $n := count($qty), $total := sum($cost)
+              order by $grade
+              return {"grade":$grade,"n":$n,"total":$total}
+              """;
+      final String expected = run(generic, ctx, query);
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      try {
+        final WorkCapture.Captured<ServedGroups> served =
+            WorkCapture.of(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                       .and(QueryWorkCounters.GROUP_AGGREGATES)
+                       .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null,
+                           new String[] {"grade"}, new String[] {"grade"}, new String[] {"count", "sum"},
+                           new String[] {"qty", "cost"}, new String[] {"n", "total"}, new int[] {0},
+                           new boolean[] {true}, new boolean[] {true}, -1L, null, null, null, null, null, null, null,
+                           null, null, null, routing));
+        assertNotNull(served.result());
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+          serializer.serialize(served.result().groups());
+        }
+        assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+        served.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, ROWS,
+                  "membership reuses one outer source mapping, without mapping a selected-key array")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership is served in the grouped route");
+      } finally {
+        executor.close();
       }
     }
   }

@@ -15062,8 +15062,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * </p>
    */
   @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
-  public record GroupRouting(long @Nullable [] rowKeys, ComputedLane @Nullable [] computed) {
+  public record GroupRouting(long @Nullable [] rowKeys, ComputedLane @Nullable [] computed,
+      @Nullable GroupMembership membership) {
     public GroupRouting(final long @Nullable [] rowKeys, final ComputedLane @Nullable [] computed) {
+      this(rowKeys, computed, null);
+    }
+
+    public GroupRouting {
+      if (membership != null && rowKeys == null) {
+        throw new IllegalArgumentException("membership requires routed row keys");
+      }
+      if (membership != null && membership.anti() && membership.values().isEmpty()) {
+        membership = null;
+      }
       if (rowKeys != null) {
         for (int i = 1; i < rowKeys.length; i++) {
           if (rowKeys[i] <= rowKeys[i - 1]) {
@@ -15071,8 +15082,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           }
         }
       }
-      this.rowKeys = rowKeys;
-      this.computed = computed;
     }
 
     /** The derived lane named {@code field} ({@code "prog:<i>"}), or {@code null}. */
@@ -15090,6 +15099,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return at >= 0 && at < computed.length
           ? computed[at]
           : null;
+    }
+  }
+
+  /** Evaluation-owned integral membership. Callers must finish building values before serving. */
+  public record GroupMembership(String field, LongOpenHashSet values, boolean anti) {
+    public GroupMembership {
+      Objects.requireNonNull(field);
+      Objects.requireNonNull(values);
+      if (field.isEmpty()) {
+        throw new IllegalArgumentException("membership field must not be empty");
+      }
     }
   }
 
@@ -15172,7 +15192,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
         return declineGroupAgg("keyCount " + keyCount + " vs max " + ProjectionIndexByteScan.MAX_GROUP_COLUMNS);
       }
-      if (routing != null && routing.rowKeys() != null && routing.rowKeys().length == 0) {
+      if (routing != null && ((routing.rowKeys() != null && routing.rowKeys().length == 0)
+          || (routing.membership() != null && routing.membership().values().isEmpty()))) {
         GROUP_AGG_SERVED.increment();
         return new ServedGroups(new ItemSequence(), true);
       }
@@ -15226,6 +15247,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (raw != null && !required.contains(raw)) {
           required.add(raw);
         }
+      }
+      if (routing != null && routing.membership() != null && !required.contains(routing.membership().field())) {
+        required.add(routing.membership().field());
       }
       final boolean scalarSummaryShape = routing == null && countDescendingPlainKey(predicateOrNull, keyCount, funcs,
           aggFields, outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse,
@@ -15964,8 +15988,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // The index-routed row source: one more conjunct the kernels' own mask evaluators honour,
         // leaf pruning included. A tree is the complete WHERE when present, so the set joins it as
         // an AND over the root rather than riding beside it in a conjunction the tree arms ignore.
-        final ProjectionIndexScan.ColumnPredicate rowSource = ProjectionIndexScan.ColumnPredicate.recordKeysIn(
-            routing.rowKeys(), handle.columnStoreOrNull(), columnFetcher());
+        final GroupMembership membership = routing.membership();
+        final ProjectionIndexScan.ColumnPredicate rowSource;
+        if (membership == null) {
+          rowSource =
+              ProjectionIndexScan.ColumnPredicate.recordKeysIn(routing.rowKeys(), handle.columnStoreOrNull(), fetcher);
+        } else {
+          final int column = handle.columnOf(membership.field());
+          final ProjectionColumnStore membershipStore = handle.columnStoreOrNull();
+          if (column < 0 || !membershipStore.columnSliceable(column)
+              || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+              || !handle.numericColumnIsIntegral(column, fetcher)
+              || !handle.columnSparseClean(column, fetcher, materializer)
+              || !membershipStore.columnsFitWithinBudget(new int[] {column, ProjectionColumnStore.KEYS_COLUMN}, -1)) {
+            return declineGroupAgg("membership requires a clean resident integral column");
+          }
+          rowSource = ProjectionIndexScan.ColumnPredicate.recordKeysByMembership(routing.rowKeys(), membershipStore,
+              fetcher, column, membership.values(), membership.anti());
+        }
         if (predTree != null) {
           predTree = andTreeWith(predTree, rowSource);
           if (predTree == null) {
