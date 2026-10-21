@@ -18,12 +18,14 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.index.aggregate.AggregateSummary;
+import io.sirix.index.aggregate.AggregateSummary.Table;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.TemporalAggregateIndexes;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.index.aggregate.TemporalAggregateSpec.Lane;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.aggregate.TemporalAggregateParts;
+import io.sirix.index.aggregate.TemporalAggregateParts.PointReader;
 import io.sirix.index.aggregate.TemporalAggregateDomain;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -49,6 +51,9 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import it.unimi.dsi.fastutil.objects.Object2IntLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap.Entry;
+import it.unimi.dsi.fastutil.objects.ObjectBidirectionalIterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -226,14 +231,17 @@ public final class TemporalAggregateRoute {
   private static SirixVectorizedExecutor.@Nullable ServedGroups objectGroups(
       final TemporalAggregateStorage.Reader storage, final TemporalAggregateSpec spec, final long sourceRows,
       final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes) {
-    final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
+    final Object2IntLinkedOpenHashMap<List<Sequence>> results = new Object2IntLinkedOpenHashMap<>();
+    results.defaultReturnValue(-1);
+    final Table summaries = new Table(spec.lanes().size(), 16);
     final long coordinate = DomainHolder.DOMAIN.point(point.instant());
     final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
+    final PointReader points = parts.reader(storage.parts());
     final boolean admitted = storage.groups(sourceRows, (key, group) -> {
       if (group.rows() == 0) {
         return;
       }
-      final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+      final AggregateSummary summary = points.point(group.parts(), coordinate);
       if (summary.count() == 0) {
         return;
       }
@@ -243,15 +251,17 @@ public final class TemporalAggregateRoute {
         selected[i] = allKeys[groups[i]];
       }
       final List<Sequence> groupKey = Arrays.asList(selected);
-      final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
-      if (previous != null) {
-        previous.add(summary);
+      final int previous = results.getInt(groupKey);
+      if (previous < 0) {
+        results.put(groupKey, summaries.append(summary));
+      } else {
+        summaries.add(previous, summary);
       }
     });
     if (!admitted) {
       return null;
     }
-    return servedGroups(request, groups, lanes, results);
+    return servedGroups(request, groups, lanes, results, summaries);
   }
 
   /** A full permutation of integral maintained keys needs neither key objects nor coalescing. */
@@ -286,6 +296,7 @@ public final class TemporalAggregateRoute {
         new ColumnarRecordSequence.Builder(names, new boolean[names.length], 256);
     final long coordinate = DomainHolder.DOMAIN.point(point.instant());
     final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
+    final PointReader points = parts.reader(storage.parts());
     final long[] keys = new long[groups.length];
     final boolean[] present = new boolean[groups.length];
     final boolean[] supported = {true};
@@ -293,7 +304,7 @@ public final class TemporalAggregateRoute {
       if (!supported[0] || group.rows() == 0) {
         return;
       }
-      final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+      final AggregateSummary summary = points.point(group.parts(), coordinate);
       if (summary.count() == 0) {
         return;
       }
@@ -423,10 +434,32 @@ public final class TemporalAggregateRoute {
   }
 
   private static SirixVectorizedExecutor.ServedGroups servedGroups(final RoutedGroupRequest request, final int[] groups,
+      final int[] lanes, final Object2IntLinkedOpenHashMap<List<Sequence>> results, final Table summaries) {
+    final QNm[] names = outputNames(request);
+    final List<Item> items = new ArrayList<>(results.size());
+    final AggregateSummary summary = new AggregateSummary(summaries.lanes());
+    final ObjectBidirectionalIterator<Entry<List<Sequence>>> entries = results.object2IntEntrySet().fastIterator();
+    while (entries.hasNext()) {
+      final Entry<List<Sequence>> entry = entries.next();
+      summaries.read(entry.getIntValue(), summary);
+      final Sequence[] values = new Sequence[names.length];
+      for (int i = 0; i < groups.length; i++) {
+        values[i] = entry.getKey().get(i);
+      }
+      for (int i = 0; i < lanes.length; i++) {
+        values[groups.length + i] = aggregate(summary, request.funcs()[i], lanes[i]);
+      }
+      items.add(new ArrayObject(names, values));
+    }
+    SERVED.increment();
+    return new SirixVectorizedExecutor.ServedGroups(new ItemSequence(items.toArray(Item[]::new)), false);
+  }
+
+  private static SirixVectorizedExecutor.ServedGroups servedGroups(final RoutedGroupRequest request, final int[] groups,
       final int[] lanes, final Map<List<Sequence>, AggregateSummary> results) {
     final QNm[] names = outputNames(request);
     final List<Item> items = new ArrayList<>(results.size());
-    for (final Map.Entry<List<Sequence>, AggregateSummary> entry : results.entrySet()) {
+    for (final var entry : results.entrySet()) {
       final Sequence[] values = new Sequence[names.length];
       for (int i = 0; i < groups.length; i++) {
         values[i] = entry.getKey().get(i);

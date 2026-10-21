@@ -1179,38 +1179,73 @@ public final class TemporalAggregateParts {
   }
 
   public AggregateSummary point(final Store store, final long[] parts, final long point) {
-    return point(store, parts, point, null);
+    return reader(store).point(parts, point);
   }
 
   public AggregateSummary point(final Store store, final long[] parts, final long point, final @Nullable Delta tail) {
-    if (parts.length > MAX_PARTS || point < 0 || point >= (1L << height)) {
-      throw new IllegalArgumentException("Invalid aggregate point or part count");
-    }
-    final Sums sums = new Sums();
-    final List<List<Vector>> vectors = new ArrayList<>(lanes);
-    for (int lane = 0; lane < lanes; lane++) {
-      vectors.add(new ArrayList<>());
-    }
-    for (final long id : parts) {
-      new Part(store, id).point(point, sums, vectors);
-    }
-    if (tail != null) {
-      tail.point(point, sums, vectors);
-    }
-    sums.validate();
-    final long[] minimum = new long[lanes];
-    final long[] maximum = new long[lanes];
-    for (int lane = 0; lane < lanes; lane++) {
-      final long present = sums.data[1 + 3 * lane];
-      if (present == 0) {
-        minimum[lane] = Long.MAX_VALUE;
-        maximum[lane] = Long.MIN_VALUE;
-      } else if (frequencyOffsets[lane] >= 0) {
-        minimum[lane] = extreme(vectors.get(lane), present, false);
-        maximum[lane] = extreme(vectors.get(lane), present, true);
+    return reader(store).point(parts, point, tail);
+  }
+
+  public PointReader reader(final Store store) {
+    return new PointReader(Objects.requireNonNull(store));
+  }
+
+  /** Single-scan scratch. A point result is valid only until this reader evaluates another point. */
+  public final class PointReader {
+    private final Store store;
+    private final Sums sums = new Sums();
+    private final List<List<Vector>> vectors = new ArrayList<>(lanes);
+    private final AggregateSummary summary = new AggregateSummary(lanes);
+
+    private PointReader(final Store store) {
+      this.store = store;
+      for (int lane = 0; lane < lanes; lane++) {
+        vectors.add(new ArrayList<>());
       }
     }
-    return AggregateSummary.fromPacked(sums.data, minimum, maximum);
+
+    public AggregateSummary point(final long[] parts, final long point) {
+      return point(parts, point, null);
+    }
+
+    public AggregateSummary point(final long[] parts, final long point, final @Nullable Delta tail) {
+      if (parts.length > MAX_PARTS || point < 0 || point >= (1L << height)) {
+        throw new IllegalArgumentException("Invalid aggregate point or part count");
+      }
+      Arrays.fill(sums.data, 0L);
+      try {
+        for (final long id : parts) {
+          new Part(store, id).point(point, sums, vectors);
+        }
+        if (tail != null) {
+          tail.point(point, sums, vectors);
+        }
+        sums.validate();
+        summary.setSums(sums.data);
+        for (int lane = 0; lane < lanes; lane++) {
+          final long present = summary.present(lane);
+          final long minimum;
+          final long maximum;
+          if (present == 0) {
+            minimum = Long.MAX_VALUE;
+            maximum = Long.MIN_VALUE;
+          } else if (frequencyOffsets[lane] >= 0) {
+            minimum = extreme(vectors.get(lane), present, false);
+            maximum = extreme(vectors.get(lane), present, true);
+          } else {
+            minimum = 0;
+            maximum = 0;
+          }
+          summary.setExtrema(lane, minimum, maximum);
+        }
+        return summary;
+      } finally {
+        // Vectors retain part chunks; release them after evaluation, including on corruption.
+        for (int lane = 0; lane < lanes; lane++) {
+          vectors.get(lane).clear();
+        }
+      }
+    }
   }
 
   private static long extreme(final List<Vector> vectors, final long present, final boolean maximum) {

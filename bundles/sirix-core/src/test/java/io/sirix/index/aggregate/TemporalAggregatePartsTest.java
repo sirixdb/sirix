@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 final class TemporalAggregatePartsTest {
   private static final TemporalAggregateSpec SPEC =
@@ -44,6 +45,76 @@ final class TemporalAggregatePartsTest {
           ? 1
           : 0, sign);
     }
+  }
+
+  @Test
+  void scanReusesSummaryWhileOwnedResultsAndSavedRowsRemainIsolated() {
+    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
+    final Store store = new Store();
+    final TemporalAggregateParts.Builder builder = index.builder();
+    builder.add(10, 20, new long[] {7}, 1, 1);
+    store.parts.put(1L, builder.encode(true));
+    final long[] ids = {1};
+    final TemporalAggregateParts.PointReader reader = index.reader(store);
+    final AggregateSummary first = reader.point(ids, 15);
+    final AggregateSummary owned = index.point(store, ids, 15);
+    final AggregateSummary.Table saved = new AggregateSummary.Table(1, 0);
+    saved.append(first);
+    assertSame(first, reader.point(ids, 25));
+    assertEquals(0, first.count());
+    assertEquals(Long.MAX_VALUE, first.min(0));
+    assertEquals(Long.MIN_VALUE, first.max(0));
+    assertEquals(1, owned.count());
+    assertEquals(7, owned.sumLongExact(0));
+    saved.read(0, first);
+    assertEquals(7, first.min(0));
+    assertSame(first, reader.point(ids, 15));
+    assertEquals(1, first.count());
+    assertEquals(7, first.sumLongExact(0));
+    assertThrows(NullPointerException.class, () -> reader.point(new long[] {1, 2}, 15));
+    assertSame(first, reader.point(ids, 15));
+    assertEquals(1, first.count(), "A failed point must not retain partial sums or vectors");
+    assertEquals(7, first.min(0));
+    assertThrows(IllegalArgumentException.class, () -> reader.point(ids, -1));
+    assertThrows(IllegalArgumentException.class,
+        () -> reader.point(new long[TemporalAggregateParts.MAX_PARTS + 1], 15));
+    assertThrows(NullPointerException.class, () -> index.reader(null));
+  }
+
+  @Test
+  void scanReusesSummaryAcrossSignedTailsAndClearsFailedTailState() {
+    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
+    final Store store = new Store();
+    final TemporalAggregateParts.Builder base = index.builder();
+    base.add(10, 20, new long[] {7}, 1, 1);
+    store.parts.put(1L, base.encode(true));
+    final long[] ids = {1};
+    final TemporalAggregateParts.SummaryBuilder changes = index.summaryBuilder();
+    changes.add(10, 20, new long[] {7}, 1, -1);
+    changes.add(10, 20, new long[] {11}, 1, 1);
+    final TemporalAggregateParts.Delta tail = changes.snapshot();
+    final TemporalAggregateParts.PointReader reader = index.reader(store);
+    final AggregateSummary reused = reader.point(ids, 15, tail);
+    final AggregateSummary owned = index.point(store, ids, 15, tail);
+    assertEquals(1, reused.count());
+    assertEquals(11, reused.sumLongExact(0));
+    assertEquals(11, reused.min(0));
+    assertEquals(11, reused.max(0));
+    assertSame(reused, reader.point(ids, 15));
+    assertEquals(7, reused.sumLongExact(0));
+    assertEquals(7, reused.min(0));
+    assertEquals(11, owned.min(0));
+    assertSame(reused, reader.point(ids, 25, tail));
+    assertEquals(0, reused.count());
+    assertEquals(Long.MAX_VALUE, reused.min(0));
+    final TemporalAggregateParts.SummaryBuilder invalid = index.summaryBuilder();
+    invalid.add(10, 20, new long[] {7}, 1, -1);
+    final TemporalAggregateParts.Delta negative = invalid.snapshot();
+    assertThrows(IllegalStateException.class, () -> reader.point(new long[0], 15, negative));
+    assertSame(reused, reader.point(ids, 15, tail));
+    assertEquals(1, reused.count());
+    assertEquals(11, reused.min(0));
+    assertEquals(11, reused.max(0));
   }
 
   @Test
