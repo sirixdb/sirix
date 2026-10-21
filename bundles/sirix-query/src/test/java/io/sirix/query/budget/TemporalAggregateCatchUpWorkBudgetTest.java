@@ -180,8 +180,9 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
                                                    .storeDiffs(false)
                                                    .build());
     }
-    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL)
-                                    .build();
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
         JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
       build(session, 256, 1, true, 0);
       final DerivedIndexMaintainer.Resource resource =
@@ -208,8 +209,10 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
           final int sourceRevision = session.getMostRecentRevisionNumber();
           assertEquals(sourceRevision - 1, resource.maintainedRevision());
           final Query query = new Query(chain, query(sourceRevision));
-          final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
-              EngineWorkCounters.PROJECTION_BODY_SEGMENTS).call(() -> run(query, context));
+          final var capture = WorkCapture
+                                         .of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+                                             EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                         .call(() -> run(query, context));
           assertEquals("{\"g\":1,\"c\":256,\"s\":" + (1792 + execution) + ",\"l\":7,\"h\":" + (7 + execution) + "}",
               capture.result(), "execution=" + execution);
           capture.work()

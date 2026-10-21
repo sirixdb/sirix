@@ -143,9 +143,9 @@ final class ChangeLogSlabTest {
     final Row row = new Row(true, 1);
     row.flags[0] = ChangeLogSlab.PRESENT;
     row.numbers[0] = 7;
-    final ChangeLogSlab slab = new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG},
-        List.of(new Entry(0, new long[] {1}, null, row), new Entry(1, new long[] {1}, row, null),
-            new Entry(Long.MAX_VALUE, new long[] {1}, null, row)));
+    final ChangeLogSlab slab =
+        new ChangeLogSlab(0, 1, 0, new byte[] {ChangeLogSlab.LONG}, List.of(new Entry(0, new long[] {1}, null, row),
+            new Entry(1, new long[] {1}, row, null), new Entry(Long.MAX_VALUE, new long[] {1}, null, row)));
     final byte[] encoded = slab.encode();
     final ChangeLogSlab decoded = ChangeLogSlab.decode(encoded);
     assertEquals(List.of(0L, 1L, Long.MAX_VALUE), decoded.entries().stream().map(Entry::record).toList());

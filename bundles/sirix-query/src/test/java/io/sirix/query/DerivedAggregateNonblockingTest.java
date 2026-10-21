@@ -74,10 +74,10 @@ final class DerivedAggregateNonblockingTest {
     when(definition.hasSameDefinition(definition)).thenReturn(true);
     when(secondDefinition.getID()).thenReturn(1);
     when(secondDefinition.hasSameDefinition(secondDefinition)).thenReturn(true);
-    when(derivedSession.getRtxIndexController(0).getIndexes().getIndexDef(1, IndexType.TEMPORAL_AGGREGATE))
-        .thenReturn(secondDefinition);
-    when(derivedSession.getRtxIndexController(0).getIndexes().getIndexDef(0, IndexType.TEMPORAL_AGGREGATE))
-        .thenReturn(definition);
+    when(derivedSession.getRtxIndexController(0).getIndexes().getIndexDef(1, IndexType.TEMPORAL_AGGREGATE)).thenReturn(
+        secondDefinition);
+    when(derivedSession.getRtxIndexController(0).getIndexes().getIndexDef(0, IndexType.TEMPORAL_AGGREGATE)).thenReturn(
+        definition);
     when(session.getDerivedResource()).thenReturn(resource);
     for (int offset = 0; offset < sources.length; offset++) {
       final StorageEngineReader source = mock(StorageEngineReader.class);
