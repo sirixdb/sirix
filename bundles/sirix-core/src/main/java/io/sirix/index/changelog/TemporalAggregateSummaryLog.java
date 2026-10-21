@@ -12,7 +12,6 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
-import java.util.TreeMap;
 import java.util.function.BiConsumer;
 
 /** Revision-owned packed group operands. Upper fence keys permit direct group addressing. */
@@ -152,7 +151,6 @@ public final class TemporalAggregateSummaryLog {
     private final int blocks;
     private final int chunks;
     private final int bytes;
-    private final NavigableMap<byte[], byte[]> cachedChunks = new TreeMap<>(Arrays::compareUnsigned);
     private int readChunks;
     private int readBytes;
 
@@ -214,24 +212,13 @@ public final class TemporalAggregateSummaryLog {
             throw new IllegalStateException("Extra temporal summary block");
           }
           final Block block = readBlock(cursor);
-          previous = visitBlock(block, previous, null, consumer);
+          previous = visitBlock(block, previous, consumer);
           readGroups = Math.addExact(readGroups, block.groups());
         }
       }
       if (readGroups != groups || readBlocks != blocks || readChunks - firstChunk != chunks
           || readBytes - firstByte + HEADER_BYTES != bytes) {
         throw new IllegalStateException("Incomplete temporal summary coverage");
-      }
-    }
-
-    /** A lower-bound seek selects the upper-fence block; no directory or unrelated blocks are read. */
-    public void visitGroup(final byte[] group, final BiConsumer<byte[], byte[]> consumer) {
-      operandLimit(group);
-      Objects.requireNonNull(consumer);
-      try (HOTRangeCursor cursor = trie.range(root, blockKey(prefix, group, 0), successor(prefix))) {
-        if (cursor.hasNext()) {
-          visitBlock(readBlock(cursor), null, group, consumer);
-        }
       }
     }
 
@@ -283,25 +270,20 @@ public final class TemporalAggregateSummaryLog {
     }
 
     private byte[] readChunk(final HOTRangeCursor.Entry entry) {
-      final byte[] key = entry.keyBytes();
-      byte[] value = cachedChunks.get(key);
-      if (value == null) {
-        budget.chunk();
-        ChangeLogStorage.recordChunkRead();
-        final long length = entry.value().byteSize();
-        if (length < 1 || length > ChangeLogStorage.CHUNK_BYTES) {
-          throw new IllegalStateException("Invalid temporal summary chunk");
-        }
-        value = entry.value().toArray(ValueLayout.JAVA_BYTE);
-        cachedChunks.put(key, value);
+      budget.chunk();
+      ChangeLogStorage.recordChunkRead();
+      final long length = entry.value().byteSize();
+      if (length < 1 || length > ChangeLogStorage.CHUNK_BYTES) {
+        throw new IllegalStateException("Invalid temporal summary chunk");
       }
+      final byte[] value = entry.value().toArray(ValueLayout.JAVA_BYTE);
       readChunks++;
       readBytes = Math.addExact(readBytes, value.length);
       return value;
     }
 
     private static byte[] visitBlock(final Block block, final byte @Nullable [] previous,
-        final byte @Nullable [] selected, final BiConsumer<byte[], byte[]> consumer) {
+        final BiConsumer<byte[], byte[]> consumer) {
       final ByteBuffer in = block.bytes();
       byte[] last = previous;
       for (int at = 0; at < block.groups(); at++) {
@@ -316,16 +298,12 @@ public final class TemporalAggregateSummaryLog {
           throw new IllegalStateException("Unsorted temporal summary groups");
         }
         last = key;
-        if (selected == null || Arrays.equals(selected, key)) {
-          if (size == 0) {
-            throw new TemporalAggregateCatchUpBudget.LimitExceeded();
-          }
-          final byte[] operand = new byte[size];
-          in.get(operand);
-          consumer.accept(key, operand);
-        } else {
-          in.position(in.position() + size);
+        if (size == 0) {
+          throw new TemporalAggregateCatchUpBudget.LimitExceeded();
         }
+        final byte[] operand = new byte[size];
+        in.get(operand);
+        consumer.accept(key, operand);
       }
       if (in.hasRemaining() || !Arrays.equals(last, block.fence())) {
         throw new IllegalStateException("Invalid temporal summary upper fence");

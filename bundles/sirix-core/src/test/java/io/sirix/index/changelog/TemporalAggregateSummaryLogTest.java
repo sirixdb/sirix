@@ -61,18 +61,6 @@ final class TemporalAggregateSummaryLogTest {
         writer.commit();
         try (StorageEngineReader source = session.createStorageEngineReader(1)) {
           verifyGroups(source, groups);
-          try (var reader =
-              new TemporalAggregateSummaryLog.Reader(source, 0, 1, 7, new TemporalAggregateCatchUpBudget.Budget())) {
-            final long before = ChangeLogStorage.chunksRead();
-            reader.visitGroup(key(501), (key, value) -> assertArrayEquals(large, value));
-            assertEquals(2, ChangeLogStorage.chunksRead() - before);
-            final long cached = ChangeLogStorage.chunksRead();
-            reader.visitGroup(key(501), (key, value) -> assertArrayEquals(large, value));
-            assertEquals(cached, ChangeLogStorage.chunksRead());
-            reader.visitGroup(key(700), (key, value) -> {
-              throw new AssertionError("Absent group");
-            });
-          }
         }
         write(writer, groups, 0, false);
         final TreeMap<byte[], byte[]> replacement = new TreeMap<>(Arrays::compareUnsigned);
@@ -145,9 +133,6 @@ final class TemporalAggregateSummaryLogTest {
       reader.visit(actual::put);
       assertEquals(expected.size(), actual.size());
       expected.forEach((key, value) -> assertArrayEquals(value, actual.get(key)));
-      final long before = ChangeLogStorage.chunksRead();
-      reader.visitGroup(key(499), (key, value) -> assertArrayEquals(expected.get(key), value));
-      assertEquals(before, ChangeLogStorage.chunksRead(), "A point seek reuses its already-read packed block");
     }
   }
 

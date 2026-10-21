@@ -30,6 +30,7 @@ import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -163,6 +164,59 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
                      "The existing per-group chunk bound is unchanged")
                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns in a tail fold")
                  .assertExactly(EngineWorkCounters.AGGREGATE_PROJECTION_ROW_GROUPS_READ, 0, "No projection rebuild");
+        }
+      }
+    }
+  }
+
+  @Test
+  void reusedContextReplenishesCatchUpAcross600LagOneExecutions() throws Exception {
+    final var path = directory.toPath().resolve("tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+    }
+    try (var store = BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL)
+                                    .build();
+        JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
+      build(session, 256, 1, true, 0);
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
+      doNothing().when(borrowed).close();
+      Databases.clearGlobalCaches();
+      ProjectionIndexCatalog.clearCache();
+      ProjectionIndexRegistry.clear();
+      try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+          var chain = SirixCompileChain.createWithJsonStore(borrowed);
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        writer.moveToRightSibling();
+        writer.moveToFirstChild();
+        final long number = writer.getNodeKey();
+        for (int execution = 1; execution <= 600; execution++) {
+          writer.moveTo(number);
+          writer.setNumberValue(7 + execution);
+          writer.commit();
+          final int sourceRevision = session.getMostRecentRevisionNumber();
+          assertEquals(sourceRevision - 1, resource.maintainedRevision());
+          final Query query = new Query(chain, query(sourceRevision));
+          final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+              EngineWorkCounters.PROJECTION_BODY_SEGMENTS).call(() -> run(query, context));
+          assertEquals("{\"g\":1,\"c\":256,\"s\":" + (1792 + execution) + ",\"l\":7,\"h\":" + (7 + execution) + "}",
+              capture.result(), "execution=" + execution);
+          capture.work()
+                 .assertExactly(SERVED, 1, "Every independent lag-one execution receives a fresh budget")
+                 .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, 1, 2, "Each publication folds its own tail")
+                 .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source-column fallback");
+          resource.drain();
         }
       }
     }

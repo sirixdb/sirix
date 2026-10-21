@@ -88,49 +88,6 @@ final class TemporalAggregatePartsTest {
   }
 
   @Test
-  void unencodedTailMatchesEveryStoredFrontierAndSnapshotIsImmutable() {
-    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
-    final Store store = new Store();
-    final List<Map<Long, Row>> history = new ArrayList<>();
-    final Map<Long, Row> rows = new HashMap<>();
-    final Random random = new Random(712391);
-    for (int revision = 0; revision <= 18; revision++) {
-      for (long id = 0; id < 24; id++) {
-        if (random.nextInt(3) == 0) {
-          rows.remove(id);
-        } else {
-          final long from = random.nextInt(128);
-          rows.put(id, new Row(from, from + 1 + random.nextInt(128), random.nextLong(), random.nextBoolean()));
-        }
-      }
-      history.add(Map.copyOf(rows));
-    }
-    for (int maintained = 0; maintained < history.size(); maintained++) {
-      final TemporalAggregateParts.Builder checkpoint = index.builder();
-      for (final Row row : history.get(maintained).values()) {
-        row.add(checkpoint, 1);
-      }
-      store.parts.put(1L, checkpoint.encode(true));
-      final TemporalAggregateParts.Builder tail = index.builder();
-      for (int revision = maintained; revision < history.size(); revision++) {
-        if (revision > maintained) {
-          for (final Row row : history.get(revision - 1).values()) {
-            row.add(tail, -1);
-          }
-          for (final Row row : history.get(revision).values()) {
-            row.add(tail, 1);
-          }
-        }
-        final TemporalAggregateParts.Delta snapshot = tail.snapshot();
-        verify(index, store, new long[] {1}, history.get(revision), snapshot);
-      }
-      final TemporalAggregateParts.Delta frozen = tail.snapshot();
-      tail.add(0, 256, new long[] {Long.MAX_VALUE}, 1, 1);
-      verify(index, store, new long[] {1}, history.getLast(), frozen);
-    }
-  }
-
-  @Test
   void compactSummariesMatchEveryStoredFrontierAndKeepFrozenTailsImmutable() {
     final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
     final Store store = new Store();

@@ -23,7 +23,7 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
   private final ResourceSession<?, ?> sourceSession;
   private final UberPage publication;
   private final int sourceRevision;
-  private final TemporalAggregateCatchUpBudget.Budget budget;
+  private TemporalAggregateCatchUpBudget.Budget budget;
   private final Int2ObjectOpenHashMap<TemporalAggregateIndexes.CatchUp> tails = new Int2ObjectOpenHashMap<>();
   private final IntOpenHashSet declined = new IntOpenHashSet();
 
@@ -56,6 +56,13 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
     return snapshot == null
         ? null
         : new DerivedAggregateCatchUp(source, snapshot, budget);
+  }
+
+  void useBudget(final TemporalAggregateCatchUpBudget.Budget budget) {
+    if (this.budget != budget) {
+      this.budget = Objects.requireNonNull(budget);
+      declined.clear();
+    }
   }
 
   public StorageEngineReader reader() {

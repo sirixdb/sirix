@@ -1,11 +1,14 @@
 package io.sirix.query;
 
+import io.brackit.query.QueryExecution;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.page.UberPage;
 import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
+import java.util.Map;
 import java.util.Objects;
+import java.util.WeakHashMap;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -18,7 +21,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   private final Thread owner = Thread.currentThread();
   private final Snapshot[] snapshots = new Snapshot[CAPACITY];
   private CatchUpSnapshot @Nullable [] catchups;
-  private TemporalAggregateCatchUpBudget.@Nullable Budget catchUpBudget;
+  private @Nullable Map<QueryExecution, TemporalAggregateCatchUpBudget.Budget> catchUpBudgets;
   private volatile boolean closed;
 
   private record CatchUpSnapshot(ResourceSession<?, ?> session, UberPage publication, int revision,
@@ -38,18 +41,21 @@ final class DerivedAggregateReaders implements AutoCloseable {
         (System.identityHashCode(source.getResourceSession()) + source.getRevisionNumber()) & (CAPACITY - 1);
     if (catchups == null) {
       catchups = new CatchUpSnapshot[CAPACITY];
-      catchUpBudget = new TemporalAggregateCatchUpBudget.Budget();
+      catchUpBudgets = new WeakHashMap<>();
     }
+    final TemporalAggregateCatchUpBudget.Budget catchUpBudget = Objects.requireNonNull(catchUpBudgets)
+        .computeIfAbsent(QueryExecution.current(), ignored -> new TemporalAggregateCatchUpBudget.Budget());
     final CatchUpSnapshot previous = catchups[slot];
     if (previous != null && !previous.view().reader().isClosed() && previous.session() == source.getResourceSession()
         && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {
+      previous.view().useBudget(catchUpBudget);
       return previous.view();
     }
     catchups[slot] = null;
     if (previous != null) {
       previous.view().close();
     }
-    final DerivedAggregateCatchUp opened = DerivedAggregateCatchUp.open(source, Objects.requireNonNull(catchUpBudget));
+    final DerivedAggregateCatchUp opened = DerivedAggregateCatchUp.open(source, catchUpBudget);
     if (opened != null) {
       catchups[slot] =
           new CatchUpSnapshot(source.getResourceSession(), source.getUberPage(), source.getRevisionNumber(), opened);
@@ -100,6 +106,9 @@ final class DerivedAggregateReaders implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
+    if (catchUpBudgets != null) {
+      catchUpBudgets.clear();
+    }
     RuntimeException failure = null;
     for (int slot = 0; slot < CAPACITY; slot++) {
       final Snapshot snapshot = snapshots[slot];
