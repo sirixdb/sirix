@@ -15228,39 +15228,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final CompiledPredicate cp = predicateOrNull == null
           ? null
           : compile(predicateOrNull, false);
-      final ArrayList<String> required = new ArrayList<>();
-      if (keyCondFields != null) {
-        for (final String cf : keyCondFields) {
-          if (cf != null && !required.contains(cf)) {
-            required.add(cf);
-          }
-        }
-      }
-      for (final String g : groupFields) {
-        if (!required.contains(g)) {
-          required.add(g);
-        }
-      }
-      for (final String f : aggFields) {
-        final ComputedLane lane = routing == null
-            ? null
-            : routing.lane(f);
-        if (lane != null) {
-          for (final String operand : lane.fields()) {
-            if (!required.contains(operand)) {
-              required.add(operand);
-            }
-          }
-          continue;
-        }
-        final String raw = rawAggField(f);
-        if (raw != null && !required.contains(raw)) {
-          required.add(raw);
-        }
-      }
-      if (routing != null && routing.membership() != null && !required.contains(routing.membership().field())) {
-        required.add(routing.membership().field());
-      }
+      final ArrayList<String> required = groupRequiredFields(keyCondFields, groupFields, aggFields, routing);
       final boolean scalarSummaryShape = routing == null && countDescendingPlainKey(predicateOrNull, keyCount, funcs,
           aggFields, outNames, orderIndexes, orderAsc, limit, keyOffsets, keySubstr, keyCondFields, keyCondElse,
           keyRegexPattern, keyDivMod, keyStringify, having);
@@ -15992,38 +15960,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       if (routing != null && routing.rowKeys() != null) {
-        if (handle.columnStoreOrNull() == null) {
-          return declineGroupAgg("routed source requires projection record keys");
-        }
-        // The index-routed row source: one more conjunct the kernels' own mask evaluators honour,
-        // leaf pruning included. A tree is the complete WHERE when present, so the set joins it as
-        // an AND over the root rather than riding beside it in a conjunction the tree arms ignore.
-        final GroupMembership membership = routing.membership();
-        final ProjectionIndexScan.ColumnPredicate rowSource;
-        if (membership == null) {
-          rowSource =
-              ProjectionIndexScan.ColumnPredicate.recordKeysIn(routing.rowKeys(), handle.columnStoreOrNull(), fetcher);
-        } else {
-          final int column = handle.columnOf(membership.field());
-          final ProjectionColumnStore membershipStore = handle.columnStoreOrNull();
-          if (column < 0 || !membershipStore.columnSliceable(column)
-              || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-              || !handle.numericColumnIsIntegral(column, fetcher)
-              || !handle.columnSparseClean(column, fetcher, materializer)
-              || !membershipStore.columnsFitWithinBudget(new int[] {column, ProjectionColumnStore.KEYS_COLUMN}, -1)) {
-            return declineGroupAgg("membership requires a clean resident integral column");
-          }
-          final MaskedColumns columns =
-              readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(), new String[] {membership.field()},
-                  new int[] {column}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
-          if (columns == null) {
-            return declineGroupAgg("membership columns do not fit the residency budget");
-          }
-          if (routing.membershipPrepared() != null) {
-            routing.membershipPrepared().accept(columns);
-          }
-          rowSource =
-              columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
+        // The row source joins the tree root: a tree is the complete WHERE predicate.
+        final ProjectionIndexScan.ColumnPredicate rowSource =
+            routedGroupRowPredicate(handle, fetcher, materializer, routing);
+        if (rowSource == null) {
+          return null;
         }
         if (predTree != null) {
           predTree = andTreeWith(predTree, rowSource);
@@ -18112,6 +18053,82 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       failSoft(GROUP_AGG_FAILED, "group-aggregate serving", e);
       return null;
     }
+  }
+
+  private static ArrayList<String> groupRequiredFields(final String @Nullable [] keyCondFields,
+      final String[] groupFields, final String[] aggFields, final @Nullable GroupRouting routing) {
+    final ArrayList<String> required = new ArrayList<>();
+    if (keyCondFields != null) {
+      for (final String cf : keyCondFields) {
+        if (cf != null && !required.contains(cf)) {
+          required.add(cf);
+        }
+      }
+    }
+    for (final String g : groupFields) {
+      if (!required.contains(g)) {
+        required.add(g);
+      }
+    }
+    addAggregateRequiredFields(required, aggFields, routing);
+    if (routing != null && routing.membership() != null && !required.contains(routing.membership().field())) {
+      required.add(routing.membership().field());
+    }
+    return required;
+  }
+
+  private static void addAggregateRequiredFields(final ArrayList<String> required, final String[] aggFields,
+      final @Nullable GroupRouting routing) {
+    for (final String f : aggFields) {
+      final ComputedLane lane = routing == null
+          ? null
+          : routing.lane(f);
+      if (lane == null) {
+        final String raw = rawAggField(f);
+        if (raw != null && !required.contains(raw)) {
+          required.add(raw);
+        }
+        continue;
+      }
+      for (final String operand : lane.fields()) {
+        if (!required.contains(operand)) {
+          required.add(operand);
+        }
+      }
+    }
+  }
+
+  private ProjectionIndexScan.@Nullable ColumnPredicate routedGroupRowPredicate(
+      final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final Supplier<List<byte[]>> materializer, final GroupRouting routing) {
+    if (handle.columnStoreOrNull() == null) {
+      declineGroupAgg("routed source requires projection record keys");
+      return null;
+    }
+    final GroupMembership membership = routing.membership();
+    if (membership == null) {
+      return ProjectionIndexScan.ColumnPredicate.recordKeysIn(routing.rowKeys(), handle.columnStoreOrNull(), fetcher);
+    }
+    final int column = handle.columnOf(membership.field());
+    final ProjectionColumnStore membershipStore = handle.columnStoreOrNull();
+    if (column < 0 || !membershipStore.columnSliceable(column)
+        || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || !handle.numericColumnIsIntegral(column, fetcher) || !handle.columnSparseClean(column, fetcher, materializer)
+        || !membershipStore.columnsFitWithinBudget(new int[] {column, ProjectionColumnStore.KEYS_COLUMN}, -1)) {
+      declineGroupAgg("membership requires a clean resident integral column");
+      return null;
+    }
+    final MaskedColumns columns =
+        readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(), new String[] {membership.field()},
+            new int[] {column}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    if (columns == null) {
+      declineGroupAgg("membership columns do not fit the residency budget");
+      return null;
+    }
+    if (routing.membershipPrepared() != null) {
+      routing.membershipPrepared().accept(columns);
+    }
+    return columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
   }
 
   private @Nullable ServedGroups trySortedGroupTopK(final String[] sourcePath, final @Nullable PredicateNode predicate,

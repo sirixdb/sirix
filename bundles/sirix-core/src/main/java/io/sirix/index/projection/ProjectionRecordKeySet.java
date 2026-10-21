@@ -144,28 +144,33 @@ public final class ProjectionRecordKeySet {
       final long[] lane = Objects.requireNonNull(slice.numericValues(), "membership requires an integral column");
       final long[] presence = slice.presenceWords();
       final long[] mask = new long[selected.length];
-      long any = 0;
-      for (int word = 0; word < selected.length; word++) {
-        long candidates = selected[word];
-        long kept = 0;
-        while (candidates != 0) {
-          final int bit = Long.numberOfTrailingZeros(candidates);
-          candidates &= candidates - 1;
-          final int row = (word << 6) + bit;
-          final boolean member = (presence[word] & 1L << bit) != 0 && values.contains(lane[row]);
-          if (anti != member) {
-            kept |= 1L << bit;
-          }
-        }
-        mask[word] = kept;
-        any |= kept;
-      }
-      if (any != 0) {
+      if (filterMembershipWords(selected, lane, presence, values, anti, mask)) {
         byFirstKey.put(keys[leaf][0], mask);
         slots.add(physicalSlot.applyAsLong(leaf));
       }
     }
     return new Masks(byFirstKey, slots);
+  }
+
+  private static boolean filterMembershipWords(final long[] selected, final long[] lane, final long[] presence,
+      final LongOpenHashSet values, final boolean anti, final long[] mask) {
+    long any = 0;
+    for (int word = 0; word < selected.length; word++) {
+      long candidates = selected[word];
+      long kept = 0;
+      while (candidates != 0) {
+        final int bit = Long.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1;
+        final int row = (word << 6) + bit;
+        final boolean member = (presence[word] & 1L << bit) != 0 && values.contains(lane[row]);
+        if (anti != member) {
+          kept |= 1L << bit;
+        }
+      }
+      mask[word] = kept;
+      any |= kept;
+    }
+    return any != 0;
   }
 
   /** Include the selected row bits, not only the original source keys, in predicate memo identity. */

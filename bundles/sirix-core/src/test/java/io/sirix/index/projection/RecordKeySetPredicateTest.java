@@ -238,41 +238,57 @@ final class RecordKeySetPredicateTest {
         }
       }
       final ColumnSlice[] slices = fixture.store().column(0, fixture.fetcher());
-      final LongOpenHashSet values = new LongOpenHashSet();
-      for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
-        for (int row = 0; row < fixture.keys()[leaf].length; row += 3) {
-          if (fixture.present()[leaf][row]) {
-            values.add(fixture.longs()[leaf][row]);
-          }
-        }
-      }
+      final LongOpenHashSet values = membershipValues(fixture);
       for (final boolean empty : new boolean[] {false, true}) {
         final LongOpenHashSet inner = empty
             ? new LongOpenHashSet(0)
             : values;
         for (final boolean anti : new boolean[] {false, true}) {
-          final ColumnPredicate predicate = ColumnPredicate.recordKeysByMembership(source, fixture.store(), rowMasks,
-              fixture.keys(), slices, inner, anti);
-          long expected = 0;
-          for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
-            for (int row = 0; row < fixture.keys()[leaf].length; row++) {
-              if (Arrays.binarySearch(source, fixture.keys()[leaf][row]) >= 0
-                  && anti != (fixture.present()[leaf][row] && inner.contains(fixture.longs()[leaf][row]))) {
-                expected++;
-              }
-            }
-          }
-          final ColumnPredicate[] predicates = {predicate};
-          assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fixture.store(), predicates, fixture.fetcher()));
-          assertEquals(expected, ProjectionIndexByteScan.conjunctiveCount(fixture.rawLeaves(), predicates));
-          final PredicateTree tree = PredicateTree.of(predicates, new byte[] {0});
-          assertEquals(expected, treeCount(fixture, tree));
-          // A later ordinary evaluation over the same source must not inherit this query's mask.
-          assertEquals(bruteCount(fixture, source, false), ProjectionColumnScan.conjunctiveCount(fixture.store(),
-              new ColumnPredicate[] {ColumnPredicate.recordKeysIn(source, fixture.keys())}, fixture.fetcher()));
+          assertMembershipMasks(fixture, source, rowMasks, slices, inner, anti);
         }
       }
     }
+  }
+
+  private static LongOpenHashSet membershipValues(final Fixture fixture) {
+    final LongOpenHashSet values = new LongOpenHashSet();
+    for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
+      for (int row = 0; row < fixture.keys()[leaf].length; row += 3) {
+        if (fixture.present()[leaf][row]) {
+          values.add(fixture.longs()[leaf][row]);
+        }
+      }
+    }
+    return values;
+  }
+
+  private static long membershipCount(final Fixture fixture, final long[] source, final LongOpenHashSet inner,
+      final boolean anti) {
+    long expected = 0;
+    for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
+      for (int row = 0; row < fixture.keys()[leaf].length; row++) {
+        if (Arrays.binarySearch(source, fixture.keys()[leaf][row]) >= 0
+            && anti != (fixture.present()[leaf][row] && inner.contains(fixture.longs()[leaf][row]))) {
+          expected++;
+        }
+      }
+    }
+    return expected;
+  }
+
+  private static void assertMembershipMasks(final Fixture fixture, final long[] source, final long[][] rowMasks,
+      final ColumnSlice[] slices, final LongOpenHashSet inner, final boolean anti) {
+    final ColumnPredicate predicate =
+        ColumnPredicate.recordKeysByMembership(source, fixture.store(), rowMasks, fixture.keys(), slices, inner, anti);
+    final long expected = membershipCount(fixture, source, inner, anti);
+    final ColumnPredicate[] predicates = {predicate};
+    assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fixture.store(), predicates, fixture.fetcher()));
+    assertEquals(expected, ProjectionIndexByteScan.conjunctiveCount(fixture.rawLeaves(), predicates));
+    final PredicateTree tree = PredicateTree.of(predicates, new byte[] {0});
+    assertEquals(expected, treeCount(fixture, tree));
+    // A later ordinary evaluation over the same source must not inherit this query's mask.
+    assertEquals(bruteCount(fixture, source, false), ProjectionColumnScan.conjunctiveCount(fixture.store(),
+        new ColumnPredicate[] {ColumnPredicate.recordKeysIn(source, fixture.keys())}, fixture.fetcher()));
   }
 
   @Test
