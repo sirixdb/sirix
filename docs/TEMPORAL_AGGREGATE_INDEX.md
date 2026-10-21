@@ -81,7 +81,7 @@ population. The index never enumerates the matching records during a point query
 
 The projection listener coalesces dirty identities and column masks through page flushes. It captures
 old cells from the decoded leaves or column slices before replacement, and new cells from the
-extractor already maintaining the projection. A format-4 `CHANGE_LOG` slab persists the first old
+extractor already maintaining the projection. A `CHANGE_LOG` slab persists the first old
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
@@ -112,19 +112,20 @@ mapping at its end. The batch reads a fixed published high watermark; catalogue 
 batch so declaring revisions have a snapshot.
 Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
 
-Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
-counts. Groups with more than sixteen parts or delta bytes above half the checkpoint become fold
-candidates. A separate derived commit folds candidates when idle; sustained publication forces a
-separate fold after 64 revisions, or earlier to leave room for batch replay after a crash, within
-the existing 91-part representation. Catch-up never
-folds old parts. A fold reads only its candidate groups and atomically republishes the mapping for
-the same source revision. Signed intermediate parts retain negative counts and frequencies; only
+Maintainer catch-up appends immutable signed delta parts. Group heads also record checkpoint and
+delta byte counts. Groups with more than sixteen parts or delta bytes above half the checkpoint
+become fold candidates. A separate derived commit folds candidates when idle; sustained publication
+forces a separate fold after 64 revisions, or earlier to leave room for batch replay after a crash, within
+the existing 91-part representation. Maintainer catch-up never folds old parts. A fold reads only
+its candidate groups and atomically republishes the mapping for the same source revision. Signed
+intermediate parts retain negative counts and frequencies; only
 complete checkpoints and query results require nonnegative counts.
 
 Prefix-4 mappings bind source revisions to derived revisions and to a durable 128-bit source log
 identity. Queries validate that identity and borrow the mapped derived snapshot for the lifetime
-of their immutable source reader, which closes it. A query context instead owns up to 64 snapshots
-on its coordinating thread, reusing them across source cursors from the same published history.
+of their immutable source reader, which closes it. A query context instead owns separate caches of
+up to 64 exact snapshots and 64 catch-up views on its coordinating thread, reusing them across
+source cursors from the same published history.
 The cache keys include the captured source UberPage's object identity, so commit, truncate and
 reopen require fresh identity validation even when revision numbers and timestamps are reused.
 Eviction and context close release these readers; other threads keep source-owned snapshots.
@@ -146,23 +147,25 @@ captured before/after rows. Counts, presence and signed 128-bit sums combine by 
 Extrema retain signed multiplicities of every touched `(lane, from, to, value)` tuple, so deleting
 an extremum still exposes the next surviving value. Equal changes cancel. This does not build or
 fold a time-cover tree on the commit path. The asynchronous maintainer continues consuming the raw
-format-4 slabs; the obsolete raw-row group directory and its reader are removed.
+slabs.
 
-Sorted group operands share packed 2,048-byte change-log slots, keyed by their last group. A direct
-lower-bound seek finds a requested group's block without decoding a directory or unrelated rows.
-One group may span at most two chunks; oversized groups have an explicit decline marker. A
-revision/declaration header provides coverage, unsupported-row and arithmetic-overflow markers,
-and the raw slab's publication identity. That generation prevents stale blocks from a previous
-maintenance barrier in the same transaction being read after the operands are replaced. Empty
-revisions retain coverage headers. Historical raw slabs without summary coverage decline safely.
+For a requested declaration, query catch-up reads every group operand in each tail revision, then
+caches the completed tail for reuse across point instants. Oversized operands decline the entire route.
+Coverage headers detect unsupported rows and arithmetic overflow and bind operands to the raw slab's
+publication identity. That generation prevents stale blocks from a previous maintenance barrier
+in the same transaction being read after the operands are replaced. Empty revisions retain coverage
+headers. Historical raw slabs without summary coverage decline safely.
+The packed operand layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
-The query-wide budget retains 512 distinct chunk fetches, 16,384 decoded endpoint/frequency units
-and 262,144 primitive cells, shared across declarations. Counts are charged before decoding;
-tail builders admit at most 4,096 groups. No bound is relaxed for a large operand. Repeated points
-reuse the merged tail. Admitted tails retain the existing three-part-chunk base bound plus at most
-two tail chunks per changed group per lagging revision. `TemporalAggregateSummaryLog.lastWrite()`
-reports the last declaration's summary groups, serialized bytes (including its header), and HOT
-slots separately from `ChangeLogStorage.lastWrite()`'s raw slab accounting.
+Each query execution receives a fresh budget of 512 chunk fetches, 16,384 decoded endpoint/frequency
+units and 262,144 primitive cells, shared across its revisions and declarations even when the query
+context is reused. Budget-caused declines can be retried by a later execution; completed immutable
+tails remain reusable. Counts are charged before decoding; tail builders admit at most 4,096 groups.
+No bound is relaxed for a large operand. Counted read bounds are owned by the
+[work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
+`TemporalAggregateSummaryLog.lastWrite()` reports the last declaration's summary groups,
+serialized bytes (including its header), and HOT slots separately from
+`ChangeLogStorage.lastWrite()`'s raw slab accounting.
 `TemporalAggregateIndexes.lastSummaryWrite()` sums the declarations for the last logged source
 projection publication, for per-commit byte/slot reporting.
 
@@ -205,7 +208,7 @@ Dropping the last consumer stops logging; declaring a new one rebuilds sparse ro
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
 a consumer have no slab.
 
-Initial builds and incremental aggregate writes run off the source commit path.
+Initial builds and incremental writes to derived aggregate parts run off the source commit path.
 
 Long operands and long record counts bound sums within signed 128 bits. Products are checked before
 entering the index; an overflowing product declines serving instead of wrapping. Removing an
@@ -231,12 +234,12 @@ existing execution path. Ordinary grouped queries must order by every group key;
 existing path preserves first-seen group order. Correlated grouped admission already requires a
 total order over its group keys.
 
-Ordinary grouped queries use primitive columnar output when their keys are a full permutation of
-the maintained grouping, every grouping column is projected as an integral long, and all requested
-aggregates are `count`, `min` or `max`. The output is already stably ordered by the query's keys and
-aggregate fields, with missing-value placement independent of ascending or descending direction.
+Ordinary grouped queries without query-time catch-up use primitive columnar output when their keys
+are a full permutation of the maintained grouping, every grouping column is projected as an integral
+long, and all requested aggregates are `count`, `min` or `max`. The output is already stably ordered
+by the query's keys and aggregate fields, with missing-value placement independent of ascending or descending direction.
 An unsupported encoded key representation uses the object-output route instead. Grouping rollups,
-other key types, sums and correlated groups retain object output.
+other key types, sums, correlated groups and query-time catch-up retain object output.
 
 Only exact millisecond instants inside the configured domain are admitted. Endpoint columns may
 contain timestamp strings or typed timestamps. Typed endpoints follow the projection's

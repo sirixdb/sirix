@@ -43,8 +43,9 @@ final class DerivedAggregateReaders implements AutoCloseable {
       catchups = new CatchUpSnapshot[CAPACITY];
       catchUpBudgets = new WeakHashMap<>();
     }
-    final TemporalAggregateCatchUpBudget.Budget catchUpBudget = Objects.requireNonNull(catchUpBudgets)
-        .computeIfAbsent(QueryExecution.current(), ignored -> new TemporalAggregateCatchUpBudget.Budget());
+    final TemporalAggregateCatchUpBudget.Budget catchUpBudget =
+        Objects.requireNonNull(catchUpBudgets)
+               .computeIfAbsent(QueryExecution.current(), ignored -> new TemporalAggregateCatchUpBudget.Budget());
     final CatchUpSnapshot previous = catchups[slot];
     if (previous != null && !previous.view().reader().isClosed() && previous.session() == source.getResourceSession()
         && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {

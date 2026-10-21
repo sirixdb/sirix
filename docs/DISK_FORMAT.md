@@ -270,12 +270,11 @@ fail-fast lookups, never ordinals.
   total block bytes (i32) and group count (u16), then sorted records `(group-key length u16,
   operand length u16, group bytes, operand bytes)`. Blocks fit one 2,048-byte slot; a single large
   group can use exactly two consecutive slots, chunks 0 and 1. Operand length zero is an explicit
-  decline marker. A lower-bound lookup by group selects its upper-fence block without a directory.
+  decline marker. Each block's key carries its last group as an upper fence.
   Operands contain unsigned-varint endpoint and multiplicity counts, followed by endpoint-coordinate
   deltas and zig-zag-varint signed row/presence counts and low/high signed-128 sum halves for SUM
   lanes. Frequency entries are `(lane, from, length)` unsigned varints and `(value, multiplicity)`
-  zig-zag varints. All touched values are retained; no extrema are approximated. Empty net operands
-  are omitted, but every declared revision retains a coverage header. Missing coverage headers decline catch-up; the asynchronous maintainer reads the raw slabs.
+  zig-zag varints. Empty net operands are omitted, but every declared revision retains a coverage header.
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the

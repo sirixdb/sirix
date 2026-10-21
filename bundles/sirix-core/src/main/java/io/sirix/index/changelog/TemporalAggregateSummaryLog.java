@@ -14,7 +14,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-/** Revision-owned packed group operands. Upper fence keys permit direct group addressing. */
+/** Revision-owned packed group operands, scanned as a complete tail during query catch-up. */
 public final class TemporalAggregateSummaryLog {
   private static final int MAGIC = 0x54415331;
   private static final int HEADER_BYTES = 60;
@@ -108,6 +108,7 @@ public final class TemporalAggregateSummaryLog {
     return work;
   }
 
+  @SuppressWarnings("ByteBufferBackingArray") // write() supplies a zero-offset buffer from allocate().
   private static int flush(final ChangeLogStorage storage, final byte[] prefix, final byte[] last,
       final ByteBuffer block, final int groups) {
     final int length = block.position();
@@ -222,6 +223,7 @@ public final class TemporalAggregateSummaryLog {
       }
     }
 
+    @SuppressWarnings("ArrayRecordComponent") // Internal decoding carrier; fence bytes are not equality keys.
     private record Block(byte[] fence, ByteBuffer bytes, int groups) {
     }
 

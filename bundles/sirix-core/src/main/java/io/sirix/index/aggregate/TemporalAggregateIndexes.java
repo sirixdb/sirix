@@ -11,10 +11,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.path.summary.PathSummaryReader;
 import java.util.function.LongFunction;
 import java.util.function.ObjIntConsumer;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.StorageEngineWriter;
@@ -307,7 +303,7 @@ public final class TemporalAggregateIndexes {
     return TemporalAggregateSummaryLog.write(log, slab, definition.getID(), encoded, unsupported, unservable);
   }
 
-  private static void summarize(final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> groups,
+  private static void summarize(final Map<byte[], TemporalAggregateParts.SummaryBuilder> groups,
       final TemporalAggregateParts parts, final @Nullable Row row, final int sign) {
     if (row != null && !row.unsupported && row.group != null) {
       groups.computeIfAbsent(row.group, ignored -> parts.summaryBuilder())
@@ -356,8 +352,9 @@ public final class TemporalAggregateIndexes {
   }
 
   /**
-   * Fold only addressed changes. Any missing coverage, discontinuous base, unsupported cell or
-   * exhausted budget aborts the entire route. Nothing is written to either resource.
+   * Fold every compact group operand in the revision tail. Any missing coverage, discontinuous base,
+   * unsupported cell or exhausted budget aborts the entire route. Nothing is written to either
+   * resource.
    */
   public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
       final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget) {

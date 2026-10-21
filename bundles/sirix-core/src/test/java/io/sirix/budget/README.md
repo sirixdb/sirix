@@ -417,8 +417,8 @@ use `sirix.changelog.workDiag`. Source work is captured with the maintainer paus
 maintenance cannot contaminate the process-global counts.
 
 `TemporalAggregateCatchUpWorkBudgetTest` checks lag 0, 1, 8 and 16 against an exact arithmetic
-oracle, requires the aggregate route, and bounds each changed group's tail to two slab chunks per
-revision; repeated points read no tail chunks. Lag 17 must decline before reading the tail.
+oracle, requires the aggregate route, and bounds the fixture's single changed group to two summary
+chunks per revision; repeated points read no tail chunks. Lag 17 must decline before reading the tail.
 Mutation evidence (2026-10-15): disabling catch-up preserved both fixture answers but failed the
 served-route requirement at lag 1 for 256 and 4,096 source rows. The fallback read two/eight
 projection BODY segments instead of zero. The source was restored before full validation.

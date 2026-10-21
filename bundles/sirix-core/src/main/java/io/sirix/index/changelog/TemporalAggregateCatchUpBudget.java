@@ -1,10 +1,13 @@
 package io.sirix.index.changelog;
 
-/** Bounded query-owned work shared across temporal aggregate revisions and declarations. */
+/**
+ * Bounded work for one query execution, shared across temporal aggregate revisions and
+ * declarations.
+ */
 public final class TemporalAggregateCatchUpBudget {
   private TemporalAggregateCatchUpBudget() {}
 
-  /** Query-owned budget, shared across revisions and groupings. */
+  /** Execution-owned budget, replenished for each execution even when its context is reused. */
   public static final class Budget {
     private int chunks = 512;
     private int entries = 16_384;
