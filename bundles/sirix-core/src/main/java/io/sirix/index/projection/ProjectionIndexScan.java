@@ -187,13 +187,18 @@ public final class ProjectionIndexScan {
       }
       final ProjectionRecordKeySet.Masks source = store.recordKeyMasks(sortedKeys, fetcher);
       final long[] keep = new long[(store.leafCount() + 63) >>> 6];
+      int kept = 0;
       for (int leaf = 0; leaf < store.leafCount(); leaf++) {
         if (source.physicalSlots().contains(store.physicalSlot(leaf))) {
           keep[leaf >>> 6] |= 1L << (leaf & 63);
+          kept++;
         }
       }
-      final ProjectionColumnStore.ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keep);
-      final long[][] keys = store.recordKeysMasked(fetcher, keep);
+      final long[] keepWords = kept == store.leafCount()
+          ? null
+          : keep;
+      final ProjectionColumnStore.ColumnSlice[] slices = store.columnMaskedView(column, fetcher, keepWords);
+      final long[][] keys = store.recordKeysMasked(fetcher, keepWords);
       final ProjectionRecordKeySet.Masks filtered =
           ProjectionRecordKeySet.filterMembership(source, keys, slices, store::physicalSlot, values, anti);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,

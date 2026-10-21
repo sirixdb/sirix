@@ -53,6 +53,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.jspecify.annotations.Nullable;
 
@@ -70,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
@@ -187,6 +189,78 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"id, true", "id, false", "grade, true", "grade, false"})
+  void allKeptMembershipRetainsColdFillsForGroupingAndRepeatedExecutions(final String groupField,
+      final boolean anti) throws Exception {
+    build(false, 2, VersioningType.FULL);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final long[] keys = ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
+      assertEquals(2, keys.length);
+      Arrays.sort(keys);
+      final var handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+          new String[] {"id", groupField, "cost"});
+      assertNotNull(handle);
+      final var columns = requireNonNull(handle.columnStoreOrNull());
+      assertEquals(1, columns.leafCount());
+      final int membershipColumn = handle.columnOf("id");
+      assertFalse(columns.columnFilled(membershipColumn), "membership starts without decoded resident slices");
+      final LongOpenHashSet values = new LongOpenHashSet(anti
+          ? new long[] {99}
+          : new long[] {1, 2});
+      final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, anti));
+      final String expected = groupField.equals("id")
+          ? "{\"key\":1,\"total\":1000} {\"key\":2,\"total\":1037}"
+          : "{\"key\":0,\"total\":1000} {\"key\":1,\"total\":1037}";
+      final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      try {
+        long[] residentValues = null;
+        for (int repeat = 0; repeat < 3; repeat++) {
+          final WorkCapture.Captured<ServedGroups> served =
+              WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                         .and(EngineWorkCounters.PROJECTION_KEY_SEGMENTS)
+                         .and(QueryWorkCounters.GROUP_AGGREGATES)
+                         .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null,
+                             new String[] {groupField}, new String[] {"key"}, new String[] {"sum"},
+                             new String[] {"cost"}, new String[] {"total"}, new int[] {0}, new boolean[] {true},
+                             new boolean[] {true}, -1L, null, null, null, null, null, null, null, null, null, null,
+                             routing));
+          assertNotNull(served.result());
+          final ByteArrayOutputStream out = new ByteArrayOutputStream();
+          try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+            serializer.serialize(served.result().groups());
+          }
+          assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+          served.work()
+                .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
+                    ? groupField.equals("id")
+                        ? 2
+                        : 3
+                    : 0, "cold columns fill once; later membership and grouping reuse resident fills")
+                .assertExactly(EngineWorkCounters.PROJECTION_KEY_SEGMENTS, repeat == 0
+                    ? 1
+                    : 0, "membership and grouping share the resident record keys")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership remains in the grouped route");
+          assertTrue(columns.columnFilled(membershipColumn), "membership retains its decoded column");
+          final long[] decoded = columns.column(membershipColumn, fetcher)[0].numericValues();
+          if (repeat == 0) {
+            residentValues = decoded;
+          } else {
+            assertSame(residentValues, decoded, "repeated membership reuses the decoded value lane");
+          }
+        }
+      } finally {
+        executor.close();
+      }
+    }
+  }
+
+  @ParameterizedTest
   @EnumSource(VersioningType.class)
   void membershipMapsTheOuterSourceOnce(final VersioningType versioning) throws Exception {
     build(false, ROWS, versioning);
@@ -217,6 +291,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       try {
         final WorkCapture.Captured<ServedGroups> served =
             WorkCapture.of(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                       .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                        .and(QueryWorkCounters.GROUP_AGGREGATES)
                        .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null,
                            new String[] {"grade"}, new String[] {"grade"}, new String[] {"count", "sum"},
@@ -232,6 +307,8 @@ final class IndexRoutedGroupWorkBudgetTest {
         served.work()
               .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, ROWS,
                   "membership reuses one outer source mapping, without mapping a selected-key array")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
+                  "only the source leaf supplies membership, group and aggregate columns")
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership is served in the grouped route");
       } finally {
         executor.close();
@@ -991,6 +1068,7 @@ final class IndexRoutedGroupWorkBudgetTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RES)
+                                                   .storageType(StorageType.FILE_CHANNEL)
                                                    .validTimePaths("vf", "vt")
                                                    .customCommitTimestamps(true)
                                                    .buildPathSummary(true)
