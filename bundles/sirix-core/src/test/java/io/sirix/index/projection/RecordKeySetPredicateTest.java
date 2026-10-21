@@ -251,9 +251,8 @@ final class RecordKeySetPredicateTest {
             ? new LongOpenHashSet(0)
             : values;
         for (final boolean anti : new boolean[] {false, true}) {
-          final ColumnPredicate predicate =
-              ColumnPredicate.recordKeysByMembership(source, fixture.store(), rowMasks, fixture.keys(), slices, inner,
-                  anti);
+          final ColumnPredicate predicate = ColumnPredicate.recordKeysByMembership(source, fixture.store(), rowMasks,
+              fixture.keys(), slices, inner, anti);
           long expected = 0;
           for (int leaf = 0; leaf < fixture.keys().length; leaf++) {
             for (int row = 0; row < fixture.keys()[leaf].length; row++) {

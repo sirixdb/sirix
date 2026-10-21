@@ -191,8 +191,8 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   @ParameterizedTest
   @CsvSource({"id, true", "id, false", "grade, true", "grade, false"})
-  void allKeptMembershipRetainsColdFillsForGroupingAndRepeatedExecutions(final String groupField,
-      final boolean anti) throws Exception {
+  void allKeptMembershipRetainsColdFillsForGroupingAndRepeatedExecutions(final String groupField, final boolean anti)
+      throws Exception {
     build(false, 2, VersioningType.FULL);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store)) {
@@ -202,9 +202,9 @@ final class IndexRoutedGroupWorkBudgetTest {
       final long[] keys = ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
       assertEquals(2, keys.length);
       Arrays.sort(keys);
-      final var handle = ProjectionIndexCatalog.lookupCovering(session,
-          session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-          new String[] {"id", groupField, "cost"}, true);
+      final var handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
+              new String[] {"[]"}, new String[] {"id", groupField, "cost"}, true);
       assertNotNull(handle);
       final var columns = requireNonNull(handle.columnStoreOrNull());
       assertEquals(1, columns.leafCount());
@@ -278,9 +278,9 @@ final class IndexRoutedGroupWorkBudgetTest {
         final long[] keys = ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
         Arrays.sort(keys);
         assertEquals(selectedRows, keys.length);
-        final var handle = ProjectionIndexCatalog.lookupCovering(session,
-            session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
-            new String[] {"id", "grade", "cost"}, true);
+        final var handle =
+            ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(),
+                revision, new String[] {"[]"}, new String[] {"id", "grade", "cost"}, true);
         assertNotNull(handle);
         final var columns = requireNonNull(handle.columnStoreOrNull());
         assertEquals(4, columns.leafCount());
@@ -304,8 +304,12 @@ final class IndexRoutedGroupWorkBudgetTest {
               }
             }
             final String condition = narrowed
-                ? (anti ? "not($c.id = (1,1025,2049,4096))" : "$c.id = (1,1025,2049,4096)")
-                : (anti ? "$c.id ne 999999" : "$c.id le " + selectedRows);
+                ? (anti
+                    ? "not($c.id = (1,1025,2049,4096))"
+                    : "$c.id = (1,1025,2049,4096)")
+                : (anti
+                    ? "$c.id ne 999999"
+                    : "$c.id le " + selectedRows);
             final String expected = run(generic, ctx,
                 "for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
                     + "xs:dateTime('2024-06-01T00:00:00Z')) where " + condition
@@ -323,15 +327,18 @@ final class IndexRoutedGroupWorkBudgetTest {
                                routing));
             assertNotNull(served.result());
             final ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+            try (
+                final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
               serializer.serialize(served.result().groups());
             }
             assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
             served.work()
-                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0 ? 9 : 6,
-                      "three selected leaves fill membership once and group/aggregate columns on each execution")
-                  .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, repeat == 0 ? totalRows : 0,
-                      "cached source masks never remap selected keys")
+                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
+                      ? 9
+                      : 6, "three selected leaves fill membership once and group/aggregate columns on each execution")
+                  .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, repeat == 0
+                      ? totalRows
+                      : 0, "cached source masks never remap selected keys")
                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "selective membership stays fused");
             assertFalse(columns.columnFilled(membershipColumn), "selective reuse never fills the excluded leaf");
           }
@@ -353,20 +360,29 @@ final class IndexRoutedGroupWorkBudgetTest {
         final boolean empty = mode == 2;
         final boolean anti = mode != 1;
         clearColdProjectionState();
-        try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        try (
+            var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
             var ctx = SirixQueryContext.createWithJsonStore(store);
             var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
             var chain = SirixCompileChain.createWithJsonStore(store)) {
-          final String inner = tailSource("suppliers", empty ? "2030-01-01T00:00:00Z" : "2024-06-01T00:00:00Z");
+          final String inner = tailSource("suppliers", empty
+              ? "2030-01-01T00:00:00Z"
+              : "2024-06-01T00:00:00Z");
           final String query = "let $new := " + inner + " for $a in " + tailSource(RES, "2024-06-01T00:00:00Z")
-              + " where " + (anti ? "empty" : "exists") + "(for $b in $new where $b."
-              + (anti ? "id" : "tier") + " eq $a.id return $b)"
+              + " where " + (anti
+                  ? "empty"
+                  : "exists")
+              + "(for $b in $new where $b." + (anti
+                  ? "id"
+                  : "tier")
+              + " eq $a.id return $b)"
               + " let $grade := $a.grade, $cost := $a.cost group by $grade let $total := sum($cost)"
               + " order by $grade return {'grade':$grade,'total':$total}";
           final String expected = run(generic, ctx, query);
           assertFalse(expected.isEmpty());
           final var innerDocument = store.lookup(DB).getDocument("suppliers");
-          final long[] innerKeys = ValidTimeIntervalIndex.keys(innerDocument, Instant.parse("2024-06-01T00:00:00Z"), true);
+          final long[] innerKeys =
+              ValidTimeIntervalIndex.keys(innerDocument, Instant.parse("2024-06-01T00:00:00Z"), true);
           Arrays.sort(innerKeys);
           assertEquals(1, innerKeys.length);
           final var innerExecutor = new SirixVectorizedExecutor(innerDocument.getResourceSession(),
@@ -394,15 +410,18 @@ final class IndexRoutedGroupWorkBudgetTest {
           doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
           if (lateRefusal) {
             doThrow(mock(FillBudgetExceededException.class)).when(observedColumns)
-                                                         .columnMaskedView(eq(grade), any(), any());
+                                                            .columnMaskedView(eq(grade), any(), any());
           }
-          final long budget = columns.retainedFillBytes()
-              + (columns.recordKeysFilled() ? 0L : columns.projectedRecordKeysFillBytes())
-              + columns.projectedColumnFillBytes(id)
-              + (lateRefusal ? columns.projectedColumnFillBytes(grade) + columns.projectedColumnFillBytes(cost) : 0L);
+          final long budget = columns.retainedFillBytes() + (columns.recordKeysFilled()
+              ? 0L
+              : columns.projectedRecordKeysFillBytes()) + columns.projectedColumnFillBytes(id)
+              + (lateRefusal
+                  ? columns.projectedColumnFillBytes(grade) + columns.projectedColumnFillBytes(cost)
+                  : 0L);
           final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(budget);
           try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
-            catalog.when(() -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any()))
+            catalog.when(
+                () -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any()))
                    .thenReturn(observedHandle);
             catalog.when(() -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any(),
                 eq(true))).thenReturn(observedHandle);
@@ -410,18 +429,22 @@ final class IndexRoutedGroupWorkBudgetTest {
             assertEquals(lateRefusal,
                 observedColumns.columnsFitWithinBudget(new int[] {grade, cost, ProjectionColumnStore.KEYS_COLUMN}, -1));
             final WorkCapture.Captured<String> actual = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
-                                                                  .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
-                                                                  .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
-                                                                  .call(() -> run(chain, ctx, query));
+                                                                   .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                                                                   .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                                                                   .call(() -> run(chain, ctx, query));
             assertEquals(expected, actual.result());
             actual.work()
-                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, empty ? 0 : 1,
-                      "a sparse membership column loads once across refusal and fallback, or never for empty anti")
-                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, empty ? 1 : 2,
+                  .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, empty
+                      ? 0
+                      : 1, "a sparse membership column loads once across refusal and fallback, or never for empty anti")
+                  .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, empty
+                      ? 1
+                      : 2,
                       "normalized empty anti skips membership fallback; nonempty membership tries both routed stages")
                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusal is an ordinary decline");
-            verify(observedColumns, empty ? never() : times(1))
-                .columnMaskedView(eq(id), any(), any());
+            verify(observedColumns, empty
+                ? never()
+                : times(1)).columnMaskedView(eq(id), any(), any());
             assertFalse(observedColumns.columnFilled(id), "the sparse source never fills excluded membership leaves");
           } finally {
             ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);

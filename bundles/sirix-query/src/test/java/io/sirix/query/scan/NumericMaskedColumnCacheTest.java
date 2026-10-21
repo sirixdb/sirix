@@ -108,7 +108,9 @@ final class NumericMaskedColumnCacheTest {
       assertNotNull(cached);
       final ColumnPredicate predicate =
           cached.recordKeyPredicateByMembership(0, keys, new LongOpenHashSet(new long[] {1}), anti);
-      assertEquals(anti ? 2L : 1L, Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10)[0]);
+      assertEquals(anti
+          ? 2L
+          : 1L, Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10)[0]);
       assertEquals(3L, Objects.requireNonNull(cached.rowMask(0))[0]);
       final MaskedColumns repeated = NumericMaskedColumnCache.get(store, fields, keys);
       assertNotNull(repeated);
