@@ -61,7 +61,7 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
   @CsvSource({"256,FULL", "4096,FULL", "256,DIFFERENTIAL", "4096,DIFFERENTIAL", "256,INCREMENTAL", "4096,INCREMENTAL",
       "256,SLIDING_SNAPSHOT", "4096,SLIDING_SNAPSHOT"})
   void historySizedDictionariesDeclineBeforeDecoding(final int rows, final VersioningType versioning) throws Exception {
-    build(rows, versioning);
+    build(rows, versioning, true, false);
     for (final boolean correlated : new boolean[] {false, true}) {
       for (final int publication : new int[] {0, 1, 2, CHURN / 2 + 1, CHURN + 1, CHURN + 2}) {
         ProjectionIndexCatalog.clearCache();
@@ -127,7 +127,79 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
     }
   }
 
-  private void build(final int rows, final VersioningType versioning) {
+  @ParameterizedTest
+  @CsvSource({"16,FULL,true", "256,FULL,true", "16,DIFFERENTIAL,true", "256,DIFFERENTIAL,true", "16,INCREMENTAL,true",
+      "256,INCREMENTAL,true", "16,SLIDING_SNAPSHOT,true", "256,SLIDING_SNAPSHOT,true", "16,FULL,false",
+      "256,FULL,false", "16,DIFFERENTIAL,false", "256,DIFFERENTIAL,false", "16,INCREMENTAL,false",
+      "256,INCREMENTAL,false", "16,SLIDING_SNAPSHOT,false", "256,SLIDING_SNAPSHOT,false"})
+  void integralOutputDeclinesOversizedDictionaryOnce(final int rows, final VersioningType versioning,
+      final boolean storeChildCount) throws Exception {
+    build(rows, versioning, storeChildCount, true);
+    for (final int publication : new int[] {0, 1}) {
+      for (final boolean ascending : new boolean[] {true, false}) {
+        ProjectionIndexCatalog.clearCache();
+        ProjectionIndexRegistry.clear();
+        Databases.clearGlobalCaches();
+        try (var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+            var context = SirixQueryContext.createWithJsonStore(store);
+            var chain = SirixCompileChain.createWithJsonStore(store);
+            var oracle = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+          DerivedIndexTestSupport.await(store.lookup("dictionary").getDatabase());
+          Databases.clearGlobalCaches();
+          final String query = """
+              for $r in jn:open-bitemporal('dictionary','records',xs:dateTime('TX'),xs:dateTime('2024-01-02T00:00:00Z'))
+              let $g := $r.g group by $g
+              let $count := count($r), $min := min($r.n), $max := max($r.n)
+              order by $g DIRECTION
+              return {"g":$g,"count":$count,"min":$min,"max":$max}
+              """.replace("TX", publicationInstant(publication).toString())
+                 .replace("DIRECTION", ascending
+                     ? "ascending"
+                     : "descending");
+          final StringBuilder expected = new StringBuilder();
+          for (int position = 0; position < rows; position++) {
+            final int group = (ascending
+                ? position
+                : rows - position - 1) + publication;
+            final int value = group == rows
+                ? 1
+                : group + 1;
+            expected.append("{\"g\":")
+                    .append(group)
+                    .append(",\"count\":1,\"min\":")
+                    .append(value)
+                    .append(",\"max\":")
+                    .append(value)
+                    .append('}');
+          }
+          final String answer = expected.toString();
+          for (int temperature = 0; temperature < 2; temperature++) {
+            final WorkCapture.Captured<String> captured = CAPTURE.call(() -> run(chain, context, query));
+            assertEquals(answer, captured.result());
+            captured.work()
+                    .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_VISITED, rows + publication,
+                        "dictionary admission walks at most the current population plus one once")
+                    .assertExactly(EngineWorkCounters.TEMPORAL_GROUP_HEADS_DECODED, publication == 0
+                        ? rows
+                        : 0, "a declined primitive dictionary decodes no heads")
+                    .assertExactly(SERVED, publication == 0
+                        ? 1
+                        : 0, "the initial integral dictionary is served and the changed dictionary declines");
+            if (publication == 1) {
+              captured.work()
+                      .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1,
+                          "dictionary decline retains the masked projection fallback");
+            }
+          }
+          assertEquals(answer, run(oracle, context, query));
+        }
+      }
+    }
+  }
+
+  private void build(final int rows, final VersioningType versioning, final boolean storeChildCount,
+      final boolean singleGroupChange) {
     final var path = directory.toPath().resolve("dictionary");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
@@ -144,6 +216,7 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
                                                    .storageType(StorageType.FILE_CHANNEL)
                                                    .customCommitTimestamps(true)
                                                    .versioningApproach(versioning)
+                                                   .storeChildCount(storeChildCount)
                                                    .maxNumberOfRevisionsToRestore(3)
                                                    .storeDiffs(false)
                                                    .build());
@@ -175,9 +248,20 @@ final class TemporalAggregateDictionaryWorkBudgetTest {
             List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
         final JsonIndexController controller = session.getWtxIndexController(writer.getRevisionNumber());
         controller.createIndexes(Set.of(projection), writer);
-        TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"), List.of("count(*)", "sum(n)"));
+        TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("g"), singleGroupChange
+            ? List.of("count(*)", "min(n)", "max(n)")
+            : List.of("count(*)", "sum(n)"));
         writer.commit("initial", publicationInstant(0));
         DerivedIndexTestSupport.await(session);
+        if (singleGroupChange) {
+          writer.moveTo(first);
+          writer.moveToFirstChild();
+          writer.moveToFirstChild();
+          writer.setNumberValue(rows);
+          writer.commit("change one group", publicationInstant(1));
+          DerivedIndexTestSupport.await(session);
+          return;
+        }
         for (int row = 1; row < rows; row++) {
           writer.moveTo(first);
           assertTrue(writer.moveToRightSibling());

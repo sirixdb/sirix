@@ -33,6 +33,8 @@ import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.ColumnarRecordSequence;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
@@ -74,6 +76,23 @@ public final class TemporalAggregateRoute {
 
   static SirixVectorizedExecutor.@Nullable ServedGroups serve(final QueryContext ctx, final Tuple tuple,
       final @Nullable Point point, final RoutedGroupRequest request) {
+    return serve(ctx, tuple, point, request, null);
+  }
+
+  static final class OutputOrder {
+    private final int[] indexes;
+    private final boolean[] ascending;
+    private final boolean[] emptyLeast;
+
+    OutputOrder(final int[] indexes, final boolean[] ascending, final boolean[] emptyLeast) {
+      this.indexes = indexes;
+      this.ascending = ascending;
+      this.emptyLeast = emptyLeast;
+    }
+  }
+
+  static SirixVectorizedExecutor.@Nullable ServedGroups serve(final QueryContext ctx, final Tuple tuple,
+      final @Nullable Point point, final RoutedGroupRequest request, final @Nullable OutputOrder order) {
     if (request.predicate() != null || request.sourcePath().length != 1 || !"[]".equals(request.sourcePath()[0])) {
       return null;
     }
@@ -99,7 +118,7 @@ public final class TemporalAggregateRoute {
       return null;
     }
     if (!DerivedIndexMaintainer.enabled(reader.getResourceSession().getResourceConfig())) {
-      return serveSnapshot(reader, reader, indexes, array, point, request);
+      return serveSnapshot(reader, reader, indexes, array, point, request, order);
     }
     try {
       final StorageEngineReader derived = ctx instanceof SirixQueryContext context
@@ -107,7 +126,7 @@ public final class TemporalAggregateRoute {
           : reader.getDerivedIndexReader();
       return derived == null
           ? null
-          : serveSnapshot(reader, derived, indexes, array, point, request);
+          : serveSnapshot(reader, derived, indexes, array, point, request, order);
     } catch (final RuntimeException unavailable) {
       LOGGER.warn("Derived aggregate snapshot unavailable at source revision {}; using exact fallback",
           reader.getRevisionNumber(), unavailable);
@@ -117,7 +136,7 @@ public final class TemporalAggregateRoute {
 
   private static SirixVectorizedExecutor.@Nullable ServedGroups serveSnapshot(final StorageEngineReader reader,
       final StorageEngineReader aggregateReader, final Indexes indexes, final ArrayNode array, final Point point,
-      final RoutedGroupRequest request) {
+      final RoutedGroupRequest request, final @Nullable OutputOrder order) {
     final List<IndexDef> candidates = new ArrayList<>();
     for (final IndexDef definition : indexes.getIndexDefs()) {
       if (definition.isTemporalAggregateIndex()) {
@@ -137,8 +156,10 @@ public final class TemporalAggregateRoute {
       if (groups == null || lanes == null) {
         continue;
       }
-      final SirixVectorizedExecutor.ServedGroups served =
-          serveGroups(aggregateReader, definition, array, point, request, groups, lanes);
+      final SirixVectorizedExecutor.ServedGroups served = serveGroups(aggregateReader, definition, array, point,
+          request, groups, lanes, primitiveGroups(metadata, spec, groups, request)
+              ? order
+              : null);
       if (served != null) {
         return served;
       }
@@ -162,7 +183,7 @@ public final class TemporalAggregateRoute {
 
   private static SirixVectorizedExecutor.@Nullable ServedGroups serveGroups(final StorageEngineReader aggregateReader,
       final IndexDef definition, final ArrayNode array, final Point point, final RoutedGroupRequest request,
-      final int[] groups, final int[] lanes) {
+      final int[] groups, final int[] lanes, final @Nullable OutputOrder order) {
     final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
     try (TemporalAggregateStorage.Reader storage =
         new TemporalAggregateStorage.Reader(aggregateReader, definition.getID())) {
@@ -170,40 +191,149 @@ public final class TemporalAggregateRoute {
       if (header == null || TemporalAggregateIndexes.header(header).unsupportedRows() != 0) {
         return null;
       }
-      final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
-      final long coordinate = DomainHolder.DOMAIN.point(point.instant());
-      final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
-      final boolean admitted =
-          storage.groups(point.document().getResourceSession().getResourceConfig().storeChildCount()
-              ? array.getChildCount()
-              : ((JsonDBArray) point.document()).length().longValue(), (key, group) -> {
-                if (group.rows() == 0) {
-                  return;
-                }
-                final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
-                if (summary.count() == 0) {
-                  return;
-                }
-                final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
-                final Sequence[] selected = new Sequence[groups.length];
-                for (int i = 0; i < groups.length; i++) {
-                  selected[i] = allKeys[groups[i]];
-                }
-                final List<Sequence> groupKey = Arrays.asList(selected);
-                final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
-                if (previous != null) {
-                  previous.add(summary);
-                }
-              });
-      if (!admitted) {
-        return null;
-      }
-      return servedGroups(request, groups, lanes, results);
+      final long sourceRows = point.document().getResourceSession().getResourceConfig().storeChildCount()
+          ? array.getChildCount()
+          : ((JsonDBArray) point.document()).length().longValue();
+      return order != null
+          ? primitiveGroups(storage, spec, sourceRows, point, request, groups, lanes, order)
+          : objectGroups(storage, spec, sourceRows, point, request, groups, lanes);
     }
   }
 
-  private static SirixVectorizedExecutor.ServedGroups servedGroups(final RoutedGroupRequest request, final int[] groups,
-      final int[] lanes, final Map<List<Sequence>, AggregateSummary> results) {
+  private static SirixVectorizedExecutor.@Nullable ServedGroups objectGroups(
+      final TemporalAggregateStorage.Reader storage, final TemporalAggregateSpec spec, final long sourceRows,
+      final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes) {
+    final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
+    final long coordinate = DomainHolder.DOMAIN.point(point.instant());
+    final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
+    final boolean admitted = storage.groups(sourceRows, (key, group) -> {
+      if (group.rows() == 0) {
+        return;
+      }
+      final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+      if (summary.count() == 0) {
+        return;
+      }
+      final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
+      final Sequence[] selected = new Sequence[groups.length];
+      for (int i = 0; i < groups.length; i++) {
+        selected[i] = allKeys[groups[i]];
+      }
+      final List<Sequence> groupKey = Arrays.asList(selected);
+      final AggregateSummary previous = results.putIfAbsent(groupKey, summary);
+      if (previous != null) {
+        previous.add(summary);
+      }
+    });
+    if (!admitted) {
+      return null;
+    }
+    return servedGroups(request, groups, lanes, results);
+  }
+
+  /** A full permutation of integral maintained keys needs neither key objects nor coalescing. */
+  private static boolean primitiveGroups(final ProjectionIndexMetadata metadata, final TemporalAggregateSpec spec,
+      final int[] groups, final RoutedGroupRequest request) {
+    for (final String function : request.funcs()) {
+      if (!"count".equals(function) && !"min".equals(function) && !"max".equals(function)) {
+        return false;
+      }
+    }
+    if (groups.length != spec.groupColumns().size()) {
+      return false;
+    }
+    final boolean[] seen = new boolean[groups.length];
+    final byte[] kinds = metadata.columnKinds();
+    for (final int group : groups) {
+      if (seen[group]
+          || kinds[spec.groupColumns().get(group)] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+      seen[group] = true;
+    }
+    return true;
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups primitiveGroups(
+      final TemporalAggregateStorage.Reader storage, final TemporalAggregateSpec spec, final long sourceRows,
+      final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes,
+      final OutputOrder order) {
+    final QNm[] names = outputNames(request);
+    final ColumnarRecordSequence.Builder columns =
+        new ColumnarRecordSequence.Builder(names, new boolean[names.length], 256);
+    final long coordinate = DomainHolder.DOMAIN.point(point.instant());
+    final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DomainHolder.DOMAIN.height());
+    final long[] keys = new long[groups.length];
+    final boolean[] present = new boolean[groups.length];
+    final boolean[] supported = {true};
+    final boolean admitted = storage.groups(sourceRows, (key, group) -> {
+      if (!supported[0] || group.rows() == 0) {
+        return;
+      }
+      final AggregateSummary summary = parts.point(storage.parts(), group.parts(), coordinate);
+      if (summary.count() == 0) {
+        return;
+      }
+      if (!readIntegralGroupKeys(key, keys, present)) {
+        supported[0] = false;
+        return;
+      }
+      final int row = columns.addRow();
+      for (int index = 0; index < groups.length; index++) {
+        if (present[groups[index]]) {
+          columns.setLong(index, row, keys[groups[index]]);
+        }
+      }
+      for (int index = 0; index < lanes.length; index++) {
+        final int lane = lanes[index];
+        final String function = request.funcs()[index];
+        if (("min".equals(function) || "max".equals(function)) && summary.present(lane) == 0) {
+          continue;
+        }
+        final long value = switch (function) {
+          case "count" -> lane < 0
+              ? summary.count()
+              : summary.present(lane);
+          case "min" -> summary.min(lane);
+          case "max" -> summary.max(lane);
+          default -> throw new IllegalStateException("Unadmitted aggregate function");
+        };
+        columns.setLong(groups.length + index, row, value);
+      }
+    });
+    if (!admitted) {
+      return null;
+    }
+    if (!supported[0]) {
+      return objectGroups(storage, spec, sourceRows, point, request, groups, lanes);
+    }
+    final int[] rows = columns.orderByLongs(order.indexes, order.ascending, order.emptyLeast);
+    SERVED.increment();
+    return new SirixVectorizedExecutor.ServedGroups(columns.build(rows), true);
+  }
+
+  private static boolean readIntegralGroupKeys(final byte[] key, final long[] keys, final boolean[] present) {
+    final ByteBuffer buffer = ByteBuffer.wrap(key);
+    if (buffer.get() != 1) {
+      throw new IllegalStateException("Invalid temporal group key");
+    }
+    for (int index = 0; index < keys.length; index++) {
+      final byte kind = buffer.get();
+      if (kind != 0 && kind != 1) {
+        return false;
+      }
+      present[index] = kind == 1;
+      keys[index] = kind == 1
+          ? buffer.getLong()
+          : 0;
+    }
+    if (buffer.hasRemaining()) {
+      throw new IllegalStateException("Trailing temporal group key bytes");
+    }
+    return true;
+  }
+
+  private static QNm[] outputNames(final RoutedGroupRequest request) {
     final QNm[] names = new QNm[request.keyNames().length + request.outNames().length];
     for (int i = 0; i < request.keyNames().length; i++) {
       names[i] = new QNm(request.keyNames()[i]);
@@ -211,6 +341,12 @@ public final class TemporalAggregateRoute {
     for (int i = 0; i < request.outNames().length; i++) {
       names[request.keyNames().length + i] = new QNm(request.outNames()[i]);
     }
+    return names;
+  }
+
+  private static SirixVectorizedExecutor.ServedGroups servedGroups(final RoutedGroupRequest request, final int[] groups,
+      final int[] lanes, final Map<List<Sequence>, AggregateSummary> results) {
+    final QNm[] names = outputNames(request);
     final List<Item> items = new ArrayList<>(results.size());
     for (final Map.Entry<List<Sequence>, AggregateSummary> entry : results.entrySet()) {
       final Sequence[] values = new Sequence[names.length];
