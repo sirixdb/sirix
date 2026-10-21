@@ -118,14 +118,17 @@ final class DerivedAggregateReaders implements AutoCloseable {
         try {
           snapshot.reader().close();
         } catch (final RuntimeException closeFailure) {
-          if (failure == null) {
-            failure = closeFailure;
-          } else {
-            failure.addSuppressed(closeFailure);
-          }
+          failure = recordFailure(failure, closeFailure);
         }
       }
     }
+    failure = closeCatchUps(failure);
+    if (failure != null) {
+      throw failure;
+    }
+  }
+
+  private @Nullable RuntimeException closeCatchUps(@Nullable RuntimeException failure) {
     for (int slot = 0; catchups != null && slot < CAPACITY; slot++) {
       final CatchUpSnapshot snapshot = catchups[slot];
       catchups[slot] = null;
@@ -133,16 +136,19 @@ final class DerivedAggregateReaders implements AutoCloseable {
         try {
           snapshot.view().close();
         } catch (final RuntimeException closeFailure) {
-          if (failure == null) {
-            failure = closeFailure;
-          } else {
-            failure.addSuppressed(closeFailure);
-          }
+          failure = recordFailure(failure, closeFailure);
         }
       }
     }
-    if (failure != null) {
-      throw failure;
+    return failure;
+  }
+
+  private static RuntimeException recordFailure(final @Nullable RuntimeException failure,
+      final RuntimeException closeFailure) {
+    if (failure == null) {
+      return closeFailure;
     }
+    failure.addSuppressed(closeFailure);
+    return failure;
   }
 }

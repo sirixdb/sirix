@@ -23,10 +23,13 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -36,6 +39,35 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 final class DerivedAggregateNonblockingTest {
+  @Test
+  void closingAttemptsBothSnapshotKindsAndPreservesFailures() {
+    final AbstractResourceSession<?, ?> session = mock(AbstractResourceSession.class);
+    final StorageEngineReader source = mock(StorageEngineReader.class);
+    final StorageEngineReader index = mock(StorageEngineReader.class);
+    final DerivedAggregateCatchUp catchUp = mock(DerivedAggregateCatchUp.class);
+    final RuntimeException first = new IllegalStateException("snapshot close");
+    final RuntimeException second = new IllegalStateException("catch-up close");
+    doReturn(session).when(source).getResourceSession();
+    when(session.openDerivedIndexReader(source)).thenReturn(index);
+    when(catchUp.reader()).thenReturn(mock(StorageEngineReader.class));
+    doThrow(first).when(index).close();
+    doThrow(second).when(catchUp).close();
+    try (var aggregates = mockStatic(DerivedAggregateCatchUp.class)) {
+      aggregates.when(() -> DerivedAggregateCatchUp.open(any(StorageEngineReader.class),
+          any(TemporalAggregateCatchUpBudget.Budget.class))).thenReturn(catchUp);
+      final DerivedAggregateReaders readers = new DerivedAggregateReaders();
+      assertSame(index, readers.borrow(source));
+      assertSame(catchUp, readers.borrowCatchUp(source));
+      assertSame(first, assertThrows(RuntimeException.class, readers::close));
+      assertArrayEquals(new Throwable[] {second}, first.getSuppressed());
+      verify(index).close();
+      verify(catchUp).close();
+      readers.close();
+      assertThrows(IllegalStateException.class, () -> readers.borrow(source));
+      assertThrows(IllegalStateException.class, () -> readers.borrowCatchUp(source));
+    }
+  }
+
   @Test
   void laggingMappingsStayRetryableWithoutWaitingForTheMaintainer() throws Exception {
     final AbstractResourceSession<?, ?> session = mock(AbstractResourceSession.class);

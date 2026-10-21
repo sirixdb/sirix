@@ -90,6 +90,26 @@ final class ChangeLogSlabTest {
   }
 
   @Test
+  void typedGroupKeysPreserveSignedNumbersAndUtf8AtTheSizeBoundary() {
+    final byte[] kinds = {ChangeLogSlab.LONG, ChangeLogSlab.STRING, ChangeLogSlab.BOOLEAN, ChangeLogSlab.LONG};
+    final Row row = new Row(true, kinds.length);
+    Arrays.fill(row.flags, ChangeLogSlab.PRESENT);
+    row.numbers[0] = Long.MIN_VALUE;
+    row.numbers[3] = Long.MAX_VALUE;
+    row.text[1] = "\u00e9";
+    assertArrayEquals(HexFormat.of().parseHex("010180000000000000000200000002c3a90300017fffffffffffffff"),
+        ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3)));
+    row.text[1] = "\u00e9".repeat(1011);
+    assertEquals(2048, Objects.requireNonNull(ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3))).length);
+    row.text[1] = "\u00e9".repeat(1012);
+    assertNull(ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3)));
+    row.flags[1] = 0;
+    row.numbers[2] = -1;
+    assertArrayEquals(HexFormat.of().parseHex("01018000000000000000000301017fffffffffffffff"),
+        ChangeLogGroupKey.encode(row, kinds, List.of(0, 1, 2, 3)));
+  }
+
+  @Test
   void allCellKindsAndExtremeLongsRoundTrip() {
     final byte[] kinds = {1, 1, 2, 3, 4, 5, 6, 7};
     final Row row = new Row(false, kinds.length);

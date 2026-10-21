@@ -166,28 +166,14 @@ public final class TemporalAggregateSummaryLog {
           "Missing source log");
       trie = new HOTTrieReader(source);
       try {
-        final byte[] header = ChangeLogStorage.read(trie, root, headerKey(revision, index));
-        if (header == null) {
-          throw new TemporalAggregateCatchUpBudget.LimitExceeded();
-        }
-        if (header.length != HEADER_BYTES) {
-          throw new IllegalStateException("Invalid temporal summary header length");
-        }
-        final ByteBuffer in = ByteBuffer.wrap(header);
-        if (in.getInt() != MAGIC || in.getInt() != revision || in.getInt() != revision - 1 || in.getInt() != index) {
-          throw new TemporalAggregateCatchUpBudget.LimitExceeded();
-        }
+        final ByteBuffer in = readHeader(revision, index);
         groups = in.getInt();
         blocks = in.getInt();
         chunks = in.getInt();
         bytes = in.getInt();
         final long unsupported = in.getLong();
         final int flags = in.getInt();
-        if (groups < 0 || blocks < 0 || blocks > groups || chunks < blocks || (long) chunks > 2L * blocks
-            || bytes < HEADER_BYTES || (long) bytes > HEADER_BYTES + (long) chunks * ChangeLogStorage.CHUNK_BYTES
-            || (blocks == 0) != (groups == 0) || flags < 0 || flags > 1) {
-          throw new IllegalStateException("Invalid temporal summary coverage");
-        }
+        validateCoverage(flags);
         if (unsupported != 0 || flags != 0 || groups > 4096) {
           throw new TemporalAggregateCatchUpBudget.LimitExceeded();
         }
@@ -197,6 +183,29 @@ public final class TemporalAggregateSummaryLog {
       } catch (final RuntimeException | Error failure) {
         trie.close();
         throw failure;
+      }
+    }
+
+    private ByteBuffer readHeader(final int revision, final int index) {
+      final byte[] header = ChangeLogStorage.read(trie, root, headerKey(revision, index));
+      if (header == null) {
+        throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+      }
+      if (header.length != HEADER_BYTES) {
+        throw new IllegalStateException("Invalid temporal summary header length");
+      }
+      final ByteBuffer in = ByteBuffer.wrap(header);
+      if (in.getInt() != MAGIC || in.getInt() != revision || in.getInt() != revision - 1 || in.getInt() != index) {
+        throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+      }
+      return in;
+    }
+
+    private void validateCoverage(final int flags) {
+      if (groups < 0 || blocks < 0 || blocks > groups || chunks < blocks || (long) chunks > 2L * blocks
+          || bytes < HEADER_BYTES || (long) bytes > HEADER_BYTES + (long) chunks * ChangeLogStorage.CHUNK_BYTES
+          || (blocks == 0) != (groups == 0) || flags < 0 || flags > 1) {
+        throw new IllegalStateException("Invalid temporal summary coverage");
       }
     }
 
@@ -248,19 +257,7 @@ public final class TemporalAggregateSummaryLog {
       }
       final byte[] value;
       if (length > firstBytes.length) {
-        if (!cursor.hasNext()) {
-          throw new IllegalStateException("Missing temporal summary continuation");
-        }
-        final HOTRangeCursor.Entry continuation = cursor.next();
-        final byte[] nextKey = key.clone();
-        nextKey[nextKey.length - 1] = 1;
-        if (!Arrays.equals(continuation.keyBytes(), nextKey)) {
-          throw new IllegalStateException("Invalid temporal summary continuation");
-        }
-        final byte[] rest = readChunk(continuation);
-        if (rest.length != length - firstBytes.length) {
-          throw new IllegalStateException("Invalid temporal summary continuation length");
-        }
+        final byte[] rest = readContinuation(cursor, key, length - firstBytes.length);
         value = Arrays.copyOf(firstBytes, length);
         System.arraycopy(rest, 0, value, firstBytes.length, rest.length);
       } else {
@@ -269,6 +266,23 @@ public final class TemporalAggregateSummaryLog {
       final ByteBuffer in = ByteBuffer.wrap(value);
       in.position(BLOCK_HEADER_BYTES);
       return new Block(Arrays.copyOfRange(key, prefix.length, key.length - 2), in, count);
+    }
+
+    private byte[] readContinuation(final HOTRangeCursor cursor, final byte[] key, final int length) {
+      if (!cursor.hasNext()) {
+        throw new IllegalStateException("Missing temporal summary continuation");
+      }
+      final HOTRangeCursor.Entry continuation = cursor.next();
+      final byte[] nextKey = key.clone();
+      nextKey[nextKey.length - 1] = 1;
+      if (!Arrays.equals(continuation.keyBytes(), nextKey)) {
+        throw new IllegalStateException("Invalid temporal summary continuation");
+      }
+      final byte[] rest = readChunk(continuation);
+      if (rest.length != length) {
+        throw new IllegalStateException("Invalid temporal summary continuation length");
+      }
+      return rest;
     }
 
     private byte[] readChunk(final HOTRangeCursor.Entry entry) {
