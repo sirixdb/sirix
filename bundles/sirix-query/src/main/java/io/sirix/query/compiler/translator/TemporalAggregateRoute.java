@@ -121,6 +121,12 @@ public final class TemporalAggregateRoute {
     if (!DerivedIndexMaintainer.enabled(reader.getResourceSession().getResourceConfig())) {
       return serveSnapshot(reader, reader, indexes, array, point, request, order, null);
     }
+    return serveDerived(ctx, reader, indexes, array, point, request, order);
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups serveDerived(final QueryContext ctx,
+      final StorageEngineReader reader, final Indexes indexes, final ArrayNode array, final Point point,
+      final RoutedGroupRequest request, final @Nullable OutputOrder order) {
     try {
       final StorageEngineReader derived = ctx instanceof SirixQueryContext context
           ? context.borrowDerivedAggregateReader(reader)

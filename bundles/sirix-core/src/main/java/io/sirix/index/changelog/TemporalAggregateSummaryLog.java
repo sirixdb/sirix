@@ -58,13 +58,7 @@ public final class TemporalAggregateSummaryLog {
     for (final Map.Entry<byte[], byte[]> group : groups.entrySet()) {
       final byte[] key = group.getKey();
       final byte[] operand = group.getValue();
-      final int length = operand == null
-          ? 0
-          : operand.length;
-      if (key.length == 0 || key.length > ChangeLogStorage.CHUNK_BYTES || (operand != null && length == 0)
-          || length > operandLimit(key) || (last != null && Arrays.compareUnsigned(last, key) >= 0)) {
-        throw new IllegalArgumentException("Invalid or unsorted temporal group operand");
-      }
+      final int length = operandLength(key, operand, last);
       final int size = 4 + key.length + length;
       if (count != 0 && block.position() + size > ChangeLogStorage.CHUNK_BYTES) {
         final int written = flush(storage, prefix, Objects.requireNonNull(last), block, count);
@@ -106,6 +100,17 @@ public final class TemporalAggregateSummaryLog {
     final WriteWork work = new WriteWork(groups.size(), bytes, storage.slotsWritten() - before);
     lastWrite = work;
     return work;
+  }
+
+  private static int operandLength(final byte[] key, final byte @Nullable [] operand, final byte @Nullable [] last) {
+    final int length = operand == null
+        ? 0
+        : operand.length;
+    if (key.length == 0 || key.length > ChangeLogStorage.CHUNK_BYTES || (operand != null && length == 0)
+        || length > operandLimit(key) || (last != null && Arrays.compareUnsigned(last, key) >= 0)) {
+      throw new IllegalArgumentException("Invalid or unsorted temporal group operand");
+    }
+    return length;
   }
 
   @SuppressWarnings("ByteBufferBackingArray") // write() supplies a zero-offset buffer from allocate().

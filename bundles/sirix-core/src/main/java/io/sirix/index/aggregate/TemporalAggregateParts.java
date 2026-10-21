@@ -287,6 +287,14 @@ public final class TemporalAggregateParts {
       final int points = boundedUnsigned(in, encoded.length);
       final int values = boundedUnsigned(in, encoded.length);
       budget.summary(points, values, lanes);
+      mergeEndpoints(in, points);
+      mergeIntervals(in, values);
+      if (in.hasRemaining()) {
+        throw new IllegalStateException("Trailing temporal summary bytes");
+      }
+    }
+
+    private void mergeEndpoints(final ByteBuffer in, final int points) {
       long coordinate = 0;
       for (int at = 0; at < points; at++) {
         final long delta = unsigned(in);
@@ -296,6 +304,9 @@ public final class TemporalAggregateParts {
         coordinate += delta;
         endpoint(coordinate).add(readSums(in), false);
       }
+    }
+
+    private void mergeIntervals(final ByteBuffer in, final int values) {
       for (int at = 0; at < values; at++) {
         final int lane = boundedUnsigned(in, lanes - 1);
         final long from = unsigned(in);
@@ -307,9 +318,6 @@ public final class TemporalAggregateParts {
           throw new IllegalStateException("Invalid temporal summary multiplicity");
         }
         frequency(new SignedInterval(lane, from, from + length, value), count);
-      }
-      if (in.hasRemaining()) {
-        throw new IllegalStateException("Trailing temporal summary bytes");
       }
     }
 
