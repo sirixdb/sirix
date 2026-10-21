@@ -5,8 +5,11 @@ import io.sirix.utils.ChildCounts;
 import io.sirix.query.compiler.optimizer.walker.json.Paths;
 import io.sirix.query.function.jn.JNFun;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import java.nio.charset.StandardCharsets;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntArrays;
+import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -85,6 +88,10 @@ public final class IndexExpr implements Expr {
 
   private final @Nullable Expr revisionOperand;
   private final @Nullable Expr fallback;
+  private final @Nullable NegativePositionPrefix negativePositionPrefix;
+
+  private record NegativePositionPrefix(byte[][] fields, int[] positions) {
+  }
 
   public IndexExpr(final Map<String, Object> properties) {
     this(properties, null, null);
@@ -102,6 +109,10 @@ public final class IndexExpr implements Expr {
     indexDefsToPaths = properties.containsKey("casSourcePath")
         ? Map.of()
         : (Map<IndexDef, List<Path<QNm>>>) requiredProperty("indexDefs", Map.class);
+    negativePositionPrefix = properties.containsKey("casSourcePath")
+        ? null
+        : compileNegativePositionPrefix(
+            (Deque<QueryPathSegment>) requiredProperty("pathSegmentNamesToArrayIndexes", Deque.class));
   }
 
   private <T> T requiredProperty(final String name, final Class<T> type) {
@@ -147,6 +158,9 @@ public final class IndexExpr implements Expr {
       final var pathSegmentNamesToArrayIndexes =
           (Deque<QueryPathSegment>) requiredProperty("pathSegmentNamesToArrayIndexes", Deque.class);
 
+      // Share omitted-count resolutions across every posting list, regardless of posting order.
+      final Long2IntOpenHashMap arrayLengths = validateNegativeBounds(rtx);
+
       for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
         final var pathStrings = entrySet.getValue().stream().map(Path::toString).collect(toSet());
 
@@ -156,7 +170,7 @@ public final class IndexExpr implements Expr {
                 rtx.getStorageEngineReader(), entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
 
             checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
-                nodeKeys, false);
+                nodeKeys, false, arrayLengths);
           }
           case CAS -> {
             final var atomic = requiredProperty("atomic", Atomic.class);
@@ -181,7 +195,7 @@ public final class IndexExpr implements Expr {
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
               checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
-                  nodeKeys, false);
+                  nodeKeys, false, arrayLengths);
 
             } else {
 
@@ -192,7 +206,7 @@ public final class IndexExpr implements Expr {
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
               checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
-                  nodeKeys, false);
+                  nodeKeys, false, arrayLengths);
 
             }
             indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
@@ -204,7 +218,7 @@ public final class IndexExpr implements Expr {
                     new NameFilter(Set.of(entrySet.getValue().get(entrySet.getValue().size() - 1).tail()), Set.of()));
 
             checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
-                nodeKeys, true);
+                nodeKeys, true, arrayLengths);
 
           }
           default -> throw new IllegalStateException("Index type " + indexType + " not known");
@@ -239,23 +253,14 @@ public final class IndexExpr implements Expr {
               } while (rtx.moveToRightSibling());
             }
           } else {
-            var index = arrayIndexes.getFirst();
-            index = index < 0
-                ? (int) (ChildCounts.get(rtx) + index)
-                : index;
-            if (!rtx.moveToFirstChild()) {
-              throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
-                  new QNm("Index expression: moveToFirstChild failed for nodeKey " + nodeKey));
+            int index = arrayIndexes.getFirst();
+            if (index < -1) {
+              index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
+              requireValidNegativeIndex(index);
             }
-            int k = 1;
-            for (; k <= index; k++) {
-              if (!rtx.moveToRightSibling()) {
-                throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
-                    new QNm("Index expression: moveToRightSibling failed at position " + k + " of " + index
-                        + " for nodeKey " + nodeKey));
-              }
+            if (moveToArrayPosition(rtx, index)) {
+              sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
             }
-            sequence.add(jsonItemFactory.getSequence(itemTrx, jsonCollection));
           }
         });
         case CAS -> {
@@ -530,9 +535,206 @@ public final class IndexExpr implements Expr {
     };
   }
 
+  private static boolean moveToArrayPosition(final JsonNodeReadOnlyTrx rtx, final int index) {
+    if (index == -1) {
+      return rtx.moveToLastChild();
+    }
+    boolean found = rtx.moveToFirstChild();
+    for (int k = 0; k < index && found; k++) {
+      found = rtx.moveToRightSibling();
+    }
+    return found;
+  }
+
+  private static int arrayLength(final JsonNodeReadOnlyTrx rtx, final Long2IntOpenHashMap lengths) {
+    if (rtx.getResourceSession().getResourceConfig().storeChildCount()) {
+      return (int) rtx.getChildCount();
+    }
+    final long key = rtx.getNodeKey();
+    int length = lengths.get(key);
+    if (length < 0) {
+      length = (int) ChildCounts.get(rtx);
+      lengths.put(key, length);
+    }
+    return length;
+  }
+
+  private static boolean matchesArrayPosition(final JsonNodeReadOnlyTrx rtx, int index, final boolean terminal,
+      final Long2IntOpenHashMap arrayLengths) {
+    if (terminal) {
+      if (index < -1) {
+        index = (int) ((long) arrayLength(rtx, arrayLengths) + index);
+        if (index < 0) {
+          return false;
+        }
+      }
+      return moveToArrayPosition(rtx, index);
+    }
+    boolean fromEnd = index < 0;
+    if (index < -1) {
+      final long elementKey = rtx.getNodeKey();
+      rtx.moveToParent();
+      final long normalizedIndex = (long) arrayLength(rtx, arrayLengths) + index;
+      rtx.moveTo(elementKey);
+      if (normalizedIndex < 0) {
+        return false;
+      }
+      if (normalizedIndex < -(long) index - 1) {
+        index = (int) normalizedIndex;
+        fromEnd = false;
+      }
+    }
+    boolean hasMoved = true;
+    if (fromEnd) {
+      for (int k = -1; k > index && hasMoved; k--) {
+        hasMoved = rtx.moveToRightSibling();
+      }
+    } else {
+      for (int k = 0; k < index && hasMoved; k++) {
+        hasMoved = rtx.moveToLeftSibling();
+      }
+    }
+    return hasMoved && (fromEnd
+        ? !rtx.hasRightSibling()
+        : !rtx.hasLeftSibling());
+  }
+
+  private static void requireValidNegativeIndex(final long index) {
+    if (index < 0) {
+      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Illegal negative index: " + index);
+    }
+  }
+
+  private static @Nullable NegativePositionPrefix compileNegativePositionPrefix(
+      final Deque<QueryPathSegment> segments) {
+    int size = 0;
+    int prefixSize = 0;
+    for (final QueryPathSegment segment : segments) {
+      if (segment.pathSegmentName() != null) {
+        size++;
+      }
+      final var indexes = segment.arrayIndexes().descendingIterator();
+      while (indexes.hasNext()) {
+        final int index = indexes.next();
+        size++;
+        if (index < 0 && index != Integer.MIN_VALUE) {
+          prefixSize = size;
+        }
+      }
+    }
+    if (prefixSize == 0) {
+      return null;
+    }
+    final byte[][] fields = new byte[prefixSize][];
+    final int[] positions = new int[prefixSize];
+    int step = 0;
+    for (final QueryPathSegment segment : segments) {
+      if (step == prefixSize) {
+        break;
+      }
+      if (segment.pathSegmentName() != null) {
+        fields[step++] = segment.pathSegmentName().getBytes(StandardCharsets.UTF_8);
+      }
+      final var indexes = segment.arrayIndexes().descendingIterator();
+      while (step < prefixSize && indexes.hasNext()) {
+        positions[step++] = indexes.next();
+      }
+    }
+    return new NegativePositionPrefix(fields, positions);
+  }
+
+  private @Nullable Long2IntOpenHashMap validateNegativeBounds(final JsonNodeReadOnlyTrx rtx) {
+    if (negativePositionPrefix == null) {
+      return null;
+    }
+    final Long2IntOpenHashMap lengths;
+    if (rtx.getResourceSession().getResourceConfig().storeChildCount()) {
+      lengths = null;
+    } else {
+      lengths = new Long2IntOpenHashMap();
+      lengths.defaultReturnValue(-1);
+    }
+    // Selected empty arrays have no leaf postings; validate their bounds before reading the index.
+    final long originalKey = rtx.getNodeKey();
+    rtx.moveToDocumentRoot();
+    if (rtx.moveToFirstChild()) {
+      validateNegativeBounds(rtx, negativePositionPrefix.fields(), negativePositionPrefix.positions(), 0, lengths);
+    }
+    rtx.moveTo(originalKey);
+    return lengths;
+  }
+
+  private static void validateNegativeBounds(final JsonNodeReadOnlyTrx rtx, final byte[][] fields,
+      final int[] positions, final int step, final Long2IntOpenHashMap lengths) {
+    if (step == positions.length) {
+      return;
+    }
+    final byte[] field = fields[step];
+    if (field != null) {
+      if (rtx.isObject() && rtx.moveToFirstChild()) {
+        do {
+          if (rtx.isObjectKey() && Arrays.equals(rtx.getNameBytes(), field)) {
+            validateNegativeBounds(rtx, fields, positions, step + 1, lengths);
+            return;
+          }
+        } while (rtx.moveToRightSibling());
+      }
+      return;
+    }
+    if (!rtx.isArray()) {
+      return;
+    }
+    final int position = positions[step];
+    if (position == Integer.MIN_VALUE) {
+      if (rtx.moveToFirstChild()) {
+        do {
+          final long elementKey = rtx.getNodeKey();
+          validateNegativeBounds(rtx, fields, positions, step + 1, lengths);
+          rtx.moveTo(elementKey);
+        } while (rtx.moveToRightSibling());
+      }
+    } else {
+      validateSelectedArrayBounds(rtx, fields, positions, step, lengths);
+    }
+  }
+
+  private static void validateSelectedArrayBounds(final JsonNodeReadOnlyTrx rtx, final byte[][] fields,
+      final int[] positions, final int step, final Long2IntOpenHashMap lengths) {
+    final int position = positions[step];
+    if (position == -1) {
+      if (!rtx.moveToLastChild()) {
+        requireValidNegativeIndex(-1);
+      }
+      validateNegativeBounds(rtx, fields, positions, step + 1, lengths);
+    } else {
+      final long index = position < 0
+          ? (long) arrayLength(rtx, lengths) + position
+          : position;
+      requireValidNegativeIndex(index);
+      if (position < 0 && step + 1 == positions.length) {
+        return;
+      }
+      final boolean fromEnd = position < 0 && -(long) position - 1 < index;
+      final long distance = fromEnd
+          ? -(long) position - 1
+          : index;
+      boolean found = fromEnd
+          ? rtx.moveToLastChild()
+          : rtx.moveToFirstChild();
+      for (long i = 0; i < distance && found; i++) {
+        found = fromEnd
+            ? rtx.moveToLeftSibling()
+            : rtx.moveToRightSibling();
+      }
+      if (found) {
+        validateNegativeBounds(rtx, fields, positions, step + 1, lengths);
+      }
+    }
+  }
+
   private void checkIfIndexNodeIsApplicable(JsonResourceSession resourceSession, JsonNodeReadOnlyTrx rtx,
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
-      List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
+      List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks, Long2IntOpenHashMap arrayLengths) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
     try (final var pathSummary = resourceSession.openPathSummary(rtx.getRevisionNumber())) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
@@ -588,7 +790,6 @@ public final class IndexExpr implements Expr {
             outer: for (int i = startIdx; i >= 0; i--) {
               final var step = steps.get(i);
 
-              boolean moveToParent = true;
               final int currentIndex = i;
 
               if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
@@ -628,34 +829,16 @@ public final class IndexExpr implements Expr {
                   }
                   for (int l = currentIndex, length = j + y; l > length; l--) {
                     // remaining with array numberOfArrayIndexes specified
-                    int index = indexes.pop();
+                    final int index = indexes.pop();
 
-                    if (index != Integer.MIN_VALUE) {
-                      index = index < 0
-                          ? (int) (ChildCounts.get(rtx) + index)
-                          : index;
-                      if (currentIndex == steps.size() - 1) {
-                        boolean hasMoved = rtx.moveToFirstChild();
-                        int k = 0;
-                        for (; k <= index && hasMoved; k++) {
-                          hasMoved = rtx.moveToRightSibling();
-                        }
-                        if (k - 1 != index) {
-                          currNodeKeys.remove(nodeKey);
-                          break outer;
-                        }
-                      } else {
-                        boolean hasMoved = true;
-                        for (int k = 0; k < index && hasMoved; k++) {
-                          hasMoved = rtx.moveToLeftSibling();
-                        }
-                        if (!hasMoved || rtx.hasLeftSibling()) {
-                          currNodeKeys.remove(nodeKey);
-                          break outer;
-                        }
-                      }
-                    } else if (l == steps.size() - 1) {
-                      moveToParent = false;
+                    if (index == Integer.MIN_VALUE && l == steps.size() - 1) {
+                      continue;
+                    }
+                    // Only the terminal step selects a child; outer steps check its containing arrays.
+                    if (index != Integer.MIN_VALUE
+                        && !matchesArrayPosition(rtx, index, l == steps.size() - 1, arrayLengths)) {
+                      currNodeKeys.remove(nodeKey);
+                      break outer;
                     }
                     rtx.moveToParent();
                   }
@@ -664,19 +847,16 @@ public final class IndexExpr implements Expr {
                 currentPathSegmentNamesToArrayIndexes.removeLast();
               }
 
-              // if not the last step is an array unboxing
-              if (moveToParent) {
-                // OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
-                // pair into one record. After a CHILD_ARRAY step's inner-loop landed
-                // on the ARRAY-equivalent (the fused record itself), the outer
-                // moveToParent here would skip over the OBJECT_KEY layer too — but under
-                // fusion that layer is already part of the same record. Skip ONLY for
-                // the CHILD_ARRAY follow-up, not for FIELD steps.
-                final boolean fusedSkip =
-                    step.getAxis() == Path.Axis.CHILD_ARRAY && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
-                if (!fusedSkip) {
-                  rtx.moveToParent();
-                }
+              // OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
+              // pair into one record. After a CHILD_ARRAY step's inner-loop landed
+              // on the ARRAY-equivalent (the fused record itself), the outer
+              // moveToParent here would skip over the OBJECT_KEY layer too — but under
+              // fusion that layer is already part of the same record. Skip ONLY for
+              // the CHILD_ARRAY follow-up, not for FIELD steps.
+              final boolean fusedSkip =
+                  step.getAxis() == Path.Axis.CHILD_ARRAY && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
+              if (!fusedSkip) {
+                rtx.moveToParent();
               }
 
               // Legacy two-record OBJECT_KEY+OBJECT pair needs an extra moveToParent here
