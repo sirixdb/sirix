@@ -27,6 +27,7 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;
+import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.node.interfaces.DataRecord;
@@ -80,12 +81,16 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Get the history, that is the metadata informations about the revisions.
    *
+   * <p>
+   * Loading commit authors and messages requires readable revision roots and fails for pruned
+   * revisions. Use {@link #getHistoryTimestamps()} to query timestamps across pruned history.
+   *
    * @return the history
    */
   List<RevisionInfo> getHistory();
 
   /**
-   * Get the history, that is the metadata informations about the revisions.
+   * Get the most recent history entries, subject to the retention behavior of {@link #getHistory()}.
    *
    * @param revisions number of revision informations to retrieve starting with the most recent
    * @return the history
@@ -93,7 +98,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   List<RevisionInfo> getHistory(int revisions);
 
   /**
-   * Get the history, that is the metadata informations about the revisions.
+   * Get history entries in a range, subject to the retention behavior of {@link #getHistory()}.
    *
    * <p>
    * The bounds are inclusive and may be passed in either order (and may be equal); results are
@@ -114,7 +119,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * revision index: no {@link StorageEngineReader} is opened, no {@code RevisionRootPage} is read,
    * and no per-revision asynchronous work is scheduled. Covers revisions
    * {@code [1, mostRecentRevision]} (revision {@code 0} is the empty bootstrap, mirroring
-   * {@link #getHistory()}).
+   * {@link #getHistory()}). Pruned revisions retain their original timestamps in this result.
    *
    * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first (empty if
    *         the resource has no committed revisions yet)
@@ -261,6 +266,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @param revision revision to read from denoted by the revision number.
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
+   * @throws SirixRevisionPrunedException if retention has pruned this revision
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
@@ -268,10 +274,12 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   R beginNodeReadOnlyTrx(int revision);
 
   /**
-   * Begin a read-only transaction at the revision selected by {@link #getRevisionNumber(Instant)}.
+   * Begin a read-only transaction at the revision selected by {@link #getRevisionNumber(Instant)}. A
+   * pruned selection fails without substituting a retained revision.
    *
    * @param pointInTime the point in time
    * @return a read-only transaction at the selected revision
+   * @throws SirixRevisionPrunedException if retention has pruned the selected revision
    * @throws NullPointerException if {@code pointInTime} is {@code null}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
@@ -404,7 +412,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * matched timestamp, the selected revision is unspecified; use
    * {@link #getRevisionNumber(Instant, int)} for deterministic tie selection. A timestamp before all
    * revisions selects the bootstrap revision 0, and one after all revisions selects the most recent
-   * revision.
+   * revision. Pruned revisions participate in this metadata lookup and may be returned; opening such
+   * a revision throws {@link SirixRevisionPrunedException}.
    *
    * @param pointInTime the point in time
    * @return the revision number valid at that time
@@ -421,6 +430,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * revisions share that timestamp. Returns the bootstrap revision 0 if no revision qualifies. Later
    * commits cannot change the result for the same point in time and ceiling; capture
    * {@link #getMostRecentRevisionNumber()} once and reuse it when resolving related timestamps.
+   * Pruned revisions participate, both as the ceiling and as the result.
    *
    * @param pointInTime the point in time
    * @param revisionCeiling the inclusive upper bound on committed revision numbers

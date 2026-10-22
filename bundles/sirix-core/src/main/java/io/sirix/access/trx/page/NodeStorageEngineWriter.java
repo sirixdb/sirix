@@ -6020,6 +6020,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
+    storageEngineReader.resourceSession.assertAccess(revision);
     final DerivedIndexMaintainer.Resource derived =
         ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
     if (derived == null) {

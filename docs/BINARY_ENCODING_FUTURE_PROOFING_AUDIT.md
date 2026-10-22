@@ -46,8 +46,8 @@ the V0 freeze (`docs/DISK_FORMAT.md` §5).
   flag bit with the symbol table embedded in the page.
 - **Integrity chain**: page XXH3 in the parent `PageReference` (Merkle-style), checksummed
   superblocks, beacon slots with XXH3 trailers, checksummed 32-byte revision records, and the
-  RevisionRootPage covered via the revision record's 4th field — with a legacy discriminator
-  (`hash == 0`) that keeps beta1 resources readable.
+  RevisionRootPage protection described in the authoritative
+  [revision-record contract](DISK_FORMAT.md#sirixrevisions).
 - **No JVM-unstable serialization**: no `ObjectOutputStream` in persisted data, no
   `String.hashCode` on disk, node hashes are pinned XXH3, map-backed metadata serializes in
   deterministic indexed/bitmap order, varints are byte-oriented (endian-free), DeweyIDs use a

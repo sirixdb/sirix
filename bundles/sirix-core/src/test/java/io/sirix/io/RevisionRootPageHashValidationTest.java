@@ -28,7 +28,6 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -42,25 +41,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Hardening regression tests: RevisionRootPage bodies are content-hash-validated on read, like
  * every other page.
  *
- * <p>Background. Every page's XXH3 (of its compressed payload) is stored on its PARENT's
- * PageReference and verified on read ({@code AbstractReader.verifyChecksumIfNeeded}). The
- * RevisionRootPage is the one page reached WITHOUT a parent reference — via
- * {@code Reader.readRevisionRootPage}, whose offset comes from a fixed-slot record in
- * {@code sirix.revisions}. Before this change that path deserialized the body with no integrity
- * check at all: a single flipped byte in a RevisionRootPage on disk was silently deserialized
- * (documented in {@code docs/DISK_FORMAT.md} §3 "Still not covered").
+ * <p>
+ * Background. Every page's XXH3 (of its compressed payload) is stored on its PARENT's PageReference
+ * and verified on read ({@code AbstractReader.verifyChecksumIfNeeded}). The RevisionRootPage is the
+ * one page reached WITHOUT a parent reference — via {@code Reader.readRevisionRootPage}, whose
+ * offset comes from a fixed-slot record in {@code sirix.revisions}. Before this change that path
+ * deserialized the body with no integrity check at all: a single flipped byte in a RevisionRootPage
+ * on disk was silently deserialized (documented in {@code docs/DISK_FORMAT.md} §3 "Still not
+ * covered").
  *
- * <p>The fix stores the RevisionRootPage's own page hash in the revisions record's former
- * "reserved" 4th field and verifies the body against it on read. The record checksum is widened to
- * cover that field (24 bytes) when it is present; a record whose hash field is {@code 0} is a
- * LEGACY (beta1-and-earlier) record and keeps the 16-byte checksum, so old resources still open.
+ * <p>
+ * The fix stores the RevisionRootPage's own page hash in the revisions record's former "reserved"
+ * 4th field and verifies the body against it on read. The record checksum is widened to cover that
+ * field (24 bytes). Disk records without a hash are rejected.
  *
- * <p>Each corruption case is paired with a "demonstrates the pre-fix gap" assertion: the same
- * corrupted body, read through a reader with verification DISABLED, deserializes to a non-null
- * page instead of throwing — exactly the (un-hardened) behavior the production default now
- * prevents. (Pre-fix, the verify-enabled path behaved identically to the verify-disabled path,
- * because there was no verification on this path at all; verified independently by stashing the
- * fix.)
+ * <p>
+ * Each corruption case is paired with a "demonstrates the pre-fix gap" assertion: the same
+ * corrupted body, read through a reader with verification DISABLED, deserializes to a non-null page
+ * instead of throwing — exactly the (un-hardened) behavior the production default now prevents.
+ * (Pre-fix, the verify-enabled path behaved identically to the verify-disabled path, because there
+ * was no verification on this path at all; verified independently by stashing the fix.)
  */
 final class RevisionRootPageHashValidationTest {
 
@@ -96,21 +96,21 @@ final class RevisionRootPageHashValidationTest {
   }
 
   /**
-   * Create a resource with the given storage type and commit {@code commits} revisions (each a
-   * fresh subtree insert so the RevisionRootPage genuinely differs). Returns the last user-visible
-   * revision number. The database is fully closed on return so the on-disk files can be poked.
+   * Create a resource with the given storage type and commit {@code commits} revisions (each a fresh
+   * subtree insert so the RevisionRootPage genuinely differs). Returns the last user-visible revision
+   * number. The database is fully closed on return so the on-disk files can be poked.
    */
   private int createResourceWithRevisions(final Path dbPath, final StorageType storageType, final int commits) {
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     int lastRevision;
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(storageType)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(storageType)
+                                             .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
         for (int i = 0; i < commits; i++) {
@@ -159,8 +159,8 @@ final class RevisionRootPageHashValidationTest {
   }
 
   /** Overwrite one 8-byte field (0=offset,1=timestamp,2=checksum,3=hash) of a revision record. */
-  private static void writeRecordField(final Path dbPath, final int revision, final int fieldIndex,
-      final long value) throws Exception {
+  private static void writeRecordField(final Path dbPath, final int revision, final int fieldIndex, final long value)
+      throws Exception {
     final long off = IOStorage.revisionsFileOffset(revision) + fieldIndex * 8L;
     final ByteBuffer bb = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
     bb.putLong(value).flip();
@@ -174,7 +174,8 @@ final class RevisionRootPageHashValidationTest {
    * file untouched. The ring is the salvage source the lazy-revision-record profile leans on, so a
    * test that wants to observe the raw record-checksum failure has to take it out first.
    *
-   * <p>Only the entry's trailing checksum word is zeroed: that fails
+   * <p>
+   * Only the entry's trailing checksum word is zeroed: that fails
    * {@code IOStorage.tailLogEntryValidAt} without disturbing the neighbouring entries, and it is
    * exactly the shape a torn 48-byte entry would have.
    */
@@ -191,9 +192,9 @@ final class RevisionRootPageHashValidationTest {
   }
 
   /**
-   * Flip a byte INSIDE the RevisionRootPage's compressed body (the {@code [u32 len][payload]} at
-   * the record's offset; we poke {@code payload[byteInBody]}). This corrupts exactly the bytes the
-   * page hash covers, without touching the length prefix or any other page.
+   * Flip a byte INSIDE the RevisionRootPage's compressed body (the {@code [u32 len][payload]} at the
+   * record's offset; we poke {@code payload[byteInBody]}). This corrupts exactly the bytes the page
+   * hash covers, without touching the length prefix or any other page.
    */
   private static void corruptRevisionRootBody(final Path dbPath, final int revision, final int byteInBody)
       throws Exception {
@@ -219,11 +220,11 @@ final class RevisionRootPageHashValidationTest {
 
   /**
    * Assert the read does NOT surface a {@link SirixCorruptionException} — i.e. the content-hash
-   * integrity layer did not run / was bypassed. This is the pre-fix behavior on this path: a
-   * corrupt body was either silently deserialized into a wrong page OR blew up deep in the
-   * deserializer with an opaque low-level exception ({@code NegativeArraySizeException} etc.), but
-   * was NEVER cleanly flagged as corruption. Either of those non-corruption outcomes is acceptable
-   * here; a {@code SirixCorruptionException} is NOT (that would mean verification ran).
+   * integrity layer did not run / was bypassed. This is the pre-fix behavior on this path: a corrupt
+   * body was either silently deserialized into a wrong page OR blew up deep in the deserializer with
+   * an opaque low-level exception ({@code NegativeArraySizeException} etc.), but was NEVER cleanly
+   * flagged as corruption. Either of those non-corruption outcomes is acceptable here; a
+   * {@code SirixCorruptionException} is NOT (that would mean verification ran).
    */
   private static void assertNoCorruptionDetection(final ResourceConfiguration config, final int revision) {
     try {
@@ -384,55 +385,22 @@ final class RevisionRootPageHashValidationTest {
     assertNoCorruptionDetection(withVerificationDisabled(loadConfig(dbPath)), rev);
   }
 
-  // ----------------------------------------------------------------------------------------------
-  // (d) Backward compat: a legacy record (hash field == 0, 16-byte checksum) opens cleanly
-  // ----------------------------------------------------------------------------------------------
-
   @Test
-  @DisplayName("(d) legacy record (hash==0, 16-byte checksum) opens cleanly — beta1 resources still work")
-  void legacyRecord_opensCleanly() throws Exception {
-    final Path dbPath = PATHS.PATH1.getFile();
-    final int rev = createResourceWithRevisions(dbPath, StorageType.FILE_CHANNEL, 1);
-
-    // Downgrade the record to the LEGACY format beta1 wrote: hash field 0, checksum over 16 bytes.
-    final long[] r = readRecord(dbPath, rev);
-    writeRecordField(dbPath, rev, 3, 0L);                                   // hash field -> legacy 0
-    writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(r[0], r[1])); // 16-byte checksum
-    Databases.clearGlobalCaches();
-
-    // Opens and reads with NO false-positive corruption error (default verification ON).
-    final RevisionRootPage page = readRevisionRoot(loadConfig(dbPath), rev);
-    assertNotNull(page, "a legacy (hash==0) record must open cleanly under this build");
-
-    // And because a legacy record carries no page hash, the body is (correctly) NOT verified:
-    // corrupting it is NOT cleanly flagged — there is simply nothing to check against. This proves
-    // the hash==0 disambiguation: present-hash => verify, absent-hash (legacy) => skip.
-    corruptRevisionRootBody(dbPath, rev, 3);
-    Databases.clearGlobalCaches();
-    assertNoCorruptionDetection(loadConfig(dbPath), rev);
-  }
-
-  @Test
-  @DisplayName("(d) bulk getRevisionFileData over a legacy record opens cleanly (mmap + filechannel)")
-  void legacyRecord_bulkRead_opensCleanly() throws Exception {
+  @DisplayName("Disk records without a root hash are rejected by both readers")
+  void missingHashIsCorruption() throws Exception {
     for (final StorageType type : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
       JsonTestHelper.deleteEverything();
       Databases.clearGlobalCaches();
       final Path dbPath = PATHS.PATH1.getFile();
       final int rev = createResourceWithRevisions(dbPath, type, 2);
-
-      // Downgrade revision `rev` to legacy.
-      final long[] r = readRecord(dbPath, rev);
+      final long[] record = readRecord(dbPath, rev);
       writeRecordField(dbPath, rev, 3, 0L);
-      writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(r[0], r[1]));
+      writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(record[0], record[1], 0L));
       Databases.clearGlobalCaches();
-
-      final ResourceConfiguration config = loadConfig(dbPath);
-      final IOStorage storage = storageFor(config);
+      final IOStorage storage = storageFor(loadConfig(dbPath));
       try (final Reader reader = storage.createReader()) {
-        final RevisionFileData[] all = reader.getRevisionFileData(0, rev + 1);
-        assertEquals(rev + 1, all.length, type + ": bulk read returns all records");
-        assertEquals(0L, all[rev].pageHash(), type + ": downgraded record reports a 0 (legacy) hash");
+        assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(rev));
+        assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(0, rev + 1));
       } finally {
         storage.close();
       }
@@ -479,30 +447,25 @@ final class RevisionRootPageHashValidationTest {
   // ----------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("(f) expectedRevisionRecordChecksum dispatches 16-byte (legacy) vs 24-byte (present)")
-  void checksumDispatch_legacyVsPresent() {
-    final long off = 0x1122334455667788L;
-    final long ts = 0x0000017F_ABCDEF01L;
-    final long hash = 0xDEADBEEFCAFEBABEL;
-
-    // Present hash -> 24-byte variant; legacy (0) -> 16-byte variant.
-    assertEquals(IOStorage.revisionRecordChecksum(off, ts, hash),
-        IOStorage.expectedRevisionRecordChecksum(off, ts, hash), "present hash -> 24-byte checksum");
-    assertEquals(IOStorage.revisionRecordChecksum(off, ts),
-        IOStorage.expectedRevisionRecordChecksum(off, ts, 0L), "hash==0 -> legacy 16-byte checksum");
-    // The two variants must differ for the same (off,ts) — otherwise the hash field would be
-    // unprotected and a present record indistinguishable from a legacy one by checksum alone.
-    assertTrue(IOStorage.revisionRecordChecksum(off, ts) != IOStorage.revisionRecordChecksum(off, ts, hash),
-        "16- and 24-byte checksums must differ so the hash field is genuinely covered");
+  void checksumAlwaysCoversHashField() {
+    final long offset = IOStorage.DATA_REGION_START;
+    final long timestamp = 12345L;
+    final long hash = 42L;
+    assertEquals(IOStorage.revisionRecordChecksum(offset, timestamp, hash),
+        IOStorage.expectedRevisionRecordChecksum(offset, timestamp, hash));
+    assertEquals(IOStorage.revisionRecordChecksum(offset, timestamp, 0L),
+        IOStorage.expectedRevisionRecordChecksum(offset, timestamp, 0L));
+    assertTrue(IOStorage.revisionRecordChecksum(offset, timestamp, 0L) != IOStorage.revisionRecordChecksum(offset,
+        timestamp, hash));
   }
 
   @Test
-  @DisplayName("(f) an all-zero slot never matches the legacy checksum (recovery scan safety)")
-  void allZeroSlot_neverMatchesLegacyChecksum() {
+  @DisplayName("(f) an all-zero slot never matches the record checksum (recovery scan safety)")
+  void allZeroSlot_neverMatchesChecksum() {
     // hasNoChecksumValidRevisionRecord relies on this: a zeroed slot has storedChecksum==0, which
-    // must not equal the checksum of (offset=0, timestamp=0, hash=0/legacy).
+    // must not equal the checksum of (offset=0, timestamp=0, hash=0).
     assertTrue(IOStorage.expectedRevisionRecordChecksum(0L, 0L, 0L) != 0L,
-        "checksum of an all-zero legacy record must be non-zero");
+        "checksum of an all-zero record must be non-zero");
   }
 
   @Test
@@ -513,26 +476,25 @@ final class RevisionRootPageHashValidationTest {
     assertTrue(IOStorage.ZERO_HASH_SENTINEL != 0L, "the sentinel itself must be non-zero");
     assertEquals(0xCAFEL, IOStorage.normalizeRevisionRootPageHash(0xCAFEL), "non-zero hashes are unchanged");
     // A page whose real hash equals the sentinel is stored unchanged (verifies fine, no remap).
-    assertEquals(IOStorage.ZERO_HASH_SENTINEL,
-        IOStorage.normalizeRevisionRootPageHash(IOStorage.ZERO_HASH_SENTINEL),
+    assertEquals(IOStorage.ZERO_HASH_SENTINEL, IOStorage.normalizeRevisionRootPageHash(IOStorage.ZERO_HASH_SENTINEL),
         "a real hash equal to the sentinel is stored as-is (round-trips, no false positive)");
   }
 
   // ----------------------------------------------------------------------------------------------
 
   /**
-   * Clone the persisted config but with {@code verifyChecksumsOnRead=false}. Copies the
-   * byte-handler pipeline + storage type so deserialization stays byte-compatible, and points the
-   * (public, mutable) {@code resourcePath} at the SAME on-disk files as the persisted config — the
-   * storage classes read only {@code resourcePath} + {@code byteHandlePipeline}. Used to exhibit
-   * the pre-fix (un-hardened) read behavior, where no verification ran on this path at all.
+   * Clone the persisted config but with {@code verifyChecksumsOnRead=false}. Copies the byte-handler
+   * pipeline + storage type so deserialization stays byte-compatible, and points the (public,
+   * mutable) {@code resourcePath} at the SAME on-disk files as the persisted config — the storage
+   * classes read only {@code resourcePath} + {@code byteHandlePipeline}. Used to exhibit the pre-fix
+   * (un-hardened) read behavior, where no verification ran on this path at all.
    */
   private static ResourceConfiguration withVerificationDisabled(final ResourceConfiguration persisted) {
-    final ResourceConfiguration disabled = new ResourceConfiguration.Builder(RESOURCE)
-        .storageType(persisted.getStorageType())
-        .byteHandlerPipeline(persisted.byteHandlePipeline)
-        .verifyChecksumsOnRead(false)
-        .build();
+    final ResourceConfiguration disabled =
+        new ResourceConfiguration.Builder(RESOURCE).storageType(persisted.getStorageType())
+                                                   .byteHandlerPipeline(persisted.byteHandlePipeline)
+                                                   .verifyChecksumsOnRead(false)
+                                                   .build();
     disabled.resourcePath = persisted.resourcePath;
     return disabled;
   }

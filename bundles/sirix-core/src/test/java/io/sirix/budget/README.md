@@ -89,6 +89,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
 | `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
+| `sirix-core` `SparseRevisionIndexWorkBudgetTest` | cold and warm dense revision-index loading with 16/4096 mostly pruned slots | the production FILE_CHANNEL decoder issues more than one metadata read or reads more than one history pass; warm index loading rereads any records |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
 | `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
 | `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
@@ -117,6 +118,13 @@ failure table and tells the reader where the work went.
 The original budgets were checked **by mutation**: the defect it guards was put back, the test was seen
 to fail with the expected counter, and the source was restored. The measured healthy and broken
 figures are in each test's comments.
+
+Sparse revision-index mutation evidence (2026-10-21): the production loader and decoder read
+16/4096 mostly tombstoned slots with one metadata channel read (512/131072 bytes), followed by zero
+metadata reads on a warm load. Replacing the bulk load with scalar per-revision reads failed both
+cases on the expected counter: 16/4096 reads against one. The fixture controls channel completion
+and measures metadata read calls; it does not count the separate beacon reads or cache preload of
+a complete storage open. No existing budget bound changed.
 
 Projection identity boundary mutation evidence (2026-10-06): restoring the raw left/right-link
 comparison failed all 16 versioning/size/direction cases on queued row edits: 32 for 16 retained

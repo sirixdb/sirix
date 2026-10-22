@@ -362,6 +362,7 @@ public final class MMFileReader extends AbstractReader {
       // the revisions record nor lose the page hash needed to integrity-check the body below.
       // noinspection DataFlowIssue
       final RevisionFileData revisionFileData = cache.get(revision, (unused) -> getRevisionFileData(revision));
+      revisionFileData.requireReadable(revision);
       final long dataFileOffset = revisionFileData.offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
@@ -372,7 +373,7 @@ public final class MMFileReader extends AbstractReader {
       // its body was historically NOT integrity-checked here. The hash recorded alongside the
       // record (the same XXH3 the writer set on the page's reference) lets us verify the compressed
       // payload BEFORE deserialization — mirroring read(reference, config) exactly. Gated on
-      // verifyChecksumsOnRead and skipped for legacy/RAM records that carry no hash (pageHash == 0).
+      // verifyChecksumsOnRead; persisted records have a nonzero hash validated by the decoder.
       final PageReference reference = revisionRootReference(dataFileOffset, revisionFileData.pageHash());
 
       // Check if we can use zero-copy MemorySegment path (Umbra-style)
@@ -410,15 +411,8 @@ public final class MMFileReader extends AbstractReader {
     final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset);
     final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 8);
     final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 16);
-    // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
     final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 24);
-    // These bytes are the ONLY path to the revision's root page — verify them. The checksum covers
-    // 24 bytes when a page hash is present, 16 when legacy (hash == 0), so beta1 resources open.
-    if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(revisionOffset, timestampMillis, pageHash)) {
-      throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + revision
-          + " (checksum mismatch) — torn write or storage corruption");
-    }
-    return new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis), pageHash);
+    return IOStorage.decodeRevisionRecord(revision, revisionOffset, timestampMillis, storedChecksum, pageHash);
   }
 
   @Override
@@ -443,13 +437,9 @@ public final class MMFileReader extends AbstractReader {
       final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base);
       final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
       final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 16);
-      // 4th field: the RevisionRootPage's own page hash (0 = legacy record / no hash).
       final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 24);
-      if (storedChecksum != IOStorage.expectedRevisionRecordChecksum(revisionOffset, timestampMillis, pageHash)) {
-        throw new io.sirix.exception.SirixIOException("Corrupt revisions record for revision " + (fromRevision + i)
-            + " (checksum mismatch) — torn write or storage corruption");
-      }
-      result[i] = new RevisionFileData(revisionOffset, Instant.ofEpochMilli(timestampMillis), pageHash);
+      result[i] =
+          IOStorage.decodeRevisionRecord(fromRevision + i, revisionOffset, timestampMillis, storedChecksum, pageHash);
     }
     return result;
   }

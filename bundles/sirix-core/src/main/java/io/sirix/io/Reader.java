@@ -30,6 +30,7 @@ package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.page.PageReference;
 import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
@@ -302,11 +303,14 @@ public interface Reader extends AutoCloseable {
    * @param revision the revision to read
    * @param resourceConfiguration the resource configuration
    * @return the revision root page
+   * @throws SirixRevisionPrunedException if retention has pruned the revision
    */
   RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration);
 
+  /** Return the original commit timestamp, including for a pruned revision. */
   Instant readRevisionRootPageCommitTimestamp(int revision);
 
+  /** Return revision metadata, including a tombstone when {@link RevisionFileData#isPruned()}. */
   RevisionFileData getRevisionFileData(int revision);
 
   /**
@@ -317,7 +321,8 @@ public interface Reader extends AutoCloseable {
    *
    * @param fromRevision first revision (inclusive)
    * @param count number of consecutive revisions to read
-   * @return one {@link RevisionFileData} per revision, in order
+   * @return one {@link RevisionFileData} per revision, in order, with the same tombstone semantics as
+   *         {@link #getRevisionFileData(int)}
    */
   default RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
     final RevisionFileData[] result = new RevisionFileData[Math.max(count, 0)];

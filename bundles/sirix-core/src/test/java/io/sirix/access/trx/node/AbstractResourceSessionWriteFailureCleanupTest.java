@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.cache.BufferManager;
 import io.sirix.io.IOStorage;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
@@ -87,13 +88,19 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     private FailingResourceSession(final RuntimeException firstConstructionFailure, final JsonNodeTrx succeedingTrx,
         final StorageEngineWriter... writers) {
       super((ResourceStore) mock(ResourceStore.class), ResourceConfiguration.newBuilder("resource").build(),
-          mock(BufferManager.class), mock(IOStorage.class), uberPageAtRevisionZero(), new Semaphore(1), null,
+          mock(BufferManager.class), storageWithEmptyRevisionIndex(), uberPageAtRevisionZero(), new Semaphore(1), null,
           mock(StorageEngineWriterFactory.class));
       this.firstConstructionFailure = firstConstructionFailure;
       this.succeedingTrx = succeedingTrx;
       for (final StorageEngineWriter writer : writers) {
         this.writers.addLast(writer);
       }
+    }
+
+    private static IOStorage storageWithEmptyRevisionIndex() {
+      final IOStorage storage = mock(IOStorage.class);
+      when(storage.getRevisionIndexHolder()).thenReturn(new RevisionIndexHolder());
+      return storage;
     }
 
     @Override

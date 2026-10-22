@@ -1596,10 +1596,8 @@ The \textbf{deterministic} revision-slot layout (slot $N$ is always at $4096 + N
 never appended at file-size) means a failed commit cannot shift later slots, and recovery
 can derive the \emph{logical} write frontier from the durable revision graph instead of
 from \code{fileChannel.size()}, the property the preallocated-commit mode
-(\S\ref{sec:prealloc}) depends on. The fourth revision-record field is the XXH3-64 of the
-revision-root page's compressed body, the only integrity anchor on the otherwise
-parent-less \code{readRevisionRootPage} path. The checksum covers 24 bytes when a hash is
-present and 16 for legacy records, so older resources open without false corruption errors.
+(\S\ref{sec:prealloc}) depends on. The authoritative revision-record integrity and retention
+contract is in \pp{docs/DISK\_FORMAT.md}, section~1, ``sirix.revisions''.
 
 A byte-level look at one beacon slot shows what ``torn'' means and how the framing catches it. The primary
 slot at offset~4096 holds the latest uber page as \code{[u32 len][payload][u64 XXH3]} inside its 4\,KiB
@@ -5135,14 +5133,16 @@ submission, O\_DIRECT alignment, striped locking). Its own status document \emph
 \textbf{production-ready and 20--40\,\% faster than FileChannel}; that figure is the backend's own, not
 independently benchmarked in this report, and on Linux~6.8 a kernel bug that returns zero bytes for async
 ring reads currently forces the path to run \emph{synchronously}, so the async overlap the claim rests on
-is not realised on that kernel. The backend stays opt-in (FileChannel is the default storage type). (One documented V0 caveat: gappy compaction
-policies that drop \emph{intermediate} revisions can leave checksummed revision records that no longer
-open, so non-contiguous retention is not yet safe.)
+is not realised on that kernel. The backend stays opt-in (FileChannel is the default storage type).
+Non-contiguous retention requires separate enterprise compactor and provider adoption of the core
+sparse-history contract in \pp{docs/DISK\_FORMAT.md}, section~1, ``sirix.revisions''; the core
+change alone does not establish enterprise support.
 
 \begin{property}[Backend-independent on-disk format]\label{prop:backendid}
-A resource written by one storage backend opens byte-identically under any other, because every backend
-emits the same \code{V0} on-disk format above the \code{IOStorage} SPI. A cross-backend round-trip test
-between io\_uring and FileChannel asserts exactly this.
+Backends implementing the same revision-record contract share a byte-identical on-disk format
+above the \code{IOStorage} SPI. Existing cross-backend
+round-trip coverage between io\_uring and FileChannel does not establish sparse-history support;
+the separate enterprise adaptations described above are required for that contract.
 \end{property}
 
 \section{The linked-commit chain and its falsification}
@@ -8316,12 +8316,11 @@ Beacon slot — one 4096-byte block; PRIMARY @4096, SECONDARY @8192 (separate bl
   [u32 len][ UberPage payload … ][u64 XXH3 over payload][zero padding to 4096]
 
 Revision record — 32 bytes, slot r at REVISIONS_RECORDS_START + r*32:
-  [u64 rootPageOffset][u64 epochMillis][u64 checksum][u64 rootPageHash]
-  checksum = XXH3 over the first 24 bytes (hash present) or 16 (legacy; rootPageHash == 0)
+  Field encoding, checksum and tombstones: docs/DISK_FORMAT.md, section 1, sirix.revisions
 \end{diagram}
 
 A worked trace shows how the two files grow, and what is appended versus overwritten, across three
-commits. Only the two beacon slots are ever rewritten in place; the data region and the revision-record
+commits. During these ordinary commits, only the two beacon slots are rewritten in place; the data region and the revision-record
 slots are strictly append-only.
 
 \dcap{File growth across three commits (offsets illustrative, geometry exact)}

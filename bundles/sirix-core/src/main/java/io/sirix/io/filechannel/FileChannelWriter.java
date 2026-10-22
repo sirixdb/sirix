@@ -646,6 +646,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     requireNonNull(channel, "channel");
     requireNonNull(revisionFileData, "revisionFileData");
     requireNonNull(context, "context");
+    revisionFileData.requireReadable(revision);
     final long frameOffset = revisionFileData.offset();
     if (revision < 0 || fileSize < IOStorage.DATA_REGION_START || frameOffset < IOStorage.DATA_REGION_START
         || frameOffset > fileSize - IOStorage.OTHER_BEACON || revisionFileData.pageHash() == 0L) {
@@ -947,13 +948,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
       if (serializationType == SerializationType.DATA && page instanceof RevisionRootPage revisionRootPage) {
         // DETERMINISTIC slot (the shared layout formula) — append-at-file-size shifted every
-        // later slot after a failed commit or a torn record. The record carries an XXH3 of its
-        // first 16/24 bytes: these records are the only path to any RevisionRootPage and used to
-        // be completely unprotected. The former "reserved" 4th field now stores the
-        // RevisionRootPage's own page hash (XXH3 of its compressed payload, the same value set on
-        // pageReference above) so the page body is integrity-checked on read; the checksum covers
-        // it. Normalize an (astronomically unlikely) all-zero hash to a sentinel so the stored
-        // field is never 0 — 0 is reserved to mean "legacy record, no hash".
+        // later slot after a failed commit or a torn record. The root has no parent reference,
+        // so its record must retain the payload hash for body verification on read. The shared
+        // checksum and normalization helpers define the persisted identity contract.
         final long storedPageHash = IOStorage.normalizeRevisionRootPageHash(pageHash);
         final ByteBuffer buffer =
             ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
@@ -1290,6 +1287,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           throw new SirixIOException("cannot publish a data frontier without an uber-page revision identity");
         }
         durableRevisionFileData = reader.getRevisionFileData(uberPage.getRevisionNumber());
+        durableRevisionFileData.requireReadable(uberPage.getRevisionNumber());
       } else {
         durableRevisionFileData = null;
       }
@@ -1658,11 +1656,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
       final int base = (int) (entryRevision - minRevision) * IOStorage.REVISIONS_FILE_RECORD_SIZE;
       boolean intact = false;
+      if (base + Long.BYTES <= rangeRead && base + IOStorage.REVISIONS_FILE_RECORD_SIZE > rangeRead
+          && rangeBuffer.getLong(base) == IOStorage.PRUNED_REVISION_OFFSET) {
+        throw new SirixIOException("Truncated tombstone record for revision " + entryRevision);
+      }
       if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= rangeRead) {
         final long offset = rangeBuffer.getLong(base);
         final long timestampMillis = rangeBuffer.getLong(base + 8);
         final long storedChecksum = rangeBuffer.getLong(base + 16);
         final long pageHash = rangeBuffer.getLong(base + 24);
+        if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG) {
+          // Compaction must discard old tail-log entries. Never use one to resurrect a pruned slot.
+          IOStorage.decodeRevisionRecord((int) entryRevision, offset, timestampMillis, storedChecksum, pageHash);
+        }
         intact = storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
       }
       if (!intact) {

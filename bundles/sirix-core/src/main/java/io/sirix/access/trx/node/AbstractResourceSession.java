@@ -793,6 +793,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
 
+    final RevisionIndex index = storage.getRevisionIndexHolder().get();
+    if (representRevision < index.size()) {
+      index.requireReadable(representRevision);
+    }
     final Writer writer = storage.createWriter();
 
     // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
@@ -901,8 +905,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public List<RevisionInfo> getHistory(int fromRevision, int toRevision) {
-    assertAccess(fromRevision);
-    assertAccess(toRevision);
+    assertRevisionExists(fromRevision);
+    assertRevisionExists(toRevision);
 
     checkArgument(fromRevision > 0 && toRevision > 0, "Revision numbers must be positive, but got %s and %s.",
         fromRevision, toRevision);
@@ -928,8 +932,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public long[] getHistoryTimestamps(final int fromRevision, final int toRevision) {
-    assertAccess(fromRevision);
-    assertAccess(toRevision);
+    assertRevisionExists(fromRevision);
+    assertRevisionExists(toRevision);
 
     checkArgument(fromRevision > 0 && toRevision > 0, "Revision numbers must be positive, but got %s and %s.",
         fromRevision, toRevision);
@@ -1457,7 +1461,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void assertAccess(final int revision) {
+    assertRevisionExists(revision);
+    final RevisionIndex index = storage.getRevisionIndexHolder().get();
+    // A fresh bootstrap has no on-disk record yet.
+    if (revision < index.size()) {
+      index.requireReadable(revision);
+    }
+  }
+
+  private void assertRevisionExists(final int revision) {
     assertNotClosed();
+    checkArgument(revision >= 0, "Revision must not be negative.");
     if (revision > getMostRecentRevisionNumber()) {
       throw new IllegalArgumentException(
           "Revision must not be bigger than " + Long.toString(getMostRecentRevisionNumber()) + "!");
@@ -1875,7 +1889,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public int getRevisionNumber(final Instant pointInTime, final int revisionCeiling) {
     requireNonNull(pointInTime);
     checkArgument(revisionCeiling >= 0, "Revision ceiling must not be negative.");
-    assertAccess(revisionCeiling);
+    assertRevisionExists(revisionCeiling);
 
     final RevisionIndex index = storage.getRevisionIndexHolder().get();
     final long timestamp = pointInTime.toEpochMilli();
