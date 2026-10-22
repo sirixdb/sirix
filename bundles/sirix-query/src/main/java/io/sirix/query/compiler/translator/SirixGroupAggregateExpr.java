@@ -22,6 +22,7 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
+import io.sirix.query.scan.MaskedColumns;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.jspecify.annotations.Nullable;
@@ -251,9 +252,7 @@ public final class SirixGroupAggregateExpr implements Expr {
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRouted(final QueryContext ctx, final Tuple tuple,
       final RoutedSource routed) throws QueryException {
     final RoutedGroupRequest.ResolvedSource source = RoutedGroupRequest.resolveSource(ctx, tuple, routed);
-    if (membership == null && keyOffsets == null && keySubstr == null && keyCondFields == null && keyCondLits == null
-        && keyCondElse == null && keyRegexPattern == null && keyRegexRepl == null && keyDivMod == null
-        && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups()) {
+    if (canServeTemporalAggregate()) {
       final SirixVectorizedExecutor.ServedGroups aggregate = TemporalAggregateRoute.serve(ctx, tuple, source.point(),
           new RoutedGroupRequest(sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
               computedLanes),
@@ -263,15 +262,16 @@ public final class SirixGroupAggregateExpr implements Expr {
         return aggregate;
       }
     }
-    RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed, source);
+    final RoutedGroupRequest.RoutedRows rows = RoutedGroupRequest.resolve(ctx, tuple, routed, source);
     if (rows == null) {
       return null;
     }
-    if (membership != null) {
-      rows = RoutedGroupRequest.filterByMembership(executorProvider, ctx, tuple, sourcePath, rows, routed, membership);
-      if (rows == null) {
-        return null;
-      }
+    final boolean emptySource = rows.keys().length == 0;
+    final SirixVectorizedExecutor.GroupMembership values = membership == null || emptySource
+        ? null
+        : RoutedGroupRequest.membershipValues(executorProvider, ctx, tuple, membership);
+    if (membership != null && !emptySource && values == null) {
+      return null;
     }
     final long[] keys = rows.keys();
     final int revision = rows.revision();
@@ -285,12 +285,48 @@ public final class SirixGroupAggregateExpr implements Expr {
       if (executor.getRevision() != revision || !executor.canExecute(ctx)) {
         return null;
       }
-      final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
-          predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl,
-          keyDivMod, keyStringify, having, new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
+      return serveRoutedMembership(executor, ctx, keys, values);
+    }
+  }
+
+  private boolean canServeTemporalAggregate() {
+    return membership == null && keyOffsets == null && keySubstr == null && keyCondFields == null && keyCondLits == null
+        && keyCondElse == null && keyRegexPattern == null && keyRegexRepl == null && keyDivMod == null
+        && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups();
+  }
+
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveRoutedMembership(final SirixVectorizedExecutor executor,
+      final QueryContext ctx, final long[] keys, final SirixVectorizedExecutor.@Nullable GroupMembership values) {
+    if (values == null) {
+      return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(keys, computedLanes));
+    }
+    final MaskedColumns[] prepared = new MaskedColumns[1];
+    final SirixVectorizedExecutor.GroupRouting routing =
+        new SirixVectorizedExecutor.GroupRouting(keys, computedLanes, values, columns -> prepared[0] = columns);
+    final SirixVectorizedExecutor.GroupMembership normalizedMembership = routing.membership();
+    final SirixVectorizedExecutor.ServedGroups served = serveRoutedGroup(executor, ctx, routing);
+    if (served != null || normalizedMembership == null) {
       return served;
     }
+    // Membership and aggregate fields may be covered by separate projections, or the combined
+    // columns may exceed the resident budget. Keep the original two-stage routed plan when the
+    // fused mask cannot serve; falling straight back to document objects would lose that route.
+    final MaskedColumns columns = prepared[0] != null
+        ? prepared[0]
+        : executor.maskedColumns(sourcePath, keys, new String[] {normalizedMembership.field()});
+    if (columns == null || !columns.isLong(0)) {
+      return null;
+    }
+    final long[] selected =
+        columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
+    return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(selected, computedLanes));
+  }
+
+  private SirixVectorizedExecutor.@Nullable ServedGroups serveRoutedGroup(final SirixVectorizedExecutor executor,
+      final QueryContext ctx, final SirixVectorizedExecutor.GroupRouting routing) {
+    return executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields,
+        outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
+        keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, routing);
   }
 
   private boolean totallyOrderedGroups() {

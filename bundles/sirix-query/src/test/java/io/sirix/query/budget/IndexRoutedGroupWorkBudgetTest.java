@@ -31,7 +31,9 @@ import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.StringBoundProjection;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.SirixStringSerializer;
 import io.sirix.query.bench.bitemporal.BitemporalSchema;
+import io.sirix.query.function.jn.temporal.ValidTimeIntervalIndex;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
@@ -40,6 +42,8 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.query.scan.SirixVectorizedExecutor.ComputedLane;
 import io.sirix.query.scan.SirixVectorizedExecutor.GroupRouting;
+import io.sirix.query.scan.SirixVectorizedExecutor.GroupMembership;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.query.scan.SirixVectorizedExecutor.ServedGroups;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -49,6 +53,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.jspecify.annotations.Nullable;
 
@@ -66,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
@@ -83,6 +89,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -108,7 +115,7 @@ final class IndexRoutedGroupWorkBudgetTest {
 
   private static final String DB = "budgetrt";
   private static final String RES = BitemporalSchema.CONTRACTS;
-  private static final int VALID_ROWS = 1_000; // exactly the first projection leaf
+  private static final int VALID_ROWS = 1_000; // fits within the first 1,024-row projection leaf
   private static final int ROWS = 2_600;
 
   @TempDir
@@ -178,6 +185,315 @@ final class IndexRoutedGroupWorkBudgetTest {
         // Zero objects: no cursor move and no child-pointer read on the document the opener returns.
         verify(cursor, never()).moveTo(anyLong());
         verify(cursor, never()).getFirstChildKey();
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"id, true", "id, false", "grade, true", "grade, false"})
+  void allKeptMembershipRetainsColdFillsForGroupingAndRepeatedExecutions(final String groupField, final boolean anti)
+      throws Exception {
+    build(false, 2, VersioningType.FULL);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final long[] keys = membershipSourceKeys(document);
+      assertEquals(2, keys.length);
+      Arrays.sort(keys);
+      final var handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
+              new String[] {"[]"}, new String[] {"id", groupField, "cost"}, true);
+      assertNotNull(handle);
+      final var columns = requireNonNull(handle.columnStoreOrNull());
+      assertEquals(1, columns.leafCount());
+      final int membershipColumn = handle.columnOf("id");
+      assertFalse(columns.columnFilled(membershipColumn), "membership starts without decoded resident slices");
+      final LongOpenHashSet values = new LongOpenHashSet(anti
+          ? new long[] {99}
+          : new long[] {1, 2});
+      final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, anti));
+      final String expected = groupField.equals("id")
+          ? "{\"key\":1,\"total\":1000} {\"key\":2,\"total\":1037}"
+          : "{\"key\":0,\"total\":1000} {\"key\":1,\"total\":1037}";
+      final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      try {
+        long[] residentValues = null;
+        for (int repeat = 0; repeat < 3; repeat++) {
+          final WorkCapture.Captured<ServedGroups> served =
+              WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                         .and(EngineWorkCounters.PROJECTION_KEY_SEGMENTS)
+                         .and(QueryWorkCounters.GROUP_AGGREGATES)
+                         .call(() -> sumCostGroup(executor, ctx, groupField, "key", routing));
+          assertGroups(expected, served.result());
+          served.work()
+                .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
+                    ? groupField.equals("id")
+                        ? 2
+                        : 3
+                    : 0, "cold columns fill once; later membership and grouping reuse resident fills")
+                .assertExactly(EngineWorkCounters.PROJECTION_KEY_SEGMENTS, repeat == 0
+                    ? 1
+                    : 0, "membership and grouping share the resident record keys")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership remains in the grouped route");
+          assertTrue(columns.columnFilled(membershipColumn), "membership retains its decoded column");
+          final long[] decoded = columns.column(membershipColumn, fetcher)[0].numericValues();
+          if (repeat == 0) {
+            residentValues = decoded;
+          } else {
+            assertSame(residentValues, decoded, "repeated membership reuses the decoded value lane");
+          }
+        }
+      } finally {
+        executor.close();
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void denseSelectiveMembershipReusesBoundedSnapshots(final VersioningType versioning) throws Exception {
+    final int selectedRows = 3 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    final int totalRows = 4 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    build(false, totalRows, versioning, selectedRows);
+    for (final boolean anti : new boolean[] {false, true}) {
+      verifyDenseSelectiveMembership(selectedRows, totalRows, anti);
+    }
+  }
+
+  private void verifyDenseSelectiveMembership(final int selectedRows, final int totalRows, final boolean anti)
+      throws Exception {
+    clearColdProjectionState();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final long[] keys = membershipSourceKeys(document);
+      Arrays.sort(keys);
+      assertEquals(selectedRows, keys.length);
+      final var handle =
+          ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
+              new String[] {"[]"}, new String[] {"id", "grade", "cost"}, true);
+      assertNotNull(handle);
+      final var columns = requireNonNull(handle.columnStoreOrNull());
+      assertEquals(4, columns.leafCount());
+      final int membershipColumn = handle.columnOf("id");
+      assertFalse(columns.columnFilled(membershipColumn));
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      try {
+        for (int repeat = 0; repeat < 4; repeat++) {
+          final boolean narrowed = repeat == 2;
+          final LongOpenHashSet values = selectiveMembershipValues(narrowed, anti, selectedRows);
+          final String condition = narrowed
+              ? (anti
+                  ? "not($c.id = (1,1025,2049,4096))"
+                  : "$c.id = (1,1025,2049,4096)")
+              : (anti
+                  ? "$c.id ne 999999"
+                  : "$c.id le " + selectedRows);
+          final String expected = run(generic, ctx,
+              "for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
+                  + "xs:dateTime('2024-06-01T00:00:00Z')) where " + condition
+                  + " let $grade := $c.grade, $cost := $c.cost group by $grade let $total := sum($cost)"
+                  + " order by $grade return {'grade':$grade,'total':$total}");
+          final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, anti));
+          final WorkCapture.Captured<ServedGroups> served =
+              WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                         .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                         .and(QueryWorkCounters.GROUP_AGGREGATES)
+                         .call(() -> sumCostGroup(executor, ctx, "grade", "grade", routing));
+          assertGroups(expected, served.result());
+          served.work()
+                .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, repeat == 0
+                    ? 9
+                    : 6, "three selected leaves fill membership once and group/aggregate columns on each execution")
+                .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, repeat == 0
+                    ? totalRows
+                    : 0, "cached source masks never remap selected keys")
+                .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "selective membership stays fused");
+          assertFalse(columns.columnFilled(membershipColumn), "selective reuse never fills the excluded leaf");
+        }
+      } finally {
+        executor.close();
+      }
+    }
+  }
+
+  private static LongOpenHashSet selectiveMembershipValues(final boolean narrowed, final boolean anti,
+      final int selectedRows) {
+    final LongOpenHashSet values = new LongOpenHashSet();
+    if (narrowed) {
+      values.add(1);
+      values.add(1025);
+      values.add(2049);
+      values.add(4096);
+    } else if (anti) {
+      values.add(999999);
+    } else {
+      for (int value = 1; value <= selectedRows; value++) {
+        values.add(value);
+      }
+    }
+    return values;
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void refusedMembershipReusesEvaluationColumnsAndSkipsEmptyAntiReads(final VersioningType versioning)
+      throws Exception {
+    build(false, ROWS, versioning);
+    buildMembershipInner(versioning);
+    for (final boolean lateRefusal : new boolean[] {false, true}) {
+      for (int mode = 0; mode < 3; mode++) {
+        verifyRefusedMembership(lateRefusal, mode);
+      }
+    }
+  }
+
+  private void verifyRefusedMembership(final boolean lateRefusal, final int mode) throws Exception {
+    final boolean empty = mode == 2;
+    final boolean anti = mode != 1;
+    clearColdProjectionState();
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String inner = tailSource("suppliers", empty
+          ? "2030-01-01T00:00:00Z"
+          : "2024-06-01T00:00:00Z");
+      final String query = "let $new := " + inner + " for $a in " + tailSource(RES, "2024-06-01T00:00:00Z") + " where "
+          + (anti
+              ? "empty"
+              : "exists")
+          + "(for $b in $new where $b." + (anti
+              ? "id"
+              : "tier")
+          + " eq $a.id return $b)"
+          + " let $grade := $a.grade, $cost := $a.cost group by $grade let $total := sum($cost)"
+          + " order by $grade return {'grade':$grade,'total':$total}";
+      final String expected = run(generic, ctx, query);
+      assertFalse(expected.isEmpty());
+      final var innerDocument = store.lookup(DB).getDocument("suppliers");
+      final long[] innerKeys = ValidTimeIntervalIndex.keys(innerDocument, Instant.parse("2024-06-01T00:00:00Z"), true);
+      Arrays.sort(innerKeys);
+      assertEquals(1, innerKeys.length);
+      final var innerExecutor = new SirixVectorizedExecutor(innerDocument.getResourceSession(),
+          innerDocument.getTrx().getRevisionNumber(), 1);
+      try {
+        assertNotNull(innerExecutor.maskedColumns(new String[] {"[]"}, innerKeys, new String[] {"id", "tier"}));
+      } finally {
+        innerExecutor.close();
+      }
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final var handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey, revision, new String[] {"[]"},
+          new String[] {"id", "grade", "cost"}, true);
+      assertNotNull(handle);
+      final var columns = requireNonNull(handle.columnStoreOrNull());
+      assertEquals(3, columns.leafCount());
+      final int id = handle.columnOf("id");
+      final int grade = handle.columnOf("grade");
+      final int cost = handle.columnOf("cost");
+      assertFalse(columns.columnFilled(id));
+      final var observedColumns = spy(columns);
+      final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
+      doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
+      if (lateRefusal) {
+        doThrow(mock(FillBudgetExceededException.class)).when(observedColumns)
+                                                        .columnMaskedView(eq(grade), any(), any());
+      }
+      final long budget = columns.retainedFillBytes() + (columns.recordKeysFilled()
+          ? 0L
+          : columns.projectedRecordKeysFillBytes()) + columns.projectedColumnFillBytes(id)
+          + (lateRefusal
+              ? columns.projectedColumnFillBytes(grade) + columns.projectedColumnFillBytes(cost)
+              : 0L);
+      final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(budget);
+      try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
+        catalog.when(() -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any()))
+               .thenReturn(observedHandle);
+        catalog.when(
+            () -> ProjectionIndexCatalog.lookupCovering(any(), eq(resourceKey), eq(revision), any(), any(), eq(true)))
+               .thenReturn(observedHandle);
+        assertTrue(observedColumns.columnsFitWithinBudget(new int[] {id, ProjectionColumnStore.KEYS_COLUMN}, -1));
+        assertEquals(lateRefusal,
+            observedColumns.columnsFitWithinBudget(new int[] {grade, cost, ProjectionColumnStore.KEYS_COLUMN}, -1));
+        final WorkCapture.Captured<String> actual = WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                                                               .and(QueryWorkCounters.GROUP_AGGREGATES_DECLINED)
+                                                               .and(QueryWorkCounters.GROUP_AGGREGATES_FAILED)
+                                                               .call(() -> run(chain, ctx, query));
+        assertEquals(expected, actual.result());
+        actual.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, empty
+                  ? 0
+                  : 1, "a sparse membership column loads once across refusal and fallback, or never for empty anti")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, empty
+                  ? 1
+                  : 2, "normalized empty anti skips membership fallback; nonempty membership tries both routed stages")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusal is an ordinary decline");
+        verify(observedColumns, empty
+            ? never()
+            : times(1)).columnMaskedView(eq(id), any(), any());
+        assertFalse(observedColumns.columnFilled(id), "the sparse source never fills excluded membership leaves");
+      } finally {
+        ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void membershipMapsTheOuterSourceOnce(final VersioningType versioning) throws Exception {
+    build(false, ROWS, versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final var document = store.lookup(DB).getDocument(RES);
+      final var session = document.getResourceSession();
+      final int revision = document.getTrx().getRevisionNumber();
+      final long[] keys = membershipSourceKeys(document);
+      assertEquals(VALID_ROWS, keys.length, "route exactly the reference query's valid-time slice");
+      Arrays.sort(keys);
+      final LongOpenHashSet values = new LongOpenHashSet(1);
+      values.add(1L);
+      final GroupRouting routing = new GroupRouting(keys, null, new GroupMembership("id", values, true));
+      final String query =
+          """
+              for $c in jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),xs:dateTime('2024-06-01T00:00:00Z'))
+              where $c.id ne 1
+              let $grade := $c.grade, $qty := $c.qty, $cost := $c.cost
+              group by $grade
+              let $n := count($qty), $total := sum($cost)
+              order by $grade
+              return {"grade":$grade,"n":$n,"total":$total}
+              """;
+      final String expected = run(generic, ctx, query);
+      final var executor = new SirixVectorizedExecutor(session, revision, 1);
+      try {
+        final WorkCapture.Captured<ServedGroups> served =
+            WorkCapture.of(EngineWorkCounters.PROJECTION_DENSE_ROWS)
+                       .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
+                       .and(QueryWorkCounters.GROUP_AGGREGATES)
+                       .call(() -> executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null,
+                           new String[] {"grade"}, new String[] {"grade"}, new String[] {"count", "sum"},
+                           new String[] {"qty", "cost"}, new String[] {"n", "total"}, new int[] {0},
+                           new boolean[] {true}, new boolean[] {true}, -1L, null, null, null, null, null, null, null,
+                           null, null, null, routing));
+        assertGroups(expected, served.result());
+        served.work()
+              .assertExactly(EngineWorkCounters.PROJECTION_DENSE_ROWS, ROWS,
+                  "membership reuses one outer source mapping, without mapping a selected-key array")
+              .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 4,
+                  "only the source leaf supplies membership, group and aggregate columns")
+              .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership is served in the grouped route");
+      } finally {
+        executor.close();
       }
     }
   }
@@ -840,6 +1156,31 @@ final class IndexRoutedGroupWorkBudgetTest {
     Databases.clearGlobalCaches();
   }
 
+  private void buildMembershipInner(final VersioningType versioning) {
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(directory.resolve(DB))) {
+      database.createResource(ResourceConfiguration.newBuilder("suppliers")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("vf", "vt")
+                                                   .customCommitTimestamps(true)
+                                                   .buildPathSummary(true)
+                                                   .versioningApproach(versioning)
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("suppliers");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+            [{"id":999999,"region":0,"tier":1,
+              "vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+            """), JsonNodeTrx.Commit.NO);
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, writer, DB);
+        StringBoundProjection.declare(session, writer, "suppliers");
+        writer.commit("membership", Instant.parse("2024-01-15T00:00:00Z"));
+      }
+    }
+  }
+
   private long buildOpenTail(final VersioningType versioning) {
     final String previousLayout = System.setProperty("sirix.projection.columnMajorSlots", "false");
     final String previousDictionary = System.setProperty("sirix.projection.globalDict", "never");
@@ -889,6 +1230,18 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
+  private static long[] membershipSourceKeys(final JsonDBItem document) {
+    return ValidTimeIntervalIndex.keys(document, Instant.parse("2024-06-01T00:00:00Z"), true);
+  }
+
+  private static @Nullable ServedGroups sumCostGroup(final SirixVectorizedExecutor executor,
+      final SirixQueryContext ctx, final String groupField, final String keyName, final GroupRouting routing) {
+    return executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, new String[] {groupField},
+        new String[] {keyName}, new String[] {"sum"}, new String[] {"cost"}, new String[] {"total"}, new int[] {0},
+        new boolean[] {true}, new boolean[] {true}, -1L, null, null, null, null, null, null, null, null, null, null,
+        routing);
+  }
+
   private static @Nullable ServedGroups group(final SirixVectorizedExecutor executor, final SirixQueryContext ctx,
       final String func, final String field, final GroupRouting routing) {
     return executor.executeGroupByAggregate(ctx, new String[] {"[]"}, null, new String[] {"grade"},
@@ -915,6 +1268,15 @@ final class IndexRoutedGroupWorkBudgetTest {
     }
   }
 
+  private static void assertGroups(final String expected, final @Nullable ServedGroups served) {
+    assertNotNull(served);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try (final var serializer = new SirixStringSerializer(new PrintWriter(out, false, StandardCharsets.UTF_8))) {
+      serializer.serialize(served.groups());
+    }
+    assertEquals(expected, out.toString(StandardCharsets.UTF_8).trim());
+  }
+
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
       throws Exception {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -930,10 +1292,16 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   private void build(final boolean orderException, final int rowCount, final VersioningType versioning) {
+    build(orderException, rowCount, versioning, VALID_ROWS);
+  }
+
+  private void build(final boolean orderException, final int rowCount, final VersioningType versioning,
+      final int validRows) {
     final Path databasePath = directory.resolve(DB);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RES)
+                                                   .storageType(StorageType.FILE_CHANNEL)
                                                    .validTimePaths("vf", "vt")
                                                    .customCommitTimestamps(true)
                                                    .buildPathSummary(true)
@@ -941,7 +1309,7 @@ final class IndexRoutedGroupWorkBudgetTest {
                                                    .storeDiffs(false)
                                                    .build());
       try (JsonResourceSession session = database.beginResourceSession(RES); JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException, rowCount)),
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(orderException, rowCount, validRows)),
             JsonNodeTrx.Commit.NO);
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
@@ -962,14 +1330,18 @@ final class IndexRoutedGroupWorkBudgetTest {
   }
 
   private static String rows(final boolean orderException, final int rowCount) {
+    return rows(orderException, rowCount, VALID_ROWS);
+  }
+
+  private static String rows(final boolean orderException, final int rowCount, final int validRows) {
     final StringBuilder json = new StringBuilder(rowCount * 110).append('[');
     for (int i = 0; i < rowCount; i++) {
       if (i > 0) {
         json.append(',');
       }
       final String vt = (orderException
-          ? i == VALID_ROWS
-          : i < VALID_ROWS)
+          ? i == validRows
+          : i < validRows)
               ? "2025-01-01T00:00:00Z"
               : "2024-02-01T00:00:00Z";
       json.append("{\"id\":")

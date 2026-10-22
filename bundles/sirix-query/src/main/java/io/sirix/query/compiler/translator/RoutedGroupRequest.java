@@ -137,59 +137,33 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
     }
   }
 
-  /**
-   * The main source's rows after a membership filter: the filter source's {@code innerField} values
-   * are read under its own mask, then the main rows' {@code outerField} values decide which record
-   * keys survive. {@code null} declines.
-   */
-  static @Nullable RoutedRows filterByMembership(final SirixExecutorProvider executorProvider, final QueryContext ctx,
-      final Tuple tuple, final String[] sourcePath, final RoutedRows main,
-      final SirixGroupAggregateExpr.RoutedSource mainSource, final MembershipFilter filter) throws QueryException {
+  /** Build the inner set once, release its lease, and carry it into outer row admission. */
+  static SirixVectorizedExecutor.@Nullable GroupMembership membershipValues(
+      final SirixExecutorProvider executorProvider, final QueryContext ctx, final Tuple tuple,
+      final MembershipFilter filter) throws QueryException {
     final RoutedRows inner = resolve(ctx, tuple, filter.source());
     if (inner == null) {
       return null;
     }
-    if (main.keys().length == 0) {
-      return main;
-    }
     if (inner.keys().length == 0) {
-      return filter.anti()
-          ? main
-          : new RoutedRows(inner.keys(), main.revision());
+      return new SirixVectorizedExecutor.GroupMembership(filter.outerField(), new LongOpenHashSet(0), filter.anti());
     }
-    final LongOpenHashSet values;
-    final SirixExecutorProvider.Lease innerLease = executorProvider.acquire(ctx,
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx,
         SourceRef.document(filter.source().database(), filter.source().resource(), inner.revision()));
-    if (innerLease == null) {
+    if (lease == null) {
       return null;
     }
-    try (innerLease) {
-      final SirixVectorizedExecutor executor = innerLease.executor();
+    try (lease) {
+      final SirixVectorizedExecutor executor = lease.executor();
       if (executor.getRevision() != inner.revision() || !executor.canExecute(ctx)) {
         return null;
       }
       final MaskedColumns columns =
           executor.maskedColumns(ARRAY_MEMBERS, inner.keys(), new String[] {filter.innerField()});
-      if (columns == null || !columns.isLong(0)) {
-        return null;
-      }
-      values = columns.presentLongValues(0);
-    }
-    final SirixExecutorProvider.Lease mainLease = executorProvider.acquire(ctx,
-        SourceRef.document(mainSource.database(), mainSource.resource(), main.revision()));
-    if (mainLease == null) {
-      return null;
-    }
-    try (mainLease) {
-      final SirixVectorizedExecutor executor = mainLease.executor();
-      if (executor.getRevision() != main.revision() || !executor.canExecute(ctx)) {
-        return null;
-      }
-      final MaskedColumns columns = executor.maskedColumns(sourcePath, main.keys(), new String[] {filter.outerField()});
-      if (columns == null || !columns.isLong(0)) {
-        return null;
-      }
-      return new RoutedRows(columns.recordKeysByMembership(0, values, filter.anti()), main.revision());
+      return columns == null || !columns.isLong(0)
+          ? null
+          : new SirixVectorizedExecutor.GroupMembership(filter.outerField(), columns.presentLongValues(0),
+              filter.anti());
     }
   }
 

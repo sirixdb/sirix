@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
 
@@ -122,15 +125,16 @@ public final class ProjectionIndexScan {
     public final @Nullable SegmentCellVerdicts segmentCellVerdicts;
 
     /**
-     * For {@link Op#KEY_IN}: the record keys the row source admits, strictly ascending; {@code null}
-     * for every other predicate. Shared read-only by every worker of a scan.
+     * For {@link Op#KEY_IN}: candidate record keys, strictly ascending; {@code keyMasks}, when present,
+     * gives the exact admitted subset. {@code null} for every other predicate. Shared read-only by
+     * every worker of a scan.
      */
     public final long @Nullable [] sortedKeys;
 
     /**
-     * Content hash of {@link #sortedKeys} (0 for every other predicate) — the part of this predicate's
-     * identity a plan memo keyed by predicate shape must fold in: two scans over different key sets
-     * must never share a shape fingerprint.
+     * Content hash of the admitted keys or exact row masks (0 for every other predicate) — the part of
+     * this predicate's identity a plan memo keyed by predicate shape must fold in: two scans over
+     * different key sets must never share a shape fingerprint.
      */
     public final long keySetHash;
     public final ProjectionRecordKeySet.@Nullable Masks keyMasks;
@@ -164,6 +168,26 @@ public final class ProjectionIndexScan {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
           sortedKeys, ProjectionRecordKeySet.contentHash(sortedKeys), store.recordKeyMasks(sortedKeys, fetcher));
+    }
+
+    /**
+     * Intersect a routed source with integral value membership in its existing row masks. This avoids
+     * producing, sorting and mapping another record-key array for semi/anti joins. The masks and their
+     * content fingerprint belong to this evaluation; no shared mask is modified.
+     */
+    public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
+        final long[][] rowMasks, final long[][] keys, final ColumnSlice[] slices, final LongOpenHashSet values,
+        final boolean anti) {
+      ProjectionRecordKeySet.requireSorted(sortedKeys);
+      if (store == null || rowMasks == null || keys == null || slices == null || values == null
+          || rowMasks.length != store.leafCount() || keys.length != rowMasks.length
+          || slices.length != rowMasks.length) {
+        throw new IllegalArgumentException("membership requires aligned masks, keys and numeric slices");
+      }
+      final ProjectionRecordKeySet.Masks filtered =
+          ProjectionRecordKeySet.filterMembership(rowMasks, keys, slices, store::physicalSlot, values, anti);
+      return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
+          sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
     }
 
     /** Whether this is the index-routed row source ({@link Op#KEY_IN}). */
@@ -420,12 +444,13 @@ public final class ProjectionIndexScan {
      */
     STR_CONTAINS,
     /**
-     * Record-key membership {@code recordKey(row) ∈ sortedKeys} — the index-routed row source. The
-     * predicate's {@link ColumnPredicate#column} is the virtual KEYS column
+     * Record-key membership — the index-routed row source. The predicate's
+     * {@link ColumnPredicate#column} is the virtual KEYS column
      * ({@link ProjectionColumnStore#KEYS_COLUMN}) and its literal is
-     * {@link ColumnPredicate#sortedKeys}; no stored column is read for it. Every row carries a key, so
-     * there is no presence to AND. Its own op so that each exhaustive switch fails to compile rather
-     * than compare a key set as a number, and so that a kernel not taught this form throws by name.
+     * {@link ColumnPredicate#sortedKeys}, narrowed by {@link ColumnPredicate#keyMasks} when supplied;
+     * no stored column is read to evaluate it. Every row carries a key, so there is no presence to AND.
+     * Its own op so that each exhaustive switch fails to compile rather than compare a key set as a
+     * number, and so that a kernel not taught this form throws by name.
      */
     KEY_IN
   }

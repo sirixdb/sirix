@@ -22,15 +22,17 @@ first; that reference owns its admission and source-reuse contract.
 `ProjectionIndexScan.ColumnPredicate.recordKeysIn(sortedKeys, store, fetcher)` builds a predicate whose
 column is `ProjectionColumnStore.KEYS_COLUMN` (`-1`, the KEYS lane every projection carries) and
 whose literal is the strictly ascending key set. A row passes iff its record key is in the set.
-There is no presence to AND: every row carries a key. The predicate's `keySetHash` is part of its
-identity, so a plan memo keyed by predicate shape never confuses two key sets.
+Membership filtering can retain that candidate set while supplying a narrower exact subset in
+`keyMasks`; those masks then decide which rows pass. There is no presence to AND on the KEYS lane:
+every row carries a key. The predicate's `keySetHash` fingerprints the admitted keys or exact row
+masks, so memo identity includes membership filtering even when the candidate keys stay the same.
 
 Every mask evaluator honours it:
 
 | Evaluator | How |
 |---|---|
-| Sliced conjunctive and tree evaluators (`ProjectionColumnScan.evaluateMask*`) | the KEYS column's "slice" is built from the leaf's decoded record keys (`ProjectionColumnStore.recordKeyPredicateView`, `LeafColumnAccess.predicateSlice`) with the leaf's exact key range as its zone; `evalNumeric` runs the membership walk |
-| Whole-leaf byte kernels (`ProjectionIndexByteScan.evalPredicateLeafMask`) | the walk over the payload's inline record keys; the presence AND is skipped |
+| Sliced conjunctive and tree evaluators (`ProjectionColumnScan.evaluateMask*`) | the KEYS column's "slice" is built from the leaf's decoded record keys (`ProjectionColumnStore.recordKeyPredicateView`, `LeafColumnAccess.predicateSlice`); `evalNumeric` uses the exact `keyMasks` when supplied, otherwise walks the candidate key set |
+| Whole-leaf byte kernels (`ProjectionIndexByteScan.evalPredicateLeafMask`) | use the exact `keyMasks` when supplied, otherwise walk the payload's inline record keys; the presence AND is skipped |
 | Leaf keep mask (`ProjectionColumnScan.pruneLeaves`) | the exact per-leaf membership mask drops leaves with no selected row before any BODY segment fetch, including order-exception leaves whose key ranges overlap the set |
 | Residency and sliceability gates | the virtual column is priced as the KEYS chain, never as a stored column |
 | Page scan (`ProjectionIndexScan.evalColumn`) | refuses by name: the materialising reference path does not serve it |
@@ -50,16 +52,17 @@ already decoded `leafKeys` is the explicit in-memory dense mapper.
 
 ## Serving a grouped aggregate under a row mask
 
-`SirixVectorizedExecutor.executeGroupByAggregate(..., GroupRouting)` takes the row source and the
-computed lanes. The route appends the `KEY_IN` predicate to the conjunctive predicates, or ANDs it
-over the root of a predicate tree, and otherwise runs the ordinary group arms. Under routing the
-metadata routes that read no row mask (sorted top-K, scalar value summaries, any-K groups) are
-skipped, and the request claims the sliced arms even after the handle's payloads were promoted to
-whole-leaf scans: the row source prunes leaves there, and the derived lanes exist only as slices.
+`SirixVectorizedExecutor.executeGroupByAggregate(..., GroupRouting)` takes the row source, computed
+lanes and optional integral membership filter. The route appends the `KEY_IN` predicate to the
+conjunctive predicates, or ANDs it over the root of a predicate tree, and otherwise runs the ordinary
+group arms. Under routing the metadata routes that read no row mask (sorted top-K, scalar value
+summaries, any-K groups) are skipped, and the request claims the sliced arms even after the handle's
+payloads were promoted to whole-leaf scans: the row source prunes leaves there, and the derived lanes
+exist only as slices.
 Masked requests require resident sliced execution and do not trigger whole-projection background
 promotion. Dense global-string grouping uses the same keep mask. A residency refusal declines
-before operand fills; a later fill-budget refusal retains the mask on re-entry and declines before
-entering a whole-leaf arm.
+before group and aggregate operand fills; a later fill-budget refusal declines directly without
+re-entering membership admission or entering a whole-leaf arm.
 
 **Computed lanes.** A pre-group `let $v := $r.a * $r.b` (a supported `+,-,*` program over the loop var's
 fields and integer literals, `ComputedProgram`'s encoding) is an aggregate operand `prog:<i>`. The
@@ -133,11 +136,24 @@ touching more revisions than the resolver caches re-creates executors as it goes
 
 **Membership filter** (Q12): `where empty|exists(for $b in SRC2 where $b.f eq $r.g return …)`
 under a routed loop, with `SRC2` a second routed opener (or a leading `let` bound to one). The filter
-source's `f` values are read under its own mask, the main rows' `g` values decide which record keys
-survive (a missing value matches nothing: it survives an anti-join and fails a semi-join), and the
-grouping runs over the reduced key set. Both membership fields must be integral, null-free long
-columns. The [hash-membership pipeline](QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)
-stays the fallback.
+source's `f` values build an evaluation-owned integral set under its own mask, then its executor
+lease is released before acquiring the outer executor. The main rows' `g` values filter the
+existing source row masks directly: the fused route neither builds nor sorts another selected-key
+array, and does not map the outer source again. The filtered masks are evaluation-owned; shared
+source masks remain unchanged. A missing value matches nothing, so it survives an anti-join and
+fails a semi-join. Both membership fields must be integral, null-free long columns.
+
+Membership loading uses the ordinary masked-column path: keeping every source leaf preserves
+resident column fills, and eligible dense selective sources retain the existing
+[bounded numeric snapshot reuse](VALID_TIME_KEY_SLICES.md#range-intersections-and-joined-overlap-residuals)
+without reading excluded leaves. Sparse selections keep their uncached locality path. If fused
+grouping declines because fields need separate projections or the combined columns cannot fit,
+the original two-stage column route remains available. It reuses any membership
+columns already prepared in this evaluation, including after a fill-budget refusal, and builds
+selected keys only for that fallback. An empty outer source skips the inner read; an empty inner
+set admits no semi-join rows and removes the anti-join filter without reading an outer membership
+column. The [hash-membership pipeline](QUERY_MEMBERSHIP_OPTIMIZATION.md#plan-and-invariants)
+remains the fallback when the column routes cannot serve.
 
 **Column-side equality join** (Q4, Q9, Q10; `JoinedGroupAggregateDetectionStage`,
 `SirixJoinedGroupAggregateExpr`): Brackit's `Join` node over two single-loop branches, each over a

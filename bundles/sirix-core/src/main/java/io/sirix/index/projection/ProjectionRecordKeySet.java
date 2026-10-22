@@ -4,9 +4,11 @@
 package io.sirix.index.projection;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntToLongFunction;
 
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -117,6 +119,72 @@ public final class ProjectionRecordKeySet {
       DENSE_ROWS.add(visited);
     }
     return new Masks(masks, slots);
+  }
+
+  static Masks filterMembership(final long[][] sourceMasks, final long[][] keys, final ColumnSlice[] slices,
+      final IntToLongFunction physicalSlot, final LongOpenHashSet values, final boolean anti) {
+    Objects.requireNonNull(values);
+    int keptLeaves = 0;
+    for (final long[] mask : sourceMasks) {
+      if (mask != null) {
+        keptLeaves++;
+      }
+    }
+    final Long2ObjectOpenHashMap<long[]> byFirstKey = new Long2ObjectOpenHashMap<>(keptLeaves);
+    final LongOpenHashSet slots = new LongOpenHashSet(keptLeaves);
+    for (int leaf = 0; leaf < keys.length; leaf++) {
+      if (keys[leaf].length == 0) {
+        continue;
+      }
+      final long[] selected = sourceMasks[leaf];
+      if (selected == null) {
+        continue;
+      }
+      final ColumnSlice slice = slices[leaf];
+      final long[] lane = Objects.requireNonNull(slice.numericValues(), "membership requires an integral column");
+      final long[] presence = slice.presenceWords();
+      final long[] mask = new long[selected.length];
+      if (filterMembershipWords(selected, lane, presence, values, anti, mask)) {
+        byFirstKey.put(keys[leaf][0], mask);
+        slots.add(physicalSlot.applyAsLong(leaf));
+      }
+    }
+    return new Masks(byFirstKey, slots);
+  }
+
+  private static boolean filterMembershipWords(final long[] selected, final long[] lane, final long[] presence,
+      final LongOpenHashSet values, final boolean anti, final long[] mask) {
+    long any = 0;
+    for (int word = 0; word < selected.length; word++) {
+      long candidates = selected[word];
+      long kept = 0;
+      while (candidates != 0) {
+        final int bit = Long.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1;
+        final int row = (word << 6) + bit;
+        final boolean member = (presence[word] & 1L << bit) != 0 && values.contains(lane[row]);
+        if (anti != member) {
+          kept |= 1L << bit;
+        }
+      }
+      mask[word] = kept;
+      any |= kept;
+    }
+    return any != 0;
+  }
+
+  /** Include the selected row bits, not only the original source keys, in predicate memo identity. */
+  static long contentHash(final Masks masks) {
+    long hash = 0;
+    for (final var entry : masks.byFirstKey().long2ObjectEntrySet()) {
+      long leafHash = entry.getLongKey();
+      for (final long word : entry.getValue()) {
+        leafHash = (leafHash ^ word) * 0xBF58476D1CE4E5B9L;
+        leafHash ^= leafHash >>> 31;
+      }
+      hash += leafHash;
+    }
+    return hash;
   }
 
   /**

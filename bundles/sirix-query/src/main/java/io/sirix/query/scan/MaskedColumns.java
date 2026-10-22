@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -333,6 +334,14 @@ public final class MaskedColumns {
     final long[] sorted = keys.toLongArray();
     Arrays.sort(sorted);
     return sorted;
+  }
+
+  ColumnPredicate recordKeyPredicateByMembership(final int field, final long[] sortedKeys, final LongOpenHashSet values,
+      final boolean anti) {
+    if (field < 0 || field >= kinds.length || !isLong(field)) {
+      throw new IllegalArgumentException("membership requires a numeric field");
+    }
+    return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, recordKeys, slices[field], values, anti);
   }
 
   /** The interned id of a string on a PRESENT row, through the shared interner when adopted. */

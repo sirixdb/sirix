@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ValidTimeContainerMoveQueryTest {
   private static final String POINT = "xs:dateTime('2024-01-01T00:00:00Z')";
   private static final Instant INSTANT = Instant.parse("2024-01-01T00:00:00Z");
+  private static final Instant FIRST_COMMIT = Instant.parse("2025-01-01T00:00:00Z");
   private static final WorkCapture POSTINGS = WorkCapture.of(EngineWorkCounters.VALID_TIME_POSTING_REFS,
       EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS);
 
@@ -110,7 +111,8 @@ final class ValidTimeContainerMoveQueryTest {
                 + (resource.equals("indexed")
                     ? "true()"
                     : "false()")
-                + ",{\"validFromPath\":\"vf\",\"validToPath\":\"vt\",\"autoCreateValidTimeIndex\":"
+                + ",{\"commitTimestamp\":\"" + FIRST_COMMIT
+                + "\",\"validFromPath\":\"vf\",\"validToPath\":\"vt\",\"autoCreateValidTimeIndex\":"
                 + (resource.equals("indexed")
                     ? "true()"
                     : "false()")
@@ -122,7 +124,8 @@ final class ValidTimeContainerMoveQueryTest {
         try (var writer = session.beginNodeTrx()) {
           for (int step = 1; step <= 5; step++) {
             ValidTimeMoveTestSupport.mutate(writer, keys, mode, step);
-            writer.commit();
+            // Keep every revision addressable by time, even when commits finish in one millisecond.
+            writer.commit(null, FIRST_COMMIT.plusSeconds(step));
           }
         }
       }
@@ -133,6 +136,7 @@ final class ValidTimeContainerMoveQueryTest {
       final JsonDBCollection collection, final int revision, final List<Long> closed, final List<Long> documentOrder) {
     for (final String resource : List.of("indexed", "plain")) {
       final var represented = requireNonNull(collection.getDocument(resource, revision));
+      assertEquals(FIRST_COMMIT.plusSeconds(revision - 1), represented.getTrx().getRevisionTimestamp());
       final String transaction = "xs:dateTime('" + represented.getTrx().getRevisionTimestamp() + "')";
       final String source = "jn:open-bitemporal('moves','" + resource + "'," + transaction + "," + POINT + ")";
       final List<Long> expected = resource.equals("indexed")
