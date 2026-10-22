@@ -20,6 +20,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -49,6 +50,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -148,6 +152,182 @@ final class DerivedIndexMaintainerTest {
       await(state(session), 2);
       assertSum(session, 1, 10);
       assertSum(session, 2, 30);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void pinnedCatchUpRemainsExactDuringConcurrentCommitAndMaintenance(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("pinned-tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records")) {
+        final DerivedIndexMaintainer.Resource resource;
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          declareSimple(session, writer);
+          resource = state(session);
+          resource.pause();
+          writer.commit();
+          resource.drain();
+          setNumber(writer, 20);
+          writer.commit();
+        }
+        try (StorageEngineReader source = session.createStorageEngineReader(2);
+            DerivedIndexSnapshot snapshot = resource.openCatchUpSnapshot(source)) {
+          assertNotNull(snapshot);
+          assertEquals(1, snapshot.sourceRevision());
+          final CountDownLatch publish = new CountDownLatch(1);
+          final FutureTask<Boolean> commit = new FutureTask<>(() -> {
+            publish.await();
+            try (JsonNodeTrx writer = session.beginNodeTrx()) {
+              setNumber(writer, 30);
+              writer.commit();
+            }
+            return true;
+          });
+          final Thread writerThread = Thread.ofPlatform().start(commit);
+          try {
+            publish.countDown();
+            assertTailSum(session, source, snapshot, 20);
+            assertTrue(commit.get(30, TimeUnit.SECONDS));
+            resource.drain();
+            assertTailSum(session, source, snapshot, 20);
+            assertSum(session, 3, 30);
+          } finally {
+            writerThread.interrupt();
+            writerThread.join();
+          }
+        }
+      }
+    }
+  }
+
+  private static void assertTailSum(final JsonResourceSession session, final StorageEngineReader source,
+      final DerivedIndexSnapshot snapshot, final long expected) {
+    final var indexes = session.getRtxIndexController(source.getRevisionNumber()).getIndexes();
+    final IndexDef definition = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.TEMPORAL_AGGREGATE));
+    final IndexDef projection = Objects.requireNonNull(indexes.getIndexDef(0, IndexType.PROJECTION));
+    final TemporalAggregateIndexes.CatchUp tail = TemporalAggregateIndexes.catchUp(source, snapshot.sourceRevision(),
+        definition, projection, new TemporalAggregateCatchUpBudget.Budget());
+    try (var storage = new TemporalAggregateStorage.Reader(snapshot.reader(), 0)) {
+      final int[] groups = {0};
+      storage.groups(1, (key, head) -> {
+        groups[0]++;
+        final AggregateSummary result = tail.point(storage.parts(), head.parts(), key,
+            new TemporalAggregateDomain().point(Instant.parse("2024-06-01T00:00:00Z")));
+        assertEquals(1, result.count());
+        assertEquals(BigInteger.valueOf(expected), result.sum(0));
+        assertEquals(expected, result.min(0));
+        assertEquals(expected, result.max(0));
+      });
+      assertEquals(1, groups[0]);
+    }
+  }
+
+  @Test
+  void awaitObservesFrontierTimeoutInterruptionAndShutdown() throws Exception {
+    final var path = directory.toPath().resolve("await");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        writer.commit();
+        assertFalse(resource.awaitRevision(1, Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> resource.awaitRevision(0, Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> resource.awaitRevision(2, Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> resource.awaitRevision(1, Duration.ofMillis(-1)));
+        final CountDownLatch entered = new CountDownLatch(1);
+        final FutureTask<Boolean> waiting = new FutureTask<>(() -> {
+          entered.countDown();
+          return resource.awaitRevision(1, Duration.ofSeconds(30));
+        });
+        final Thread waiter = Thread.ofPlatform().start(waiting);
+        try {
+          assertTrue(entered.await(30, TimeUnit.SECONDS));
+          resource.drain();
+          assertTrue(waiting.get(30, TimeUnit.SECONDS));
+        } finally {
+          waiter.interrupt();
+          waiter.join();
+        }
+        for (int revision = 2; revision <= 4; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+        }
+        final FutureTask<Boolean> interrupted = new FutureTask<>(() -> {
+          Thread.currentThread().interrupt();
+          assertThrows(InterruptedException.class, () -> resource.awaitRevision(4, Duration.ofSeconds(30)));
+          return true;
+        });
+        final Thread interruptWaiter = Thread.ofPlatform().start(interrupted);
+        try {
+          assertTrue(interrupted.get(30, TimeUnit.SECONDS));
+        } finally {
+          interruptWaiter.interrupt();
+          interruptWaiter.join();
+        }
+        resource.drain();
+        assertTrue(resource.awaitRevision(2, Duration.ZERO), "A batch interior is covered by frontier semantics");
+        try (StorageEngineReader source = session.createStorageEngineReader(2)) {
+          assertNull(session.openDerivedIndexReader(source), "Await does not promise an exact historical mapping");
+        }
+        resource.close();
+        assertThrows(IllegalStateException.class, () -> resource.awaitRevision(4, Duration.ZERO));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void caughtUpPublicationsKeepTheirDurableMappings(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("caught-up-mappings");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        writer.commit();
+        assertTrue(resource.awaitRevision(1, Duration.ofSeconds(30)));
+        for (int revision = 2; revision <= 20; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+          assertTrue(resource.awaitRevision(revision, Duration.ofSeconds(30)));
+          assertSum(session, revision, revision);
+        }
+        assertNull(resource.failure());
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      final DerivedIndexMaintainer.Resource resource = state(session);
+      resource.pause();
+      for (int revision = 1; revision <= 20; revision++) {
+        assertSum(session, revision, revision == 1
+            ? 10
+            : revision);
+      }
     }
   }
 
@@ -461,6 +641,7 @@ final class DerivedIndexMaintainerTest {
         assertEquals(corruptRevision, resource.poisonedRevision());
         assertEquals(1, resource.maintainedRevision(), "Failed batches must not advance the durable frontier");
         assertNotNull(resource.failure());
+        assertThrows(IllegalStateException.class, () -> resource.awaitRevision(corruptRevision, Duration.ofSeconds(1)));
         assertEquals(corruptRevision, session.getMostRecentRevisionNumber());
         try (StorageEngineReader source = session.createStorageEngineReader(corruptRevision)) {
           assertNull(session.openDerivedIndexReader(source));

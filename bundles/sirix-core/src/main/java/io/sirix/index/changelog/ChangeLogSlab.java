@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Format-1 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
+/** Format-4 record changes. Slabs are self-contained; dictionary IDs refer only to this slab. */
 public final class ChangeLogSlab {
   public static final int MAGIC = 0x53434c47;
-  public static final int FORMAT = 1;
+  public static final int FORMAT = 4;
   public static final byte LONG = 1;
   public static final byte STRING = 2;
   public static final byte BOOLEAN = 3;
@@ -166,12 +166,12 @@ public final class ChangeLogSlab {
       long previous = 0;
       for (final Entry entry : entries) {
         unsigned(out, entry.record - previous);
-        previous = entry.record;
         for (final long word : entry.changed) {
           out.writeLong(word);
         }
         writeRow(out, entry.before, dictionary);
         writeRow(out, entry.after, dictionary);
+        previous = entry.record;
       }
       return bytes.toByteArray();
     } catch (final IOException impossible) {

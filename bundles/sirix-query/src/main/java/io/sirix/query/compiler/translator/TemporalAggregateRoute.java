@@ -33,6 +33,7 @@ import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBArray;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.DerivedAggregateCatchUp;
 import io.sirix.query.ColumnarRecordSequence;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.query.json.JsonDBItem;
@@ -118,15 +119,32 @@ public final class TemporalAggregateRoute {
       return null;
     }
     if (!DerivedIndexMaintainer.enabled(reader.getResourceSession().getResourceConfig())) {
-      return serveSnapshot(reader, reader, indexes, array, point, request, order);
+      return serveSnapshot(reader, reader, indexes, array, point, request, order, null);
     }
+    return serveDerived(ctx, reader, indexes, array, point, request, order);
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups serveDerived(final QueryContext ctx,
+      final StorageEngineReader reader, final Indexes indexes, final ArrayNode array, final Point point,
+      final RoutedGroupRequest request, final @Nullable OutputOrder order) {
     try {
       final StorageEngineReader derived = ctx instanceof SirixQueryContext context
           ? context.borrowDerivedAggregateReader(reader)
           : reader.getDerivedIndexReader();
-      return derived == null
-          ? null
-          : serveSnapshot(reader, derived, indexes, array, point, request, order);
+      if (derived != null) {
+        return serveSnapshot(reader, derived, indexes, array, point, request, order, null);
+      }
+      if (ctx instanceof SirixQueryContext context) {
+        final DerivedAggregateCatchUp catchUp = context.borrowDerivedAggregateCatchUp(reader);
+        return catchUp == null
+            ? null
+            : serveSnapshot(reader, catchUp.reader(), indexes, array, point, request, order, catchUp);
+      }
+      try (DerivedAggregateCatchUp catchUp = DerivedAggregateCatchUp.open(reader)) {
+        return catchUp == null
+            ? null
+            : serveSnapshot(reader, catchUp.reader(), indexes, array, point, request, order, catchUp);
+      }
     } catch (final RuntimeException unavailable) {
       LOGGER.warn("Derived aggregate snapshot unavailable at source revision {}; using exact fallback",
           reader.getRevisionNumber(), unavailable);
@@ -136,7 +154,8 @@ public final class TemporalAggregateRoute {
 
   private static SirixVectorizedExecutor.@Nullable ServedGroups serveSnapshot(final StorageEngineReader reader,
       final StorageEngineReader aggregateReader, final Indexes indexes, final ArrayNode array, final Point point,
-      final RoutedGroupRequest request, final @Nullable OutputOrder order) {
+      final RoutedGroupRequest request, final @Nullable OutputOrder order,
+      final @Nullable DerivedAggregateCatchUp catchUp) {
     final List<IndexDef> candidates = new ArrayList<>();
     for (final IndexDef definition : indexes.getIndexDefs()) {
       if (definition.isTemporalAggregateIndex()) {
@@ -156,10 +175,14 @@ public final class TemporalAggregateRoute {
       if (groups == null || lanes == null) {
         continue;
       }
-      final SirixVectorizedExecutor.ServedGroups served = serveGroups(aggregateReader, definition, array, point,
-          request, groups, lanes, primitiveGroups(metadata, spec, groups, request)
-              ? order
-              : null);
+      final SirixVectorizedExecutor.ServedGroups served = catchUp == null
+          ? serveGroups(aggregateReader, definition, array, point, request, groups, lanes,
+              primitiveGroups(metadata, spec, groups, request)
+                  ? order
+                  : null)
+          : serveCatchUpGroups(reader, aggregateReader, definition,
+              indexes.getIndexDef(spec.projectionId(), IndexType.PROJECTION), array, point, request, groups, lanes,
+              catchUp);
       if (served != null) {
         return served;
       }
@@ -342,6 +365,61 @@ public final class TemporalAggregateRoute {
       names[request.keyNames().length + i] = new QNm(request.outNames()[i]);
     }
     return names;
+  }
+
+  private static SirixVectorizedExecutor.@Nullable ServedGroups serveCatchUpGroups(final StorageEngineReader source,
+      final StorageEngineReader aggregateReader, final IndexDef definition, final IndexDef projection,
+      final ArrayNode array, final Point point, final RoutedGroupRequest request, final int[] groups, final int[] lanes,
+      final DerivedAggregateCatchUp catchUp) {
+    final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
+    try (TemporalAggregateStorage.Reader storage =
+        new TemporalAggregateStorage.Reader(aggregateReader, definition.getID())) {
+      final byte[] header = storage.get(TemporalAggregateIndexes.headerKey());
+      if (header == null || TemporalAggregateIndexes.header(header).unsupportedRows() != 0) {
+        return null;
+      }
+      final TemporalAggregateIndexes.CatchUp tail = catchUp.tail(source, definition, projection);
+      if (tail == null) {
+        return null;
+      }
+      final Map<List<Sequence>, AggregateSummary> results = new LinkedHashMap<>();
+      final long coordinate = DomainHolder.DOMAIN.point(point.instant());
+      final long sourceRows = point.document().getResourceSession().getResourceConfig().storeChildCount()
+          ? array.getChildCount()
+          : ((JsonDBArray) point.document()).length().longValue();
+      final boolean admitted = storage.groups(sourceRows, (key, group) -> {
+        if (group.rows() == 0 && !tail.contains(key)) {
+          return;
+        }
+        final AggregateSummary summary = tail.point(storage.parts(), group.parts(), key, coordinate);
+        collectGroup(results, summary, key, spec, groups);
+      });
+      if (!admitted) {
+        return null;
+      }
+      for (final byte[] key : tail.keys()) {
+        if (storage.get(key) == null) {
+          collectGroup(results, tail.point(storage.parts(), new long[0], key, coordinate), key, spec, groups);
+        }
+      }
+      return servedGroups(request, groups, lanes, results);
+    }
+  }
+
+  private static void collectGroup(final Map<List<Sequence>, AggregateSummary> results, final AggregateSummary summary,
+      final byte[] key, final TemporalAggregateSpec spec, final int[] groups) {
+    if (summary.count() == 0) {
+      return;
+    }
+    final Sequence[] allKeys = groupValues(key, spec.groupColumns().size());
+    final Sequence[] selected = new Sequence[groups.length];
+    for (int i = 0; i < groups.length; i++) {
+      selected[i] = allKeys[groups[i]];
+    }
+    final AggregateSummary previous = results.putIfAbsent(Arrays.asList(selected), summary);
+    if (previous != null) {
+      previous.add(summary);
+    }
   }
 
   private static SirixVectorizedExecutor.ServedGroups servedGroups(final RoutedGroupRequest request, final int[] groups,

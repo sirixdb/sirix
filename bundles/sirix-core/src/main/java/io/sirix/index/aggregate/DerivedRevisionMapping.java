@@ -120,6 +120,18 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
     return readRange(reader, key(firstRevision), key(lastRevision), CACHE_CAPACITY);
   }
 
+  /** A bounded floor lookup never decodes mappings newer than the requested source view. */
+  static @Nullable DerivedRevisionMapping floor(final StorageEngineReader reader, final int revision, final int lag) {
+    if (revision < 1 || lag < 0 || lag > DerivedIndexMaintainer.MAX_QUERY_LAG) {
+      throw new IllegalArgumentException("Invalid derived mapping window");
+    }
+    final List<DerivedRevisionMapping> window =
+        readRange(reader, key(Math.max(1, revision - lag)), key(revision), lag + 1);
+    return window.isEmpty()
+        ? null
+        : window.getLast();
+  }
+
   private static List<DerivedRevisionMapping> readRange(final StorageEngineReader reader, final byte[] lower,
       final byte[] upper, final int capacity) {
     final List<DerivedRevisionMapping> mappings = new ArrayList<>(capacity);

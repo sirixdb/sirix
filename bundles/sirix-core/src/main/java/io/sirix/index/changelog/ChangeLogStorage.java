@@ -36,6 +36,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
   private byte[] keyBuffer = new byte[16];
   private final HOTTrieReader reader;
   private long slotsWritten;
+  private byte @Nullable [] publicationIdentity;
   private byte @Nullable [] header;
   private long exceptionalRows;
   private boolean headerDirty;
@@ -123,13 +124,13 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
           Arrays.copyOfRange(bytes, chunk * CHUNK_BYTES, Math.min(bytes.length, (chunk + 1) * CHUNK_BYTES)));
     }
     final ThreadLocalRandom random = ThreadLocalRandom.current();
-    put(slabKey(slab.revision(), -1),
-        ByteBuffer.allocate(24)
-                  .putInt(bytes.length)
-                  .putInt(chunks)
-                  .putLong(random.nextLong())
-                  .putLong(random.nextLong())
-                  .array());
+    final ByteBuffer extent = ByteBuffer.allocate(24)
+                                        .putInt(bytes.length)
+                                        .putInt(chunks)
+                                        .putLong(random.nextLong())
+                                        .putLong(random.nextLong());
+    put(slabKey(slab.revision(), -1), extent.array());
+    publicationIdentity = Arrays.copyOfRange(extent.array(), 8, 24);
     lastWrite = new WriteWork(slab.entries().size(), bytes.length, slotsWritten - before);
   }
 
@@ -193,7 +194,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     return ByteBuffer.allocate(13).put((byte) 1).putLong(record).putInt(chunk).array();
   }
 
-  private static byte[] slabKey(final int revision, final int chunk) {
+  static byte[] slabKey(final int revision, final int chunk) {
     return ByteBuffer.allocate(9).put((byte) 2).putInt(revision).putInt(chunk).array();
   }
 
@@ -211,7 +212,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
       final ByteBuffer buffer = ByteBuffer.wrap(header);
       final int length = buffer.getInt();
       final int chunks = buffer.getInt();
-      if (length < 30 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
+      if (length < 31 || chunks != (length + (long) CHUNK_BYTES - 1) / CHUNK_BYTES) {
         throw new IllegalStateException("Invalid change-log chunk count");
       }
       final byte[] bytes = new byte[length];
@@ -232,6 +233,12 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
         throw new IllegalStateException("Change-log identity mismatch");
       }
       return slab;
+    }
+  }
+
+  static void recordChunkRead() {
+    if (WORK_DIAGNOSTICS) {
+      CHUNKS_READ.increment();
     }
   }
 
@@ -294,7 +301,7 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     return read(reader, rootReference, key);
   }
 
-  private static byte @Nullable [] read(final HOTTrieReader reader, final PageReference root, final byte[] key) {
+  static byte @Nullable [] read(final HOTTrieReader reader, final PageReference root, final byte[] key) {
     for (int attempt = 0; attempt < 16; attempt++) {
       final MemorySegment value = reader.get(root, key);
       if (value == null) {
@@ -316,7 +323,11 @@ public final class ChangeLogStorage extends AbstractHOTIndexWriter<byte[]> imple
     throw new IllegalStateException("Change-log leaf did not stabilize");
   }
 
-  private void put(final byte[] key, final byte[] value) {
+  byte[] publicationIdentity() {
+    return Objects.requireNonNull(publicationIdentity, "Write the raw slab before its summaries");
+  }
+
+  void put(final byte[] key, final byte[] value) {
     if (value.length > CHUNK_BYTES) {
       throw new IllegalArgumentException("Change-log slot exceeds inline bound");
     }

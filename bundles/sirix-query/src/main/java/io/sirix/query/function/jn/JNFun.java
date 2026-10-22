@@ -34,6 +34,7 @@ import io.sirix.query.function.jn.io.Load;
 import io.sirix.query.function.jn.io.OpenRevisions;
 import io.sirix.query.function.jn.io.Store;
 import io.sirix.query.function.jn.temporal.AllTimes;
+import io.sirix.query.function.jn.temporal.AwaitDerived;
 import io.sirix.query.function.jn.temporal.First;
 import io.sirix.query.function.jn.temporal.FirstExisting;
 import io.sirix.query.function.jn.temporal.Future;
@@ -91,6 +92,10 @@ public final class JNFun {
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));
 
     // temporal functions
+    Functions.predefine(new AwaitDerived(new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One),
+        SequenceType.JSON_ITEM, SequenceType.INTEGER)));
+    Functions.predefine(new AwaitDerived(new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One),
+        SequenceType.JSON_ITEM, SequenceType.INTEGER, SequenceType.INTEGER)));
     Functions.predefine(
         new Future(Future.FUTURE, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
     Functions.predefine(new Future(Future.FUTURE, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM,

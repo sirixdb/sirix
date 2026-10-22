@@ -125,6 +125,11 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     return aggregateReaders.borrow(requireNonNull(source));
   }
 
+  /** Borrow a bounded tail view; only the context's coordinating thread owns these readers. */
+  public @Nullable DerivedAggregateCatchUp borrowDerivedAggregateCatchUp(final StorageEngineReader source) {
+    return aggregateReaders.borrowCatchUp(requireNonNull(source));
+  }
+
   private static final class RevisionMemo {
     private final Object2IntOpenHashMap<Instant> revisions = new Object2IntOpenHashMap<>();
     private int head = -1;

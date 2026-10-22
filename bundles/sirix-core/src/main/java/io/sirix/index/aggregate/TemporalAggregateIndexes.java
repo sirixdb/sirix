@@ -1,16 +1,16 @@
 package io.sirix.index.aggregate;
 
 import io.sirix.index.changelog.ChangeLogSlab;
+import io.sirix.index.changelog.ChangeLogGroupKey;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
+import io.sirix.index.changelog.TemporalAggregateSummaryLog;
+import io.sirix.index.changelog.TemporalAggregateSummaryLog.WriteWork;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.path.summary.PathSummaryReader;
 import java.util.function.LongFunction;
 import java.util.function.ObjIntConsumer;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import io.sirix.access.ValidTimeConfig;
 import io.sirix.api.StorageEngineWriter;
@@ -44,6 +44,15 @@ public final class TemporalAggregateIndexes {
   private static final int FORMAT = 5;
   private static final TemporalAggregateDomain DOMAIN = new TemporalAggregateDomain();
   private static volatile MaintenanceWork lastMaintenance = new MaintenanceWork(0, 0, 0, 0, 0, 0, 0);
+
+  private static volatile WriteWork lastSummaryWrite = new WriteWork(0, 0, 0);
+
+  /**
+   * All declarations of the last logged source projection publication, including coverage headers.
+   */
+  public static WriteWork lastSummaryWrite() {
+    return lastSummaryWrite;
+  }
 
   public record MaintenanceWork(long changedRecords, long nodesRead, long nodesWritten, long endpointsRead,
       long endpointsWritten, long summaryNodesRead, long summaryNodesWritten) {
@@ -224,6 +233,160 @@ public final class TemporalAggregateIndexes {
     }
   }
 
+  /** Persist small signed operands from rows already captured by the projection listener. */
+  public static void writeSummaries(final StorageEngineWriter writer, final IndexDef projection,
+      final ChangeLogSlab slab, final ChangeLogStorage log) {
+    final JsonResourceSession session = (JsonResourceSession) writer.getResourceSession();
+    final ValidTimeConfig config = Objects.requireNonNull(session.getResourceConfig().getValidTimeConfig());
+    final int from = endpointColumn(projection, config.getValidFromPath());
+    final int to = endpointColumn(projection, config.getValidToPath());
+    final byte[] kinds = slab.kinds();
+    final Map<String, Long> instants = new HashMap<>();
+    int groups = 0;
+    int bytes = 0;
+    long slots = 0;
+    for (final IndexDef definition : session.getWtxIndexController(writer.getRevisionNumber())
+                                            .getIndexes()
+                                            .getIndexDefs()) {
+      if (definition.isTemporalAggregateIndex()
+          && definition.getTemporalAggregateSpec().projectionId() == projection.getID()) {
+        final WriteWork work = writeSummary(log, slab, definition, kinds, from, to, instants);
+        groups = Math.addExact(groups, work.groups());
+        bytes = Math.addExact(bytes, work.bytes());
+        slots = Math.addExact(slots, work.slots());
+      }
+    }
+    lastSummaryWrite = new WriteWork(groups, bytes, slots);
+  }
+
+  private static WriteWork writeSummary(final ChangeLogStorage log, final ChangeLogSlab slab, final IndexDef definition,
+      final byte[] kinds, final int from, final int to, final Map<String, Long> instants) {
+    final TemporalAggregateSpec spec = definition.getTemporalAggregateSpec();
+    final long[] dependencies = dependencies(spec, kinds.length, from, to);
+    final TemporalAggregateParts parts = new TemporalAggregateParts(spec, DOMAIN.height());
+    final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> groups = new TreeMap<>(Arrays::compareUnsigned);
+    final TreeMap<byte[], byte[]> encoded = new TreeMap<>(Arrays::compareUnsigned);
+    long unsupported = 0;
+    boolean unservable = false;
+    try {
+      for (final ChangeLogSlab.Entry entry : slab.entries()) {
+        if (!affected(dependencies, entry.changed())) {
+          continue;
+        }
+        final Row previous = fromLog(entry.before(), kinds, from, to, spec, instants);
+        final Row next = fromLog(entry.after(), kinds, from, to, spec, instants);
+        if (previous != null && previous.same(next)) {
+          continue;
+        }
+        if (previous != null && previous.unsupported) {
+          unsupported = Math.decrementExact(unsupported);
+          unservable = true;
+        }
+        if (next != null && next.unsupported) {
+          unsupported = Math.incrementExact(unsupported);
+          unservable = true;
+        }
+        summarize(groups, parts, previous, -1);
+        summarize(groups, parts, next, 1);
+      }
+      for (final var group : groups.entrySet()) {
+        final byte[] operand = group.getValue().encode(TemporalAggregateSummaryLog.operandLimit(group.getKey()));
+        if (operand == null || operand.length != 0) {
+          encoded.put(group.getKey(), operand);
+        }
+      }
+    } catch (final ArithmeticException overflow) {
+      // The durable source commit remains valid. No partial summary may be used by a reader.
+      unservable = true;
+      encoded.clear();
+    }
+    return TemporalAggregateSummaryLog.write(log, slab, definition.getID(), encoded, unsupported, unservable);
+  }
+
+  private static void summarize(final Map<byte[], TemporalAggregateParts.SummaryBuilder> groups,
+      final TemporalAggregateParts parts, final @Nullable Row row, final int sign) {
+    if (row != null && !row.unsupported && row.group != null) {
+      groups.computeIfAbsent(row.group, ignored -> parts.summaryBuilder())
+            .add(row.from, row.to, row.values, row.present, sign);
+    }
+  }
+
+  private static long[] dependencies(final TemporalAggregateSpec spec, final int columns, final int from,
+      final int to) {
+    final long[] dependencies = new long[(columns + 63) >>> 6];
+    dependOn(dependencies, from);
+    dependOn(dependencies, to);
+    for (final int column : spec.groupColumns()) {
+      dependOn(dependencies, column);
+    }
+    for (final Lane lane : spec.lanes()) {
+      dependOn(dependencies, lane.left());
+      if (lane.right() >= 0) {
+        dependOn(dependencies, lane.right());
+      }
+    }
+    return dependencies;
+  }
+
+  /** A query-owned tail, reusable across all instants of an immutable source view. */
+  public static final class CatchUp {
+    private final TemporalAggregateParts parts;
+    private final TreeMap<byte[], TemporalAggregateParts.Delta> groups = new TreeMap<>(Arrays::compareUnsigned);
+
+    private CatchUp(final TemporalAggregateParts parts) {
+      this.parts = parts;
+    }
+
+    public Iterable<byte[]> keys() {
+      return groups.navigableKeySet();
+    }
+
+    public boolean contains(final byte[] key) {
+      return groups.containsKey(key);
+    }
+
+    public AggregateSummary point(final TemporalAggregateParts.Store store, final long[] stored, final byte[] key,
+        final long coordinate) {
+      return parts.point(store, stored, coordinate, groups.get(key));
+    }
+  }
+
+  /**
+   * Fold every compact group operand in the revision tail. Any missing coverage, discontinuous base,
+   * unsupported cell or exhausted budget aborts the entire route. Nothing is written to either
+   * resource.
+   */
+  public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
+      final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget) {
+    final int target = source.getRevisionNumber();
+    if (maintained < 1 || maintained > target || target - maintained > DerivedIndexMaintainer.MAX_QUERY_LAG) {
+      throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+    }
+    final ValidTimeConfig config =
+        Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
+    validate(definition, projection, config);
+    final TemporalAggregateParts parts =
+        new TemporalAggregateParts(definition.getTemporalAggregateSpec(), DOMAIN.height());
+    final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> builders = new TreeMap<>(Arrays::compareUnsigned);
+    for (int offset = 1; offset <= target - maintained; offset++) {
+      final int revision = maintained + offset;
+      try (var log =
+          new TemporalAggregateSummaryLog.Reader(source, projection.getID(), revision, definition.getID(), budget)) {
+        log.visit((key, operand) -> {
+          if (!builders.containsKey(key) && builders.size() >= 4096) {
+            throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+          }
+          builders.computeIfAbsent(key, ignored -> parts.summaryBuilder()).merge(operand, budget);
+        });
+      }
+    }
+    final CatchUp result = new CatchUp(parts);
+    for (final var group : builders.entrySet()) {
+      result.groups.put(group.getKey(), group.getValue().snapshot());
+    }
+    return result;
+  }
+
   /** Folds only the supplied touched groups, in a separate derived transaction. */
   public static void foldDerived(final StorageEngineWriter writer, final IndexDef definition,
       final Iterable<byte[]> groups) {
@@ -279,35 +442,9 @@ public final class TemporalAggregateIndexes {
       if (from >= to) {
         return Row.EMPTY;
       }
-      final ByteArrayOutputStream bytes = new ByteArrayOutputStream(1 + spec.groupColumns().size() * 9);
-      final DataOutputStream out = new DataOutputStream(bytes);
-      out.writeByte(1);
-      for (final int column : spec.groupColumns()) {
-        requireSupported(row, column);
-        if (!row.present(column)) {
-          out.writeByte(0);
-        } else {
-          switch (kinds[column]) {
-            case ChangeLogSlab.LONG -> {
-              out.writeByte(1);
-              out.writeLong(row.numbers[column]);
-            }
-            case ChangeLogSlab.STRING -> {
-              final byte[] utf8 = ((String) row.text[column]).getBytes(StandardCharsets.UTF_8);
-              out.writeByte(2);
-              out.writeInt(utf8.length);
-              out.write(utf8);
-            }
-            case ChangeLogSlab.BOOLEAN -> {
-              out.writeByte(3);
-              out.writeBoolean(row.numbers[column] != 0);
-            }
-            default -> throw new UnsupportedCell();
-          }
-        }
-        if (bytes.size() > 2048) {
-          return Row.UNSUPPORTED;
-        }
+      final byte[] group = ChangeLogGroupKey.encode(row, kinds, spec.groupColumns());
+      if (group == null) {
+        return Row.UNSUPPORTED;
       }
       final long[] values = new long[spec.lanes().size()];
       long present = 0;
@@ -328,11 +465,9 @@ public final class TemporalAggregateIndexes {
           present |= 1L << at;
         }
       }
-      return new Row(bytes.toByteArray(), from, to, values, present, false);
+      return new Row(group, from, to, values, present, false);
     } catch (final DateTimeException | ArithmeticException | UnsupportedCell decline) {
       return Row.UNSUPPORTED;
-    } catch (final IOException impossible) {
-      throw new AssertionError(impossible);
     }
   }
 

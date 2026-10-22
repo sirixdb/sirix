@@ -15,6 +15,7 @@ import java.io.File;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,6 +56,12 @@ final class DerivedRevisionMappingTest {
               DerivedRevisionMapping.readWindow(reader, Integer.MAX_VALUE - 1));
           assertEquals(List.of(mapping(Integer.MAX_VALUE)),
               DerivedRevisionMapping.readWindow(reader, Integer.MAX_VALUE));
+          assertEquals(mapping(64), DerivedRevisionMapping.floor(reader, 65, 16));
+          assertEquals(mapping(1), DerivedRevisionMapping.floor(reader, 1, 16));
+          assertEquals(mapping(130), DerivedRevisionMapping.floor(reader, 146, 16));
+          assertNull(DerivedRevisionMapping.floor(reader, 147, 16));
+          assertNull(DerivedRevisionMapping.floor(reader, 65, 0));
+          assertEquals(mapping(Integer.MAX_VALUE), DerivedRevisionMapping.floor(reader, Integer.MAX_VALUE, 16));
           assertEquals(131, DerivedRevisionMapping.readAll(reader).size());
           assertEquals(Integer.MAX_VALUE, DerivedRevisionMapping.frontier(reader));
           assertThrows(IllegalArgumentException.class, () -> DerivedRevisionMapping.readWindow(reader, 0));

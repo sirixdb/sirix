@@ -31,6 +31,8 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntConsumer;
@@ -38,6 +40,7 @@ import java.util.function.IntConsumer;
 /** One database-owned worker. Source publication does nothing but unpark this thread. */
 public final class DerivedIndexMaintainer implements AutoCloseable {
   public static final String SUFFIX = "$derived";
+  public static final int MAX_QUERY_LAG = 16;
   private static final Logger LOGGER = LoggerFactory.getLogger(DerivedIndexMaintainer.class);
   private static final DerivedIndex AGGREGATE = new TemporalAggregateDerivedIndex();
   private final ConcurrentHashMap<Path, Resource> resources = new ConcurrentHashMap<>();
@@ -158,6 +161,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private final JsonResourceSession derived;
     private final ConcurrentSkipListMap<Integer, DerivedRevisionMapping> mappings = new ConcurrentSkipListMap<>();
     private final ReentrantLock historyLock = new ReentrantLock();
+    private final Condition progress = historyLock.newCondition();
     private @Nullable JsonNodeTrx writer;
     private volatile int maintained;
     private volatile int poisonedRevision = -1;
@@ -189,6 +193,49 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
 
     public int maintainedRevision() {
       return maintained;
+    }
+
+    /**
+     * Wait for the durable frontier, not an exact historical mapping. Batch interiors still use bounded
+     * query-time catch-up. Returns false on timeout; failure and shutdown are errors.
+     */
+    public boolean awaitRevision(final int revision, final Duration timeout) throws InterruptedException {
+      Objects.requireNonNull(timeout);
+      if (revision < 1 || revision > source.getMostRecentRevisionNumber() || timeout.isNegative()) {
+        throw new IllegalArgumentException("Await requires a committed revision and nonnegative timeout");
+      }
+      final long budget;
+      try {
+        budget = timeout.toNanos();
+      } catch (final ArithmeticException overflow) {
+        throw new IllegalArgumentException("Await timeout exceeds the supported nanosecond range", overflow);
+      }
+      final long start = System.nanoTime();
+      if (!historyLock.tryLock(budget, TimeUnit.NANOSECONDS)) {
+        return false;
+      }
+      try {
+        for (;;) {
+          if (closed || stopped) {
+            throw new IllegalStateException("Derived maintainer is closed");
+          }
+          if (failure != null) {
+            throw new IllegalStateException("Derived maintenance failed", failure);
+          }
+          if (maintained >= revision) {
+            return true;
+          }
+          final long remaining = budget - (System.nanoTime() - start);
+          if (remaining <= 0) {
+            return false;
+          }
+          // Shutdown first joins the worker before closing resources. Periodically observe its
+          // stop flag as well as notifications, without making source commits signal a condition.
+          progress.awaitNanos(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(100)));
+        }
+      } finally {
+        historyLock.unlock();
+      }
     }
 
     public int lag() {
@@ -255,6 +302,27 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
     }
 
+    /** Greatest durable mapping in the bounded query window, including cold cache misses. */
+    public @Nullable DerivedIndexSnapshot openCatchUpSnapshot(final StorageEngineReader sourceReader) {
+      final int revision = sourceReader.getRevisionNumber();
+      if (closed || poisonedRevision >= 0 || revision < 1) {
+        return null;
+      }
+      DerivedRevisionMapping selected = mappings.get(revision);
+      if (selected == null) {
+        // A cached floor is not necessarily the durable floor after eviction or cold startup.
+        try (StorageEngineReader latest = derived.createStorageEngineReader()) {
+          selected = DerivedRevisionMapping.floor(latest, revision, MAX_QUERY_LAG);
+        }
+      }
+      if (selected == null || revision - selected.sourceRevision() > MAX_QUERY_LAG || selected.projection() < 0
+          || !selected.matchesIdentity(sourceReader)) {
+        return null;
+      }
+      return new DerivedIndexSnapshot(derived.createStorageEngineReader(selected.indexRevision()),
+          selected.sourceRevision());
+    }
+
     private @Nullable DerivedRevisionMapping loadMapping(final StorageEngineReader sourceReader) {
       DerivedRevisionMapping mapping = null;
       final boolean locked = historyLock.tryLock();
@@ -312,16 +380,28 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (!paused) {
         throw new IllegalStateException("Pause the maintainer before explicit maintenance");
       }
-      return advance(true);
+      return maintainNextBatch(8);
+    }
+
+    /** Drain at most the requested number of source revisions while paused. */
+    public boolean maintainNextBatch(final int maxRevisions) {
+      if (!paused || maxRevisions < 1 || maxRevisions > 8) {
+        throw new IllegalArgumentException("Paused maintenance requires a batch size from 1 through 8");
+      }
+      return advance(true, maxRevisions);
     }
 
     private boolean advance(final boolean manual) {
+      return advance(manual, 8);
+    }
+
+    private boolean advance(final boolean manual, final int maxRevisions) {
       historyLock.lock();
       try {
         if (closed || (paused && !manual) || stopped || poisonedRevision >= 0) {
           return false;
         }
-        return maintain(manual);
+        return maintain(manual, maxRevisions);
       } catch (final RuntimeException | Error exception) {
         poison(exception);
         return false;
@@ -330,7 +410,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
     }
 
-    private boolean maintain(final boolean manual) {
+    private boolean maintain(final boolean manual, final int maxRevisions) {
       if (!initialized) {
         initializeFrontier();
       }
@@ -348,12 +428,13 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (writer == null) {
         writer = derived.beginNodeTrx();
       }
-      return applyBatch(manual);
+      return applyBatch(manual, maxRevisions);
     }
 
     private void poison(final Throwable exception) {
       poisonedRevision = processingRevision;
       failure = exception;
+      progress.signalAll();
       if (writer != null) {
         try {
           writer.rollback();
@@ -414,13 +495,13 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       truncatePending = false;
     }
 
-    private boolean applyBatch(final boolean manual) {
+    private boolean applyBatch(final boolean manual, final int maxRevisions) {
       final int first = maintained + 1;
       final int latest = source.getMostRecentRevisionNumber();
       int entries = 0;
       int revision = first;
       int projection = -1;
-      for (int count = 0; count < 8 && entries < 100_000 && !stopped && (!paused || manual)
+      for (int count = 0; count < maxRevisions && entries < 100_000 && !stopped && (!paused || manual)
           && revision <= latest; count++, revision++) {
         final AppliedRevision applied = applyRevision(revision);
         entries += applied.entries();
@@ -458,6 +539,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
           mappings.pollFirstEntry();
         }
         maintained = last;
+        progress.signalAll();
       }
     }
 
@@ -632,6 +714,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       historyLock.lock();
       try {
         closed = true;
+        progress.signalAll();
         ((InternalResourceSession<?, ?>) source).removeRevisionListener(this);
         if (writer != null) {
           writer.rollback();

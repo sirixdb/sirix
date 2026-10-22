@@ -81,7 +81,7 @@ population. The index never enumerates the matching records during a point query
 
 The projection listener coalesces dirty identities and column masks through page flushes. It captures
 old cells from the decoded leaves or column slices before replacement, and new cells from the
-extractor already maintaining the projection. A format-1 `CHANGE_LOG` slab persists the first old
+extractor already maintaining the projection. A `CHANGE_LOG` slab persists the first old
 and final new projected cells, changed masks and represented base revision. A slab-local string
 dictionary avoids repeated endpoint text. Sparse row-local provenance disambiguates conservative
 leaf flags without reopening historical document readers. The aggregate kernel consumes the same
@@ -108,33 +108,79 @@ catalogues and parts. Rebuilding a declaration after a revert resets its aggrega
 part allocator while preserving existing revision mappings. Ordinary maintenance does not rewrite
 a catalogue file. Batches process at most eight revisions, stopping between revisions once they
 reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
-mapping at its end. Catalogue changes end a batch so declaring revisions have a snapshot.
-Intermediate revisions use the exact fallback until query-time tail catch-up is available.
+mapping at its end. The batch reads a fixed published high watermark; catalogue changes end a
+batch so declaring revisions have a snapshot.
+Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
 
-Catch-up appends immutable signed delta parts. Group heads also record checkpoint and delta byte
-counts. Groups with more than sixteen parts or delta bytes above half the checkpoint become fold
-candidates. A separate derived commit folds candidates when idle; sustained publication forces a
-separate fold after 64 revisions, or earlier to leave room for batch replay after a crash, within
-the existing 91-part representation. Catch-up never
-folds old parts. A fold reads only its candidate groups and atomically republishes the mapping for
-the same source revision. Signed intermediate parts retain negative counts and frequencies; only
+Maintainer catch-up appends immutable signed delta parts. Group heads also record checkpoint and
+delta byte counts. Groups with more than sixteen parts or delta bytes above half the checkpoint
+become fold candidates. A separate derived commit folds candidates when idle; sustained publication
+forces a separate fold after 64 revisions, or earlier to leave room for batch replay after a crash, within
+the existing 91-part representation. Maintainer catch-up never folds old parts. A fold reads only
+its candidate groups and atomically republishes the mapping for the same source revision. Signed
+intermediate parts retain negative counts and frequencies; only
 complete checkpoints and query results require nonnegative counts.
 
 Prefix-4 mappings bind source revisions to derived revisions and to a durable 128-bit source log
 identity. Queries validate that identity and borrow the mapped derived snapshot for the lifetime
-of their immutable source reader, which closes it. A query context instead owns up to 64 snapshots
-on its coordinating thread, reusing them across source cursors from the same published history.
+of their immutable source reader, which closes it. A query context instead owns separate caches of
+up to 64 exact snapshots and 64 catch-up views on its coordinating thread, reusing them across
+source cursors from the same published history.
 The cache keys include the captured source UberPage's object identity, so commit, truncate and
 reopen require fresh identity validation even when revision numbers and timestamps are reused.
 Eviction and context close release these readers; other threads keep source-owned snapshots.
-Missing snapshots are retried after catch-up.
+Missing snapshots are retried after catch-up. Query routes do not wait for the maintainer;
+callers may explicitly choose `jn:await-derived` when waiting is preferable.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
 Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.
-Resolving a new snapshot declines to the existing exact masked/scan route if no exact mapping
-exists, maintenance is poisoned, or the derived snapshot cannot be opened. A previously validated
-snapshot remains exact for its immutable source view. The route never serves a stale summary. Query-time log-tail catch-up
-and a query-language await function are not part of this change.
+When an exact mapping is absent, a bounded durable mapping lookup selects the greatest maintained
+source revision `s <= r` within 16 revisions of the pinned source revision `r`. The query folds
+per-commit signed group operands from `(s, r]` into one immutable, unencoded signed part.
+That part joins the stored parts before counts and extrema are validated. This preserves deleted
+minima/maxima, wide sums, group moves and newly inserted groups. A coordinating query context owns
+the base reader and reuses each declaration's tail across point instants; it does not write either
+resource. Concurrent source or maintainer commits cannot change the pinned answer.
+
+The source commit computes each declaration's operands solely from the change log's already
+captured before/after rows. Counts, presence and signed 128-bit sums combine by valid-time endpoint.
+Extrema retain signed multiplicities of every touched `(lane, from, to, value)` tuple, so deleting
+an extremum still exposes the next surviving value. Equal changes cancel. This does not build or
+fold a time-cover tree on the commit path. The asynchronous maintainer continues consuming the raw
+slabs.
+
+For a requested declaration, query catch-up reads every group operand in each tail revision, then
+caches the completed tail for reuse across point instants. Oversized operands decline the entire route.
+Coverage headers detect unsupported rows and arithmetic overflow and bind operands to the raw slab's
+publication identity. That generation prevents stale blocks from a previous maintenance barrier
+in the same transaction being read after the operands are replaced. Empty revisions retain coverage
+headers. Historical raw slabs without summary coverage decline safely.
+The packed operand layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
+
+Each query execution receives a fresh budget of 512 chunk fetches, 16,384 decoded endpoint/frequency
+units and 262,144 primitive cells, shared across its revisions and declarations even when the query
+context is reused. Budget-caused declines can be retried by a later execution; completed immutable
+tails remain reusable. Counts are charged before decoding; tail builders admit at most 4,096 groups.
+No bound is relaxed for a large operand. Counted read bounds are owned by the
+[work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
+`TemporalAggregateSummaryLog.lastWrite()` reports the last declaration's summary groups,
+serialized bytes (including its header), and HOT slots separately from
+`ChangeLogStorage.lastWrite()`'s raw slab accounting.
+`TemporalAggregateIndexes.lastSummaryWrite()` sums the declarations for the last logged source
+projection publication, for per-commit byte/slot reporting.
+
+The exact masked/scan route handles missing coverage, lag above 16, unsupported tail cells,
+revert discontinuities, poisoned maintenance and unavailable derived snapshots. A previously
+validated snapshot remains exact for its immutable source view. The route never serves a stale
+summary. Declaration-free admission remains before any derived lookup.
+
+`jn:await-derived($document, $revision [, $timeoutMillis])` waits for the durable maintained
+frontier to reach or exceed a committed revision. The default timeout is 30,000 milliseconds;
+zero polls without waiting. It returns `true` when reached and `false` on timeout or when no
+maintainer exists. Negative timeouts, unpublished revisions, interruption, shutdown and failed
+maintenance raise a query error. Interruption preserves the Java thread's interrupt flag.
+The function does not request an exact mapping for a historical batch interior: a later query
+still uses the greatest preceding mapping and bounded catch-up, or the exact fallback.
 
 A revert uses the slab's represented base revision, reverts the derived writer to that source
 mapping (replaying slabs from the preceding mapped revision for a batch interior), then applies
@@ -162,7 +208,7 @@ Dropping the last consumer stops logging; declaring a new one rebuilds sparse ro
 the current projection. Slabs from earlier covered revisions remain readable; revisions without
 a consumer have no slab.
 
-Initial builds and incremental aggregate writes run off the source commit path.
+Initial builds and incremental writes to derived aggregate parts run off the source commit path.
 
 Long operands and long record counts bound sums within signed 128 bits. Products are checked before
 entering the index; an overflowing product declines serving instead of wrapping. Removing an
@@ -188,12 +234,12 @@ existing execution path. Ordinary grouped queries must order by every group key;
 existing path preserves first-seen group order. Correlated grouped admission already requires a
 total order over its group keys.
 
-Ordinary grouped queries use primitive columnar output when their keys are a full permutation of
-the maintained grouping, every grouping column is projected as an integral long, and all requested
-aggregates are `count`, `min` or `max`. The output is already stably ordered by the query's keys and
-aggregate fields, with missing-value placement independent of ascending or descending direction.
+Ordinary grouped queries without query-time catch-up use primitive columnar output when their keys
+are a full permutation of the maintained grouping, every grouping column is projected as an integral
+long, and all requested aggregates are `count`, `min` or `max`. The output is already stably ordered
+by the query's keys and aggregate fields, with missing-value placement independent of ascending or descending direction.
 An unsupported encoded key representation uses the object-output route instead. Grouping rollups,
-other key types, sums and correlated groups retain object output.
+other key types, sums, correlated groups and query-time catch-up retain object output.
 
 Only exact millisecond instants inside the configured domain are admitted. Endpoint columns may
 contain timestamp strings or typed timestamps. Typed endpoints follow the projection's

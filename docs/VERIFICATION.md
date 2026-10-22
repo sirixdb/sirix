@@ -140,7 +140,8 @@ with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
                            -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
                            -Dhot.diag.validationDump=true
 
-# Work budgets (add -Dsirix.workBudget.print=true -i to print every captured counter table)
+# Work budgets (includes TemporalAggregateCatchUpWorkBudgetTest for lag 0, 1, 8, 16 and decline)
+# Add -Dsirix.workBudget.print=true -i to print every captured counter table
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' \
                             --tests 'io.sirix.query.json.IndexedArrayPositionTest'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \

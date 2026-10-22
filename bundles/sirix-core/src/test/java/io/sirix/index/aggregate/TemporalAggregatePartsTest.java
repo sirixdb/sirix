@@ -1,6 +1,7 @@
 package io.sirix.index.aggregate;
 
 import io.sirix.index.aggregate.TemporalAggregateStorage.GroupHead;
+import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
@@ -17,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 final class TemporalAggregatePartsTest {
   private static final TemporalAggregateSpec SPEC =
@@ -82,6 +85,109 @@ final class TemporalAggregatePartsTest {
       verify(index, store, ids(parts), rows);
       verify(index, store, history, prior);
     }
+  }
+
+  @Test
+  void compactSummariesMatchEveryStoredFrontierAndKeepFrozenTailsImmutable() {
+    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
+    final Store store = new Store();
+    final List<Map<Long, Row>> history = new ArrayList<>();
+    final Map<Long, Row> rows = new HashMap<>();
+    final Random random = new Random(712391);
+    for (int revision = 0; revision <= 18; revision++) {
+      for (long id = 0; id < 24; id++) {
+        if (random.nextInt(3) == 0) {
+          rows.remove(id);
+        } else {
+          final long from = random.nextInt(128);
+          rows.put(id, new Row(from, from + 1 + random.nextInt(128), random.nextLong(), random.nextBoolean()));
+        }
+      }
+      history.add(Map.copyOf(rows));
+    }
+    for (int maintained = 0; maintained < history.size(); maintained++) {
+      final TemporalAggregateParts.Builder checkpoint = index.builder();
+      for (final Row row : history.get(maintained).values()) {
+        row.add(checkpoint, 1);
+      }
+      store.parts.put(1L, checkpoint.encode(true));
+      final TemporalAggregateParts.SummaryBuilder tail = index.summaryBuilder();
+      final TemporalAggregateCatchUpBudget.Budget budget = new TemporalAggregateCatchUpBudget.Budget();
+      for (int revision = maintained; revision < history.size(); revision++) {
+        if (revision > maintained) {
+          final TemporalAggregateParts.SummaryBuilder publication = index.summaryBuilder();
+          for (final Row row : history.get(revision - 1).values()) {
+            publication.add(row.from(), row.to(), new long[] {row.value()}, row.present()
+                ? 1
+                : 0, -1);
+          }
+          for (final Row row : history.get(revision).values()) {
+            publication.add(row.from(), row.to(), new long[] {row.value()}, row.present()
+                ? 1
+                : 0, 1);
+          }
+          final byte[] operand = publication.encode(4096);
+          assertNotNull(operand);
+          if (operand.length != 0) {
+            tail.merge(operand, budget);
+          }
+        }
+        final TemporalAggregateParts.Delta snapshot = tail.snapshot();
+        verify(index, store, new long[] {1}, history.get(revision), snapshot);
+      }
+      final TemporalAggregateParts.Delta frozen = tail.snapshot();
+      tail.add(0, 256, new long[] {Long.MAX_VALUE}, 1, 1);
+      verify(index, store, new long[] {1}, history.getLast(), frozen);
+    }
+  }
+
+  @Test
+  void repeatedChangesCollapseAndExtremaRemainDeletionSafe() {
+    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
+    final TemporalAggregateParts.SummaryBuilder publication = index.summaryBuilder();
+    final Store store = new Store();
+    final TemporalAggregateParts.Builder base = index.builder();
+    for (int row = 0; row < 1250; row++) {
+      base.add(0, 256, new long[] {Long.MIN_VALUE}, 1, 1);
+      publication.add(0, 256, new long[] {Long.MIN_VALUE}, 1, -1);
+      publication.add(0, 256, new long[] {Long.MAX_VALUE}, 1, 1);
+    }
+    final byte[] operand = publication.encode(4096);
+    assertNotNull(operand);
+    assertTrue(operand.length < 128, "Repeated values store multiplicities, not row copies");
+    final TemporalAggregateParts.SummaryBuilder tail = index.summaryBuilder();
+    tail.merge(operand, new TemporalAggregateCatchUpBudget.Budget());
+    store.parts.put(1L, base.encode(true));
+    final AggregateSummary answer = index.point(store, new long[] {1}, 17, tail.snapshot());
+    assertEquals(1250, answer.count());
+    assertEquals(Long.MAX_VALUE, answer.min(0));
+    assertEquals(Long.MAX_VALUE, answer.max(0));
+    assertEquals(BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.valueOf(1250)), answer.sum(0));
+    final TemporalAggregateParts.SummaryBuilder cancelled = index.summaryBuilder();
+    cancelled.add(0, 256, new long[] {3}, 1, -1);
+    cancelled.add(0, 256, new long[] {3}, 1, 1);
+    assertEquals(0, Objects.requireNonNull(cancelled.encode(4096)).length);
+  }
+
+  @Test
+  void summaryBoundsRejectOversizedOperandsAndMalformedEncodings() {
+    final TemporalAggregateParts index = new TemporalAggregateParts(SPEC, 8);
+    final TemporalAggregateParts.SummaryBuilder builder = index.summaryBuilder();
+    for (int value = 0; value < 1000; value++) {
+      builder.add(0, 256, new long[] {value}, 1, 1);
+    }
+    assertNull(builder.encode(4096));
+    assertThrows(TemporalAggregateCatchUpBudget.LimitExceeded.class,
+        () -> index.summaryBuilder().merge(new byte[4097], new TemporalAggregateCatchUpBudget.Budget()));
+    assertThrows(IllegalStateException.class,
+        () -> index.summaryBuilder().merge(new byte[] {(byte) 0x80, 0}, new TemporalAggregateCatchUpBudget.Budget()));
+    assertThrows(IllegalStateException.class,
+        () -> index.summaryBuilder().merge(new byte[] {0, 0, 0}, new TemporalAggregateCatchUpBudget.Budget()));
+    final TemporalAggregateCatchUpBudget.Budget budget = new TemporalAggregateCatchUpBudget.Budget();
+    budget.summary(16384, 0, 0);
+    assertThrows(TemporalAggregateCatchUpBudget.LimitExceeded.class, () -> budget.summary(1, 0, 0));
+    final TemporalAggregateCatchUpBudget.Budget cells = new TemporalAggregateCatchUpBudget.Budget();
+    assertThrows(TemporalAggregateCatchUpBudget.LimitExceeded.class, () -> cells.summary(6000, 0, 16));
   }
 
   @Test
@@ -266,6 +372,11 @@ final class TemporalAggregatePartsTest {
 
   private static void verify(final TemporalAggregateParts index, final Store store, final long[] parts,
       final Map<Long, Row> rows) {
+    verify(index, store, parts, rows, null);
+  }
+
+  private static void verify(final TemporalAggregateParts index, final Store store, final long[] parts,
+      final Map<Long, Row> rows, final TemporalAggregateParts.Delta tail) {
     for (int point = 0; point < 256; point++) {
       long count = 0;
       long present = 0;
@@ -283,7 +394,7 @@ final class TemporalAggregatePartsTest {
           }
         }
       }
-      final AggregateSummary actual = index.point(store, parts, point);
+      final AggregateSummary actual = index.point(store, parts, point, tail);
       assertEquals(count, actual.count());
       assertEquals(present, actual.present(0));
       assertEquals(sum, actual.sum(0));
