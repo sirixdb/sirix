@@ -12,7 +12,7 @@ artifact="$PWD/docs/bench/replay/latency/$variant"
 benchmark_java=$(cat "$artifact/java.txt")
 benchmark_classpath=$(cat "$artifact/classpath.txt")
 mapfile -t benchmark_jvm_args < "$artifact/jvm-args.txt"
-replay_scratch="${SIRIX_REPLAY_SCRATCH:-$PWD/.gradle/replay}"
+replay_scratch="$PWD/.gradle/replay"
 export TMPDIR="$replay_scratch/tmp"
 mkdir -p "$TMPDIR"
 # The slot-owning child checks the window again, so queuing cannot start a late JVM.

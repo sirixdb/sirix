@@ -13,9 +13,8 @@ write to their supplied output directory. Regeneration can replace archived evid
 so review those changes before committing them.
 
 Gradle wrappers and latency forks keep private Maven repositories, Gradle homes and
-temporary files in the ignored `.gradle/replay/` directory. Set `SIRIX_REPLAY_SCRATCH`
-to an absolute directory to keep this scratch material elsewhere. It is separate from
-the retained evidence and survives `gradlew clean`; no wrapper uses `~/.m2`.
+temporary files in the ignored `.gradle/replay/` directory. This scratch material is
+separate from the retained evidence and survives `gradlew clean`; no wrapper uses `~/.m2`.
 
 The archived reports, manifests and logs retain their original measurements, commit
 identities and digests. Path prefixes were updated during relocation; absolute paths

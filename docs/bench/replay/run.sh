@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 heavy() { while :; do a=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); if [ "$a" -ge 6 ]; then for s in 1 2; do flock -n -E 75 /var/tmp/fm-heavy-jvm.$s.lock "$@"; rc=$?; [ $rc -ne 75 ] && return $rc; done; fi; sleep 30; done; }
-replay_scratch="${SIRIX_REPLAY_SCRATCH:-$PWD/.gradle/replay}"
+replay_scratch="$PWD/.gradle/replay"
 export GRADLE_USER_HOME="$replay_scratch/gradle-home"
 export GRADLE_RO_DEP_CACHE=/home/johannes/.gradle/caches
 export TMPDIR="$replay_scratch/tmp"
