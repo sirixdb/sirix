@@ -73,9 +73,9 @@ and position resolution. The ordered gates below record the migration and its ev
 
 Every Gradle/Maven JVM and benchmark runs via docs/bench/replay/run.sh and the required
 memory gate (MemAvailable >= 6 GiB, two /var/tmp/fm-heavy-jvm.* flock slots).
-Fresh empty private Maven repository: docs/bench/replay/m2 (created before first build).
-Private Gradle home: docs/bench/replay/gradle-home; shared dependency cache read-only:
-/home/johannes/.gradle/caches. Scratch: docs/bench/replay/tmp. Never alter ~/.m2.
+The [replay evidence README](README.md) owns the current private Maven/Gradle and
+temporary-directory layout. The shared dependency cache at
+/home/johannes/.gradle/caches is read-only. Never alter ~/.m2.
 Full query tests use -PtestHeapMax=2g. Preserve command logs and test XML summaries.
 No Gradle stop, foreign process kills, worktree administration or power changes.
 

@@ -19,10 +19,10 @@ bounds were not changed.
 
 ## Verification
 
-All Gradle JVMs used the required memory/flock limiter, taskset -c 0-11, and the private
-Maven repository docs/bench/replay/m2, created empty before the first build. The Gradle home
-is docs/bench/replay/gradle-home; the shared dependency cache was read-only. Test forks used
-2 GiB. No changes were made to ~/.m2.
+All Gradle JVMs used the required memory/flock limiter, taskset -c 0-11, and private
+Maven and Gradle state; the Maven repository was created empty before the first build.
+The [replay evidence README](README.md) owns the current scratch layout. The shared
+dependency cache was read-only. Test forks used 2 GiB. No changes were made to ~/.m2.
 
 - Source-only oracle: R16, forests at all four positions, every committed intermediate
   auto-commit revision, shared-container rename and failed partial input, across all four

@@ -29,7 +29,8 @@ The baseline source is restored only inside this disposable worktree after archi
 results; the committed candidate is restored immediately after exporting the baseline.
 No sibling checkout or worktree is used. Validate absence/presence of identity classes in
 the respective exported artifact before starting any measurement.
-The export manifest records SHA-256 hashes of compiled classes, harness, resources and
+`export-pair.sh BASELINE_COMMIT` performs both exports and generates manifests recording
+SHA-256 hashes of compiled classes, harness, resources and
 external dependencies; baseline and candidate dependency paths and hashes must match.
 
 `campaign.sh OUTPUT SCENARIOS PAIRS WARMUPS SAMPLES DIAGNOSTICS` runs sequential pinned
