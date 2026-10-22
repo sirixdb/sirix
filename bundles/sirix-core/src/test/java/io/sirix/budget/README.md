@@ -131,9 +131,8 @@ comparison failed all 16 versioning/size/direction cases on queued row edits: 32
 rows and 8192 for 4096 rows. Emitted label buffers were 160 and 44536 bytes respectively; record
 visits ranged from 922–1115 and 605518–622379. The fixed append/prepend and removal captures used
 zero row edits, zero label bytes and 190–268 record visits across both sizes. The positive indexed
-insertion control queued one row and allocated a 10-byte label. Raw logs and XML were captured
-in the campaign-local `review-boundary-results/`; see the
-[replay evidence retention note](../../../../../../../../docs/bench/replay/README.md).
+insertion control queued one row and allocated a 10-byte label. Historical mutation evidence is recorded in
+[the replay implementation PR](https://github.com/sirixdb/sirix/pull/1273).
 
 Projection same-parent move mutation evidence (2026-10-06): restoring retained-sibling identity
 comparison failed all 32 move configurations, queuing 32 edits for 16 retained rows and 8192
@@ -141,7 +140,8 @@ for 4096 rows. The fixed move/mixed-boundary and existing insertion/removal capt
 row edits, zero emitted label bytes and 190–302 record visits across both widths and Dewey modes,
 with cold payloads and persisted segment offsets unchanged. Later population queued one row
 and a 10-byte label; actual indexed reorders and reparenting produced nonzero row edits and labels.
-Logs and XML were captured in the campaign-local `review-projection-order-results/`.
+Historical mutation evidence is recorded in
+[the replay implementation PR](https://github.com/sirixdb/sirix/pull/1273).
 Existing bounds are unchanged; this is work evidence, not a new latency or memory guarantee.
 
 Batch scheduling evidence (2026-10-06): the old code failed all 48 populated/previously-emptied
@@ -153,9 +153,8 @@ row edits or emitted label bytes. The old listener grew from 37 to 4117 document
 the sibling chain. Fixed-seed exhaustive four-container permutations also mix membership,
 rename, empty/repopulated containers and retry, checking cold source and target indexes.
 The focused final run passed 590 core and 106 query cases (five query skips); the subsequent
-source-projection check passed all 48 histories. Campaign-local captures were named
-`review-batch-order-results/`, `review-batch-order-v2-results/`,
-`review-batch-order-v5-results/` and `review-source-projection-final-results/`.
+source-projection check passed all 48 histories. Historical verification evidence is recorded in
+[the replay implementation PR](https://github.com/sirixdb/sirix/pull/1273).
 Prior memory and paired-latency limitations remain; no new timing claim is made.
 
 Valid-time identity mutation evidence (2026-10-06): restoring broad object/parent scheduling
@@ -163,8 +162,8 @@ failed all eight versioning/width cases on the first nested append, inspecting 3
 width 16 and 8198 at width 4096. The fixed nested/scalar and non-bound insertion/removal edits
 inspected zero fields in all 32 captures. Direct bound updates inspected 38 and 8198 fields,
 proving the counter is connected. This guards listener scans, not total replay work: distinct
-field-path width still affects other epoch record/path-state work. Raw logs and XML were captured
-in the campaign-local `review-valid-time-results/`; no new timing evidence is claimed.
+field-path width still affects other epoch record/path-state work. Historical mutation evidence is recorded in
+[the replay implementation PR](https://github.com/sirixdb/sirix/pull/1273); no new timing evidence is claimed.
 
 ### The native-image guard, and what it cannot catch
 
@@ -356,9 +355,8 @@ pages receiving those persists, not disk syscalls or bytes. Captured keys and pr
 backing-array payloads measure live scratch state, excluding JVM object headers. The fresh
 cold writer fixture makes scratch growth observable; boundary work has nonzero floors,
 and unchanged descendant preparations must be zero. These are work bounds, not latency or
-whole-transaction memory guarantees. Mutation and focused verification artifacts were captured
-in the campaign-local `review-array-hashing/` (subject to the
-[replay evidence retention note](../../../../../../../../docs/bench/replay/README.md)).
+whole-transaction memory guarantees. Historical mutation and focused verification evidence is recorded in
+[the replay implementation PR](https://github.com/sirixdb/sirix/pull/1273).
 
 ## Changing a budget
 
