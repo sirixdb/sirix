@@ -39,6 +39,7 @@ final class PartialGroupAggregationTest {
             partition, indexed);
       }
       final NumericGroupAggTable stripes = table(compact, 16);
+      final NumericGroupAggTable denseStripes = table(compact, 16).useDenseIndex();
       for (int chunk = 0; chunk < partial.storageChunkCount(); chunk++) {
         final long[] data = partial.storageChunkOrNull(chunk);
         if (data == null) {
@@ -46,15 +47,19 @@ final class PartialGroupAggregationTest {
         }
         for (int offset = 0; offset < data.length && data[offset] != 0L; offset += partial.stride()) {
           stripes.mergeStripes(data, offset, offset + partial.stride());
+          denseStripes.mergeStripes(data, offset, offset + partial.stride());
         }
       }
       assertEquals(20_000, indexed.size());
       assertEquals(20_000, stripes.size());
+      assertEquals(20_000, denseStripes.size());
       for (int group = 0; group < 20_000; group++) {
         assertGroup(expected, indexed, group);
         assertGroup(expected, stripes, group);
+        assertGroup(expected, denseStripes, group);
       }
       assertTrue(indexed.hasProbeKeyCollision(), "the exact merge still detects same-hash identity collisions");
+      assertTrue(denseStripes.hasProbeKeyCollision(), "dense stripes retain exact identity collision detection");
     }
   }
 
