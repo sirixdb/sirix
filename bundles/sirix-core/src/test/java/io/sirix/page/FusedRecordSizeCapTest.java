@@ -50,7 +50,7 @@ final class FusedRecordSizeCapTest {
   private static final LongHashFunction HASH_FN = LongHashFunction.xx3();
 
   /** Bytes a fused OBJECT_NAMED_STRING record costs on top of its value on this fixture. */
-  private static final int FUSED_STRING_RECORD_OVERHEAD = 29;
+  private static final int FUSED_STRING_RECORD_OVERHEAD = 20;
 
   private static MemorySegmentAllocator allocator;
 

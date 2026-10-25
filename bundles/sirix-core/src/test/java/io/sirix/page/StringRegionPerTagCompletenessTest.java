@@ -64,7 +64,7 @@ final class StringRegionPerTagCompletenessTest {
   private static final int WIDE_NAME_KEY = 300;
   /** The field whose value overflows either way — the tag that must be suppressed. */
   private static final int OVERSIZED_NAME_KEY = 400;
-  /** Value length that fits the raised cap (record is 929 B) but not the old 512-byte one. */
+  /** Value length that fits the raised cap (record is 920 B) but not the old 512-byte one. */
   private static final int WIDE_VALUE_LENGTH = 900;
   /** Value length no cap can hold inline. */
   private static final int OVERSIZED_VALUE_LENGTH = 2_000;
@@ -74,30 +74,24 @@ final class StringRegionPerTagCompletenessTest {
   private static final int OVERSIZED_PATH_NODE_KEY = 999;
 
   /**
-   * The fixture page's exact wire bytes as an encoder built from {@code HEAD} (before per-tag
-   * completeness) produced them, with the all-or-nothing rule in force.
-   *
-   * <p>
-   * The fixture deliberately holds no record in {@code (512, 1023]}, so the fused-cap raise that
-   * ships with this change cannot move these bytes and the only thing the comparison can catch is a
-   * completeness rule that fails to restore itself. Recorded by compiling {@code git show HEAD:} of
-   * every file this change touches into a separate output directory and serializing the same fixture
-   * there.
+   * V1 wire snapshot of the all-or-nothing completeness fixture with the later codec levers off. V1
+   * removes primitive-leaf hashes and their offset entries; the original V0 pin is obsolete. The
+   * round-trip tests above separately check every reconstructed record.
    */
   private static final String GOLDEN_KILL_SWITCH_PAGE =
-      "0100000001000000010000000000000000010000001f00ec070000ec07000001000000000000000000ffffff7f000000"
+      "0101000001000000010000000000000000010000001f00d5060000d506000001000000000000000000ffffff7f000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-          + "000000000000000000000000000000000000000000000000001f0000009706000001120b000000db00000003fda90e2e"
-          + "0df202002f0e32020013ef047232090001020305060708100001000e9f0301001f0000001f0201000b1b324900af4c66"
-          + "69656c642d302d7601000a0f3700041f313700231f323700231f333700231f343700231f353700231f363700231f3737"
-          + "00231f383700231f3937001c124e26022f31303800241f317000241f32a800241f33e000241f341801241f355001241f"
-          + "368801241f37c001241f38f801240f3002241f323002241f323002241f323002241f323002241f323002241f32300224"
-          + "1f323002241f323002241f323002241f3230021c2002000100000004031e010000ac000000fd9e02ff751fc8000000c9"
-          + "000000ca000000cb000000cc000000cd000000ce000000cf000000d0000000d1000000d2000000d3000000d4000000d5"
-          + "000000d6000000d7000000d8000000d9000000da000000db000000dc000000dd000000de000000df000000e0000000e1"
-          + "000000e2000000e3000000e4000000e5000000900100001f00ffffff7f00010069f00f0102030405060708090a0b0c0d"
-          + "0e0f101112131415161718191a1b1c1d1e04000000004001000000f1ffffffffffffff00000000";
+          + "000000000000000000000000000000000000000000000000001f0000009f05000001120a000000d900000003fdb00c2e"
+          + "0bf202002f0c32020013df0272320800010203050607080001000e9f0301001f0000001f0201000b13324900af4c6669"
+          + "656c642d302d7601000a0b2f001f312f001b1f322f001b1f332f001b1f342f001b1f352f001b1f362f001b1f372f001b"
+          + "1f382f001b1f392f0014124ed6012f313030001c1f3160001c1f3290001c1f33c0001c1f34f0001c1f3520011c1f3650"
+          + "011c1f3780011c1f38b0011c0fe0011c1f32e0011c1f32e0011c1f32e0011c1f32e0011c1f32e0011c1f32e0011c1f32"
+          + "e0011c1f32e0011c1f32e0011c1f32e001142002000100000004031e010000ac000000fd9e02ff751fc8000000c90000"
+          + "00ca000000cb000000cc000000cd000000ce000000cf000000d0000000d1000000d2000000d3000000d4000000d50000"
+          + "00d6000000d7000000d8000000d9000000da000000db000000dc000000dd000000de000000df000000e0000000e10000"
+          + "00e2000000e3000000e4000000e5000000900100001f00ffffff7f00010069f00f0102030405060708090a0b0c0d0e0f"
+          + "101112131415161718191a1b1c1d1e04000000004001000000f1ffffffffffffff00000000";
 
   private Arena arena;
   private boolean perTagCompletenessBefore;
@@ -371,11 +365,10 @@ final class StringRegionPerTagCompletenessTest {
   }
 
   @Test
-  @DisplayName("the kill switch reproduces the pre-change bytes exactly")
-  void killSwitchIsByteIdenticalToHead() {
+  @DisplayName("the kill switch preserves the V1 all-or-nothing wire snapshot")
+  void killSwitchPreservesV1WireSnapshot() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = false;
-    // The pin is of HEAD's bytes, so every lever landed since then has to be off for it to mean what
-    // its name says — the derived elision sections and the structural columns included.
+    // Isolate the original completeness rule within the current V1 record format.
     PageKind.DERIVED_ELISION_SECTIONS = false;
     PageKind.SIBLING_KEY_COLUMNS_ENABLED = false;
     StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
@@ -397,7 +390,7 @@ final class StringRegionPerTagCompletenessTest {
       final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       assertEquals(GOLDEN_KILL_SWITCH_PAGE, hex(sink.toByteArray()),
-          "the kill switch must reproduce the pre-change encoding byte for byte");
+          "the kill switch must preserve the V1 all-or-nothing encoding byte for byte");
     } finally {
       page.close();
     }

@@ -57,7 +57,7 @@ final class ChunkedBodySabotageTest {
   void setUp() {
     Allocators.getInstance().init(256L * 1024 * 1024);
     previouslyEnabled = ChunkedBodyConfig.setEnabledForTesting(false);
-    previousTarget = ChunkedBodyConfig.setTargetChunkBytesForTesting(512);
+    previousTarget = ChunkedBodyConfig.setTargetChunkBytesForTesting(256);
     config = new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build();
   }
 
