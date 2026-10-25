@@ -1047,14 +1047,6 @@ public enum VersioningType {
       final int slot = StorageEngineReader.recordPageOffset(recordKey);
       if (sourceKvl.hasSideSlot(slot)) {
         targetKvl.copySideSlotFrom(sourceKvl, slot);
-      } else {
-        final MemorySegment targetSlots = targetKvl.getSlottedPage();
-        if ((targetSlots == null || !PageLayout.isSlotPopulated(targetSlots, slot)) && !targetKvl.hasSideSlot(slot)
-            && sourceKvl.isFusedOverflowDescriptor(slot)) {
-          // A deferred preservation mark is not readable metadata. Copy the descriptor now so a
-          // modification cannot deserialize the bare reference without its Dewey ID.
-          targetKvl.copySlotFromPage(sourceKvl, slot);
-        }
       }
     }
   }
