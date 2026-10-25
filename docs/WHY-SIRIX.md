@@ -168,8 +168,8 @@ read/query latency*. Both verdicts and the full perf tables are in
   design. Horizontal scale is not on the short-term roadmap.
 - **Relational queries across many entities.** It's a document store; joins
   exist in JSONiq but a relational engine will beat it at relational shapes.
-- **Maturity.** This is a beta of a research-grade engine. The disk format
-  (V0) is now contract-documented and crash-tested, but you should expect
+- **Maturity.** This is a beta of a research-grade engine. The
+  [disk format](DISK_FORMAT.md) is contract-documented and crash-tested, but you should expect
   rough edges, and the known limitations are listed in
   [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) rather than hidden.
 

@@ -1190,7 +1190,10 @@ public final class TemporalAggregateParts {
     return new PointReader(Objects.requireNonNull(store));
   }
 
-  /** Single-scan scratch. A point result is valid only until this reader evaluates another point. */
+  /**
+   * Single-scan scratch, confined to one thread. A point result is valid only until this reader
+   * evaluates another point; copy it into caller-owned storage before retaining it across calls.
+   */
   public final class PointReader {
     private final Store store;
     private final Sums sums = new Sums();
@@ -1208,6 +1211,7 @@ public final class TemporalAggregateParts {
       return point(parts, point, null);
     }
 
+    @SuppressWarnings("StringConcatToTextBlock") // Error Prone 2.50.0 crashes on this method's literals.
     public AggregateSummary point(final long[] parts, final long point, final @Nullable Delta tail) {
       if (parts.length > MAX_PARTS || point < 0 || point >= (1L << height)) {
         throw new IllegalArgumentException("Invalid aggregate point or part count");

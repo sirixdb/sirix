@@ -15,7 +15,7 @@ import java.util.function.IntUnaryOperator;
  * <pre>
  * [nodeKind: 1 byte]
  * [fieldOffsetTable: fieldCount × 1 byte]
- * [data region: varint fields + hash + optional payload]
+ * [data region: varint fields + kind-specific hash/counts + optional payload]
  * </pre>
  *
  * <p>
@@ -830,8 +830,7 @@ public final class NodeFieldLayout {
 
   /**
    * Returns the field-table index of the HASH field for a given NodeKind, or {@code -1} if the kind
-   * stores no hash (records that aren't part of the rolling hash tree — e.g. child values of an
-   * object key).
+   * stores no hash, including fused primitive leaves whose hashes are derived on demand.
    *
    * <p>
    * Used by the columnar structural-key extractor to locate the per-record fixed-width hash bytes on

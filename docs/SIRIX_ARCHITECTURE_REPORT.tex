@@ -693,8 +693,9 @@ branch-free without touching the heap. A \textbf{record} on the bump-allocated h
 \code{[kindId:1][field-offset table][delta-varint fields][8\,B hash?][payload][deweyId][len:2]}. The
 per-record one-byte offset table gives $O(1)$ random field access. Structural neighbour keys are
 \textbf{delta-varint} encoded against the record's own key, and because siblings and children are
-numerically close a pointer usually compresses to one or two bytes. The 8-byte hash is present only
-when hashing is enabled. In-place mutation keeps the record width constant as long as the new delta
+numerically close a pointer usually compresses to one or two bytes. Hash storage is kind-specific;
+see \pp{docs/DISK\_FORMAT.md}, \S2, and \code{NodeFieldLayout} for the authoritative contract.
+In-place mutation keeps the record width constant as long as the new delta
 fits the same byte-width; otherwise it re-serialises and bumps the heap. A record above the spill
 threshold moves out of line to an \code{OverflowPage} and is carried across fragment recombination
 (Ch.~\ref{ch:versioning}) as a \code{PageReference}, so it is never lost. Two \code{MAX\_RECORD\_SIZE}
@@ -2012,7 +2013,8 @@ files via the beacon; the trailing zeros are unreachable).
 Serialisation is dispatched by \code{PagePersister}: every page on disk begins with a one-byte
 \textbf{page-kind tag} (\code{UBERPAGE}=3, \code{REVISIONROOTPAGE}=5, \code{INDIRECTPAGE}=4,
 \code{KEYVALUELEAFPAGE}=1, the CAS/path/name pages, \code{HOT\_LEAF\_PAGE}=12, \ldots) followed by
-a one-byte \code{BinaryEncodingVersion} (\code{V0}); deserialisation reads the tag and routes to
+a one-byte \code{BinaryEncodingVersion} and envelope flags; \pp{docs/DISK\_FORMAT.md}, \S2,
+owns the current version and envelope contract. Deserialisation reads the tag and routes to
 the matching reader. A page's child references serialise through whichever of the three adaptive
 reference-container layouts it currently holds, each with its own sub-tag (\code{ReferencesPage4}=0,
 \code{BitmapReferencesPage}=1, \code{FullReferencesPage}=2); one reference is
@@ -2068,7 +2070,7 @@ INNER bake-off  (encode with each, keep the smallest, tag with its 1-byte codec 
 OUTER ByteHandlerPipeline  (here FFILz4 in FAST mode over the whole payload):
    6 500 B -> 4 200 B   saves > a few percent, so kept; otherwise the raw 6 500 B is stored unchanged
 
-on-disk frame: [u8 page-kind][u8 V0][u8 pipeline tag][4 200 B payload]   the parent ref carries the XXH3
+on-disk frame: [page envelope: see docs/DISK_FORMAT.md §2][4 200 B payload]; parent ref carries XXH3
 \end{diagramS}
 
 \noindent The two layers are independent: the inner bake-off always runs (its codecs are tiny and
@@ -8351,16 +8353,9 @@ reading any past revision is a direct traversal rather than an undo.
 
 \section{Page framing and page kinds}
 
-A page record is \code{[u32 len][payload]}, 8-byte aligned (the UberPage fills its whole 4\,KiB beacon
-slot; the RevisionRootPage is 256-aligned). The payload, after the byte-handler pipeline, begins with a
-one-byte page-kind tag and a one-byte \code{BinaryEncodingVersion} (\code{V0}):
-
-\begin{diagramS}
-[u8 pageKind][u8 V0][ body ]      Page-kind tags (1 byte; tag 7 is unused):
-  1 KeyValueLeafPage   4 IndirectPage      8 CASPage       11 DeweyIDPage      14 reserved
-  2 NamePage           5 RevisionRootPage  9 OverflowPage  12 HOTLeafPage      15 VectorPage
-  3 UberPage           6 PathSummaryPage  10 PathPage      13 HOTIndirectPage  16 ProjectionPage
-\end{diagramS}
+\pp{docs/DISK\_FORMAT.md}, \S\S1--2, owns page-record framing, alignment, the page envelope,
+and its version policy. Stable page-kind ids are defined by \code{PageKind} and pinned by
+\code{GoldenFormatTest.pageKindIdsArePinned}.
 
 \section{Reference containers}
 
@@ -8379,7 +8374,8 @@ PageReference   [u8 fragCount][ fragment × (i32 rev, i64 key) ][i64 key][u8 has
 
 \section{The structural pages}
 
-Each follows the \code{[u8 tag][u8 V0]} prefix; ``delegate'' is a reference container. Widths:
+Each follows the page envelope specified in \pp{docs/DISK\_FORMAT.md}, \S2;
+``delegate'' is a reference container. Widths:
 \code{i32}/\code{i64} are fixed little-endian, \code{varint}/\code{varlong} stop-bit, \code{u8} one byte,
 and an \emph{array} is an \code{i32} count then the elements.
 
@@ -8425,7 +8421,7 @@ The leaf page is the format's centrepiece, a slotted page that is \emph{in-memor
 column-compressed then byte-compressed. Its frame and the 160-byte header it copies raw:
 
 \begin{diagramS}
-[u8 0x01][u8 V0][varlong recordPageKey][i32 revision][u8 indexType]
+[page envelope: see docs/DISK_FORMAT.md §2][varlong recordPageKey][i32 revision][u8 indexType]
 [160-byte header+bitmap region][encoded body][i32 regionTableLen|0 + PAX columns][overlong entries]
 
 header+bitmap (160 B):  0 8 recordPageKey · 8 4 revision · 12 2 populatedCount · 14 4 heapEnd
@@ -8465,24 +8461,9 @@ reconstructed on read, never stored.
 
 \section{Node records, by kind}
 
-A node's fields and encodings (delta-varint encodes a neighbour as \code{zigzag(field − ownNodeKey)+1},
-so 0 marks a null neighbour and adjacent siblings cost one byte; \code{hash}/\code{descendantCount} are
-omitted when \code{HashType==NONE}):
-
-\begin{diagramS}
-OBJECT (24)          parentKey, rightSib, leftSib, firstChild, lastChild  (delta-varint);
-                     prevRev, lastModRev (signed varint); childCount? (signed varint);
-                     hash:8 + descendantCount (signed varint)
-ARRAY (25)           = OBJECT, plus a pathNodeKey (delta-varint) after lastChild
-OBJECT_NAMED_NUMBER  parentKey, rightSib, leftSib (delta-varint); nameKey (signed varint);
-  (fused, 49)        pathNodeKey (delta-varint); prevRev, lastModRev (signed varint); hash:8;
-                     number payload [u8 type][data]: 0 Double8 · 1 Float4 · 2 int · 3 long · 4 BigInt · 5 BigDec
-STRING_VALUE (30)    parentKey, rightSib, leftSib (delta-varint); prevRev, lastModRev (signed varint);
-                     payload [u8 fsstCompressed][signed-varint len][bytes]    (no hash field)
-ELEMENT (XML, 1)     parentKey, rightSib, leftSib, firstChild, lastChild, pathNodeKey (delta-varint);
-                     prefixKey, localNameKey, uriKey, prevRev, lastModRev (signed varint); childCount?;
-                     hash:8 + descendantCount; payload [varint attrCount][attrKeys…][varint nsCount][nsKeys…]
-\end{diagramS}
+\pp{docs/DISK\_FORMAT.md}, \S2, owns the node-record encoding and primitive-leaf hash contract.
+\code{NodeFieldLayout} defines per-kind field counts and indices; the corresponding node classes
+and \code{NodeKind} define the slotted and record-stream encoders.
 
 \section{Varints and compression codecs}
 
@@ -8500,7 +8481,7 @@ encoding wins:
 \end{diagramS}
 
 \noindent Page hashing is XXH3-64 over the compressed bytes, stored big-endian in the parent
-\code{PageReference}; the per-page \code{V0} byte is the only format-version hook. The page-record fields
+\code{PageReference}; format-version hooks are specified in \pp{docs/DISK\_FORMAT.md}, \S2. The page-record fields
 are pinned little-endian (this hash word and the HOT keys are the deliberate big-endian exceptions), so
 the format is host-independent; the pinning also corrected a latent big-endian fault in the
 word-at-a-time varint decode, which had read the leading byte in host order and would have decoded

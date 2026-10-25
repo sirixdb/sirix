@@ -104,7 +104,7 @@ public final class AggregateSummary {
     }
   }
 
-  /** Scan-owned rows: no summary object or lane arrays are allocated when a group is appended. */
+  /** Scan-owned packed rows share a backing array instead of per-group summaries and lane arrays. */
   public static final class Table {
     private final int lanes;
     private final int stride;

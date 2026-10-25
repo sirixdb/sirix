@@ -33,7 +33,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
@@ -170,7 +169,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, byte[] value,
       LongHashFunction hashFunction, byte[] deweyID) {
     this(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey, previousRevision,
-        lastModifiedRevision, 0L, value, hashFunction, deweyID, false, null);
+        lastModifiedRevision, hash, value, hashFunction, deweyID, false, null);
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
@@ -197,7 +196,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, byte[] value,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey, previousRevision,
-        lastModifiedRevision, 0L, value, hashFunction, deweyID, false, null);
+        lastModifiedRevision, hash, value, hashFunction, deweyID, false, null);
   }
 
   public ObjectNamedStringNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,

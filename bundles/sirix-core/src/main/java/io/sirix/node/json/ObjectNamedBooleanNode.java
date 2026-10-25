@@ -32,7 +32,6 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;

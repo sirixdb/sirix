@@ -335,8 +335,11 @@ fail-fast lookups, never ordinals.
   lengths. `StringRegion.temporalLaneEnabled()` documents the one read path — a region REBUILT from
   the slotted page — that re-encodes under the current setting rather than the writer's.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
-  (`DeltaVarIntCodec`), varint revisions, fixed 8-byte rolling hash (elided page-wide when all
-  zero), typed number payloads (Double/Float fixed, Int/Long zigzag varint).
+  (`DeltaVarIntCodec`), varint revisions and typed number payloads (Double/Float fixed,
+  Int/Long zigzag varint). Kinds with a stored hash use a fixed 8-byte rolling hash (elided
+  page-wide when all zero); the primitive-leaf exception is specified in the V1 contract above.
+  Per-kind field counts and indices are defined by
+  [`NodeFieldLayout`](../bundles/sirix-core/src/main/java/io/sirix/page/NodeFieldLayout.java).
 - **PathStats trailer** (`NodeKind.PATH`, present iff the resource has `withPathStatistics`):
   `[i64 count][i64 nullCount][i64 sum][i64 sumHi][i64 min][i64 max]`
   `[minBytes][maxBytes][hll][u8 minDirty][u8 maxDirty][f64 sumFraction][u8 sumDirty]`
@@ -433,7 +436,7 @@ covered by the interop test).
 
 ## 5. PRE-FREEZE CHECKLIST (ranked; decide before first user data)
 
-Already part of V0 (this tree — there are no users, so V0 simply IS the superblocked layout; no migration version exists): templateCount 256-wrap capped at 255; deterministic
+Introduced in the unreleased V0 layout and retained in V1: templateCount 256-wrap capped at 255; deterministic
 revisions-file slots + truncation; ordered dual-copy beacon writes + write-ahead barriers
 (data **and** revisions); **superblocks in both files** (magic/version/endianness/role/CRC,
 validated at storage open); **beacon slots one filesystem block apart with XXH3 trailers**

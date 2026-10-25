@@ -1257,12 +1257,11 @@ day-to-day behavior:
   a later create allocates a fresh physical id and therefore cannot resolve
   old segment pages through stale descriptors.
 
-## 12. V0 format identity and failure policy
+## 12. Format identity and failure policy
 
-Exactly one projection format is implemented. Every projection envelope and
-payload emits version zero; unknown version bytes decline at serving boundaries
-and fail ordinary maintenance before publication. Same-shape create is
-idempotent only for a usable catalogued definition. Replacement requires
+The page and projection structure versions and their compatibility policy are owned by
+[DISK_FORMAT.md](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
+Same-shape create is idempotent only for a usable catalogued definition. Replacement requires
 drop + commit + create, and create allocates a fresh physical CoW sub-tree;
 there is no on-open migration or in-place repair contract.
 

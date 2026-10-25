@@ -3937,8 +3937,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Phase 1 reserved fused-structural kindIds. Recognized by {@link #isFusedAnyObjectNamedKindId} but
    * NOT by the iter#30 {@link #isFusedObjectNamedKindId} primitive-only predicate, since the
-   * primitive-fused hot path assumes a 9-field layout with NAME_KEY at index 3 — the structural-fused
-   * records have a 12-field layout with NAME_KEY at index 5.
+   * primitive-fused hot path assumes NAME_KEY at index 3 — the structural-fused records have a
+   * 12-field layout with NAME_KEY at index 5.
    */
   public static final int FUSED_OBJECT_NAMED_OBJECT_KIND_ID = 52;
   public static final int FUSED_OBJECT_NAMED_ARRAY_KIND_ID = 53;
@@ -7225,7 +7225,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         final int slot = baseSlot + Long.numberOfTrailingZeros(word);
         word &= word - 1;
         // The ROLE predicate, not the LAYOUT one. isFusedObjectNamedKindId names the PRIMITIVE
-        // fused layout (9 fields, NAME_KEY at index 3); the structural kinds OBJECT/ARRAY are a
+        // fused layout (NAME_KEY at index 3); the structural kinds OBJECT/ARRAY are a
         // 12-field layout with NAME_KEY at index 5, so widening that predicate would decode them
         // with the wrong field table. What this column wants is every slot that CARRIES A FIELD
         // NAME, which is what isFusedAnyObjectNamedKindId says — and the name is then read through
