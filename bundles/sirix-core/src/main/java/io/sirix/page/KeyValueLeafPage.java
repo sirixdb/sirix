@@ -447,9 +447,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Reference to the complete page for lazy slot copying at commit time. Set during
-   * combineRecordPagesForModification, used by addReferences() to copy slots that need preservation
-   * but weren't modified (records[i] == null).
+   * Complete page retained by modification combines for lazy slot copying in {@link #addReferences()}
+   * and metadata lookup in {@link #getDeweyId(int)}.
    */
   private KeyValueLeafPage completePageRef;
 
