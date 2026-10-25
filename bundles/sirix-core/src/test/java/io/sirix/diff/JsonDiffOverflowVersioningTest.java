@@ -42,13 +42,23 @@ final class JsonDiffOverflowVersioningTest {
   @ParameterizedTest
   @EnumSource(VersioningType.class)
   void overflowUpdatesKeepEveryCommittedSidecar(final VersioningType versioning) throws Exception {
+    assertOverflowUpdates(versioning, true);
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void overflowUpdatesKeepDeweyIdsWithoutDiffStorage(final VersioningType versioning) throws Exception {
+    assertOverflowUpdates(versioning, false);
+  }
+
+  private void assertOverflowUpdates(final VersioningType versioning, final boolean storeDiffs) throws Exception {
     final Path databasePath = directory.resolve(versioning.name());
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
     final long[] keys = new long[RECORDS];
     final String[] deweyIds = new String[RECORDS];
     try (final var database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                              .storeDiffs(true)
+                                                              .storeDiffs(storeDiffs)
                                                               .useDeweyIDs(true)
                                                               .storeNodeHistory(false)
                                                               .hashKind(HashType.NONE)
@@ -79,9 +89,11 @@ final class JsonDiffOverflowVersioningTest {
     Databases.clearGlobalCaches();
     try (final var database = Databases.openJsonDatabase(databasePath);
         final var session = database.beginResourceSession(RESOURCE)) {
-      assertAll(IntStream.rangeClosed(2, LAST_REVISION).mapToObj(revision -> () -> {
-        assertSidecar(session, revision, keys, deweyIds);
-      }));
+      if (storeDiffs) {
+        assertAll(IntStream.rangeClosed(2, LAST_REVISION).mapToObj(revision -> () -> {
+          assertSidecar(session, revision, keys, deweyIds);
+        }));
+      }
       for (int revision = 1; revision <= LAST_REVISION; revision++) {
         try (final var reader = session.beginNodeReadOnlyTrx(revision)) {
           for (int i = 0; i < RECORDS; i++) {

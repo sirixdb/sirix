@@ -5328,10 +5328,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return null;
     }
     // Modification combines can copy an overflow reference while deferring its descriptor until
-    // sealing. Diff-enabled updates must deserialize that value with the descriptor's Dewey ID,
-    // otherwise the updated record permanently loses its ID and commit-time sidecar serialization
-    // fails. Borrow the authoritative metadata without materializing or duplicating the slot.
-    if (resourceConfig.storeDiffs() && completePageRef != null && isSlotMarkedForPreservation(offset)
+    // sealing. Updates must deserialize that value with the descriptor's Dewey ID, regardless of
+    // diff storage, otherwise the updated record permanently loses its ID and any commit-time
+    // sidecar serialization fails. Borrow the metadata without materializing or duplicating the slot.
+    if (completePageRef != null && isSlotMarkedForPreservation(offset)
         && !hasLogicalCarrierShadowingPreservation(offset, completePageRef)) {
       return completePageRef.getDeweyId(offset);
     }

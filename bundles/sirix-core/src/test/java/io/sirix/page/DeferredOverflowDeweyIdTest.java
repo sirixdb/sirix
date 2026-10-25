@@ -39,7 +39,7 @@ final class DeferredOverflowDeweyIdTest {
 
   @ParameterizedTest
   @CsvSource({"false,false", "true,false", "false,true", "true,true"})
-  void onlyDiffsWithDeweyIdsReadDeferredMetadata(final boolean storeDiffs, final boolean deweyIds) {
+  void onlyDeweyIdsReadDeferredMetadata(final boolean storeDiffs, final boolean deweyIds) {
     final var config = configuration(storeDiffs, deweyIds);
     final var source = completePage(config);
     final var complete = spy(source);
@@ -52,7 +52,7 @@ final class DeferredOverflowDeweyIdTest {
       clearInvocations(complete);
 
       final byte[] actual = modified.getDeweyIdAsByteArray(SLOT);
-      if (storeDiffs && deweyIds) {
+      if (deweyIds) {
         assertArrayEquals(DEWEY_ID, actual);
         verify(complete, times(1)).getDeweyId(SLOT);
       } else {
