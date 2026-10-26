@@ -3400,7 +3400,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return Long.MIN_VALUE;
     }
     final long recordBase = scanRecordBase(sp, slotNumber);
-    // Payload is field index 8 (OBJNAMEDNUM_PAYLOAD).
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
     final long payloadStart = dataStart + fieldOff;

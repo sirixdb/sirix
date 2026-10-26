@@ -32,7 +32,7 @@ object plus 105 fields; a page holds ~9.7 rows, ~71 numeric and ~34 string tags)
 | region table (LZ77) | **3.2** | raw ~11: NUMBER region written as **plain 8-byte longs on every page** — bit-packing needs a page-wide spread < 2^56 and the 64-bit hash columns always exceed it — plus per-tag min/max inside it AND a second copy in the zone-map region (22 B + 24 B/tag); string region 16 B/tag + per-tag dictionaries over ~10 rows; name-key region 128-B bitmap + 4 B/name; record ordinals |
 | header + bitmap, overlong, sidecar | 0.3 | 160-B fixed header/bitmap, carriers' framing |
 
-Fused record anatomy as the writer emits it (round-1 addendum, `NodeFieldLayout`, `NodeKind` ~918–955, `PageKind`
+Fused record anatomy in the measured baseline (round-1 addendum, `NodeFieldLayout`, `NodeKind` ~918–955, `PageKind`
 `stageEncodedHeap` ~2692): in memory `kindId + 9-byte offset table + data`; on disk `kindId + templateId + data` with
 these strips — parentKey → parent-key column, pathNodeKey → column, nameKey → name-key region (all-or-nothing per
 page), hash → zero-hash bitmap, payload → region (per slot, when the saving beats the wire cost). **Never stripped:**
@@ -41,6 +41,9 @@ heap record is 6 B pre-codec (kind, template, four varints) + a 2-byte directory
 the heap, with kind and template each stored twice. The cheapest first cut, in order: drop the duplicated kind and
 template bytes, elide the two revision varints when equal to the page revision, then the STRUCT_POINTERS columns for
 the siblings.
+
+The current node-record and hash contract is owned by [DISK_FORMAT.md §2](DISK_FORMAT.md#2-pages);
+the baseline anatomy above describes the earlier layout used for these measurements.
 
 **Per-page fixed overhead at ~10 rows/page is ~3–4 B/record on its own** (tag headers, two zone-map copies, string tag
 headers, name-key bitmap, page header, template pool) — the whole M1 budget before any value byte. The cost model
@@ -179,8 +182,8 @@ chosen slot count; the document-data default moves only if JSONBench shows the g
 every storage lever: report its byte gain on BOTH corpora.
 
 ## 6. Briefs (self-contained; one active writer; the lead reviews and runs the gates)
-Common: explicit imports, HFT-style code, no format-version machinery (layouts change in place; golden pins
-re-recorded with the sticky-codec reset rule), a `-Dsirix.<lever>.disable` kill switch (the cheapest mutation
+Common: explicit imports, HFT-style code, format evolution per [DISK_FORMAT.md §2](DISK_FORMAT.md#2-pages)
+(golden pins re-recorded with the sticky-codec reset rule), a `-Dsirix.<lever>.disable` kill switch (the cheapest mutation
 witness), the mutation that must fail, the acceptance number at 1M, the test classes to extend, file ownership.
 - **B0r — DONE 17:30** (impl-b0r): `PageSectionDiag` counters for U1–U4 (staged elision metadata by kind, staged heap
   by record kind with inline payload bytes, body path encoded/inline with reasons, value elision by index type,

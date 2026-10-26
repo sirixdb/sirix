@@ -5127,7 +5127,7 @@ JNI}, via \code{java.lang.foreign} (\pp{FFIIOUring.java}): cache-line-aligned SQ
 \code{io\_uring\_setup}/\allowbreak\code{io\_uring\_enter}/\allowbreak\code{io\_uring\_register} syscalls, with a
 striped ring pool ($\approx$2$\times$cores rings, queue depth 512), best-effort registered
 files/buffers, and block-aligned buffers for O\_DIRECT. The storage class implements the same
-\code{IOStorage} SPI and, since the V0 port, writes a \textbf{byte-identical V0 on-disk format}
+\code{IOStorage} SPI and writes the same on-disk format specified in \pp{docs/DISK\_FORMAT.md}
 (the same 64-byte superblock, dual uber-page beacons at 4096/8192, and 32-byte little-endian revision
 records), so a resource round-trips between the io\_uring and FileChannel backends (a cross-backend
 compatibility test asserts exactly this); it differs only in mechanism (MemorySegment I/O, async
@@ -5262,7 +5262,7 @@ what turns the $2N$ \code{pread}s of a wide prefetch into two enters.}
 \section{The S3 object-storage backend}
 
 The S3 backend (\pp{sirix-enterprise-s3}) maps a resource onto object storage, but, crucially,
-\textbf{not by mirroring the V0 file format}. It defines its own remapped layout of immutable
+\textbf{not by mirroring the local file format}. It defines its own remapped layout of immutable
 \emph{segment} objects, one mutable \emph{revisions} object, and a JSON \emph{manifest}, while
 keeping the page-record framing (\code{[4B len][compressed page]}) and the alignment constants of
 the local format.
@@ -5292,7 +5292,7 @@ search; segment discovery is \emph{never} an S3 \code{LIST}, which makes the bac
 eventual list-consistency. The commit order (segment, then candidate manifest, then the revisions
 object \emph{last}) is the object-storage analogue of the dual-beacon protocol: the uber page in
 the revisions object is the commit point exactly as the primary beacon's write-return is on local
-V0, so a crash can only orphan unreferenced objects, never expose a torn revision. Manifest-load
+storage, so a crash can only orphan unreferenced objects, never expose a torn revision. Manifest-load
 failure is deliberately \emph{fatal} (404-not-found means a genuinely new resource; a read error or
 truncation throws) so a transient fault can never start the resource on an empty manifest that would
 orphan all prior data.

@@ -34,9 +34,7 @@ import java.lang.foreign.ValueLayout;
  *                          // but self-describing — tolerates future kindId
  *                          // reuse without schema migration)
  *   byte[fieldCount] bytes // the offset table bytes
- * // followed by: per-slot templateId (1 byte each), {@code
- * populatedCount
- * } total
+ * // followed by: per-slot templateId (1 byte each), populatedCount total
  * </pre>
  *
  * <p>
@@ -56,7 +54,7 @@ import java.lang.foreign.ValueLayout;
  * caller-supplied scratch buffers.</li>
  * <li>Map uses fastutil's primitive {@code Long2IntOpenHashMap} so the template-hash lookup is a
  * {@code long} key (kindId{@code <<}56 {@code |} offset bytes) — no boxing, no allocation.</li>
- * <li>Template ids fit in a single byte (0..255). Pages with more than 256 unique offset tables
+ * <li>The one-byte template count is bounded by {@link #MAX_TEMPLATES}; pages exceeding that limit
  * fall back to inline encoding.</li>
  * <li>Up to seven offset bytes and the kind fit an exact 64-bit key. Wider tables use a hash with
  * exact candidate verification.</li>
@@ -79,9 +77,8 @@ public final class OffsetTableTemplatePool {
   public static final int TEMPLATE_ID_WIDTH = 1;
 
   /**
-   * Magic byte pattern prefixing the template-pool header on disk, used by the deserialize path to
-   * distinguish "dedup enabled" from "no region table at position N". Unused in V0 (where offset
-   * tables are inline); only written in V1+.
+   * Reserved template-pool magic. Not emitted or consumed by the current page encoding; this name
+   * does not refer to the page's binary encoding version.
    */
   public static final byte MAGIC_V1 = (byte) 0xA7;
 
