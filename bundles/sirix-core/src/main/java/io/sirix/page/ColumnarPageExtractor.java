@@ -38,13 +38,13 @@ public final class ColumnarPageExtractor {
   private static final int STRING_VALUE_FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT; // 6
 
   /** Field count for OBJECT_NAMED_STRING nodes (excludes variable-length payload). */
-  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT; // 9
+  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
 
   /** Payload field index for STRING_VALUE. */
   private static final int STRVAL_PAYLOAD_IDX = NodeFieldLayout.STRVAL_PAYLOAD; // 5
 
   /** Payload field index for OBJECT_NAMED_STRING. */
-  private static final int OBJNAMEDSTR_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDSTR_PAYLOAD; // 8
+  private static final int OBJNAMEDSTR_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDSTR_PAYLOAD;
 
   /**
    * Parent key field index — same for every extractable kind (always 0 in the field-order contract;
@@ -62,13 +62,13 @@ public final class ColumnarPageExtractor {
   private static final int NUMBER_VALUE_FIELD_COUNT = NodeFieldLayout.NUMBER_VALUE_FIELD_COUNT; // 6
 
   /** Field count for OBJECT_NAMED_NUMBER nodes (excludes variable-length payload). */
-  private static final int OBJECT_NAMED_NUMBER_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT; // 9
+  private static final int OBJECT_NAMED_NUMBER_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
 
   /** Payload field index for NUMBER_VALUE. */
   private static final int NUMVAL_PAYLOAD_IDX = NodeFieldLayout.NUMVAL_PAYLOAD; // 5
 
   /** Payload field index for OBJECT_NAMED_NUMBER. */
-  private static final int OBJNAMEDNUM_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDNUM_PAYLOAD; // 8
+  private static final int OBJNAMEDNUM_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDNUM_PAYLOAD;
 
   /** Number type bytes — matching NodeKind.serializeNumber format. */
   private static final byte NUM_TYPE_DOUBLE = 0;

@@ -25,7 +25,7 @@ import java.lang.foreign.ValueLayout;
  * footprint by {@code (FIELD_COUNT - 1) / FIELD_COUNT} per deduplicated slot.
  *
  * <h2>Wire format (on-disk only — in-memory slotted page is unchanged)</h2>
- * 
+ *
  * <pre>
  * byte   templateCount    // 0..255 unique (kindId, offsetTable) pairs on page
  * // for each template i in [0, templateCount):
