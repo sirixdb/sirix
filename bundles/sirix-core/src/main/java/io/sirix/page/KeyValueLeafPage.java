@@ -447,9 +447,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Reference to the complete page for lazy slot copying at commit time. Set during
-   * combineRecordPagesForModification, used by addReferences() to copy slots that need preservation
-   * but weren't modified (records[i] == null).
+   * Complete page retained by modification combines for lazy slot copying in {@link #addReferences()}
+   * and metadata lookup in {@link #getDeweyId(int)}.
    */
   private KeyValueLeafPage completePageRef;
 
@@ -5326,6 +5325,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     if (!areDeweyIDsStored) {
       return null;
+    }
+    // Modification combines can copy an overflow reference while deferring its descriptor until
+    // sealing. Updates must deserialize that value with the descriptor's Dewey ID, regardless of
+    // diff storage, otherwise the updated record permanently loses its ID and any commit-time
+    // sidecar serialization fails. Borrow the metadata without materializing or duplicating the slot.
+    if (completePageRef != null && isSlotMarkedForPreservation(offset)
+        && !hasLogicalCarrierShadowingPreservation(offset, completePageRef)) {
+      return completePageRef.getDeweyId(offset);
     }
     final OverflowSlotSidecar sidecar = overflowSlotSidecar;
     if (sidecar == null || !sidecar.has(offset)) {
