@@ -562,7 +562,6 @@ Array *elements* are unnamed (positional, not keyed), so they remain standalone 
 │  │ parentKey         (64-bit)  Parent node's key                       │  │
 │  │ previousRevision  (32-bit)  When node was created                   │  │
 │  │ lastModRevision   (32-bit)  When node was last modified             │  │
-│  │ hash              (64-bit)  Optional: rolling/postorder hash        │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                           │
 │  Structural Node Fields (tree nodes & fused object/array fields):         │
@@ -598,6 +597,9 @@ Array *elements* are unnamed (positional, not keyed), so they remain standalone 
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+Hash storage and primitive-leaf hash derivation follow the
+[on-disk format contract](DISK_FORMAT.md#2-pages).
 
 ### Node Types
 

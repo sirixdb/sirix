@@ -1776,7 +1776,7 @@ public enum PageKind {
           ? sink.writePosition()
           : 0L;
 
-      // Ensure slotted page exists — ALL pages use slotted page format V0
+      // Ensure slotted page exists — ALL pages use the current slotted page format
       keyValueLeafPage.ensureSlottedPage();
 
       // Which body format this page gets is decided once here. The envelope itself is emitted after
@@ -4447,7 +4447,7 @@ public enum PageKind {
           // column had no entry to attribute an array element to.
           //
           // The name is read through the STRUCTURAL accessor: these are a 12-field layout with
-          // NAME_KEY at index 5 against the primitive-fused 9-field layout with it at index 3,
+          // NAME_KEY at index 5 against the primitive-fused layout with it at index 3,
           // which is why widening isFusedObjectNamedKindId would decode them wrongly rather than
           // include them.
           okNameKeys[okCount] = page.getFusedStructuralNameKeyFromSlot(slot);
@@ -6425,8 +6425,8 @@ public enum PageKind {
 
   /**
    * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}. The
-   * flags byte is reserved extension space for every page kind (all bits zero in V0) — without it,
-   * any additive change to a non-KVLP page required a global version bump.
+   * flags byte is reserved extension space for every page kind (zero unless that kind declares an
+   * extension) — without it, any additive change to a non-KVLP page required a global version bump.
    */
   static void writeVersionAndFlags(final BytesOut<?> sink) {
     sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
@@ -6435,8 +6435,8 @@ public enum PageKind {
 
   /**
    * Reads and validates the shared page envelope: the version byte (throws on unknown) and the
-   * reserved flags byte (must be zero in V0 — a nonzero value means a newer writer used an extension
-   * this build does not understand, so misparsing is not an option).
+   * reserved flags byte (must be zero for this reader — a nonzero value means a writer used an
+   * extension this build does not understand, so misparsing is not an option).
    */
   static BinaryEncodingVersion readVersionAndFlags(final BytesIn<?> source) {
     final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
@@ -9486,8 +9486,8 @@ public enum PageKind {
         inMemLen += valueWidth;
         // Compute the in-data offset of the value field. All three
         // primitive-fused kinds (48/49/50) put their value at field
-        // index 8 (NodeFieldLayout.OBJNAMEDNUM_PAYLOAD ==
-        // OBJNAMEDSTR_PAYLOAD == OBJNAMEDBOOL_VALUE == 8).
+        // index 7 (NodeFieldLayout.OBJNAMEDNUM_PAYLOAD ==
+        // OBJNAMEDSTR_PAYLOAD == OBJNAMEDBOOL_VALUE == 7).
         valueOffs[entryIdx] = (short) OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
             templateId, NodeFieldLayout.OBJNAMEDNUM_PAYLOAD);
         valueWidths[entryIdx] = (short) valueWidth;

@@ -75,8 +75,8 @@ Short class names used without an alias: `AbstractHOTIndexWriter` = `hot/Abstrac
 - **Key words** used for partial-key extraction are loaded **big-endian**: key byte `p` lands in
   long bits 56-63 (`hot/page/HOTIndirectPage.java:800-829`, `hot/page/HOTLeafPage.java:770-778`). Several
   field comments say "LE" for these masks; they are wrong (§8.3).
-- **On-disk integers** of page bodies are little-endian, like every `BytesOut` integer in the V0
-  format (`docs/DISK_FORMAT.md:144-160`). "varlong" is the stop-bit encoding: 7 data bits per byte,
+- **On-disk integers** of page bodies are little-endian; see the
+  [endianness contract](DISK_FORMAT.md#endianness). "varlong" is the stop-bit encoding: 7 data bits per byte,
   least significant group first, `0x80` = continuation (`bundles/sirix-core/src/main/java/io/sirix/node/MemorySegmentBytesOut.java:164-172`).
 - **Key vs. entry vs. slot.** A *key* is the byte string stored in a leaf. An *entry* is one key and
   its value inside a `HOTLeafPage`. *Slot* is used by the projection storage for the logical unit it
@@ -522,9 +522,8 @@ container pages; it contains no body layout for either HOT page kind. This secti
 
 ### 3.1 Common framing
 
-- Envelope: `[kind u8][binaryVersion u8][flags u8][body]`. The only version is `V0 = 0`; an unknown
-  version byte throws (`bundles/sirix-core/src/main/java/io/sirix/BinaryEncodingVersion.java:84`,
-  `:98-105`; `page/PageKind.java:6435-6438`, `:6769-6791`).
+- The [page-envelope contract](DISK_FORMAT.md#2-pages) owns framing, the supported binary
+  version, and rejection of unsupported versions and flags.
 - Kind ids: `HOT_LEAF_PAGE = 12`, `HOT_INDIRECT_PAGE = 13`; 14 is permanently reserved
   (`page/PageKind.java:5804`, `:5989`, `:6800-6801`; `docs/DISK_FORMAT.md:185-188`).
 - The serialized page then passes through the resource's byte-handler pipeline (compression,
@@ -615,7 +614,7 @@ Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
 | # | Width | Field | Notes |
 |---|---|---|---|
 | 1 | u8 | kind = 12 | |
-| 2 | u8 | binaryVersion = 0 | |
+| 2 | u8 | binaryVersion | see the [page-envelope contract](DISK_FORMAT.md#2-pages) |
 | 3 | u8 | flags | bit 0 = side map present; other bits rejected (`:5918-5923`, `:6787-6791`) |
 | 4 | varlong | recordPageKey | logical key (§1.2) |
 | 5 | i32 LE | revision | revision that wrote this physical image |
@@ -661,7 +660,7 @@ Writer `page/PageKind.java:6099-6158`; reader `:5991-6096`.
 | # | Width | Field |
 |---|---|---|
 | 1 | u8 | kind = 13 |
-| 2 | u8 | binaryVersion = 0 |
+| 2 | u8 | binaryVersion (see the [page-envelope contract](DISK_FORMAT.md#2-pages)) |
 | 3 | u8 | flags = 0 (non-zero rejected, `:6445-6453`) |
 | 4 | varlong | pageKey (logical) |
 | 5 | i32 LE | revision |

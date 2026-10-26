@@ -48,7 +48,6 @@ final class ParallelBulkBoundaryMergeOverflowTest {
   private static final long LEFT_SIBLING_KEY = 703;
   private static final int NAME_KEY = 704;
   private static final long PATH_NODE_KEY = 705;
-  private static final long HASH = 706;
   private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
   private static final LongHashFunction HASH_FUNCTION = LongHashFunction.xx3();
 
@@ -94,7 +93,7 @@ final class ParallelBulkBoundaryMergeOverflowTest {
     assertFalse(offset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW);
     final int recordBytes =
         ObjectNamedBooleanNode.writeNewRecord(source.getSlottedPage(), offset, scratch.getHeapOffsets(), NODE_KEY,
-            PARENT_KEY, RIGHT_SIBLING_KEY, LEFT_SIBLING_KEY, NAME_KEY, PATH_NODE_KEY, 1, REVISION, HASH, true);
+            PARENT_KEY, RIGHT_SIBLING_KEY, LEFT_SIBLING_KEY, NAME_KEY, PATH_NODE_KEY, 1, REVISION, 0, true);
     source.completeDirectWrite(NodeKind.OBJECT_NAMED_BOOLEAN.getId(), NODE_KEY, SOURCE_SLOT, recordBytes, null);
     return recordBytes;
   }
@@ -163,7 +162,16 @@ final class ParallelBulkBoundaryMergeOverflowTest {
     assertEquals(PATH_NODE_KEY, node.getPathNodeKey());
     assertEquals(1, node.getPreviousRevisionNumber());
     assertEquals(REVISION, node.getLastModifiedRevisionNumber());
-    assertEquals(HASH, node.getHash());
+    try (final BytesOut<?> hashInput = Bytes.elasticHeapByteBuffer()) {
+      hashInput.writeLong(NODE_KEY)
+               .writeLong(PARENT_KEY)
+               .writeByte(NodeKind.OBJECT_NAMED_BOOLEAN.getId())
+               .writeLong(LEFT_SIBLING_KEY)
+               .writeLong(RIGHT_SIBLING_KEY)
+               .writeInt(NAME_KEY)
+               .writeBoolean(true);
+      assertEquals(hashInput.hashDirect(HASH_FUNCTION), node.getHash());
+    }
     assertTrue(node.getValue());
   }
 

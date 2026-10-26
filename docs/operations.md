@@ -4,12 +4,10 @@ Production deployment, tuning, and troubleshooting for `sirix-core` and the
 `sirix-rest-api` server. This document focuses on the operational surface — JVM
 flags, cache budgets, OS limits, observability, backups — rather than on API
 usage. For API documentation, see the project README and JavaDoc; for storage-
-format internals, see `docs/ARCHITECTURE.md`.
+format internals, see [DISK_FORMAT.md](DISK_FORMAT.md).
 
-> **Status.** Sirix is currently at `1.0.0-alpha10`. The wire format is on
-> `BinaryEncodingVersion.V0`; bumps are stamped into the page header and rejected
-> on read with a clear "version not known" error. There is **no migration tool
-> yet** — when V1 is introduced, a one-shot upgrader will ship alongside.
+> **Storage compatibility.** Check the current format and migration policy in
+> [DISK_FORMAT.md](DISK_FORMAT.md) before opening an existing resource with a new build.
 
 ---
 
@@ -322,10 +320,8 @@ resource at the desired revision number or timestamp via
    so builds are reproducible from Maven Central with no local install or commit-hash
    pinning required. (Brackit is itself in its 1.0 alpha series alongside Sirix.)
 
-3. **No on-disk format migration tool.** `BinaryEncodingVersion.V0` is the only
-   shipping version. When V1 lands, an upgrader will ship; today, opening a
-   resource written by an incompatible Sirix version raises
-   `IllegalStateException: <n> not known.`
+3. **Storage upgrades.** Follow the compatibility and migration policy in
+   [DISK_FORMAT.md](DISK_FORMAT.md).
 
 4. **Auto-commit features are in flight on multiple branches**
    (`feature/warm-auto-commit-v1`, `feature/async-auto-commit`,

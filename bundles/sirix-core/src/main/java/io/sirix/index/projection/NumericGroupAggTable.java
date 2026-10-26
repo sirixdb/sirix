@@ -1342,6 +1342,8 @@ public final class NumericGroupAggTable {
       final int partition, final NumericGroupAggTable into) {
     final int slotWidth = into.slotWidth;
     final boolean aux = into.withAux;
+    final boolean identity = into.idWidth != 0;
+    final boolean denseUnfiltered = into.probeIndex != null && into.passShift == 64;
     for (int s = 0; s < sources.length; s++) {
       final NumericGroupAggTable src = sources[s];
       if (src == null || index[s] == null) {
@@ -1353,9 +1355,17 @@ public final class NumericGroupAggTable {
         final int srcBase = src.offsetAtAccBase(srcHandle);
         // Identity mode carries the source's identity lanes across, so two same-key groups that a
         // single worker kept apart cannot be folded together by the merge that reunites them.
-        final int dstHandle = into.idWidth == 0
-            ? into.acquire(srcTable[srcBase - 1], srcTable[srcBase + 1])
-            : into.acquireExact(srcTable[srcBase - 1], srcTable[srcBase + 1], srcTable, srcBase + into.idOffsetFromAcc);
+        final long key = srcTable[srcBase - 1];
+        final int dstHandle = denseUnfiltered
+            ? into.acquireDense(key, srcTable[srcBase + 1], identity
+                ? srcTable
+                : null,
+                identity
+                    ? srcBase + into.idOffsetFromAcc
+                    : 0)
+            : identity
+                ? into.acquireExact(key, srcTable[srcBase + 1], srcTable, srcBase + into.idOffsetFromAcc)
+                : into.acquire(key, srcTable[srcBase + 1]);
         // AFTER the acquire: growth swaps the storage out from under any earlier resolution.
         final long[] dstTable = into.storageAtAccBase(dstHandle);
         final int dstBase = into.offsetAtAccBase(dstHandle);
@@ -1447,15 +1457,25 @@ public final class NumericGroupAggTable {
     final long exact = sumExactMask;
     final int idOff = idOffsetFromAcc;
     final boolean identity = idWidth != 0;
+    // Exact, unfiltered dense merge targets cannot switch to partial probing. Select their
+    // acquisition path once rather than repeating pass/layout/partial dispatch for every stripe.
+    final boolean denseUnfiltered = probeIndex != null && passShift == 64;
     for (int o = fromLane; o < toLane; o += st) {
       final long key = stripes[o];
       if (key == 0L) {
         throw new IllegalStateException("empty key lane in a spilled stripe at lane " + o);
       }
       final int srcBase = o + 1;
-      final int dstHandle = identity
-          ? acquireExact(key, stripes[srcBase + 1], stripes, srcBase + idOff)
-          : acquire(key, stripes[srcBase + 1]);
+      final int dstHandle = denseUnfiltered
+          ? acquireDense(key, stripes[srcBase + 1], identity
+              ? stripes
+              : null,
+              identity
+                  ? srcBase + idOff
+                  : 0)
+          : identity
+              ? acquireExact(key, stripes[srcBase + 1], stripes, srcBase + idOff)
+              : acquire(key, stripes[srcBase + 1]);
       // AFTER the acquire: growth swaps the storage out from under any earlier resolution.
       final long[] dst = storageAtAccBase(dstHandle);
       final int dstBase = offsetAtAccBase(dstHandle);

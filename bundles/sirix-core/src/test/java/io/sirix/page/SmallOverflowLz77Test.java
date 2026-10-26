@@ -3,6 +3,8 @@
  */
 package io.sirix.page;
 
+import io.sirix.BinaryEncodingVersion;
+
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
@@ -94,7 +96,7 @@ final class SmallOverflowLz77Test {
     final int length = SirixLZ77Codec.encode(MemorySegment.ofArray(payload), 0L, payload.length, encoded, 0);
     try (BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer()) {
       sink.writeByte((byte) 9); // OverflowPage page-kind id.
-      sink.writeByte((byte) 0); // BinaryEncodingVersion.V0.
+      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
       sink.writeByte((byte) 1); // Compressed overflow payload flag.
       sink.writeInt(decodedLength);
       sink.writeInt(length);

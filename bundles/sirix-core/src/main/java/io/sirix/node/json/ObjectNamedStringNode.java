@@ -30,12 +30,11 @@ package io.sirix.node.json;
 import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
@@ -68,10 +67,14 @@ import java.util.Objects;
  * Replaces the legacy pair {@code OBJECT_KEY + OBJECT_STRING_VALUE} for the common
  * {@code {"fieldname": "value"}} pattern, eliminating one record per such field.
  *
+ * <p>
+ * Leaf hashes are computed from the current fields. Hash arguments to constructors and direct
+ * record writers are ignored; no leaf hash is cached or serialized.
+ *
  * <h2>Wire layout</h2>
  * 
  * <pre>
- * [kindByte=46][offsetTable: FIELD_COUNT × 1 byte][data region]
+ * [kindByte=50][offsetTable: FIELD_COUNT × 1 byte][data region]
  *
  * Field order (offset table indices):
  *   0 parentKey (delta-varint, base=nodeKey)
@@ -81,8 +84,7 @@ import java.util.Objects;
  *   4 pathNodeKey (delta-varint)
  *   5 previousRevision (signed varint)
  *   6 lastModifiedRevision (signed varint)
- *   7 hash (fixed 8 bytes)
- *   8 payload [isCompressed:1][valueLength:varint][value:bytes]
+ *   7 payload [isCompressed:1][valueLength:varint][value:bytes]
  * </pre>
  *
  * <p>
@@ -100,7 +102,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   private long pathNodeKey;
   private int previousRevision;
   private int lastModifiedRevision;
-  private long hash;
   private byte[] value;
   private LongHashFunction hashFunction;
 
@@ -122,7 +123,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   private boolean metadataParsed;
   private boolean valueParsed;
   private long valueOffset;
-  private boolean hasHash;
 
   // ==================== FLYWEIGHT BINDING ====================
 
@@ -153,10 +153,10 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
 
   /**
    * Upper bound on the serialized size of everything except the string payload: kind byte +
-   * {@link #FIELD_COUNT}-byte offset table + seven delta varints (≤ 9 bytes each) + 8-byte hash +
-   * compressed flag + payload-length varint. Used by {@link #estimateSerializedSize()}.
+   * {@link #FIELD_COUNT}-byte offset table + seven delta varints (≤ 9 bytes each) + compressed flag +
+   * payload-length varint. Used by {@link #estimateSerializedSize()}.
    */
-  private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 71;
 
   private static final byte[] EMPTY_PAYLOAD = new byte[0];
 
@@ -183,7 +183,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
@@ -211,7 +210,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
@@ -246,7 +244,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJNAMEDSTR_PATH_NODE_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJNAMEDSTR_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNAMEDSTR_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJNAMEDSTR_HASH);
     if (!valueParsed) {
       readPayloadFromPage();
     }
@@ -284,11 +281,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   private void readPayloadFromPage() {
@@ -535,10 +527,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     heapOffsets[NodeFieldLayout.OBJNAMEDSTR_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    heapOffsets[NodeFieldLayout.OBJNAMEDSTR_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
     heapOffsets[NodeFieldLayout.OBJNAMEDSTR_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, payloadFlag);
     pos++;
@@ -563,7 +551,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       parseValueField();
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value, isCompressed);
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L, value, isCompressed);
   }
 
   /**
@@ -576,7 +564,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       parseMetadataFields();
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, EMPTY_PAYLOAD, 0, 0, PAYLOAD_FLAG_OVERFLOW);
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L, EMPTY_PAYLOAD, 0, 0, PAYLOAD_FLAG_OVERFLOW);
   }
 
   /** Conservative upper bound for {@link #serializeOverflowDescriptorToHeap}. */
@@ -609,11 +597,11 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
 
   /**
    * Everything except the payload, at its MINIMUM: kind byte + {@link #FIELD_COUNT}-byte offset table
-   * + seven varints of one byte each + 8-byte hash + payload flag + one-byte payload-length varint.
-   * The floor of the wire {@code writeNewRecord} emits, as the upper bound above is its ceiling — a
-   * record can serialize below the ceiling but never below this.
+   * + seven varints of one byte each + payload flag + one-byte payload-length varint. The floor of
+   * the wire {@code writeNewRecord} emits, as the upper bound above is its ceiling — a record can
+   * serialize below the ceiling but never below this.
    */
-  private static final int SERIALIZED_METADATA_LOWER_BOUND = 1 + FIELD_COUNT + 7 + Long.BYTES + 1 + 1;
+  private static final int SERIALIZED_METADATA_LOWER_BOUND = 1 + FIELD_COUNT + 7 + 1 + 1;
 
   @Override
   public int estimateSerializedSizeLowerBound() {
@@ -742,23 +730,14 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJNAMEDSTR_HASH);
-    }
-    if (!metadataParsed) {
-      parseMetadataFields();
-    }
-    return hash;
+    return hashFunction == null
+        ? 0L
+        : computeHash(Bytes.threadLocalHashBuffer());
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
-    this.hash = hash;
+    // Leaf hashes are derived from the current fields; only containers persist subtree hashes.
   }
 
   @Override
@@ -770,6 +749,22 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
          .writeLong(getLeftSiblingKey())
          .writeLong(getRightSiblingKey())
          .writeInt(getNameKey());
+    // Hash uncompressed page-backed UTF-8 directly, without materializing a value array.
+    if (page != null) {
+      final int payloadOffset =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+      final long payloadStart = dataRegionStart + payloadOffset;
+      if (page.get(ValueLayout.JAVA_BYTE, payloadStart) == PAYLOAD_FLAG_RAW) {
+        final long lengthOffset = payloadStart + 1;
+        final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lengthOffset);
+        final long valueStart = lengthOffset + DeltaVarIntCodec.readSignedVarintWidth(page, lengthOffset);
+        if (length < 0 || valueStart < 0 || valueStart > page.byteSize() || length > page.byteSize() - valueStart) {
+          throw new IllegalStateException("Corrupted fused string payload length " + length + " for node " + nodeKey);
+        }
+        bytes.writeSegment(page, valueStart, length);
+        return bytes.hashDirect(hashFunction);
+      }
+    }
     final byte[] rawValue = getRawValue();
     if (rawValue != null) {
       bytes.write(rawValue);
@@ -1162,13 +1157,11 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.metadataParsed = false;
     this.valueParsed = false;
     this.valueOffset = 0;
-    this.hasHash = config.hashType != HashType.NONE;
 
     this.nameKey = 0;
     this.pathNodeKey = 0;
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
-    this.hash = 0;
     this.value = null;
     this.isCompressed = false;
     this.fsstSymbolTable = null;
@@ -1188,9 +1181,6 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
@@ -1242,7 +1232,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
         readPayloadFromPage();
       }
       return new ObjectNamedStringNode(nodeKey, getParentKey(), getRightSiblingKey(), getLeftSiblingKey(), getNameKey(),
-          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(), value != null
+          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), 0L, value != null
               ? value.clone()
               : null,
           hashFunction, getDeweyIDAsBytes() != null
@@ -1259,7 +1249,7 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
       parseValueField();
     }
     return new ObjectNamedStringNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-        previousRevision, lastModifiedRevision, hash, value != null
+        previousRevision, lastModifiedRevision, 0L, value != null
             ? value.clone()
             : null,
         hashFunction, getDeweyIDAsBytes() != null

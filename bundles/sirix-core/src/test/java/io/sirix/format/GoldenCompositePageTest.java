@@ -34,7 +34,7 @@ import static org.junit.Assert.assertEquals;
  * directory, structural encoders, PAX assembly) and a populated {@link HOTLeafPage}. Together with
  * {@link GoldenFormatTest} (headers, envelopes, single records, codecs, id registries) this pins
  * whole-page composition: any byte-level change to the serialization pipeline fails here and must
- * be shipped as a conscious format bump.
+ * be recorded as a deliberate layout change in the format contract.
  */
 public final class GoldenCompositePageTest {
 

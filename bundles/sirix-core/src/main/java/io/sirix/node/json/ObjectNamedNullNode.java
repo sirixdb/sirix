@@ -30,11 +30,10 @@ package io.sirix.node.json;
 import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
@@ -59,12 +58,16 @@ import java.util.Objects;
 /**
  * Fused JSON node representing an object key bound to a NULL value in a single slot.
  *
- * <p>Replaces the legacy pair {@code OBJECT_KEY + OBJECT_NULL_VALUE} for the common
+ * <p>
+ * Replaces the legacy pair {@code OBJECT_KEY + OBJECT_NULL_VALUE} for the common
  * {@code {"fieldname": null}} pattern, eliminating one record per such field.
  *
- * <h2>Wire layout</h2>
+ * <p>
+ * Leaf hashes are computed from the current fields. Hash arguments to constructors and direct
+ * record writers are ignored; no leaf hash is cached or serialized.
+ *
  * <pre>
- * [kindByte=47][offsetTable: FIELD_COUNT × 1 byte][data region]
+ * [kindByte=51][offsetTable: FIELD_COUNT × 1 byte][data region]
  *
  * Field order (offset table indices):
  *   0 parentKey (delta-varint, base=nodeKey)
@@ -74,16 +77,18 @@ import java.util.Objects;
  *   4 pathNodeKey (delta-varint)
  *   5 previousRevision (signed varint)
  *   6 lastModifiedRevision (signed varint)
- *   7 hash (fixed 8 bytes)
  * </pre>
  *
- * <p>Round-trip invariant: {@code deserialize(serialize(n)).equals(n)} for all stored
- * fields. The node carries no child or descendant counts (0 by construction).
+ * <p>
+ * Round-trip invariant: {@code deserialize(serialize(n)).equals(n)} for all stored fields. The node
+ * carries no child or descendant counts (0 by construction).
  *
- * <p>HFT contract: primitive fields only, {@code final} where possible, zero-alloc
- * bind/unbind, offset-table lookups in O(1).
+ * <p>
+ * HFT contract: primitive fields only, {@code final} where possible, zero-alloc bind/unbind,
+ * offset-table lookups in O(1).
  */
-public final class ObjectNamedNullNode extends AbstractFlyweightNode implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNamedNullNode extends AbstractFlyweightNode
+    implements StructNode, NameNode, ImmutableJsonNode, FlyweightNode {
 
   private long nodeKey;
   private long parentKey;
@@ -93,7 +98,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   private long pathNodeKey;
   private int previousRevision;
   private int lastModifiedRevision;
-  private long hash;
   private LongHashFunction hashFunction;
 
   // DeweyID support (lazily parsed)
@@ -107,7 +111,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   private Object lazySource;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
-  private boolean hasHash;
 
   // ==================== FLYWEIGHT BINDING ====================
 
@@ -130,9 +133,9 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   /**
    * Primary constructor with all primitive fields.
    */
-  public ObjectNamedNullNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash,
-      LongHashFunction hashFunction, byte[] deweyID) {
+  public ObjectNamedNullNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, LongHashFunction hashFunction,
+      byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.rightSiblingKey = rightSiblingKey;
@@ -141,7 +144,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
@@ -150,9 +152,9 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public ObjectNamedNullNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey,
-      int nameKey, long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public ObjectNamedNullNode(long nodeKey, long parentKey, long rightSiblingKey, long leftSiblingKey, int nameKey,
+      long pathNodeKey, int previousRevision, int lastModifiedRevision, long hash, LongHashFunction hashFunction,
+      SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.rightSiblingKey = rightSiblingKey;
@@ -161,7 +163,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
@@ -191,7 +192,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJNAMEDNULL_PATH_NODE_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJNAMEDNULL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJNAMEDNULL_HASH);
     this.page = null;
     this.ownerPage = null;
   }
@@ -218,8 +218,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   @Override
   public int estimateSerializedSize() {
-    // 1 (nodeKind) + 8 (offset table) + ~35 (varint fields avg) + 8 (hash) = ~52
-    return 64;
+    // 1 (nodeKind) + 7 (offset table) + ~35 (varint fields avg) = ~43
+    return 55;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -232,11 +232,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   // ==================== OWNER PAGE ====================
@@ -254,14 +249,12 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Encode an ObjectNamedNullNode record directly to a MemorySegment.
-   * Static -- reads nothing from any instance. Zero field intermediation.
+   * Encode an ObjectNamedNullNode record directly to a MemorySegment. Static -- reads nothing from
+   * any instance. Zero field intermediation.
    */
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int nameKey, final long pathNodeKey,
-      final int prevRev, final int lastModRev, final long hash) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int nameKey,
+      final long pathNodeKey, final int prevRev, final int lastModRev, final long hash) {
     long pos = offset;
 
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_NAMED_NULL.getId());
@@ -293,10 +286,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     heapOffsets[NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    heapOffsets[NodeFieldLayout.OBJNAMEDNULL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
     for (int i = 0; i < FIELD_COUNT; i++) {
       target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
     }
@@ -308,10 +297,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey,
-        previousRevision, lastModifiedRevision, hash);
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L);
   }
 
   @Override
@@ -344,8 +331,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PARENT_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PARENT_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
@@ -353,8 +340,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_PARENT_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_PARENT_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
       return;
     }
@@ -401,8 +387,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PREV_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PREV_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -410,8 +396,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_PREV_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_PREV_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -421,8 +406,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -430,8 +415,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_LAST_MOD_REVISION, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
@@ -440,24 +424,14 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJNAMEDNULL_HASH);
-    }
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
-    }
-    return hash;
+    return hashFunction == null
+        ? 0L
+        : computeHash(Bytes.threadLocalHashBuffer());
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
-    this.hash = hash;
+    // Leaf hashes are derived from the current fields; only containers persist subtree hashes.
   }
 
   @Override
@@ -484,8 +458,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   public void setNameKey(final int nameKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_NAME_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_NAME_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(nameKey);
@@ -493,8 +467,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, nameKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_NAME_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_NAME_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, nameKey));
       return;
     }
@@ -546,8 +519,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   public void setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PATH_NODE_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_PATH_NODE_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
@@ -555,8 +528,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_PATH_NODE_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_PATH_NODE_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
       return;
     }
@@ -573,8 +545,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_RIGHT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_RIGHT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
@@ -582,8 +554,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_RIGHT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_RIGHT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
       return;
     }
@@ -600,8 +571,8 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_LEFT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNULL_LEFT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
@@ -609,8 +580,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
         return;
       }
-      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-          NodeFieldLayout.OBJNAMEDNULL_LEFT_SIB_KEY, FIELD_COUNT,
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.OBJNAMEDNULL_LEFT_SIB_KEY, FIELD_COUNT,
           (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
       return;
     }
@@ -764,7 +734,7 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
    * Populate this node from a BytesIn source for singleton reuse.
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
@@ -779,13 +749,11 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
 
     this.nameKey = 0;
     this.pathNodeKey = 0;
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
-    this.hash = 0;
   }
 
   private void parseLazyFields() {
@@ -812,9 +780,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.lazyFieldsParsed = true;
   }
 
@@ -823,31 +788,26 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
    */
   public ObjectNamedNullNode toSnapshot() {
     if (page != null) {
-      return new ObjectNamedNullNode(nodeKey,
-          getParentKey(), getRightSiblingKey(), getLeftSiblingKey(),
-          getNameKey(), getPathNodeKey(),
-          getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(),
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+      return new ObjectNamedNullNode(nodeKey, getParentKey(), getRightSiblingKey(), getLeftSiblingKey(), getNameKey(),
+          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), 0L, hashFunction,
+          getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new ObjectNamedNullNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+    return new ObjectNamedNullNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
+        previousRevision, lastModifiedRevision, 0L, hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null);
   }
 
   @Override
   public String toString() {
-    return "ObjectNamedNullNode{" +
-        "nodeKey=" + nodeKey +
-        ", parentKey=" + parentKey +
-        ", nameKey=" + nameKey +
-        ", pathNodeKey=" + pathNodeKey +
-        ", rightSiblingKey=" + rightSiblingKey +
-        ", leftSiblingKey=" + leftSiblingKey +
-        '}';
+    return "ObjectNamedNullNode{" + "nodeKey=" + nodeKey + ", parentKey=" + parentKey + ", nameKey=" + nameKey
+        + ", pathNodeKey=" + pathNodeKey + ", rightSiblingKey=" + rightSiblingKey + ", leftSiblingKey=" + leftSiblingKey
+        + '}';
   }
 
   @Override
@@ -860,8 +820,6 @@ public final class ObjectNamedNullNode extends AbstractFlyweightNode implements 
     if (!(obj instanceof final ObjectNamedNullNode other)) {
       return false;
     }
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && nameKey == other.nameKey;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && nameKey == other.nameKey;
   }
 }

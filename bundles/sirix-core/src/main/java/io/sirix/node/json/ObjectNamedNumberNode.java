@@ -33,12 +33,11 @@ import java.math.BigInteger;
 
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.api.visitor.VisitResultType;
 import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
@@ -69,10 +68,14 @@ import java.util.Objects;
  * Replaces the legacy pair {@code OBJECT_KEY + OBJECT_NUMBER_VALUE} for the common
  * {@code {"fieldname": 42}} pattern, eliminating one record per such field.
  *
+ * <p>
+ * Leaf hashes are computed from the current fields. Hash arguments to constructors and direct
+ * record writers are ignored; no leaf hash is cached or serialized.
+ *
  * <h2>Wire layout</h2>
  * 
  * <pre>
- * [kindByte=45][offsetTable: FIELD_COUNT × 1 byte][data region]
+ * [kindByte=49][offsetTable: FIELD_COUNT × 1 byte][data region]
  *
  * Field order (offset table indices):
  *   0 parentKey (delta-varint, base=nodeKey)
@@ -82,8 +85,7 @@ import java.util.Objects;
  *   4 pathNodeKey (delta-varint)
  *   5 previousRevision (signed varint)
  *   6 lastModifiedRevision (signed varint)
- *   7 hash (fixed 8 bytes)
- *   8 payload [numberType:1][numberData:variable]
+ *   7 payload [numberType:1][numberData:variable]
  * </pre>
  *
  * <p>
@@ -105,7 +107,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   private long pathNodeKey;
   private int previousRevision;
   private int lastModifiedRevision;
-  private long hash;
   private Number value;
   private LongHashFunction hashFunction;
 
@@ -122,7 +123,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   private boolean metadataParsed;
   private boolean valueParsed;
   private long valueOffset;
-  private boolean hasHash;
 
   // ==================== FLYWEIGHT BINDING ====================
 
@@ -155,7 +155,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
    * Conservative upper bound for the kind, offset table, metadata fields, and one-byte payload
    * discriminator. The variable-width numeric value is accounted for separately.
    */
-  private static final int SERIALIZED_METADATA_UPPER_BOUND = 80;
+  private static final int SERIALIZED_METADATA_UPPER_BOUND = 71;
 
   public ObjectNamedNumberNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
@@ -173,7 +173,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
@@ -192,7 +191,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.pathNodeKey = pathNodeKey;
     this.previousRevision = previousRevision;
     this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
@@ -225,7 +223,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJNAMEDNUM_PATH_NODE_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJNAMEDNUM_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJNAMEDNUM_HASH);
     if (!valueParsed) {
       readPayloadFromPage();
     }
@@ -289,11 +286,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   /**
@@ -460,10 +452,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     heapOffsets[NodeFieldLayout.OBJNAMEDNUM_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    heapOffsets[NodeFieldLayout.OBJNAMEDNUM_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
     heapOffsets[NodeFieldLayout.OBJNAMEDNUM_PAYLOAD] = (int) (pos - dataStart);
     switch (primitiveType) {
       case BOXED_PAYLOAD -> {
@@ -504,7 +492,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       parseValueField();
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, value);
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L, value);
   }
 
   /**
@@ -516,7 +504,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       parseMetadataFields();
     }
     return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
-        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, hash, null, OVERFLOW_PAYLOAD, 0L);
+        nameKey, pathNodeKey, previousRevision, lastModifiedRevision, 0L, null, OVERFLOW_PAYLOAD, 0L);
   }
 
   /** Conservative upper bound for {@link #serializeOverflowDescriptorToHeap}. */
@@ -675,23 +663,14 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJNAMEDNUM_HASH);
-    }
-    if (!metadataParsed) {
-      parseMetadataFields();
-    }
-    return hash;
+    return hashFunction == null
+        ? 0L
+        : computeHash(Bytes.threadLocalHashBuffer());
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
-    this.hash = hash;
+    // Leaf hashes are derived from the current fields; only containers persist subtree hashes.
   }
 
   @Override
@@ -710,6 +689,21 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     // Hash the value TYPE-FAITHFULLY (mirroring NumberNode.computeHash). Collapsing to
     // doubleValue() normalized away the type/precision, so the optimized HASHED diff missed
     // real changes such as 10 -> 10.0, or 2^53 -> 2^53+1 (two distinct longs, identical double).
+    // The common bound integral payloads need no boxed Number or input cursor to hash.
+    if (page != null) {
+      final int payloadOffset =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+      final long payloadStart = dataRegionStart + payloadOffset;
+      final byte tag = page.get(ValueLayout.JAVA_BYTE, payloadStart);
+      if (tag == INTEGER_WIRE_TAG) {
+        bytes.writeInt(DeltaVarIntCodec.decodeSignedFromSegment(page, payloadStart + 1));
+        return bytes.hashDirect(hashFunction);
+      }
+      if (tag == LONG_WIRE_TAG) {
+        bytes.writeLong(DeltaVarIntCodec.decodeSignedLongFromSegment(page, payloadStart + 1));
+        return bytes.hashDirect(hashFunction);
+      }
+    }
     final Number v = getValue();
     switch (v) {
       case null -> bytes.writeDouble(Double.NaN);
@@ -1035,13 +1029,11 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.metadataParsed = false;
     this.valueParsed = false;
     this.valueOffset = 0;
-    this.hasHash = config.hashType != HashType.NONE;
 
     this.nameKey = 0;
     this.pathNodeKey = 0;
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
-    this.hash = 0;
     this.value = null;
   }
 
@@ -1059,9 +1051,6 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
@@ -1102,8 +1091,8 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
         readPayloadFromPage();
       }
       return new ObjectNamedNumberNode(nodeKey, getParentKey(), getRightSiblingKey(), getLeftSiblingKey(), getNameKey(),
-          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), getHash(), value,
-          hashFunction, getDeweyIDAsBytes() != null
+          getPathNodeKey(), getPreviousRevisionNumber(), getLastModifiedRevisionNumber(), 0L, value, hashFunction,
+          getDeweyIDAsBytes() != null
               ? getDeweyIDAsBytes().clone()
               : null);
     }
@@ -1114,7 +1103,7 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       parseValueField();
     }
     return new ObjectNamedNumberNode(nodeKey, parentKey, rightSiblingKey, leftSiblingKey, nameKey, pathNodeKey,
-        previousRevision, lastModifiedRevision, hash, value, hashFunction, getDeweyIDAsBytes() != null
+        previousRevision, lastModifiedRevision, 0L, value, hashFunction, getDeweyIDAsBytes() != null
             ? getDeweyIDAsBytes().clone()
             : null);
   }

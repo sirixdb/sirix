@@ -154,8 +154,8 @@ single-threaded and native-image's per-thread tokenizer throughput is ~10×
 below HotSpot tiered. Not compute-bound — it's serialization + single-thread.
 
 **Pragmatic split: ingest on the JVM, query on native** — both share the
-on-disk V0 format. A JVM-shredded DB queried natively hits the same warm
-numbers above. Future levers: an AOT-friendly JSON parser (fastjson2 / a
+on-disk format specified in [DISK_FORMAT.md](DISK_FORMAT.md). A JVM-shredded DB queried
+natively hits the same warm numbers above. Future levers: an AOT-friendly JSON parser (fastjson2 / a
 record-shape-specific parser / simdjson) and parallel shred partitioning.
 (**This split was largely unnecessary on the GraalVM 25.1-dev EA build
 measured in the update below.**)

@@ -278,7 +278,7 @@ public final class GoldenFormatTest {
   // by construction and imply a compatibility guarantee this format does not make.
 
   @Test
-  public void emittedVersionIdentityIsPinnedToZero() {
+  public void emittedVersionIdentityIsPinned() {
     assertArrayEquals(new BinaryEncodingVersion[] {BinaryEncodingVersion.V0}, BinaryEncodingVersion.values());
     assertEquals(0, BinaryEncodingVersion.V0.byteVersion());
     assertEquals(BinaryEncodingVersion.V0, ResourceConfiguration.BINARY_ENCODING_VERSION);
@@ -286,6 +286,19 @@ public final class GoldenFormatTest {
     assertEquals(0, RowGroupDescriptor.VERSION);
     assertEquals(0, ProjectionIndexColumnSegmentCodec.SEGMENT_VERSION);
     assertEquals(0, ProjectionIndexRowGroupPage.PRESENCE_TAIL_VERSION);
+  }
+
+  @Test
+  public void unknownPageVersionsAreRejectedBeforeDecoding() throws IOException {
+    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
+    final PagePersister persister = new PagePersister();
+    try (final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer()) {
+      persister.serializePage(config, bytes, new UberPage(), SerializationType.DATA);
+      final byte[] wire = bytes.toByteArray();
+      wire[1] = Byte.MAX_VALUE;
+      assertThrows(IllegalStateException.class,
+          () -> persister.deserializePage(config, Bytes.wrapForRead(wire), SerializationType.DATA));
+    }
   }
 
   @Test
