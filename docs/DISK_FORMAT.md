@@ -1,24 +1,24 @@
-# SirixDB On-Disk Format (V1)
+# SirixDB On-Disk Format (V0)
 
-Status: **V1 record contract.** We are at
-`BinaryEncodingVersion.V1` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
+Status: **V0 record contract.** We are at
+`BinaryEncodingVersion.V0` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
 pre-freeze checklist item has been resolved (implemented or explicitly decided — see §5's
 decisions log), and the byte-level contract is pinned by golden tests
 (`io.sirix.format.GoldenFormatTest`, `io.sirix.format.GoldenCompositePageTest`): an accidental
-change to any pinned structure fails CI. From here, ANY change to the bytes in this document is
-a conscious format bump — `BinaryEncodingVersion` (page bodies/records), the page-envelope
+change to any pinned structure fails CI. Intentional layout changes update the golden constants
+and this contract. SirixDB has no released consumers: unreleased layouts evolve in place using
+the original V0 value, without a migration reader. A released compatibility contract would need
+an explicit versioning decision using `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
-byte (PIXM/PIXD/PIXS/PIX1, per-record versions) — accompanied by an update to the golden constants
-and a format note here. SirixDB has no released consumers; format changes may reject earlier
-structures without a reader bridge or migration. The golden pins make changes to pinned
-structures deliberate (see §2, "PathStats trailer").
+byte (PIXM/PIXD/PIXS/PIX1, per-record versions). The golden pins make changes to pinned structures
+deliberate (see §2, "PathStats trailer").
 
-V1 removes the eight-byte hash and its offset-table entry from fused JSON primitive leaves
+The current V0 layout omits the eight-byte hash and its offset-table entry from fused JSON primitive leaves
 (`OBJECT_NAMED_BOOLEAN`, `OBJECT_NAMED_NUMBER`, `OBJECT_NAMED_STRING`, `OBJECT_NAMED_NULL`).
 Their hashes are computed on demand from the existing node identity, links, name, and typed
 payload inputs. Objects, arrays, and document roots retain stored subtree hashes. The page
-version byte is now 1; V0 pages and resource configurations are rejected, with no migration
-reader. File superblocks and independently versioned projection structures retain their versions.
+version byte remains 0; this unreleased layout changes in place without a migration reader.
+File superblocks and independently versioned projection structures retain their versions.
 
 ## 1. Files
 
@@ -210,8 +210,9 @@ The stable kind-id registry is defined by
 [`PageKind`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) and pinned by
 `GoldenFormatTest.pageKindIdsArePinned`; retired ids 7 and 14 are rejected.
 
-**Format evolution mechanism (decided):** the unit of node-record/page-body evolution is a
-`BinaryEncodingVersion` bump — every node/page (de)serializer receives the
+**Format evolution mechanism:** unreleased node-record/page-body layouts currently evolve in
+place under V0. The hook for a future released-format version decision is `BinaryEncodingVersion`:
+every node/page (de)serializer receives the
 `ResourceConfiguration`, which carries the resource's persisted `binaryEncoding`, and the
 per-page version byte fails fast on unknown values. Node kinds that need to evolve
 independently of the global version carry a per-record version byte (the VECTOR_NODE /
@@ -337,7 +338,7 @@ fail-fast lookups, never ordinals.
 - **Node records**: structural keys as zigzag varint deltas against the own node key
   (`DeltaVarIntCodec`), varint revisions and typed number payloads (Double/Float fixed,
   Int/Long zigzag varint). Kinds with a stored hash use a fixed 8-byte rolling hash (elided
-  page-wide when all zero); the primitive-leaf exception is specified in the V1 contract above.
+  page-wide when all zero); the primitive-leaf exception is specified in the V0 contract above.
   Per-kind field counts and indices are defined by
   [`NodeFieldLayout`](../bundles/sirix-core/src/main/java/io/sirix/page/NodeFieldLayout.java).
 - **PathStats trailer** (`NodeKind.PATH`, present iff the resource has `withPathStatistics`):
@@ -436,7 +437,7 @@ covered by the interop test).
 
 ## 5. PRE-FREEZE CHECKLIST (ranked; decide before first user data)
 
-Introduced in the unreleased V0 layout and retained in V1: templateCount 256-wrap capped at 255; deterministic
+Already part of V0 (the unreleased layout changes in place; no migration version exists): templateCount 256-wrap capped at 255; deterministic
 revisions-file slots + truncation; ordered dual-copy beacon writes + write-ahead barriers
 (data **and** revisions); **superblocks in both files** (magic/version/endianness/role/CRC,
 validated at storage open); **beacon slots one filesystem block apart with XXH3 trailers**

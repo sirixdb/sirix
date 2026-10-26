@@ -33,8 +33,8 @@ package io.sirix;
  *
  * <p>
  * The version byte in each page header rejects future incompatible record layouts before their
- * fields can be misparsed. Version 1 removes stored hashes from fused JSON primitive leaves;
- * version 0 stores are intentionally unsupported.
+ * fields can be misparsed. The current format reuses the original zero value because no earlier
+ * database using an intermediate development layout needs migration.
  *
  * @author Johannes Lichtenberger
  */
@@ -74,7 +74,7 @@ public enum BinaryEncodingVersion {
    * FlyweightNode records bind directly to page memory for zero-copy reads; non-FlyweightNode records
    * are serialized to the heap at commit time.
    */
-  V1((byte) 1);
+  V0((byte) 0);
 
   private final byte versionAsAByte;
 

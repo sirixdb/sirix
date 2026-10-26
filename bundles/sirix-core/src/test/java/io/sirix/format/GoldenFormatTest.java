@@ -81,18 +81,18 @@ public final class GoldenFormatTest {
   private static final String GOLDEN_SUPERBLOCK_REVISIONS =
       "53495249584442210000000001000000040302012000000000000000000000000010000000000000"
           + "000000000000000000000000000000005cf2431e4f70b533";
-  private static final String GOLDEN_UBER_PAGE = "03010001000000";
+  private static final String GOLDEN_UBER_PAGE = "03000001000000";
   private static final String GOLDEN_REVISION_REFERENCES_NODE = "230003000000030000000700000004010000";
   private static final String GOLDEN_VARINTS = "0001fe01d804808080808040ffffffffffffffff7f0300959aef3a";
   private static final String GOLDEN_ROARING64 =
       "01020000000000000000020002000000000100040000000000000000000000000000000000040000"
           + "00000001000000010000000000000001000000fe02000000010202000000010064000102010000000"
           + "00002000000000000000000000001000000";
-  private static final String GOLDEN_EMPTY_CAS_PAGE = "080100000000000000";
-  private static final String GOLDEN_EMPTY_PATH_PAGE = "0a0100000000000000";
-  private static final String GOLDEN_EMPTY_PROJECTION_PAGE = "100100000000000000";
-  private static final String GOLDEN_EMPTY_VALID_TIME_PAGE = "110100000000000000";
-  private static final String GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE = "120100000000000000";
+  private static final String GOLDEN_EMPTY_CAS_PAGE = "080000000000000000";
+  private static final String GOLDEN_EMPTY_PATH_PAGE = "0a0000000000000000";
+  private static final String GOLDEN_EMPTY_PROJECTION_PAGE = "100000000000000000";
+  private static final String GOLDEN_EMPTY_VALID_TIME_PAGE = "110000000000000000";
+  private static final String GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE = "120000000000000000";
 
   /** Stable id registries — changing any value is an on-disk format break. */
   private static final String GOLDEN_PAGE_KIND_IDS =
@@ -135,7 +135,7 @@ public final class GoldenFormatTest {
         serializePage(config, new ValidTimeIndexPage()));
     assertGolden("empty-temporal-aggregate-page", GOLDEN_EMPTY_TEMPORAL_AGGREGATE_PAGE,
         serializePage(config, new TemporalAggregateIndexPage()));
-    assertGolden("empty-change-log-page", "130100000000000000", serializePage(config, new ChangeLogIndexPage()));
+    assertGolden("empty-change-log-page", "130000000000000000", serializePage(config, new ChangeLogIndexPage()));
   }
 
   @Test
@@ -279,9 +279,9 @@ public final class GoldenFormatTest {
 
   @Test
   public void emittedVersionIdentityIsPinned() {
-    assertArrayEquals(new BinaryEncodingVersion[] {BinaryEncodingVersion.V1}, BinaryEncodingVersion.values());
-    assertEquals(1, BinaryEncodingVersion.V1.byteVersion());
-    assertEquals(BinaryEncodingVersion.V1, ResourceConfiguration.BINARY_ENCODING_VERSION);
+    assertArrayEquals(new BinaryEncodingVersion[] {BinaryEncodingVersion.V0}, BinaryEncodingVersion.values());
+    assertEquals(0, BinaryEncodingVersion.V0.byteVersion());
+    assertEquals(BinaryEncodingVersion.V0, ResourceConfiguration.BINARY_ENCODING_VERSION);
     assertEquals(0, ValueDictionaryHeaderNode.VERSION);
     assertEquals(0, RowGroupDescriptor.VERSION);
     assertEquals(0, ProjectionIndexColumnSegmentCodec.SEGMENT_VERSION);
@@ -289,17 +289,15 @@ public final class GoldenFormatTest {
   }
 
   @Test
-  public void obsoleteAndFuturePageVersionsAreRejectedBeforeDecoding() throws IOException {
+  public void unknownPageVersionsAreRejectedBeforeDecoding() throws IOException {
     final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
     final PagePersister persister = new PagePersister();
     try (final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer()) {
       persister.serializePage(config, bytes, new UberPage(), SerializationType.DATA);
       final byte[] wire = bytes.toByteArray();
-      for (final byte version : new byte[] {0, 2}) {
-        wire[1] = version;
-        assertThrows(IllegalStateException.class,
-            () -> persister.deserializePage(config, Bytes.wrapForRead(wire), SerializationType.DATA));
-      }
+      wire[1] = Byte.MAX_VALUE;
+      assertThrows(IllegalStateException.class,
+          () -> persister.deserializePage(config, Bytes.wrapForRead(wire), SerializationType.DATA));
     }
   }
 

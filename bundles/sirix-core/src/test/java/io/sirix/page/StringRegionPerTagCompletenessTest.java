@@ -74,12 +74,12 @@ final class StringRegionPerTagCompletenessTest {
   private static final int OVERSIZED_PATH_NODE_KEY = 999;
 
   /**
-   * V1 wire snapshot of the all-or-nothing completeness fixture with the later codec levers off. V1
-   * removes primitive-leaf hashes and their offset entries; the original V0 pin is obsolete. The
-   * round-trip tests above separately check every reconstructed record.
+   * V0 wire snapshot of the all-or-nothing completeness fixture with the later codec levers off. The
+   * current layout omits primitive-leaf hashes and their offset entries. The round-trip tests above
+   * separately check every reconstructed record.
    */
   private static final String GOLDEN_KILL_SWITCH_PAGE =
-      "0101000001000000010000000000000000010000001f00d5060000d506000001000000000000000000ffffff7f000000"
+      "0100000001000000010000000000000000010000001f00d5060000d506000001000000000000000000ffffff7f000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
           + "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
           + "000000000000000000000000000000000000000000000000001f0000009f05000001120a000000d900000003fdb00c2e"
@@ -365,10 +365,10 @@ final class StringRegionPerTagCompletenessTest {
   }
 
   @Test
-  @DisplayName("the kill switch preserves the V1 all-or-nothing wire snapshot")
-  void killSwitchPreservesV1WireSnapshot() {
+  @DisplayName("the kill switch preserves the V0 all-or-nothing wire snapshot")
+  void killSwitchPreservesV0WireSnapshot() {
     PageKind.STRING_REGION_PER_TAG_COMPLETENESS = false;
-    // Isolate the original completeness rule within the current V1 record format.
+    // Isolate the original completeness rule within the current V0 record format.
     PageKind.DERIVED_ELISION_SECTIONS = false;
     PageKind.SIBLING_KEY_COLUMNS_ENABLED = false;
     StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
@@ -390,7 +390,7 @@ final class StringRegionPerTagCompletenessTest {
       final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       assertEquals(GOLDEN_KILL_SWITCH_PAGE, hex(sink.toByteArray()),
-          "the kill switch must preserve the V1 all-or-nothing encoding byte for byte");
+          "the kill switch must preserve the V0 all-or-nothing encoding byte for byte");
     } finally {
       page.close();
     }

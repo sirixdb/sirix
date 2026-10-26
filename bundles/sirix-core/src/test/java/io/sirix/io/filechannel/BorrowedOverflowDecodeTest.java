@@ -155,7 +155,7 @@ final class BorrowedOverflowDecodeTest {
     // Explicit wire frames cover both formats independently of the writer's codec election.
     try (MemorySegmentBytesOut out = new MemorySegmentBytesOut(payload.length + 128)) {
       out.writeByte(PageKind.OVERFLOWPAGE.getID());
-      out.writeByte(BinaryEncodingVersion.V1.byteVersion());
+      out.writeByte(BinaryEncodingVersion.V0.byteVersion());
       out.writeByte((byte) (compressed
           ? 1
           : 0));

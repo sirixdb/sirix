@@ -427,9 +427,9 @@ final class DerivedElisionSectionTest {
   // ───────────────────────────────────────────────────────────── kill switch
 
   @Test
-  @DisplayName("the kill switch preserves the V1 tuple-section wire snapshot")
-  void killSwitchPreservesV1WireSnapshot() {
-    // Isolate the original tuple sections within the current V1 record format.
+  @DisplayName("the kill switch preserves the V0 tuple-section wire snapshot")
+  void killSwitchPreservesV0WireSnapshot() {
+    // Isolate the original tuple sections within the current V0 record format.
     PageKind.DERIVED_ELISION_SECTIONS = false;
     PageKind.SIBLING_KEY_COLUMNS_ENABLED = false;
     StructuralKeyColumnCodec.RUN_LENGTH_LANE_ENABLED = false;
@@ -444,19 +444,19 @@ final class DerivedElisionSectionTest {
       final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
       assertEquals(REFERENCE_MIXED_PAGE_SHA256, sha256(sink.toByteArray()),
-          "the kill switch must preserve the V1 tuple-section encoding byte for byte");
+          "the kill switch must preserve the V0 tuple-section encoding byte for byte");
     } finally {
       page.close();
     }
   }
 
   /**
-   * V1 wire snapshot of the mixed fixture with tuple elision sections and later codec levers off. V1
-   * removes primitive-leaf hashes and their offset entries; the original V0 pin is obsolete. The
-   * frame comparisons above independently check tuple and derived reconstruction agree.
+   * V0 wire snapshot of the mixed fixture with tuple elision sections and later codec levers off. The
+   * current layout omits primitive-leaf hashes and their offset entries. The frame comparisons above
+   * independently check tuple and derived reconstruction agree.
    */
   private static final String REFERENCE_MIXED_PAGE_SHA256 =
-      "f970ad32efc6a4265cba78eb28a1657d394476e00feb9b231e5e2d6ce3602b16";
+      "156f2d259ca5af279d57690f9069bfe11ce83939a004a25c2cc248610165e5ae";
 
   // ────────────────────────────────────────────────────────────── fixtures
 

@@ -331,7 +331,7 @@ VERDICT: **GAPS** — the design is substantially sound and nearly all file:line
 
 4. **MEDIUM — I1 proves slot-granular equality but I2/I5 consume whole-segment state.** Combine also consumes `getSlotNodeKindId`, per-fragment FSST tables via `FsstAwareSlotCopier` (VersioningType :211-:917), bulk `copySlottedPageFrom` seeds (:668, :692-695; KeyValueLeafPage.java:1211 = whole-segment memcpy), and dewey trailers. `getSlot` slices **exclude** the DeweyID trailer, so a trailer-placement bug passes I1's byte-compare as written. Fix: strengthen I1's machine check to full slotted-segment equality (header+directory+heap) after ensureAll vs monolith — subsumes slots, dewey, kind ids — and restate I2's input list (FSST tables and seeds are format-invariant, so the theorem survives, but the proof must say it).
 
-5. **MEDIUM — I4's fence is real but overstated, and there is no open-time fence.** On the bounded path an old reader first *swallows* the fence exception (FileChannelReader :365-366 `catch (… IllegalStateException) return null`) and only the subsequent whole-page parse throws — still fail-loud, but from a different site than claimed. And an old binary opens a chunked resource fine, failing mid-query page-by-page; project precedent (V0 reject-at-open) argues for a `chunkedBodiesWritten` bit in resource config at first chunked commit so pre-chunking binaries refuse at open. Add a ledger row for "old binary, bounded probe, chunked page."
+5. **MEDIUM — I4's fence is real but overstated, and there is no open-time fence.** On the bounded path an old reader first *swallows* the fence exception (FileChannelReader :365-366 `catch (… IllegalStateException) return null`) and only the subsequent whole-page parse throws — still fail-loud, but from a different site than claimed. And an old binary opens a chunked resource fine, failing mid-query page-by-page; project precedent (unknown-version rejection) argues for a `chunkedBodiesWritten` bit in resource config at first chunked commit so pre-chunking binaries refuse at open. Add a ledger row for "old binary, bounded probe, chunked page."
 
 6. **LOW/MEDIUM — corner 28 is self-contradictory; the point-read win silently assumes chain length 1.** "Per-fragment ranged decode applies … combine uses eager materialize": since combine is eager, N≥2-fragment pages pay N full decodes and chunk-lazy serves only single-fragment pages. True on ClickBench (single commit) so the Q19 bar stands, but the formal claim is dead code as designed. Fix: scope the claim explicitly, or specify winner-chunk-only materialization in combine as follow-on.
 
@@ -366,7 +366,7 @@ where they conflict.
 - **A5 (gap 5):** ledger row added for "old binary, bounded probe, chunked page" (fence fires
   at the whole-page parse after the probe's swallowed exception); resource config gains
   chunkedBodiesWritten at first chunked commit so pre-chunking binaries refuse AT OPEN
-  (V0-reject precedent).
+  (unknown-version rejection precedent).
 - **A6 (gap 6):** the point-read win claim is SCOPED to single-fragment pages; winner-chunk-
   only materialization in combine is a named follow-on, not part of this plan's proofs.
 - **A7 (gap 7):** I7 asserts fsstSymbolTableId equality by name across all FOUR prefix-parser

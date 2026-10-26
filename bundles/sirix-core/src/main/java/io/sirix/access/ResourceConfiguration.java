@@ -211,7 +211,7 @@ public final class ResourceConfiguration {
    * byte to reserve room for future bumps, but there are no alternative encodings to select at
    * runtime.
    */
-  public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V1;
+  public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 
   /**
    * Stable identifier of the node-hash function baked into the on-disk format (XXH3-64 via

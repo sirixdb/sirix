@@ -5325,7 +5325,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
@@ -5416,7 +5416,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final int revisionCount = source.readInt();
 
           return new UberPage(revisionCount);
@@ -5447,7 +5447,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
           return new IndirectPage(delegate);
         }
@@ -5479,7 +5479,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = new BitmapReferencesPage(RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
@@ -5578,7 +5578,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
 
           final int maxNodeKeysSize = source.readInt();
@@ -5634,7 +5634,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -5735,7 +5735,7 @@ public enum PageKind {
         final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -5771,7 +5771,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
           final long maxNodeKey = source.readLong();
           final int currentMaxLevelOfIndirectPages = source.readByte() & 0xFF;
@@ -6101,7 +6101,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
@@ -6149,7 +6149,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -6185,7 +6185,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -6218,7 +6218,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       return switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -6251,7 +6251,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
 
       return switch (binaryVersion) {
-        case V1 -> {
+        case V0 -> {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
@@ -6429,7 +6429,7 @@ public enum PageKind {
    * extension) — without it, any additive change to a non-KVLP page required a global version bump.
    */
   static void writeVersionAndFlags(final BytesOut<?> sink) {
-    sink.writeByte(BinaryEncodingVersion.V1.byteVersion());
+    sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
     sink.writeByte((byte) 0);
   }
 
@@ -6796,7 +6796,7 @@ public enum PageKind {
    * segment-reference section).
    */
   static void writeVersionAndFlags(final BytesOut<?> sink, final byte flags) {
-    sink.writeByte(BinaryEncodingVersion.V1.byteVersion());
+    sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
     sink.writeByte(flags);
   }
 
@@ -6810,7 +6810,7 @@ public enum PageKind {
    */
   public static byte readVersionAndFlagsAllowing(final BytesIn<?> source, final byte allowedMask) {
     final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
-    if (version != BinaryEncodingVersion.V1) {
+    if (version != BinaryEncodingVersion.V0) {
       throw new IllegalStateException("Unknown binary encoding version: " + version);
     }
     final byte flags = source.readByte();

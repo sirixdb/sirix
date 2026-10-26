@@ -96,7 +96,7 @@ final class SmallOverflowLz77Test {
     final int length = SirixLZ77Codec.encode(MemorySegment.ofArray(payload), 0L, payload.length, encoded, 0);
     try (BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer()) {
       sink.writeByte((byte) 9); // OverflowPage page-kind id.
-      sink.writeByte(BinaryEncodingVersion.V1.byteVersion());
+      sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
       sink.writeByte((byte) 1); // Compressed overflow payload flag.
       sink.writeInt(decodedLength);
       sink.writeInt(length);
