@@ -434,6 +434,10 @@ immutable answers with zero tail reads. Scalar revision loops are outside the ro
 The raw history is a positive control (at least 64 chunks); after independently folding summaries,
 lag 8/16/64 queries need at most seven chunks while the aggregate base remains at revision 1. This
 fixture runs for all four versioning types and clears caches before each folded lag.
+Automatic batch maintenance also starts from a caught-up revision 65 with no prior summary folds,
+folds a 64-publication backlog, then alternates base advancement and folding while publications
+continue. Cold queries retain the same seven-chunk bound and exact arithmetic results in all four
+versioning types without explicit summary folding.
 Mutation evidence (2026-10-15): disabling catch-up preserved both fixture answers but failed the
 served-route requirement at lag 1 for 256 and 4,096 source rows. The fallback read two/eight
 projection BODY segments instead of zero. The source was restored before full validation.

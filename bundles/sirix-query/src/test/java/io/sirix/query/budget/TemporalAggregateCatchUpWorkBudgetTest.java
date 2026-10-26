@@ -10,6 +10,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.budget.EngineWorkCounters;
@@ -19,6 +20,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.io.StorageType;
@@ -45,6 +47,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
@@ -198,6 +201,85 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void automaticMaintenanceBoundsOutstandingSummariesDuringContinuingPublications(final VersioningType versioning)
+      throws Exception {
+    final var path = directory.toPath().resolve("tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+    }
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+        JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
+      build(session, 256, 20, false, 0);
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
+      doNothing().when(borrowed).close();
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        for (int publication = 1; publication <= 64; publication++) {
+          publishChanges(writer, 20, false, publication);
+          assertTrue(resource.maintainNextBatch());
+          assertEquals(publication + 1, resource.maintainedRevision());
+        }
+        try (StorageEngineReader source = session.createStorageEngineReader();
+            StorageEngineReader derived = resource.openSummaryReader()) {
+          assertEquals(0, TemporalAggregateSummaryFolds.frontier(derived, source));
+        }
+        for (int publication = 65; publication <= 128; publication++) {
+          publishChanges(writer, 20, false, publication);
+        }
+        for (int batch = 1; batch <= 8; batch++) {
+          assertTrue(resource.maintainNextBatch());
+          assertEquals(65, resource.maintainedRevision(), "Fold the outstanding tail before advancing its base");
+          try (StorageEngineReader source = session.createStorageEngineReader();
+              StorageEngineReader derived = resource.openSummaryReader()) {
+            assertEquals(65 + 8 * batch, TemporalAggregateSummaryFolds.frontier(derived, source),
+                "Automatic folds must skip already maintained history");
+          }
+        }
+        for (int cycle = 0; cycle <= 8; cycle++) {
+          if (cycle > 0) {
+            final int previousBase = resource.maintainedRevision();
+            assertTrue(resource.maintainNextBatch());
+            assertEquals(previousBase + 8, resource.maintainedRevision());
+            for (int publication = 121 + 8 * cycle; publication <= 128 + 8 * cycle; publication++) {
+              publishChanges(writer, 20, false, publication);
+            }
+            assertTrue(resource.maintainNextBatch());
+            assertEquals(previousBase + 8, resource.maintainedRevision(), "New publications receive a summary fold");
+          }
+          assertEquals(64, resource.lag());
+          Databases.clearGlobalCaches();
+          ProjectionIndexCatalog.clearCache();
+          ProjectionIndexRegistry.clear();
+          try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+              var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
+            final Query query = new Query(chain, query(session.getMostRecentRevisionNumber()));
+            final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+                EngineWorkCounters.PROJECTION_BODY_SEGMENTS, QueryWorkCounters.GROUP_AGGREGATES)
+                                           .call(() -> run(query, context));
+            assertEquals(expected(256, 128 + 8 * cycle), capture.result());
+            capture.work()
+                   .assertExactly(SERVED, 1, "Automatic maintenance must retain the aggregate route")
+                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "No fallback during continued publication")
+                   .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns")
+                   .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, 1, 7,
+                       "Automatic folding must retain the seven-chunk bound as both frontiers advance");
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void largeRepeatedPublicationFitsTheOriginalTwoChunkBudget(final VersioningType versioning) throws Exception {
     final var path = directory.toPath().resolve("tail");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
@@ -330,24 +412,29 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
       writer.commit();
       resource.drain();
       for (int lag = 1; lag <= maximumLag; lag++) {
-        writer.moveToDocumentRoot();
-        writer.moveToFirstChild();
-        writer.moveToFirstChild();
-        for (int row = 0; row < changed; row++) {
-          final long record = writer.getNodeKey();
-          writer.moveToFirstChild();
-          writer.moveToRightSibling();
-          writer.moveToFirstChild();
-          writer.setNumberValue((repeated
-              ? 7
-              : row) + 100L * lag);
-          writer.moveTo(record);
-          writer.moveToRightSibling();
-        }
-        writer.commit();
+        publishChanges(writer, changed, repeated, lag);
       }
       assertEquals(1, resource.maintainedRevision());
     }
+  }
+
+  private static void publishChanges(final JsonNodeTrx writer, final int changed, final boolean repeated,
+      final int publication) {
+    writer.moveToDocumentRoot();
+    writer.moveToFirstChild();
+    writer.moveToFirstChild();
+    for (int row = 0; row < changed; row++) {
+      final long record = writer.getNodeKey();
+      writer.moveToFirstChild();
+      writer.moveToRightSibling();
+      writer.moveToFirstChild();
+      writer.setNumberValue((repeated
+          ? 7
+          : row) + 100L * publication);
+      writer.moveTo(record);
+      writer.moveToRightSibling();
+    }
+    writer.commit();
   }
 
   private static String query(final int revision) {

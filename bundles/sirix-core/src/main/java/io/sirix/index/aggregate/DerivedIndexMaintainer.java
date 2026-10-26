@@ -180,7 +180,6 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private int lastFoldRevision;
     private boolean truncatePending;
     private boolean foldRequired;
-    private boolean summariesNext = true;
     private final Int2ObjectOpenHashMap<TreeSet<byte[]>> pendingFolds = new Int2ObjectOpenHashMap<>();
 
     private Resource(final JsonResourceSession source, final JsonResourceSession derived) {
@@ -364,7 +363,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private boolean foldSummaries() {
       try (StorageEngineReader sourceReader = source.createStorageEngineReader();
           StorageEngineReader derivedReader = derived.createStorageEngineReader()) {
-        final int frontier = TemporalAggregateSummaryFolds.frontier(derivedReader, sourceReader);
+        final int frontier = Math.max(maintained, TemporalAggregateSummaryFolds.frontier(derivedReader, sourceReader));
         if (frontier >= sourceReader.getRevisionNumber()) {
           return false;
         }
@@ -485,16 +484,9 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (truncatePending) {
         rewindToFrontier();
       }
-      // A normal aggregate batch already bounds a tail of eight publications. Do not decode
-      // and persist a second representation of that same work on every small source commit.
-      // Larger backlogs alternate summary folding and base advancement so neither can starve.
-      if (!manual && summariesNext && source.getMostRecentRevisionNumber() - maintained > 8) {
-        summariesNext = false;
-        if (foldSummaries()) {
-          return true;
-        }
+      if (source.getMostRecentRevisionNumber() - maintained > 8 && foldSummaries()) {
+        return true;
       }
-      summariesNext = true;
       if (maintained >= source.getMostRecentRevisionNumber()) {
         return fold();
       }

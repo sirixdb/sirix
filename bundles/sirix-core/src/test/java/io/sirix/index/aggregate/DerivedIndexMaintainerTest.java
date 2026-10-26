@@ -1162,7 +1162,10 @@ final class DerivedIndexMaintainerTest {
         while (resource.maintainedRevision() < 180) {
           assertTrue(resource.maintainNextBatch());
           assertNull(resource.failure());
-          assertSum(session, resource.maintainedRevision(), resource.maintainedRevision());
+          final int maintained = resource.maintainedRevision();
+          assertSum(session, maintained, maintained == 1
+              ? 10
+              : maintained);
         }
         resource.drain();
         assertSum(session, 180, 180);

@@ -436,13 +436,6 @@ public final class TemporalAggregateIndexes {
     return combine(source, maintained, definition, projection, budget, null, accumulator);
   }
 
-  public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
-      final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget,
-      final @Nullable StorageEngineReader folded) {
-    return combine(source, maintained, definition, projection, budget, folded,
-        new CatchUpAccumulator(source, maintained, definition));
-  }
-
   private static CatchUp combine(final StorageEngineReader source, final int maintained, final IndexDef definition,
       final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget,
       final @Nullable StorageEngineReader folded, final CatchUpAccumulator accumulator) {
