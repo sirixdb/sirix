@@ -484,9 +484,6 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (truncatePending) {
         rewindToFrontier();
       }
-      if (source.getMostRecentRevisionNumber() - maintained > 8 && foldSummaries()) {
-        return true;
-      }
       if (maintained >= source.getMostRecentRevisionNumber()) {
         return fold();
       }
@@ -498,7 +495,12 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (writer == null) {
         writer = derived.beginNodeTrx();
       }
-      return applyBatch(manual, maxRevisions);
+      final boolean advanced = applyBatch(manual, maxRevisions);
+      if (source.getMostRecentRevisionNumber() - maintained > 8) {
+        foldSummaries();
+        foldSummaries();
+      }
+      return advanced;
     }
 
     private void poison(final Throwable exception) {

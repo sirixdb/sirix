@@ -235,25 +235,27 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
         for (int publication = 65; publication <= 128; publication++) {
           publishChanges(writer, 20, false, publication);
         }
-        for (int batch = 1; batch <= 8; batch++) {
+        int published = 128;
+        for (int batch = 1; batch <= 7; batch++) {
+          for (int offset = 0; offset < 8; offset++) {
+            publishChanges(writer, 20, false, ++published);
+          }
           assertTrue(resource.maintainNextBatch());
-          assertEquals(65, resource.maintainedRevision(), "Fold the outstanding tail before advancing its base");
+          assertEquals(65 + 8 * batch, resource.maintainedRevision(), "Each call must advance the base");
           try (StorageEngineReader source = session.createStorageEngineReader();
               StorageEngineReader derived = resource.openSummaryReader()) {
-            assertEquals(65 + 8 * batch, TemporalAggregateSummaryFolds.frontier(derived, source),
-                "Automatic folds must skip already maintained history");
+            assertEquals(73 + 16 * batch, TemporalAggregateSummaryFolds.frontier(derived, source),
+                "Automatic folds must get ahead of the advanced base without folding old history");
           }
         }
         for (int cycle = 0; cycle <= 8; cycle++) {
           if (cycle > 0) {
+            for (int offset = 0; offset < 8; offset++) {
+              publishChanges(writer, 20, false, ++published);
+            }
             final int previousBase = resource.maintainedRevision();
             assertTrue(resource.maintainNextBatch());
             assertEquals(previousBase + 8, resource.maintainedRevision());
-            for (int publication = 121 + 8 * cycle; publication <= 128 + 8 * cycle; publication++) {
-              publishChanges(writer, 20, false, publication);
-            }
-            assertTrue(resource.maintainNextBatch());
-            assertEquals(previousBase + 8, resource.maintainedRevision(), "New publications receive a summary fold");
           }
           assertEquals(64, resource.lag());
           Databases.clearGlobalCaches();
@@ -265,7 +267,7 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
             final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
                 EngineWorkCounters.PROJECTION_BODY_SEGMENTS, QueryWorkCounters.GROUP_AGGREGATES)
                                            .call(() -> run(query, context));
-            assertEquals(expected(256, 128 + 8 * cycle), capture.result());
+            assertEquals(expected(256, published), capture.result());
             capture.work()
                    .assertExactly(SERVED, 1, "Automatic maintenance must retain the aggregate route")
                    .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "No fallback during continued publication")

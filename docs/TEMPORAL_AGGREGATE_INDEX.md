@@ -160,12 +160,12 @@ in the same transaction being read after the operands are replaced. Empty revisi
 headers. Historical raw slabs without summary coverage decline safely.
 The packed operand layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
-For backlogs larger than eight source publications, the maintainer prioritizes batches of at most
-eight publications of summary folding, starting after the greater of the aggregate base and the
-validated fold frontier. Once folding reaches the latest source publication, ordinary aggregate
-maintenance advances the base; continuing publications receive folding priority again. Smaller
-backlogs advance the aggregate base directly; an up-to-date base does not trigger redundant summary
-publications.
+Each maintenance call advances the aggregate base by at most eight source publications. If the
+remaining backlog exceeds eight publications, the same call also performs up to two summary-fold
+batches of at most eight publications each, starting after the greater of the advanced aggregate
+base and the validated fold frontier. Folding can therefore get ahead of base advancement while
+both make bounded progress under continuing publications. Smaller backlogs advance the base
+directly; an up-to-date base does not trigger redundant summary publications.
 Two adjacent, equally sized ranges combine into a binary range;
 children remain available for historical queries. Fold data, the fold frontier and the unchanged
 aggregate-base mapping publish in one derived commit. Every range carries its source publication

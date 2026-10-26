@@ -1175,6 +1175,65 @@ final class DerivedIndexMaintainerTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void publicationsBeforeEveryMaintenanceCallCannotStarveTheBase(final VersioningType versioning) throws Exception {
+    for (final int initialBase : new int[] {0, 65}) {
+      final var path = directory.toPath().resolve("progress-" + initialBase);
+      Databases.createJsonDatabase(new DatabaseConfiguration(path));
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+        database.createResource(ResourceConfiguration.newBuilder("records")
+                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                     .versioningApproach(versioning)
+                                                     .validTimePaths("lo", "hi")
+                                                     .storeDiffs(false)
+                                                     .build());
+        try (JsonResourceSession session = database.beginResourceSession("records");
+            JsonNodeTrx writer = session.beginNodeTrx()) {
+          declareSimple(session, writer);
+          final DerivedIndexMaintainer.Resource resource = state(session);
+          resource.pause();
+          writer.commit();
+          if (initialBase != 0) {
+            resource.drain();
+          }
+          for (int revision = 2; revision <= 129; revision++) {
+            setNumber(writer, revision);
+            writer.commit();
+            if (revision <= initialBase) {
+              assertTrue(resource.maintainNextBatch());
+            }
+          }
+          while (resource.foldNextSummaryBatch()) {
+            assertEquals(initialBase, resource.maintainedRevision());
+          }
+          try (StorageEngineReader source = session.createStorageEngineReader();
+              StorageEngineReader derived = resource.openSummaryReader()) {
+            assertEquals(129, TemporalAggregateSummaryFolds.frontier(derived, source));
+          }
+          for (int revision = 130; revision <= 153; revision++) {
+            setNumber(writer, revision);
+            writer.commit();
+            final int previousBase = resource.maintainedRevision();
+            assertTrue(resource.maintainNextBatch());
+            final int expectedBase = previousBase == 0
+                ? 1
+                : Math.min(previousBase + 8, revision);
+            assertEquals(expectedBase, resource.maintainedRevision());
+            assertTrue(resource.awaitRevision(previousBase + 1, Duration.ZERO),
+                "A publication before each maintenance call must not prevent durable base progress");
+            assertSum(session, expectedBase, expectedBase == 1
+                ? 10
+                : expectedBase);
+            assertNull(resource.failure());
+          }
+          assertTrue(resource.awaitRevision(66, Duration.ZERO));
+          assertTrue(resource.awaitRevision(153, Duration.ZERO));
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits(final VersioningType versioning) {
     final var path = directory.toPath().resolve("small-publications");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
